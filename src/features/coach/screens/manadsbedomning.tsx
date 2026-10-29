@@ -61,7 +61,30 @@ function Manad({ caseId, month }: { caseId: string; month?: string }) {
   const title = month ? `Månadsbedömning ${monthName(month)}` : "Månadsbedömning";
   if (!v) return <PageState title={title} error={q.error} onRetry={() => void q.refetch()} />;
   if (v.kind === "gate") return <GateView gate={v.gate} title="Månadsbedömning" listPath="/manadsbedomning" />;
+  if (v.notNeeded) return <NotNeeded v={v} n={v.notNeeded} />;
   return <ManadForm key={`${caseId}|${v.month}`} v={v} />;
+}
+
+/**
+ * Månaden behöver ingen månadsbedömning (för få inskrivna dagar – samma regel som rapportjobbet och sparningen): talen i stället
+ * för formuläret, så att inget sparas automatiskt och inget AI-utkast läggs för en månad som inte får någon månadsrapport.
+ */
+function NotNeeded({ v, n }: { v: Ok; n: NonNullable<Ok["notNeeded"]> }) {
+  useCaseView(v.head.caseId);
+  return (
+    <Page title={`Månadsbedömning ${monthName(v.month)}`} eyebrow={`${v.head.name} · ${v.head.caseNumber}`} crumbs={caseCrumbs(v.head, `Månadsbedömning ${monShort(v.month)}`)}>
+      <Notice tone="info" title={`Ingen månadsbedömning för ${monthName(v.month)}`}>
+        Insatsen har {plural(n.enrolledDays, "inskriven dag", "inskrivna dagar")} i {monShort(v.month)}. Månadsbedömning och månadsrapport görs för en månad med minst{" "}
+        {n.minDays} inskrivna dagar. Dagarna kommer med i veckorapporterna och i slutrapporten.
+      </Notice>
+      <Row>
+        <ToCaseButton caseId={v.head.caseId} kind="primary" />
+        <Button kind="secondary" to="/min-vecka">
+          Till Min vecka
+        </Button>
+      </Row>
+    </Page>
+  );
 }
 
 /** Efter godkännandet: nästa deltagare att bedöma, i samma ordning som Min vecka (coach.minVecka finns oftast redan i cachen). */

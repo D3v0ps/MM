@@ -15,7 +15,7 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { aiRunRow } from "@/features/_shared/ai-port";
 import { loadPrefill } from "@/features/_shared/monthly-prefill";
-import { monthlyDraftInput, runVoiceJob } from "@/features/_shared/voice-jobs";
+import { aiRunError, monthlyDraftInput, runVoiceJob } from "@/features/_shared/voice-jobs";
 import { assessmentPage, assessmentSave } from "@/features/coach/api";
 import { inboxList, inboxStart } from "@/features/inkorg/api";
 import { initialPick } from "@/features/inkorg/screens/inkorg";
@@ -645,7 +645,8 @@ describe("granskningen runda 2 (2026-10-29): fakturaunderlaget, coachens utkast,
     const autosave = { caseId: JAN7, month: "2027-01", autosave: true, editSession: "abcdefabcdef12", summary: "Coachen skriver vidare i den öppna fliken.", plan: { goal1: "Mål" } };
     const res = await cmd(assessmentSave.key, { ...autosave, expectedVersion: ma.version }, leila());
     expect(res).toMatchObject({ ok: false, error: "not_needed" });
-    expect(res.message).toMatch(/^Januari 2027 har för få inskrivna dagar för en månadsbedömning/);
+    // Ärendet har ett ändrat startdatum: texten säger det (fliken öppnades före ändringen).
+    expect(res.message).toBe("Startdatumet har ändrats, och januari 2027 har nu för få inskrivna dagar för en månadsbedömning. Månaden får ingen månadsrapport. Ladda om sidan – inget har sparats.");
     // En ny sida (expectedVersion 0) skapar inte heller någon rad för januari.
     expect(await cmd(assessmentSave.key, { ...autosave, expectedVersion: 0 }, leila())).toMatchObject({ ok: false, error: "not_needed" });
     expect(janAssessments()).toEqual([]);
@@ -669,7 +670,12 @@ describe("granskningen runda 2 (2026-10-29): fakturaunderlaget, coachens utkast,
       run: { provider: ai!.provider, model: ai!.model, latencyMs: 0, tokensIn: null, tokensOut: null, audioSeconds: null, costOre: 0 },
     }));
     expect(await change(later, leila())).toMatchObject({ ok: true, droppedMonths: ["2027-01"] });
-    await expect(runVoiceJob(sys, "draft_monthly", { aiRunId: "ai-auto-jan7", caseId: JAN7, month: "2027-01" })).rejects.toMatchObject({ name: "VoiceJobError", code: "not_found" });
+    // Jobbet är klart utan AI-anrop och utan fel i jobbkön: körningen får orsaken not_needed i klartext – inte "Underlaget för
+    // AI-körningen finns inte längre".
+    await expect(runVoiceJob(sys, "draft_monthly", { aiRunId: "ai-auto-jan7", caseId: JAN7, month: "2027-01" })).resolves.toBe("not_needed");
+    expect(raw().get("ai_runs", "ai-auto-jan7")).toMatchObject({ status: "failed", output: { error: "not_needed" }, costOre: 0 });
+    expect(aiRunError(raw().get("ai_runs", "ai-auto-jan7"))?.text).toBe("Månaden har för få inskrivna dagar för en månadsbedömning och får ingen månadsrapport. Inget AI-utkast har gjorts.");
+    expect(raw().all("audit_log").filter((l) => l.entityId === "ai-auto-jan7").map((l) => [l.action, l.details.code])).toEqual([["ai.run_failed", "not_needed"]]);
     expect(janAssessments()).toEqual([]);
   });
 

@@ -8,7 +8,7 @@ import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
 import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
 import { needsAssessment } from "@/core/report-schedule";
-import { addDays, dayOf, isoWeek, monthKey, monthName, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
+import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
 import { TRACKS } from "@/data/seed/constants";
@@ -16,7 +16,7 @@ import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDr
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
 import { blankArea, newAssessment, newCheckIn, newIntake, newPlan } from "../_shared/rows";
-import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill, refreshPrefillAfterAttendance } from "../_shared/monthly-prefill";
+import { assessmentNotNeededText, loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill, refreshPrefillAfterAttendance } from "../_shared/monthly-prefill";
 import { approvalCounts, keptPrefill, levelSourceOf, missingAreas, nextLevelSource, withAutoAreas } from "@/core/monthly-prefill";
 import {
   aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, NOT_REVIEWED_TEXT, resultVerify,
@@ -49,9 +49,6 @@ const AUTOSAVE_APPROVE = "Automatisk sparning kan inte godkänna. Godkänn med k
 const CONFLICT = "Utkastet har ändrats i en annan flik eller på en annan enhet. Ladda om sidan för att se den senaste versionen – inget har skrivits över.";
 const CHECK_IN_APPROVED = "Mötesrapporten är redan godkänd och ändras inte. Gör ett nytt möte om något behöver rättas.";
 const ASSESSMENT_APPROVED = "Bedömningen är redan godkänd och ändras inte. En godkänd bedömning ändras genom en rättad rapportversion.";
-/** Månaden behöver ingen månadsbedömning (för få inskrivna dagar – t.ex. efter ett ändrat startdatum). */
-const assessmentNotNeeded = (month: string) =>
-  `${monthName(month).replace(/^./, (x) => x.toUpperCase())} har för få inskrivna dagar för en månadsbedömning, till exempel efter ett ändrat startdatum. Ladda om sidan – inget har sparats.`;
 type AutosaveParams = { autosave?: boolean; editSession?: string };
 /**
  * Versionskontrollen (0022, två flikar): expectedVersion är versionen skärmen senast såg eller sparade. Stämmer den inte
@@ -383,9 +380,10 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (existing && existing.status === "approved") return fail("approved", ASSESSMENT_APPROVED);
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
   if (!existing) {
-    // En bedömning skapas bara för en månad som behöver den (samma regel som rapportjobbet, needsAssessment) – en månad som blev
-    // utan månadsrapport när startdatumet ändrades (Karims beslut 2026-10-29) får ingen ny rad från en öppen flik.
-    if (!needsAssessment(c, p.month, cfg.reportSchedule?.monthly?.minEnrolledDays)) return fail("not_needed", assessmentNotNeeded(p.month));
+    // En bedömning skapas bara för en månad som behöver den (samma regel som rapportjobbet, needsAssessment). Deltagarkortet och
+    // sidan ber aldrig om en sådan bedömning ("Ingen månadsrapport") – här stoppas en flik som öppnades innan startdatumet
+    // ändrades och månaden blev utan månadsrapport (Karims beslut 2026-10-29).
+    if (!needsAssessment(c, p.month, cfg.reportSchedule?.monthly?.minEnrolledDays)) return fail("not_needed", await assessmentNotNeededText(ctx.repo, c.id, p.month, "save"));
     // Raden som skärmen såg (expectedVersion 1 eller mer) finns inte längre: skapas inte på nytt av en autosparning.
     if ((p.expectedVersion ?? 0) > 0) return fail("conflict", CONFLICT);
   }

@@ -251,7 +251,7 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och rättar det som inte stämmer.
 
-1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**.
+1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden (till exempel startmånaden när insatsen startade sent i månaden). Då behövs ingen månadsbedömning – dagarna kommer med i veckorapporterna och i slutrapporten.
 2. Varje progressionsområde står på progressionsnivå 0 med märket **Automatiskt – inget belägg**, tills du väljer något annat. **Samlad status** kommer från din senaste godkända mötesrapport. Sammanfattningen och planen är ifyllda och märkta **Ifyllt automatiskt – kontrollera** tills du ändrar dem.
 3. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 4. AI kan föreslå progressionsnivå 1–3, men bara med ett citat ur underlaget. Tryck på **Godta** vid ett förslag, eller **Godta alla AI-förslag**. Ett förslag gäller först när du godtar det.

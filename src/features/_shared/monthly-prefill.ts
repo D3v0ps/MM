@@ -9,8 +9,22 @@ import { attendanceStats } from "@/core/attendance";
 import { isOperational, requireOperational, type OperationalConfig } from "@/core/config";
 import type { Ctx } from "@/api/server";
 import { prefillAssessment, previousMonth, refreshPrefill, type PlanFields, type Prefill } from "@/core/monthly-prefill";
-import { dayOf, monthEnd, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
+import { dayOf, monthEnd, monthKey, monthName, type LocalDateTime, type MonthKey } from "@/core/time";
 import type { AppRepo, Case, MonthlyAssessment, MonthlyPlan } from "@/data/schema";
+
+/**
+ * Texten när en månadsbedömning inte skapas för månaden (needsAssessment i src/core/report-schedule.ts – för få inskrivna dagar):
+ * coachens sparning (coach.assessmentSave) och AI-utkastet (coach.monthlyDraft) svarar not_needed med den. Skärmarna ber aldrig
+ * om en sådan bedömning – texten når bara en flik som öppnades innan startdatumet ändrades, och då sägs det. Läser via ctx.repo.
+ */
+export async function assessmentNotNeededText(repo: AppRepo, caseId: string, month: MonthKey, what: "save" | "ai"): Promise<string> {
+  const changed = !!(await repo.table("case_start_changes").first({ caseId }));
+  const name = monthName(month);
+  const head = changed
+    ? `Startdatumet har ändrats, och ${name} har nu för få inskrivna dagar för en månadsbedömning.`
+    : `${name.charAt(0).toUpperCase()}${name.slice(1)} har för få inskrivna dagar för en månadsbedömning.`;
+  return what === "save" ? `${head} Månaden får ingen månadsrapport. Ladda om sidan – inget har sparats.` : `${head} Månaden får ingen månadsrapport, och inget AI-utkast har gjorts.`;
+}
 
 /** Förifyllnaden för ärendet och månaden ur godkända uppgifter (utan AI – AI-utkastet läggs in av jobbet efteråt). */
 export async function loadPrefill(repo: AppRepo, c: Pick<Case, "id">, month: MonthKey, cfg: Pick<OperationalConfig, "progression">, now: LocalDateTime): Promise<Prefill> {

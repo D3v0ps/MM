@@ -97,7 +97,7 @@ Vem: alla som arbetar i ärendet.
 
 Vem: huvudcoachen.
 
-1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Den är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
+1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden, och då behövs ingen månadsbedömning. Bedömningen är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
 2. Underlaget är godkända mötesrapporter, närvaro och händelser. Har deltagaren registrerat samtycke till AI kan AI skriva ett utkast och föreslå progressionsnivå 1–3 – bara med ett citat ur underlaget. Utkastet kan också bygga på månadens anteckningar, utan personnummer och med källan utskriven. Nivå, taggar och gruppmål skickas aldrig till AI.
 3. Gå igenom varje område. Tryck på **Godta** för de AI-förslag som stämmer och välj själv där det inte stämmer. Skriv en konkret observation.
 4. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**.

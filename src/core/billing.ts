@@ -18,14 +18,17 @@
 //   (status credited – täcker inga veckor).
 // Byt yrkesområde (Karims beslut 2026-10-22, 0036): priset och områdeskoden på en rad är yrkesområdet som gäller för månaden
 // (areaForMonth i ./area-changes.ts) – det gamla till och med bytesmånaden, det nya från och med månaden efter.
-import type { BillingRun, BillingWeekApproval, Case, Contract, Db, InvoiceDisplayStatus, InvoiceDraft, InvoiceLine, InvoiceStatus, PriceItem, UserId } from "@/data/schema";
-import type { OperationalConfig } from "./config";
+import type { Activity, BillingRun, BillingWeekApproval, Case, Contract, Db, InvoiceDisplayStatus, InvoiceDraft, InvoiceLine, InvoiceStatus, PriceItem, UserId } from "@/data/schema";
+import { WEEK_PLAN_KINDS, type OperationalConfig } from "./config";
 import { areaChangesByCase, areaForMonth } from "./area-changes";
 import { priceFor, priceItem } from "./cases";
 import { activitiesOf, attendanceFor, groupedBy } from "./db-index";
 import type { DomainEnv } from "./env";
 import { plural } from "./format";
-import { addDays, addMonths, dayOf, diffDays, fmtWeekKey, isoWeek, monday, monthKey, weekMonday, weekMonthKey, type LocalDate, type LocalDateTime, type MonthKey, type WeekKey } from "./time";
+import {
+  addDays, addMonths, dayOf, diffDays, fmtWeekKey, isoWeek, isWorkingDay, monday, monthKey, weekday, weekMonday, weekMonthKey, type LocalDate, type LocalDateTime, type MonthKey,
+  type WeekKey,
+} from "./time";
 import { by, sum } from "./util";
 import { buyerRefError, poNumberError, poNumberValid } from "./validation";
 
@@ -73,8 +76,10 @@ export function billableWeeks(c: Case, db: Pick<Db, "activities" | "attendance">
     const partial = diffDays(firstDay, lastDay) < 6;
     // En hel vecka som är slut utan ett enda tillfälle (t.ex. veckorna före ett startdatum som flyttats bakåt – inga tillfällen
     // skapas bakåt, Karims beslut 2026-10-29) är debiterbar utan närvaro: samma kontroll som när inget tillfälle hade närvaro.
-    // Innevarande vecka (tillfällena har inte varit än) och en delvis start- eller slutvecka utan tillfällen räknas inte.
-    const noSessions = weekActs.length === 0 && !partial && next <= today;
+    // Innevarande vecka (tillfällena har inte varit än) och en delvis start- eller slutvecka utan tillfällen räknas inte, och inte
+    // heller en vecka där alla veckoplanens dagar är helgdagar (en plan med bara torsdag har inget tillfälle julveckan –
+    // planActivities hoppar över helgdagar): den är debiterbar utan kontroll, som förut.
+    const noSessions = weekActs.length === 0 && !partial && next <= today && planCouldMeet(acts, mon);
     out.push({
       key: w.key, week: w.week, year: w.year, monday: mon, monthKey: weekMonthKey(mon), paused, partial,
       enrolledDays: diffDays(firstDay, lastDay) + 1, planned: weekActs.length, attended, registered,
@@ -82,6 +87,29 @@ export function billableWeeks(c: Case, db: Pick<Db, "activities" | "attendance">
     });
   }
   return out;
+}
+
+/**
+ * Hade veckoplanen gett något tillfälle veckan som börjar `mon`? Planens veckodagar läses ur ärendets egna tillfällen av
+ * veckoplanens typer (inte gruppaktiviteter): närmaste vecka efter som har några, annars närmaste vecka före. Sant när någon av
+ * dagarna är en arbetsdag den veckan – och när ärendet inte har några sådana tillfällen alls (då finns ingen plan att gå efter).
+ */
+export function planCouldMeet(acts: readonly Pick<Activity, "kind" | "startsAt" | "groupActivityId">[], mon: LocalDate): boolean {
+  const plan = acts.filter((a) => !a.groupActivityId && (WEEK_PLAN_KINDS as readonly string[]).includes(a.kind));
+  const next = addDays(mon, 7);
+  let after: LocalDate | null = null;
+  let before: LocalDate | null = null;
+  for (const a of plan) {
+    const d = dayOf(a.startsAt);
+    if (d >= next && (!after || d < after)) after = d;
+    if (d < mon && (!before || d > before)) before = d;
+  }
+  const near = after ?? before;
+  if (!near) return true;
+  const ref = monday(near);
+  const end = addDays(ref, 7);
+  const days = new Set(plan.filter((a) => dayOf(a.startsAt) >= ref && dayOf(a.startsAt) < end).map((a) => weekday(a.startsAt)));
+  return [...days].some((d) => isWorkingDay(addDays(mon, d)));
 }
 
 // ---------------------------------------------------------------- Fakturastatus

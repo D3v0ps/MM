@@ -7,8 +7,11 @@
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
+import { isOperational } from "@/core/config";
+import { needsAssessment } from "@/core/report-schedule";
 import { addDays } from "@/core/time";
 import { recordingBlock, RECORDING_BLOCK_TEXT } from "../_shared/ai-port";
+import { assessmentNotNeededText } from "../_shared/monthly-prefill";
 import { aiRunError, enqueueVoiceJob, RAW_TRANSCRIPT_DAYS, type CheckInAiOutput } from "../_shared/voice-jobs";
 import { canEditCase } from "../_shared/context";
 import { confirmOwnUpload } from "../_shared/voice-upload";
@@ -77,6 +80,13 @@ handleCommand(monthlyDraft, { roles: ["coach"] }, async (ctx, p) => {
   }
   const ma = await ctx.repo.table("monthly_assessments").first({ caseId: c.id, month: p.month });
   if (ma?.status === "approved") return fail("approved", "Månadsbedömningen är redan godkänd.");
+  // En månad som inte behöver någon månadsbedömning (för få inskrivna dagar – samma regel som coachens sparning och jobbet,
+  // needsAssessment) får inget AI-utkast: ingen AI-körning och inget jobb läggs, och jobbet skulle ändå inte skapa någon rad.
+  if (!ma) {
+    const contract = await ctx.repo.table("contracts").get(c.contractId);
+    const min = contract && isOperational(contract.config) ? contract.config.reportSchedule?.monthly?.minEnrolledDays : undefined;
+    if (!needsAssessment(c, p.month, min)) return fail("not_needed", await assessmentNotNeededText(ctx.repo, c.id, p.month, "ai"));
+  }
   const r = await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: c.id, month: p.month });
   return ok({ aiRunId: r.aiRunId, status: r.status, error: r.error?.text ?? null });
 });

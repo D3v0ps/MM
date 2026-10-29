@@ -972,11 +972,20 @@ export type CaseMonthBasis = {
   beforeStart: boolean;
   /** Progression över tid: områdena (obligatoriska + valfria som någon gång bedömts) × månader med godkänd bedömning. */
   matrix: { months: MonthKey[]; rows: { key: string; label: string; optional: boolean; levels: (number | null)[] }[]; scale: Record<string, string> };
-  /** Förra månaden saknar bedömning (pågående ärende som startade före månadens slut). */
+  /**
+   * Förra månaden saknar bedömning (pågående ärende där förra månaden behöver en månadsbedömning – minst avtalets
+   * reportSchedule.monthly.minEnrolledDays inskrivna dagar, samma regel som rapportjobbet och coachens sparning).
+   */
   missingMonth: MonthKey | null;
-  /** Det som saknas (null när månaden är levererad eller före start). */
+  /**
+   * Den valda månaden får ingen månadsrapport och ingen månadsbedömning (färre inskrivna dagar än avtalets gräns, needsAssessment)
+   * och har ingen rapportrad: talen visas i stället för underlaget (gaps och doc är null). assessment = en bedömning finns ändå
+   * (sparad innan regeln gällde på kortet) – coachen kan öppna den. null = månaden behöver en rapport, är levererad eller före start.
+   */
+  noReport: { enrolledDays: number; minDays: number; assessment: boolean } | null;
+  /** Det som saknas (null när månaden är levererad, före start eller utan månadsrapport). */
   gaps: MonthlyGaps | null;
-  /** Samma dokument som månadsrapporten (monthlyPreview) – null när månaden är levererad eller före start. */
+  /** Samma dokument som månadsrapporten (monthlyPreview) – null när månaden är levererad, före start eller utan månadsrapport. */
   doc: Extract<ReportDocView, { kind: "monthly" }> | null;
   /** Den levererade versionen, och en rättelse som är ett utkast. */
   delivered: { reportId: string; deliveredAt: LocalDateTime; version: number; correctionDraft: number | null } | null;

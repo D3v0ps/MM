@@ -23,11 +23,12 @@ import { plural } from "@/core/format";
 import {
   areaName, attLabel, contactLabel, END_REASONS, participantContactLabel, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
 } from "@/core/labels";
+import { monthReportNeed } from "@/core/report-schedule";
 import { defaultWeekPlan, normalizePlan, planActivities, planFromActivities, type PlannedActivity, type WeekPlanRow } from "@/core/schedule";
 import { scopeToContract } from "@/core/scope";
 import { avropDue, finalReportDueAt, firstMeetingDays, firstMeetingDue, isProvisionalDue, slaStatus, type SlaTone } from "@/core/sla";
 import {
-  addDays, addMonths, addWorkingDays, billableWeekCount, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, isoWeek, monday, monthEnd, monthKey, monthName,
+  addDays, addMonths, addWorkingDays, billableWeekCount, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, isoWeek, monday, monthKey, monthName,
   WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
@@ -51,7 +52,7 @@ import { docBase, monthlyDocView } from "../rapporter/doc-view";
 import { freezeReport } from "../rapporter/freeze";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
 import { deliveredOk } from "../rapporter/report-helpers";
-import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
+import { buildTimeline, monthReportState } from "./timeline";
 import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
 import "./start-handlers";
@@ -1334,7 +1335,12 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   const months: CaseMonthOption[] = [];
   if (startM) for (let mk = topM; mk >= startM; mk = addMonths(mk, -1)) months.push({ month: mk, current: mk === current && c.status !== "closed", delivered: !!deliveredOf(mk) });
   const lastMonth = addMonths(current, -1);
-  const fallback = enrolledIn(c, lastMonth) ? lastMonth : startM && current > topM ? topM : current;
+  // Samma regel som rapportjobbet, coachens sparning och AI-utkastet (needsAssessment): en månad med färre inskrivna dagar än
+  // avtalets gräns (reportSchedule.monthly.minEnrolledDays, Botkyrka 11) får ingen månadsrapport och ingen månadsbedömning –
+  // fliken ber aldrig om en sådan bedömning och väljer inte en sådan förra månad som standard.
+  const minDays = cfg.reportSchedule?.monthly?.minEnrolledDays;
+  const lastNeeded = monthReportNeed(c, lastMonth, minDays).needed;
+  const fallback = lastNeeded ? lastMonth : startM && current > topM ? topM : current;
   const month = p.manad && (months.some((m) => m.month === p.manad) || (startM != null && p.manad < startM) || !startM) ? p.manad : fallback;
   const beforeStart = !startM || month < startM;
 
@@ -1353,9 +1359,14 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   const del = beforeStart ? null : st.delivered;
   const pending = del ? st.correction : null;
   const row = st.latest;
+  // Ingen månadsrapport för månaden (och ingen rapportrad): i stället för underlaget och "Gör månadsbedömningen" visas talen.
+  const need = monthReportNeed(c, month, minDays);
+  const noReport: CaseMonthBasis["noReport"] = !beforeStart && !del && !row && !need.needed
+    ? { enrolledDays: need.enrolledDays, minDays: need.minDays, assessment: !!assessmentFor(db, c.id, month) }
+    : null;
   let gaps: CaseMonthBasis["gaps"] = null;
   let doc: CaseMonthBasis["doc"] = null;
-  if (!beforeStart && !del) {
+  if (!beforeStart && !del && !noReport) {
     const [customer, supplier] = [db.organizations.find((o) => o.id === contract.customerId), db.organizations.find((o) => o.id === contract.supplierId)];
     const renv: ReportEnv = { cfg, contract: { id: contract.id, startsOn: contract.startsOn, supplierName: supplier?.name ?? "" }, now, activityTypes: ACTIVITY_TYPES };
     const rdb: ReportDb & Pick<Db, "case_notes"> = {
@@ -1373,8 +1384,8 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   }
   return {
     months, month, beforeStart, matrix,
-    missingMonth: c.status === "active" && c.startDate && c.startDate <= monthEnd(lastMonth) && !assessmentFor(db, c.id, lastMonth) ? lastMonth : null,
-    gaps, doc,
+    missingMonth: c.status === "active" && lastNeeded && !assessmentFor(db, c.id, lastMonth) ? lastMonth : null,
+    noReport, gaps, doc,
     delivered: del ? { reportId: del.id, deliveredAt: del.deliveredAt as string, version: del.version || 1, correctionDraft: pending ? pending.version : null } : null,
     reportId: row?.id ?? null,
     canAssess: role === "coach",

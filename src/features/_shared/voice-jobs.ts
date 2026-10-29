@@ -77,7 +77,7 @@ const RUN_KIND: Partial<Record<VoiceJobKind, AiRunKind>> = {
 // ---------------------------------------------------------------- Fel (fasta texter, inga personuppgifter)
 export const VOICE_JOB_ERRORS = [
   "not_found", "audio_missing", "blocked_disabled", "blocked_protected", "blocked_no_consent", "language", "invalid_response", "provider_blocked",
-  "provider_unavailable", "provider_config", "audio_too_large", "audio_unsupported", "audio_expired", "unexpected", "ai_off",
+  "provider_unavailable", "provider_config", "audio_too_large", "audio_unsupported", "audio_expired", "unexpected", "ai_off", "not_needed",
 ] as const;
 export type VoiceJobErrorCode = (typeof VOICE_JOB_ERRORS)[number];
 /** Texten till användaren (och jobs.last_error). */
@@ -98,6 +98,8 @@ export const VOICE_JOB_ERROR_TEXT: Record<VoiceJobErrorCode, string> = {
   unexpected: "Något gick fel i AI-körningen. Fyll i formuläret själv eller försök igen.",
   // AI av (produktion utan leverantör, beslut 2026-10-08).
   ai_off: AI_OFF_TEXT,
+  // Månadsutkastet för en månad som inte behöver någon månadsbedömning (needsAssessment) – t.ex. efter ett ändrat startdatum.
+  not_needed: "Månaden har för få inskrivna dagar för en månadsbedömning och får ingen månadsrapport. Inget AI-utkast har gjorts.",
 };
 const BLOCK_CODE: Record<RecordingBlock, VoiceJobErrorCode> = { ai_off: "ai_off", disabled: "blocked_disabled", protected: "blocked_protected", no_consent: "blocked_no_consent" };
 
@@ -595,10 +597,15 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   if (!aiAllowed(cc.c, cc.person)) throw new VoiceJobError("blocked_no_consent");
   if (!cc.config || !isOperational(cc.config)) throw new VoiceJobError("not_found");
   const cfg = requireOperational(cc.config);
-  // En månad som inte behöver någon månadsbedömning (för få inskrivna dagar – t.ex. efter ett ändrat startdatum, Karims beslut
-  // 2026-10-29) får ingen ny rad: finns ingen bedömning görs inga AI-anrop, och raden skapas inte av utkastet nedan.
+  // En månad som inte behöver någon månadsbedömning (för få inskrivna dagar – t.ex. ett utkast som låg i kön när startdatumet
+  // ändrades, Karims beslut 2026-10-29) får ingen ny rad: finns ingen bedömning görs inga AI-anrop. Inget fel i jobbet (det är
+  // klart, inget nytt försök) – körningen får orsaken not_needed i klartext i stället för "Underlaget … finns inte längre".
+  // coach.monthlyDraft lägger aldrig ett sådant jobb.
   const needed = needsAssessment(cc.c, p.month, cfg.reportSchedule?.monthly?.minEnrolledDays);
-  if (!needed && !(await ctx.system.table("monthly_assessments").first({ caseId: cc.c.id, month: p.month }))) throw new VoiceJobError("not_found");
+  if (!needed && !(await ctx.system.table("monthly_assessments").first({ caseId: cc.c.id, month: p.month }))) {
+    await failVoiceJob(ctx, "draft_monthly", p, new VoiceJobError("not_needed"));
+    return "not_needed";
+  }
   const input = await monthlyDraftInput(ctx, cc.c.id, p.month);
   const ai = requireAi(ctx);
   // Alla anrop som skickades, också de som misslyckades (felets run) – kostnaden i körningen (ai_runs) även när jobbet ger upp.
