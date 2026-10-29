@@ -128,9 +128,16 @@ export function newAttachmentRow(id: string, meta: AttachmentUploadMeta, mimeTyp
   };
 }
 
-/** Ändringen när en fil raderas. */
+/** Namnet på en raderad fil (raden står kvar som spår). Ryms i kolumnens 1–200 tecken (0024). */
+export const DELETED_FILE_NAME = "Borttagen fil";
+
+/**
+ * Ändringen när en fil raderas – oavsett orsak (borttagen, avvisad, städningen). Raden står kvar som spår (vem, när, slag, typ,
+ * filtyp, storlek och orsak), men filnamnet byts ut: det har ofta deltagarens namn (ett CV, ibland med födelsedatum, kanske
+ * uppladdat på fel deltagare) och behövs inte när filen är borta (granskningen 2026-10-29, runda 2).
+ */
 export const deletedPatch = (now: LocalDateTime, reason: AttachmentDeleteReason, by?: string | null): Partial<CaseAttachment> => ({
-  status: "deleted", deletedAt: now, deleteReason: reason, ...(reason === "removed" ? { removedAt: now, removedBy: by ?? null } : {}),
+  status: "deleted", deletedAt: now, deleteReason: reason, fileName: DELETED_FILE_NAME, ...(reason === "removed" ? { removedAt: now, removedBy: by ?? null } : {}),
 });
 
 // ---------------------------------------------------------------- Minnesläget

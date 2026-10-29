@@ -106,8 +106,9 @@ const DETAIL_KEY: Record<string, string> = {
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
   day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
-  // Filer på deltagarkortet (Karims beslut 2026-10-29): slag och typ – aldrig filnamnet.
-  fileKind: "Slag av fil", fileCategory: "Typ av fil",
+  // Filer på deltagarkortet (Karims beslut 2026-10-29): bara slaget – aldrig filnamnet eller vilken typ av fil det är (loggens
+  // läsare, chef och admin, ser inte filerna – samma som Historik på deltagarkortet).
+  fileKind: "Slag av fil",
   // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
   rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
   // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
@@ -151,7 +152,6 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare" },
   weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
   fileKind: { order: "bilaga till beställningen", participant: "fil på deltagarkortet" },
-  fileCategory: { cv: "CV", personligt_brev: "personligt brev", betyg_intyg: "betyg och intyg", ovrigt: "övrigt" },
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",

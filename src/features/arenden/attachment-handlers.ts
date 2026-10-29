@@ -121,10 +121,11 @@ handleCommand(attachmentDownload, { roles: ["kommun_handlaggare", "samordnare", 
   const a = await ctx.repo.table("case_attachments").get(p.attachmentId);
   if (!a || a.status !== "uploaded") return fail("not_found", NOT_FOUND);
   if (a.kind === "participant" && !PARTICIPANT_FILE_ROLES.includes(ctx.actor.role)) return fail("not_found", NOT_FOUND);
-  // Loggen först: misslyckas den lämnas ingen adress ut. Inget filnamn i loggen – bara id:n, slag och typ.
+  // Loggen först: misslyckas den lämnas ingen adress ut. Bara id:n och slaget – aldrig filnamnet eller deltagarfilens typ (loggen
+  // läses av chef och admin, som inte ser filerna; typen står kvar på raden).
   await ctx.audit({
     action: "attachment.viewed", entity: "case_attachment", entityId: a.id, contractId: a.contractId,
-    details: { attachmentId: a.id, caseId: a.caseId, ...(a.kind === "participant" ? { fileKind: "participant", fileCategory: a.category } : {}) },
+    details: { attachmentId: a.id, caseId: a.caseId, ...(a.kind === "participant" ? { fileKind: "participant" } : {}) },
   });
   const d = await requireAttachments(ctx).signedDownload(a.id);
   if (!d) return fail("not_found", NOT_FOUND);

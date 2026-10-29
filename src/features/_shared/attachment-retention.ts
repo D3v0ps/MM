@@ -17,8 +17,8 @@
 //      filen inte finns – en sådan fil fångas här (granskningen 2026-10-07). Lagringen listas FÖRE raderna läses: en fil som
 //      finns vid listningen har alltid sin rad (raden skrivs innan uppladdningsadressen skapas), så en uppladdning som pågår
 //      samtidigt raderas aldrig.
-// Varje radering loggas (attachment.deleted: id, ärende och orsak – för en deltagarfil också slag och typ, som i hanterarna –
-// aldrig filnamnet). Bara det som städningen själv raderade loggas (porten svarar false om någon annan hann före). Systemsteg:
+// Varje radering loggas (attachment.deleted: id, ärende och orsak – för en deltagarfil också slaget, som i hanterarna –
+// aldrig filnamnet eller deltagarfilens typ). Den raderade raden behåller inte heller filnamnet (deletedPatch). Bara det som städningen själv raderade loggas (porten svarar false om någon annan hann före). Systemsteg:
 // ctx.system (service role).
 import { SYSTEM_ACTOR } from "@/api/roles";
 import type { Ctx } from "@/api/server";
@@ -53,7 +53,7 @@ export async function runAttachmentRetention(ctx: Ctx): Promise<AttachmentRetent
   const log = async (a: CaseAttachment, caseId: string | null, reason: "unlinked_24h" | "unconfirmed_24h") =>
     ctx.audit({
       action: "attachment.deleted", entity: "case_attachment", entityId: a.id, contractId: a.contractId,
-      details: { caseId, reason, ...(a.kind === "participant" ? { fileKind: "participant", fileCategory: a.category } : {}) },
+      details: { caseId, reason, ...(a.kind === "participant" ? { fileKind: "participant" } : {}) },
     });
 
   // Mejlets bilagor som väntar på registrering för hand behålls (se 1 ovan) – övriga okopplade raderas efter 24 timmar.

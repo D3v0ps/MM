@@ -9,7 +9,7 @@ import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { AppRepo, Tables } from "@/data/schema";
 import type { Ctx } from "@/api/server";
-import { ATTACHMENT_MAX_BYTES } from "@/features/_shared/attachment-port";
+import { ATTACHMENT_MAX_BYTES, DELETED_FILE_NAME } from "@/features/_shared/attachment-port";
 import { runAttachmentRetention } from "@/features/_shared/attachment-retention";
 import { AttachmentStorageError, createStorageAttachments, emptyAttachmentBucket, supabaseAttachmentStorage, type AttachmentBucketLike, type AttachmentStorage } from "./storage";
 
@@ -80,10 +80,10 @@ describe("createStorageAttachments", () => {
     t.files.set("c-bot/att-2.pdf", new TextEncoder().encode("<html>x</html>"));
     expect(await t.port.confirm(b.attachmentId)).toBeNull();
     expect(t.removed).toEqual(["c-bot/att-2.pdf"]);
-    expect(t.store.getRow("case_attachments", "att-2")).toMatchObject({ status: "deleted", deleteReason: "invalid" });
+    expect(t.store.getRow("case_attachments", "att-2")).toMatchObject({ status: "deleted", deleteReason: "invalid", fileName: DELETED_FILE_NAME });
   });
 
-  it("signedDownload: en adress som gäller i 60 sekunder, utan filnamn; remove raderar filen och behåller spåret", async () => {
+  it("signedDownload: en adress som gäller i 60 sekunder, utan filnamn; remove raderar filen och behåller spåret – utan filnamnet", async () => {
     const t = setup();
     const a = await t.port.createUpload(META);
     t.files.set("c-bot/att-1.pdf", PDF);
@@ -96,7 +96,8 @@ describe("createStorageAttachments", () => {
     expect(d!.url).not.toMatch(/download|Kartl/);
     expect(await t.port.remove(a.attachmentId, "removed", "u-sara")).toBe(true);
     expect(t.removed).toEqual(["c-bot/att-1.pdf"]);
-    expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-sara", deletedAt: DEMO_START });
+    expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-sara", deletedAt: DEMO_START, fileName: DELETED_FILE_NAME });
+    expect(JSON.stringify(t.store.getRow("case_attachments", "att-1"))).not.toMatch(/Kartl|Samira/);
     expect(await t.port.signedDownload(a.attachmentId)).toBeNull();
     // Idempotent: en andra radering gör inget – och svarar false (inget att logga).
     expect(await t.port.remove(a.attachmentId, "retention")).toBe(false);

@@ -11,7 +11,9 @@
 //   Lagring: porten (ctx.attachments, service role) – samma bucket, filtyper, storlek och filsignatur som bilagorna.
 //   Hämta:   arenden.bilagaHamta (attachment-handlers.ts) – signerad adress i 60 sekunder, loggas attachment.viewed.
 //   Ta bort: villkorat (porten raderar raden bara om den inte redan är raderad) – två samtidiga borttagningar ger en logg.
-//   Logg:    id:n, slag (fileKind), typ (fileCategory), filtyp och storlek – aldrig filnamnet (CLAUDE.md punkt 2).
+//   Logg:    id:n, slag (fileKind), filtyp och storlek – aldrig filnamnet (CLAUDE.md punkt 2) och aldrig vilken typ av fil det
+//            är (CV, betyg …): revisionsloggen läses bara av chef och admin, som inte ser filerna (granskningen runda 2). Typen
+//            står kvar på raden i case_attachments.
 import { fail, ok } from "@/api/contract";
 import { ApiError, handleCommand, type Ctx } from "@/api/server";
 import { caseAccessIn } from "@/core/access";
@@ -96,7 +98,7 @@ handleCommand(participantFileStart, { roles: PARTICIPANT_FILE_ROLES }, async (ct
     const row = await ctx.system.table("case_attachments").get(t.attachmentId);
     await ctx.audit({
       action: "attachment.upload_started", entity: "case_attachment", entityId: t.attachmentId, contractId: c.contractId,
-      details: { caseId: c.id, fileKind: "participant", fileCategory: p.category, mimeType: row?.mimeType ?? null, bytes: p.bytes },
+      details: { caseId: c.id, fileKind: "participant", mimeType: row?.mimeType ?? null, bytes: p.bytes },
     });
     return ok({ attachmentId: t.attachmentId, uploadUrl: t.uploadUrl, token: t.token, maxBytes: t.maxBytes });
   } catch (e) {
@@ -119,7 +121,7 @@ handleCommand(participantFileDone, { roles: PARTICIPANT_FILE_ROLES }, async (ctx
       return fail("invalid", "Filen kunde inte läsas. Försök igen.");
     }
   }
-  const details = { caseId: a.caseId, fileKind: "participant", fileCategory: a.category };
+  const details = { caseId: a.caseId, fileKind: "participant" };
   const done = await requireAttachments(ctx).confirm(a.id, content);
   if (!done) {
     await ctx.audit({ action: "attachment.rejected", entity: "case_attachment", entityId: a.id, contractId: a.contractId, details: { ...details, mimeType: a.mimeType } });
@@ -139,6 +141,6 @@ handleCommand(participantFileRemove, { roles: PARTICIPANT_FILE_ROLES }, async (c
   if (!full) return fail("forbidden", "Du kan inte ta bort den här filen.");
   // Villkorat: bara det anrop som faktiskt raderade raden loggar (två samtidiga borttagningar – den andra får "finns inte").
   if (!(await requireAttachments(ctx).remove(a.id, "removed", ctx.actor.userId))) return fail("not_found", FILE_NOT_FOUND);
-  await ctx.audit({ action: "attachment.removed", entity: "case_attachment", entityId: a.id, contractId: a.contractId, details: { caseId: a.caseId, fileKind: "participant", fileCategory: a.category } });
+  await ctx.audit({ action: "attachment.removed", entity: "case_attachment", entityId: a.id, contractId: a.contractId, details: { caseId: a.caseId, fileKind: "participant" } });
   return ok({});
 });

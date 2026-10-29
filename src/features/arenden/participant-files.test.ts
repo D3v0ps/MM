@@ -20,7 +20,9 @@ import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
 import { SEED_PARTICIPANT_FILES } from "@/data/seed/decisions-2026-10-29";
 import type { AppRepo, CaseStatus, Tables } from "@/data/schema";
+import { DELETED_FILE_NAME } from "@/features/_shared/attachment-port";
 import { runAttachmentRetention } from "@/features/_shared/attachment-retention";
+import { adminAuditLog, type AuditLogView } from "@/features/admin/api";
 import * as kommunApi from "@/features/kommun/api";
 import {
   attachmentDone, attachmentDownload, attachmentRemove, attachmentStart, caseCard, caseHistory, caseOverview, participantFileDone, participantFileRemove, participantFileStart,
@@ -63,7 +65,7 @@ async function upload(actor: Actor, caseId = NADIA, category: "cv" | "personligt
 const files = async (actor: Actor, caseId = NADIA): Promise<CaseFiles | null> => ((await q<CaseOverview | null>(caseOverview.key, { caseId }, actor)) ?? null)?.files ?? null;
 
 describe("ladda upp", () => {
-  it("coachen laddar upp ett CV – filen hamnar under CV på deltagarkortet, och loggen har id, slag och typ men aldrig filnamnet", async () => {
+  it("coachen laddar upp ett CV – filen hamnar under CV på deltagarkortet, och loggen har id och slag men aldrig filnamnet eller typen", async () => {
     const before = (await files(amira()))!;
     expect(before.groups.map((g) => [g.label, g.files.length])).toEqual([["CV", 1], ["Personligt brev", 1], ["Betyg och intyg", 1], ["Övrigt", 0]]);
     const id = await upload(amira());
@@ -79,8 +81,8 @@ describe("ladda upp", () => {
     expect(after.help).toBe("PDF, Word eller bild, högst 10 MB. Filerna syns bara för Miljonbemanning – aldrig för kommunen.");
     const logs = rt.raw().all("audit_log").filter((l) => l.entityId === id);
     expect(logs.map((l) => [l.action, l.details])).toEqual([
-      ["attachment.upload_started", { caseId: NADIA, fileKind: "participant", fileCategory: "cv", mimeType: "application/pdf", bytes: PDF.byteLength }],
-      ["attachment.uploaded", { caseId: NADIA, fileKind: "participant", fileCategory: "cv", mimeType: "application/pdf", bytes: PDF.byteLength }],
+      ["attachment.upload_started", { caseId: NADIA, fileKind: "participant", mimeType: "application/pdf", bytes: PDF.byteLength }],
+      ["attachment.uploaded", { caseId: NADIA, fileKind: "participant", mimeType: "application/pdf", bytes: PDF.byteLength }],
     ]);
     expect(JSON.stringify(rt.raw().all("audit_log"))).not.toMatch(/Samira|Testsson|CV Samira/);
   });
@@ -123,7 +125,7 @@ describe("ladda upp", () => {
     if (!s.ok) throw new Error(s.error);
     expect(await run(participantFileDone, { attachmentId: s.attachmentId, contentBase64: bytesToBase64(new TextEncoder().encode("<html>x</html>")) }, amira())).toMatchObject({ ok: false, error: "invalid" });
     expect(rt.raw().get("case_attachments", s.attachmentId)).toMatchObject({ status: "deleted", deleteReason: "invalid" });
-    expect(rt.raw().all("audit_log").at(-1)).toMatchObject({ action: "attachment.rejected", entityId: s.attachmentId, details: { fileKind: "participant", fileCategory: "cv" } });
+    expect(rt.raw().all("audit_log").at(-1)).toMatchObject({ action: "attachment.rejected", entityId: s.attachmentId, details: { caseId: NADIA, fileKind: "participant", mimeType: "application/pdf" } });
     // Word (.doc i det gamla formatet, filsignaturen kontrolleras) och bild går bra.
     const DOC = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0, 0, 0]);
     const d = await run(participantFileStart, { caseId: NADIA, category: "personligt_brev", fileName: "brev.doc", mimeType: "application/msword", bytes: DOC.byteLength }, amira());
@@ -206,7 +208,7 @@ describe("hämta och ta bort", () => {
     }
     const views = rt.raw().all("audit_log").filter((l) => l.action === "attachment.viewed");
     expect(views.map((l) => l.actorId)).toEqual(["u-amira", "u-erik", "u-sara", "u-johan"]);
-    expect(views[0].details).toEqual({ attachmentId: id, caseId: NADIA, fileKind: "participant", fileCategory: "cv" });
+    expect(views[0].details).toEqual({ attachmentId: id, caseId: NADIA, fileKind: "participant" });
     expect(JSON.stringify(views)).not.toMatch(/Samira|Testsson/);
     // Testdatats filer saknar innehåll i minnet – prototypen ger en textfil som förklarar varför.
     expect(await run(attachmentDownload, { attachmentId: "att-seed-nadia-cv" }, amira())).toMatchObject({ ok: true, fileName: "CV truckförare januari 2027.pdf.txt" });
@@ -220,7 +222,7 @@ describe("hämta och ta bort", () => {
     expect(rt.attachments.stored()).toBe(0);
     expect((await files(amira()))!.groups.find((g) => g.category === "cv")!.files.map((f) => f.id)).toEqual(["att-seed-nadia-cv"]);
     expect(await run(attachmentDownload, { attachmentId: id }, amira())).toMatchObject({ ok: false, error: "not_found" });
-    expect(rt.raw().all("audit_log").filter((l) => l.action === "attachment.removed").pop()).toMatchObject({ entityId: id, details: { caseId: NADIA, fileKind: "participant", fileCategory: "cv" } });
+    expect(rt.raw().all("audit_log").filter((l) => l.action === "attachment.removed").pop()).toMatchObject({ entityId: id, details: { caseId: NADIA, fileKind: "participant" } });
     // Testdatats filer – samordnaren och avtalsansvarig.
     expect(await run(participantFileRemove, { attachmentId: "att-seed-nadia-brev" }, sara())).toEqual({ ok: true });
     expect(await run(participantFileRemove, { attachmentId: "att-seed-nadia-truck" }, johan())).toEqual({ ok: true });
@@ -355,7 +357,7 @@ describe("städningen (jobbet attachments_retention)", () => {
     rt.clock.set("2027-02-02T10:00");
     expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 1, orphans: 0 });
     expect(rt.raw().get("case_attachments", s.attachmentId)).toMatchObject({ status: "deleted", deleteReason: "invalid" });
-    expect(audits).toEqual([{ action: "attachment.deleted", details: { caseId: NADIA, reason: "unconfirmed_24h", fileKind: "participant", fileCategory: "cv" } }]);
+    expect(audits).toEqual([{ action: "attachment.deleted", details: { caseId: NADIA, reason: "unconfirmed_24h", fileKind: "participant" } }]);
     expect(JSON.stringify(audits)).not.toMatch(/Samira|Testsson/);
     // Den raderade raden räknas inte längre mot högsta antalet.
     expect(rt.raw().all("case_attachments").filter((x) => x.caseId === NADIA && x.kind === "participant" && x.status !== "deleted")).toHaveLength(3);
@@ -400,6 +402,40 @@ describe("Historik på deltagarkortet (granskningen 2026-10-29)", () => {
     }
   });
 
+  it("revisionsloggen (/admin/logg, chef och admin) säger samma sak som Historik: att något hände med en fil på deltagarkortet – aldrig vilken typ av fil det är eller dess namn (granskningen runda 2)", async () => {
+    const id = await upload(amira(), NADIA, "betyg_intyg");
+    expect((await run(attachmentDownload, { attachmentId: id }, amira())).ok).toBe(true);
+    expect(await run(participantFileRemove, { attachmentId: id }, amira())).toEqual({ ok: true });
+    // En avvisad fil (fel filsignatur) och en uppladdning som aldrig blev klar (städningen efter 24 timmar).
+    const bad = await run(participantFileStart, { caseId: NADIA, category: "personligt_brev", fileName: FILE_NAME, mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!bad.ok) throw new Error(bad.error);
+    expect(await run(participantFileDone, { attachmentId: bad.attachmentId, contentBase64: bytesToBase64(new TextEncoder().encode("<html>x</html>")) }, amira())).toMatchObject({ ok: false });
+    const s = await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: FILE_NAME, mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!s.ok) throw new Error(s.error);
+    rt.clock.set("2027-02-03T10:00");
+    expect(await runAttachmentRetention(sysCtx())).toMatchObject({ unconfirmed: 1 });
+
+    const ids = [id, bad.attachmentId, s.attachmentId];
+    const entries = rt.raw().all("audit_log").filter((l) => !!l.entityId && ids.includes(l.entityId));
+    expect(entries.map((l) => l.action).sort()).toEqual([
+      "attachment.deleted", "attachment.rejected", "attachment.removed", "attachment.upload_started", "attachment.upload_started", "attachment.upload_started",
+      "attachment.uploaded", "attachment.viewed",
+    ]);
+    // Loggen får id:n, slaget, filtypen, storleken och orsaken – aldrig typen av fil (den står kvar på raden i case_attachments,
+    // som chef och admin inte läser) och aldrig namnet. Loggens läsare är bara chef och admin, som inte ser filerna.
+    const allowed = ["attachmentId", "caseId", "fileKind", "mimeType", "bytes", "reason"];
+    for (const l of entries) expect(Object.keys(l.details ?? {}).filter((k) => !allowed.includes(k)), l.action).toEqual([]);
+    expect(JSON.stringify(entries)).not.toMatch(/betyg_intyg|personligt_brev|"cv"|Samira|Testsson/);
+    for (const actor of [as("u-karin", "chef"), as("u-robin", "admin")]) {
+      const rows = (await q<AuditLogView>(adminAuditLog.key, {}, actor)).rows.filter((r) => !!r.entityId && ids.includes(r.entityId));
+      expect(rows, actor.role).toHaveLength(entries.length);
+      for (const r of rows) {
+        expect(r.detailText, `${actor.role} ${r.action}`).toMatch(/Slag av fil: fil på deltagarkortet/);
+        expect(r.detailText, `${actor.role} ${r.action}`).not.toMatch(/Typ av fil|\bCV\b|personligt brev|betyg|intyg|övrigt|Samira|Testsson/i);
+      }
+    }
+  });
+
   it("beställningens bilagor har också svenska texter i Historik", async () => {
     rt.store.updateRow("cases", NADIA, { status: "closed", endDate: "2027-02-01", closedAt: "2027-02-01T10:00" });
     const s = await run(attachmentStart, { caseId: NADIA, fileName: "kartlaggning.pdf", mimeType: "application/pdf", bytes: PDF.byteLength }, sara());
@@ -409,5 +445,55 @@ describe("Historik på deltagarkortet (granskningen 2026-10-29)", () => {
     const texts = (await history(as("u-karin", "chef"))).map((l) => l.text);
     expect(texts).toEqual(expect.arrayContaining(["Började ladda upp en bilaga", "Laddade upp en bilaga", "Tog bort en bilaga"]));
     expect(texts.filter((t) => t.startsWith("attachment."))).toEqual([]);
+  });
+});
+
+describe("en borttagen fil behåller inte sitt namn (granskningen runda 2)", () => {
+  // Filnamnet på ett CV har ofta deltagarens namn (ibland födelsedatum) – och en fil som tagits bort kan ha hamnat på fel deltagare.
+  // Raden finns kvar som spår (vem, när, slag, typ, filtyp, storlek och orsak), men namnet behövs inte längre och byts ut direkt.
+  const sysCtx = (): Ctx => ({
+    actor: SYSTEM_ACTOR, now: () => rt.clock.now(), repo: new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo,
+    system: new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo, newId: (p) => `${p}-n`,
+    audit: async () => undefined, notify: async () => undefined, crypto: TEST_PNR_CRYPTO, attachments: rt.attachments,
+  });
+  const gone = (id: string, name: string) => {
+    const row = rt.raw().get("case_attachments", id)!;
+    expect(row, id).toMatchObject({ status: "deleted", fileName: DELETED_FILE_NAME });
+    expect(JSON.stringify(row), id).not.toContain(name);
+    return row;
+  };
+
+  it("deltagarfiler: borttagen (t.ex. på fel deltagare), avvisad och aldrig klar – spåret finns kvar utan namnet", async () => {
+    const wrong = await upload(sara(), NADIA, "cv", "CV Annan Person 19900101.pdf");
+    expect(await run(participantFileRemove, { attachmentId: wrong }, sara())).toEqual({ ok: true });
+    expect(gone(wrong, "Annan Person")).toMatchObject({ kind: "participant", category: "cv", deleteReason: "removed", removedBy: "u-sara", uploadedBy: "u-sara", mimeType: "application/pdf", bytes: PDF.byteLength });
+
+    const bad = await run(participantFileStart, { caseId: NADIA, category: "betyg_intyg", fileName: "Betyg Annan Person.pdf", mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!bad.ok) throw new Error(bad.error);
+    expect(await run(participantFileDone, { attachmentId: bad.attachmentId, contentBase64: bytesToBase64(new TextEncoder().encode("<html>x</html>")) }, amira())).toMatchObject({ ok: false });
+    expect(gone(bad.attachmentId, "Annan Person")).toMatchObject({ deleteReason: "invalid", category: "betyg_intyg" });
+
+    const pending = await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "CV Annan Person avbruten.pdf", mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!pending.ok) throw new Error(pending.error);
+    rt.clock.set("2027-02-03T10:00");
+    expect(await runAttachmentRetention(sysCtx())).toMatchObject({ unconfirmed: 1 });
+    gone(pending.attachmentId, "Annan Person");
+    // Kortet visar fortfarande bara de levande filerna.
+    expect(JSON.stringify(await files(amira()))).not.toMatch(/Annan Person|Borttagen fil/);
+  });
+
+  it("beställningens bilagor: handläggarens borttagna uppladdning och en som aldrig skickades (24 timmar)", async () => {
+    const s = await run(attachmentStart, { caseId: null, fileName: "Kartläggning Annan Person.pdf", mimeType: "application/pdf", bytes: PDF.byteLength }, maria());
+    if (!s.ok) throw new Error(s.error);
+    expect(await run(attachmentDone, { attachmentId: s.attachmentId, contentBase64: bytesToBase64(PDF) }, maria())).toMatchObject({ ok: true });
+    expect(await run(attachmentRemove, { attachmentId: s.attachmentId }, maria())).toEqual({ ok: true });
+    expect(gone(s.attachmentId, "Annan Person")).toMatchObject({ kind: "order", deleteReason: "removed", removedBy: "k-maria" });
+
+    const t = await run(attachmentStart, { caseId: null, fileName: "Kartläggning Annan Person aldrig skickad.pdf", mimeType: "application/pdf", bytes: PDF.byteLength }, maria());
+    if (!t.ok) throw new Error(t.error);
+    expect(await run(attachmentDone, { attachmentId: t.attachmentId, contentBase64: bytesToBase64(PDF) }, maria())).toMatchObject({ ok: true });
+    rt.clock.set("2027-02-03T10:00");
+    expect(await runAttachmentRetention(sysCtx())).toMatchObject({ unlinked: 1 });
+    expect(gone(t.attachmentId, "Annan Person")).toMatchObject({ deleteReason: "unlinked_24h" });
   });
 });
