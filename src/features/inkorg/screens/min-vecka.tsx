@@ -312,7 +312,7 @@ function Week({ v }: { v: StartView }) {
                 {v.tasks.map((t) => (
                   <div key={t.id} className="flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0">
                     <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                      <TitleLink to={t.emailId ? `/inkorg/${encodeURIComponent(t.emailId)}` : t.caseId ? `/inkorg?arende=${encodeURIComponent(t.caseId)}` : null}>{t.text}</TitleLink>
+                      <TitleLink to={t.href}>{t.text}</TitleLink>
                       <span className="text-small text-text-muted">{t.sub}</span>
                       <div>
                         <Button

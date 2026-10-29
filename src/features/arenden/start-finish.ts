@@ -9,22 +9,26 @@
 //      gruppaktiviteter som bjöds in för hand loggas på aktiviteten; kommande rader som målgruppen bjöd in tar synkningen i
 //      steg f bort (med aktivitetens vanliga meddelande till deltagaren – tid och plats).
 //   b. en månad som med det nya startdatumet får för få inskrivna dagar för en månadsrapport (startChangeDroppedMonths) blir utan
-//      månadsrapport och månadsbedömning: utkasten (rapporten, bedömningen och planen) tas bort av servern – rapportjobbet
-//      skapade dem. En lämnad eller godkänd rapport och en godkänd bedömning stoppade ändringen i kontrollen.
+//      månadsrapport och månadsbedömning: systemets utkast tas bort av servern (startChangeDrafts – rapportjobbet och AI-utkastet
+//      skapade dem). En lämnad eller godkänd rapport, en godkänd bedömning och en bedömning som coachen sparat stoppade ändringen i
+//      kontrollen; en bedömning som coachen hann spara efter kontrollen ligger kvar (keptAssessmentIds). Planen för månaden är
+//      planen för nästa månad och ligger kvar när nästa månad får en rapport.
 //   c. månadsbedömningarnas förifyllda närvaro följer de borttagna tillfällena (refreshPrefillAfterAttendance).
-//   d. rapporter som redan är lämnade till kommunen för dagarna som ändringen rör: samordnaren får en uppgift att rätta dem
-//      (tasks, kind report_correction – ärendenumret och perioderna, aldrig namn).
+//   d. rapporter som redan är lämnade till kommunen och räknade med ett annat startdatum än det nya: samordnaren får en uppgift att
+//      rätta dem (tasks, kind report_correction – ärendenumret och perioderna, aldrig namn). Ärendets tidigare öppna uppgift stängs
+//      (den gällde ett annat startdatum) – flyttas starten tillbaka behövs ofta ingen rättelse alls.
 //   e. revisionsloggen case.start_date_changed (id:n och datum – aldrig motiveringen). Avbryts ett steg loggas det som hann göras
 //      ändå (failed, felkoden – samma mönster som den automatiska närvaron) och svaret har incomplete.
 //   f. inbjudningarna till kommande gruppaktiviteter med målgrupp (syncAudienceInvites).
 // En ändring är klar när den har en loggrad utan failed (startChangeLogged). Ärendets senaste ändring som inte är klar görs klar
 // av nästa ändring i ärendet (vem som helst som får ändra) och av rapportjobbet (finishStartChanges).
+import { SYSTEM_ACTOR } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import {
   activitiesBeforeStart, startChangeCorrections, startChangeDrafts, startChangeDroppedMonths, startChangeMinDays, startChangesInOrder, startCorrectionTaskText,
   type StartChangeCorrection, type StartChangeReports,
 } from "@/core/start-date";
-import { addMinutes, type LocalDateTime, type MonthKey } from "@/core/time";
+import { addMinutes, fmtDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { uniq } from "@/core/util";
 import { PolicyError } from "@/data/repo";
 import type { AppRepo, Case, CaseStartChange, Report, Task } from "@/data/schema";
@@ -43,20 +47,23 @@ export type Finished = {
   removed: number;
   autoAttendanceRemoved: number;
   groups: { invited: number; removed: number } | null;
-  /** Månaderna som blev utan månadsrapport och månadsbedömning (utkasten togs bort). */
+  /** Månaderna som blev utan månadsrapport och månadsbedömning. */
   droppedMonths: MonthKey[];
+  /** Månaderna där systemets utkast (rapport, bedömning eller plan) togs bort – en del av droppedMonths, eller inga. */
+  draftMonths: MonthKey[];
   /** Rapporter som redan är lämnade till kommunen och ska rättas (samordnaren har fått en uppgift). */
   corrections: number;
   /** Allt hann inte göras – resten görs klart av nästa ändring i ärendet eller rapportjobbet. */
   incomplete: boolean;
 };
 
-const REPORT_FIELDS = ["kind", "caseId", "recipientUserId", "week", "month", "status", "superseded"] as const satisfies readonly (keyof Report)[];
+const REPORT_FIELDS = ["kind", "caseId", "recipientUserId", "week", "month", "status", "superseded", "deliveredAt"] as const satisfies readonly (keyof Report)[];
 /**
  * Rapporternas läge: ärendets månadsrapporter, veckorapporterna till ärendets handläggare och ärendets månadsbedömningar – bara
- * id, typ, period och status (ingen text) – och avtalets minsta antal inskrivna dagar för en månadsrapport. ctx.system: kontrollen
- * ska svara likadant för coachen, samordnaren och avtalsansvarig (rapporternas läsrätt skiljer sig), och ingenting lämnas ut –
- * svaret säger bara vilken månad som stoppar och hur många rapporter som ska rättas.
+ * id, typ, period, status och när rapporten lämnades (ingen text) – avtalets minsta antal inskrivna dagar för en månadsrapport och
+ * vilka bedömningar (utkast) som coachen har sparat (assessment.saved i revisionsloggen – bara id:n). ctx.system: kontrollen ska
+ * svara likadant för coachen, samordnaren och avtalsansvarig (rapporternas och loggens läsrätt skiljer sig), och ingenting lämnas
+ * ut – svaret säger bara vilken månad som stoppar och hur många rapporter som ska rättas.
  */
 export async function reportsFor(ctx: Ctx, c: Case): Promise<StartChangeReports> {
   const s = ctx.system;
@@ -66,7 +73,14 @@ export async function reportsFor(ctx: Ctx, c: Case): Promise<StartChangeReports>
     s.table("monthly_assessments").pick(["caseId", "month", "status"], { caseId: c.id }),
     s.table("contracts").get(c.contractId),
   ]);
-  return { reports: [...monthly, ...weekly], assessments, minEnrolledDays: startChangeMinDays(contract?.config) };
+  const drafts = assessments.filter((a) => a.status !== "approved").map((a) => a.id);
+  const saved = drafts.length
+    ? (await s.table("audit_log").pick(["entityId"], { entity: "monthly_assessment", action: "assessment.saved", entityId: { in: drafts } })).map((l) => l.entityId)
+    : [];
+  return {
+    reports: [...monthly, ...weekly], assessments, minEnrolledDays: startChangeMinDays(contract?.config),
+    savedAssessmentIds: uniq(saved.filter((x): x is string => !!x)).sort(),
+  };
 }
 
 /** Revisionsloggens rader för ändringen (ctx.system – bara id:n och datum). */
@@ -100,10 +114,10 @@ export async function finishStartChange(ctx: Ctx, c: Case, change: CaseStartChan
   const autoRemoved: string[] = [];
   const kept: string[] = [];
   const removedStarts: LocalDateTime[] = [];
-  const drafts = { reportIds: [] as string[], assessmentIds: [] as string[], planIds: [] as string[] };
+  const drafts = { reportIds: [] as string[], assessmentIds: [] as string[], planIds: [] as string[], keptAssessmentIds: [] as string[], months: [] as MonthKey[] };
   let dropped: MonthKey[] = [];
   let corrections: StartChangeCorrection[] = [];
-  let taskId: string | null = null;
+  let task: { taskId: string | null; closedTaskIds: string[] } = { taskId: null, closedTaskIds: [] };
   let error: unknown = null;
   try {
     // a. Tillfällena före det nya startdatumet: de utan närvaro och de med bara automatisk närvaro tas bort. Ett tillfälle som fått
@@ -143,22 +157,31 @@ export async function finishStartChange(ctx: Ctx, c: Case, change: CaseStartChan
       });
       await supersedeTasks(ctx, [c], g, "Startdatumet är ändrat – deltagaren är inte med i aktiviteten.");
     }
-    // b. Månader som blir utan månadsrapport: utkasten till månadsrapport, månadsbedömning och plan tas bort (rapportjobbet skapade
-    //    dem – ctx.system). En lämnad eller godkänd rapport och en godkänd bedömning stoppade ändringen i kontrollen.
+    // b. Månader som blir utan månadsrapport: systemets utkast till månadsrapport, månadsbedömning och plan tas bort (rapportjobbet
+    //    skapade dem – ctx.system). En lämnad eller godkänd rapport, en godkänd bedömning och en bedömning som coachen sparat
+    //    stoppade ändringen i kontrollen; hann coachen spara efter kontrollen ligger bedömningen kvar (startChangeDrafts).
     const reports = await reportsFor(ctx, c);
     dropped = startChangeDroppedMonths(c, change.fromDate, change.toDate, reports.minEnrolledDays);
     if (dropped.length) {
       const plans = await ctx.system.table("monthly_plans").pick(["caseId", "month", "status"], { caseId: c.id, month: { in: dropped } });
-      const d = startChangeDrafts(c.id, dropped, { ...reports, plans });
+      const d = startChangeDrafts({ ...c, startDate: change.toDate }, change.toDate, dropped, { ...reports, plans });
+      drafts.keptAssessmentIds = d.keptAssessmentIds;
+      const monthOf = new Map<string, MonthKey>();
+      for (const r of reports.reports) if (r.month) monthOf.set(r.id, r.month);
+      for (const a of reports.assessments) monthOf.set(a.id, a.month);
+      for (const x of plans) monthOf.set(x.id, x.month);
       for (const id of d.reportIds) if (await removeIfThere(ctx.system, "reports", id)) drafts.reportIds.push(id);
       for (const id of d.assessmentIds) if (await removeIfThere(ctx.system, "monthly_assessments", id)) drafts.assessmentIds.push(id);
       for (const id of d.planIds) if (await removeIfThere(ctx.system, "monthly_plans", id)) drafts.planIds.push(id);
+      drafts.months = uniq([...drafts.reportIds, ...drafts.assessmentIds, ...drafts.planIds].map((id) => monthOf.get(id)).filter((m): m is MonthKey => !!m)).sort();
     }
     // c. Månadsbedömningarnas förifyllda närvaro följer de borttagna tillfällena (bästa försök – loggar själv, kastar aldrig).
     await refreshPrefillAfterAttendance(ctx, removedStarts.map((startsAt) => ({ caseId: c.id, contractId: c.contractId, startsAt })));
-    // d. Rapporter som redan är lämnade till kommunen för dagarna som ändringen rör: samordnaren får en uppgift att rätta dem.
-    corrections = startChangeCorrections(c, change.fromDate, change.toDate, reports.reports);
-    if (corrections.length) taskId = await correctionTask(ctx, c, change, corrections);
+    // d. Rapporter som redan är lämnade till kommunen och räknade med ett annat startdatum än det nya: samordnaren får en uppgift
+    //    att rätta dem, och ärendets tidigare öppna uppgift stängs.
+    const changes = await ctx.system.table("case_start_changes").list({ caseId: c.id });
+    corrections = startChangeCorrections(c, change.toDate, changes, reports.reports);
+    task = await correctionTask(ctx, c, change, corrections);
   } catch (e) {
     error = e;
   }
@@ -170,8 +193,14 @@ export async function finishStartChange(ctx: Ctx, c: Case, change: CaseStartChan
         caseId: c.id, changeId: change.id, noteId: change.noteId, seq: change.seq, from: change.fromDate, to: change.toDate,
         removedActivityIds: removed, removedAutoAttendanceIds: autoRemoved,
         ...(kept.length ? { keptActivityIds: uniq(kept) } : {}),
-        ...(dropped.length ? { droppedMonths: dropped, removedReportIds: drafts.reportIds, removedAssessmentIds: drafts.assessmentIds, removedPlanIds: drafts.planIds } : {}),
-        ...(corrections.length ? { correctionReportIds: corrections.map((x) => x.reportId), ...(taskId ? { taskId } : {}) } : {}),
+        ...(dropped.length
+          ? {
+            droppedMonths: dropped, draftMonths: drafts.months, removedReportIds: drafts.reportIds, removedAssessmentIds: drafts.assessmentIds, removedPlanIds: drafts.planIds,
+            ...(drafts.keptAssessmentIds.length ? { keptAssessmentIds: drafts.keptAssessmentIds } : {}),
+          }
+          : {}),
+        ...(corrections.length ? { correctionReportIds: corrections.map((x) => x.reportId), ...(task.taskId ? { taskId: task.taskId } : {}) } : {}),
+        ...(task.closedTaskIds.length ? { closedTaskIds: task.closedTaskIds } : {}),
         ...(ctx.actor.userId !== change.changedBy ? { finishedBy: ctx.actor.userId } : {}),
         ...(error ? { failed: true, error: errorCode(error) } : {}),
       },
@@ -181,7 +210,9 @@ export async function finishStartChange(ctx: Ctx, c: Case, change: CaseStartChan
   }
   if (error) {
     console.error("ändra startdatum: ändringen kunde inte göras klar", errorCode(error));
-    return { removed: removed.length, autoAttendanceRemoved: autoRemoved.length, groups: null, droppedMonths: dropped, corrections: corrections.length, incomplete: true };
+    return {
+      removed: removed.length, autoAttendanceRemoved: autoRemoved.length, groups: null, droppedMonths: dropped, draftMonths: drafts.months, corrections: corrections.length, incomplete: true,
+    };
   }
   // f. Inbjudningarna till kommande gruppaktiviteter med målgrupp följer det nya startdatumet (samma systemsteg som när insatsen
   //    startar). Ändringen är redan sparad och loggad: ett fel här loggas bara som feltyp och jobbet report_schedule stämmer av.
@@ -192,19 +223,32 @@ export async function finishStartChange(ctx: Ctx, c: Case, change: CaseStartChan
   } catch (e) {
     console.error("ändra startdatum: inbjudningarna kunde inte stämmas av", errorCode(e));
   }
-  return { removed: removed.length, autoAttendanceRemoved: autoRemoved.length, groups, droppedMonths: dropped, corrections: corrections.length, incomplete: false };
+  return { removed: removed.length, autoAttendanceRemoved: autoRemoved.length, groups, droppedMonths: dropped, draftMonths: drafts.months, corrections: corrections.length, incomplete: false };
 }
 
 /**
  * Uppgiften till samordnaren att rätta rapporterna som redan är lämnade till kommunen (tasks, kind report_correction): ärendenumret,
- * datumen och perioderna – aldrig namn. En öppen uppgift med samma text i ärendet skapas inte igen (en ändring som görs klar en
- * gång till). ctx.system: uppgiften går till en annan roll (samordnaren). Loggen: task.created med id:n.
+ * datumen och perioderna – aldrig namn. Ärendets andra öppna uppgifter av samma slag stängs automatiskt (de gällde ett tidigare
+ * startdatum – rapporterna som ska rättas räknas om från dagens startdatum, items). En öppen uppgift med samma text ligger kvar och
+ * skapas inte igen (en ändring som görs klar en gång till). Inga rapporter att rätta: ingen ny uppgift. ctx.system: uppgiften går
+ * till en annan roll (samordnaren). Loggen: task.created och task.done (automatiskt) med id:n.
  */
-async function correctionTask(ctx: Ctx, c: Case, change: CaseStartChange, items: readonly StartChangeCorrection[]): Promise<string> {
+async function correctionTask(ctx: Ctx, c: Case, change: CaseStartChange, items: readonly StartChangeCorrection[]): Promise<{ taskId: string | null; closedTaskIds: string[] }> {
   const t = ctx.system.table("tasks");
-  const text = startCorrectionTaskText(c.caseNumber, change.fromDate, change.toDate, items);
-  const same = (await t.list({ kind: "report_correction", status: "open" })).find((x) => x.caseIds.includes(c.id) && x.text === text);
-  if (same) return same.id;
+  const text = items.length ? startCorrectionTaskText(c.caseNumber, change.toDate, items) : null;
+  const open = (await t.list({ kind: "report_correction", status: "open" })).filter((x) => x.caseIds.includes(c.id));
+  const same = open.find((x) => x.text === text) ?? null;
+  const closedTaskIds: string[] = [];
+  const doneNote = items.length
+    ? `Startdatumet är ändrat igen, till ${fmtDate(change.toDate)}. En ny uppgift säger vilka rapporter som ska rättas.`
+    : `Startdatumet är ändrat igen, till ${fmtDate(change.toDate)}. Rapporterna som är lämnade till kommunen stämmer nu – inget behöver rättas.`;
+  for (const x of open.filter((o) => o.id !== same?.id)) {
+    await t.update(x.id, { status: "done", doneAt: ctx.now(), doneBy: SYSTEM_ACTOR.userId, doneNote });
+    await ctx.audit({ action: "task.done", entity: "task", entityId: x.id, contractId: c.contractId, details: { kind: "report_correction", caseId: c.id, changeId: change.id, auto: true, superseded: true } });
+    closedTaskIds.push(x.id);
+  }
+  if (!text) return { taskId: null, closedTaskIds };
+  if (same) return { taskId: same.id, closedTaskIds };
   const task: Task = {
     id: ctx.newId("task"), toRole: "samordnare", toId: null, fromId: ctx.actor.userId, createdAt: ctx.now(), status: "open", kind: "report_correction",
     caseIds: [c.id], text, deviationId: null, emailId: null, responseId: null, month: null, doneAt: null, doneBy: null, doneNote: null,
@@ -214,7 +258,7 @@ async function correctionTask(ctx: Ctx, c: Case, change: CaseStartChange, items:
     action: "task.created", entity: "task", entityId: task.id, contractId: c.contractId,
     details: { kind: "report_correction", caseId: c.id, changeId: change.id, reportIds: items.map((x) => x.reportId) },
   });
-  return task.id;
+  return { taskId: task.id, closedTaskIds };
 }
 
 /** Ändringar som jobbet gör klart: äldre än så här (minuter) – en ändring som pågår just nu hinner bli klar själv. */

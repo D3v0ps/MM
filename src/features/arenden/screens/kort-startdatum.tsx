@@ -70,20 +70,28 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const listSv = (xs: readonly string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}`);
 
 /**
- * Meningen efter ändringen: borttagna tillfällen, vad coachen gör vid en tidigare start, månader utan månadsrapport, rapporter att
- * rätta, inbjudningarna (deltagaren får aktivitetens vanliga meddelande) och om något återstår.
+ * Meningen efter ändringen: borttagna tillfällen, vad coachen gör vid en tidigare start, månader utan månadsrapport (och om deras
+ * utkast togs bort – bara när det fanns några), rapporter att rätta, inbjudningarna (deltagaren får aktivitetens vanliga meddelande)
+ * och om något återstår.
  */
 export function startChangedText(
-  res: { startDate: string; removed: number; groups: { invited: number; removed: number } | null; droppedMonths: readonly MonthKey[]; corrections: number; incomplete: boolean },
+  res: {
+    startDate: string; removed: number; groups: { invited: number; removed: number } | null; droppedMonths: readonly MonthKey[]; draftMonths: readonly MonthKey[];
+    corrections: number; incomplete: boolean;
+  },
   earlier: boolean,
 ): string {
-  const months = res.droppedMonths.map(monthName);
+  const withDrafts = res.droppedMonths.filter((m) => res.draftMonths.includes(m)).map(monthName);
+  const without = res.droppedMonths.filter((m) => !res.draftMonths.includes(m)).map(monthName);
   const g = res.groups;
   return [
     `Startdatumet är ändrat till ${fmtDate(res.startDate)}.`,
     res.removed ? `${plural(res.removed, "tillfälle", "tillfällen")} före det nya datumet togs bort.` : "",
     earlier ? "Inga tillfällen skapades bakåt – lägg till dem som hände och registrera närvaron under Närvaro." : "",
-    months.length ? `${cap(listSv(months))} har nu för få dagar för en månadsrapport. Utkasten till månadsrapport och månadsbedömning togs bort.` : "",
+    withDrafts.length
+      ? `${cap(listSv(withDrafts))} har nu för få dagar för en månadsrapport. Utkasten till månadsrapport och månadsbedömning för ${withDrafts.length === 1 ? "månaden" : "månaderna"} togs bort.`
+      : "",
+    without.length ? `${cap(listSv(without))} har nu för få dagar för en månadsrapport och får ingen månadsrapport eller månadsbedömning.` : "",
     res.corrections
       ? `${plural(res.corrections, "rapport", "rapporter")} är redan ${res.corrections === 1 ? "lämnad" : "lämnade"} till kommunen. Samordnaren har fått en uppgift att rätta ${res.corrections === 1 ? "den" : "dem"}.`
       : "",
@@ -201,7 +209,10 @@ function StartDateModal({ v, onClose }: { v: StartDialogData; onClose: () => voi
               automatiska närvaron tas bort med dem.
             </li>
             <li>Inga tillfällen skapas bakåt – lägg till dem som hände och registrera närvaron. Planerat slut ändras inte.</li>
-            <li>Får en månad för få dagar för en månadsrapport tas utkasten till månadsrapport och månadsbedömning bort.</li>
+            <li>
+              Får en månad för få dagar för en månadsrapport tas utkasten till månadsrapport och månadsbedömning bort. Har coachen sparat månadsbedömningen går det
+              inte – det coachen skrivit tas aldrig bort.
+            </li>
             <li>Är rapporter redan lämnade till kommunen får samordnaren en uppgift att rätta dem.</li>
             <li>
               Läggs deltagaren till i eller tas bort ur en kommande gruppaktivitet får deltagaren aktivitetens vanliga meddelande med tid och plats. Kommunen

@@ -13,10 +13,15 @@ import { MemoryStore, type MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
-import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
-import { assessmentPage } from "@/features/coach/api";
+import { aiRunRow } from "@/features/_shared/ai-port";
+import { loadPrefill } from "@/features/_shared/monthly-prefill";
+import { monthlyDraftInput, runVoiceJob } from "@/features/_shared/voice-jobs";
+import { assessmentPage, assessmentSave } from "@/features/coach/api";
+import { inboxList, inboxStart } from "@/features/inkorg/api";
+import { initialPick } from "@/features/inkorg/screens/inkorg";
 import { kommunCase } from "@/features/kommun/api";
 import { activityAdd, caseCard, caseChangeStart, caseHistory, caseNoteRemove, caseNoteSave, caseStart, caseStartView, caseTimeline } from "./api";
+import { startChangedText } from "./screens/kort-startdatum";
 import { finishStartChanges } from "./start-finish";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -393,7 +398,7 @@ describe("granskningen 2026-10-29: rapporter, mötesrapporter, avbrott, två fli
     expect(acts(JAN7).filter((a) => a.startsAt < "2027-02-01")).toHaveLength(11);
   });
 
-  it("en månad som blir utan månadsrapport: utkasten till rapport, bedömning och plan tas bort och loggas", async () => {
+  it("en månad som blir utan månadsrapport: systemets utkast till rapport och bedömning tas bort och loggas – planen för februari ligger kvar", async () => {
     makeAuto(JAN7);
     draftCheckIns(JAN7);
     const [rep] = monthlyOf(JAN7);
@@ -401,9 +406,10 @@ describe("granskningen 2026-10-29: rapporter, mötesrapporter, avbrott, två fli
     const [mp] = planOf(JAN7);
     expect([rep.status, ma.status, mp.status]).toEqual(["draft", "draft", "draft"]);
     const res = await change({ caseId: JAN7, startDate: "2027-02-01", expectedStartDate: "2027-01-07", motivation: WHY }, leila());
-    expect(res).toMatchObject({ ok: true, removed: 11, autoAttendanceRemoved: 11, droppedMonths: ["2027-01"], incomplete: false });
-    expect([monthlyOf(JAN7), assessmentOf(JAN7), planOf(JAN7)]).toEqual([[], [], []]);
-    expect(startLogs()[0].details).toMatchObject({ droppedMonths: ["2027-01"], removedReportIds: [rep.id], removedAssessmentIds: [ma.id], removedPlanIds: [mp.id] });
+    expect(res).toMatchObject({ ok: true, removed: 11, autoAttendanceRemoved: 11, droppedMonths: ["2027-01"], draftMonths: ["2027-01"], incomplete: false });
+    // Januaris plan är planen för februari, där deltagaren är inskriven – den ligger kvar som underlag till februaris bedömning.
+    expect([monthlyOf(JAN7), assessmentOf(JAN7), planOf(JAN7).map((x) => x.id)]).toEqual([[], [], [mp.id]]);
+    expect(startLogs()[0].details).toMatchObject({ droppedMonths: ["2027-01"], draftMonths: ["2027-01"], removedReportIds: [rep.id], removedAssessmentIds: [ma.id], removedPlanIds: [] });
     // Lindas veckorapporter för vecka 1–4 och januarirapporten var inte lämnade som rättelser – vecka 1–3 är lämnade: en uppgift.
     expect(res.ok && res.corrections).toBe(3);
   });
@@ -430,11 +436,11 @@ describe("granskningen 2026-10-29: rapporter, mötesrapporter, avbrott, två fli
     expect(assessmentOf(JAN7)[0].status).toBe("approved");
   });
 
-  it("BOT-27-0011 18 → 25 januari: januari får 7 inskrivna dagar (färre än 11) – utkasten tas bort", async () => {
+  it("BOT-27-0011 18 → 25 januari: januari får 7 inskrivna dagar (färre än 11) – utkasten tas bort, planen för februari ligger kvar", async () => {
     makeAuto(JAN18);
     draftCheckIns(JAN18);
     expect(await change({ caseId: JAN18, startDate: "2027-01-25", expectedStartDate: "2027-01-18", motivation: WHY }, leila())).toMatchObject({ ok: true, droppedMonths: ["2027-01"] });
-    expect([monthlyOf(JAN18), assessmentOf(JAN18), planOf(JAN18)]).toEqual([[], [], []]);
+    expect([monthlyOf(JAN18), assessmentOf(JAN18), planOf(JAN18).length]).toEqual([[], [], 1]);
   });
 
   it("BOT-27-0011 18 → 21 januari: januari behåller sin rapport, bedömningens närvaro räknas om och samordnaren får en uppgift att rätta vecka 3", async () => {
@@ -567,5 +573,160 @@ describe("Starta insatsen i ett bekräftat ärende som redan har ett startdatum 
     expect(await rt.run("command", caseStart.key, { caseId: "case-270042", startDate: "2027-02-03", plan }, sara())).toMatchObject({ ok: true });
     const mondays = acts("case-270042").filter((a) => a.startsAt.endsWith("T14:00")).map((a) => a.startsAt);
     expect(new Set(mondays).size).toBe(mondays.length);
+  });
+});
+
+describe("granskningen runda 2 (2026-10-29): fakturaunderlaget, coachens utkast, flikar, AI-utkastet, rättelseuppgiften och meddelandet", () => {
+  /** BOT-27-0002 startade 7 januari (handläggare Linda, huvudcoach Leila): januaribedömningen och januarirapporten som utkast. */
+  const JAN7 = "case-270002";
+  const leila = () => as("u-leila", "coach");
+  const draftCheckIns = (caseId: string) => {
+    for (const x of raw().all("check_ins").filter((k) => k.caseId === caseId)) rt.store.updateRow("check_ins", x.id, { status: "draft", approvedBy: null, approvedAt: null });
+  };
+  const janAssessments = () => raw().all("monthly_assessments").filter((m) => m.caseId === JAN7 && m.month === "2027-01");
+  const janPlans = () => raw().all("monthly_plans").filter((m) => m.caseId === JAN7 && m.month === "2027-01");
+  const later = { caseId: JAN7, startDate: "2027-02-01", expectedStartDate: "2027-01-07", motivation: WHY };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cmd = (key: string, input: any, actor: Actor) => rt.run("command", key, input, actor) as Promise<any>;
+
+  it("tidigare start: veckorna utan tillfällen kräver ekonomens godkännande (Ingen närvaro) i fakturaunderlaget", async () => {
+    rt.store.updateRow("cases", NEW, { firstMeetingAt: "2027-01-11T13:00" });
+    expect(await change({ caseId: NEW, startDate: "2027-01-11", expectedStartDate: "2027-02-01", motivation: WHY }, amira())).toMatchObject({ ok: true, removed: 0 });
+    const cfg = requireOperational(raw().get("contracts", "c-bot")!.config);
+    const db = { ...Object.fromEntries(["activities", "attendance", "price_items", "case_area_changes", "billing_week_approvals"].map((n) => [n, [...raw().all(n as never)]])), cases: raw().all("cases").filter((c) => c.id === NEW) } as never;
+    const [line] = billingLines(db, "2027-01", { now: rt.clock.now(), cfg }).filter((l) => l.caseId === NEW);
+    expect(line.weeks.map((w) => [w.key, w.planned, w.zeroAttendance])).toEqual([["2027-W02", 0, true], ["2027-W03", 0, true], ["2027-W04", 0, true]]);
+    expect(line.checks.filter((c) => c.kind === "zero_week").map((c) => [c.weekKey, c.severity])).toEqual([
+      ["2027-W02", "needs_approval"], ["2027-W03", "needs_approval"], ["2027-W04", "needs_approval"],
+    ]);
+    expect(line.needsApproval).toBe(true);
+  });
+
+  it("coachens sparade januaribedömning (och plan) stoppar en senare start – meddelandet säger senaste datum och inget tas bort", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const [ma] = janAssessments();
+    const area = Object.keys(ma.areas)[0];
+    expect(await cmd(assessmentSave.key, {
+      caseId: JAN7, month: "2027-01", expectedVersion: ma.version, summary: "Coachens egen sammanfattning av januari.",
+      areas: { [area]: { level: 2, observation: "Coachens observation.", nextStep: "Nästa steg." } }, plan: { plannedActivities: "Studiebesök hos lagerföretag" },
+    }, leila())).toMatchObject({ ok: true });
+    const saved = raw().get("monthly_assessments", ma.id)!;
+    expect(await change(later, leila())).toEqual({
+      ok: false, error: "report",
+      message: "Coachen har sparat månadsbedömningen för januari 2027, och det coachen skrivit tas aldrig bort. Med det nya startdatumet får januari för få inskrivna dagar för en månadsbedömning, så startdatumet kan vara senast 21 jan 2027.",
+    });
+    expect(raw().get("cases", JAN7)?.startDate).toBe("2027-01-07");
+    expect(raw().get("monthly_assessments", ma.id)).toEqual(saved);
+    expect(janPlans().map((x) => x.plannedActivities)).toEqual(["Studiebesök hos lagerföretag"]);
+    // Senaste datumet som behåller januari går – bedömningen och planen ligger kvar.
+    expect(await change({ ...later, startDate: "2027-01-21" }, leila())).toMatchObject({ ok: true, droppedMonths: [], draftMonths: [] });
+    expect(raw().get("monthly_assessments", ma.id)?.summary).toBe("Coachens egen sammanfattning av januari.");
+  });
+
+  it("systemets utkast tas bort men planen för februari ligger kvar – februaris förifyllda plan har kvar förra månadens plan", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const [mp] = janPlans();
+    const cfg = requireOperational(raw().get("contracts", "c-bot")!.config);
+    const sys = rt.ctxFor(SYSTEM_ACTOR).system;
+    expect(await change(later, leila())).toMatchObject({ ok: true, droppedMonths: ["2027-01"], draftMonths: ["2027-01"] });
+    expect(janAssessments()).toEqual([]);
+    const feb = await loadPrefill(sys, { id: JAN7 }, "2027-02", cfg, "2027-03-01T00:10");
+    expect(feb.plan.plannedActivities).toBe(mp.plannedActivities);
+    expect(feb.prefill.plan?.plannedActivities).toBe("previous");
+  });
+
+  it("en öppen flik återskapar inte januaribedömningen: autosparningen får not_needed, och conflict när raden försvunnit i en månad som behövs", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const [ma] = janAssessments();
+    expect(await change(later, as("u-sara", "samordnare"))).toMatchObject({ ok: true, droppedMonths: ["2027-01"] });
+    const autosave = { caseId: JAN7, month: "2027-01", autosave: true, editSession: "abcdefabcdef12", summary: "Coachen skriver vidare i den öppna fliken.", plan: { goal1: "Mål" } };
+    const res = await cmd(assessmentSave.key, { ...autosave, expectedVersion: ma.version }, leila());
+    expect(res).toMatchObject({ ok: false, error: "not_needed" });
+    expect(res.message).toMatch(/^Januari 2027 har för få inskrivna dagar för en månadsbedömning/);
+    // En ny sida (expectedVersion 0) skapar inte heller någon rad för januari.
+    expect(await cmd(assessmentSave.key, { ...autosave, expectedVersion: 0 }, leila())).toMatchObject({ ok: false, error: "not_needed" });
+    expect(janAssessments()).toEqual([]);
+    // En månad som behöver bedömningen men vars rad försvunnit: formuläret som såg version 1 eller mer skapar den inte igen.
+    const JAN18 = "case-270011";
+    const [other] = raw().all("monthly_assessments").filter((m) => m.caseId === JAN18 && m.month === "2027-01");
+    rt.store.removeRow("monthly_assessments", other.id);
+    expect(await cmd(assessmentSave.key, { ...autosave, caseId: JAN18, expectedVersion: other.version }, leila())).toMatchObject({ ok: false, error: "conflict" });
+    expect(await cmd(assessmentSave.key, { ...autosave, caseId: JAN18, expectedVersion: 0 }, leila())).toMatchObject({ ok: true });
+  });
+
+  it("ett AI-utkast för januari som låg i kön skapar inte januaribedömningen igen efter ändringen", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    rt.store.updateRow("cases", JAN7, { aiConsentStatus: "given" });
+    const sys = rt.ctxFor(SYSTEM_ACTOR);
+    const ai = (sys as unknown as { ai?: { provider: string; model: string } }).ai;
+    expect(ai, "minnesläget har AI").toBeTruthy();
+    rt.store.insertRow("ai_runs", aiRunRow({
+      id: "ai-auto-jan7", now: "2027-02-01T00:10", caseId: JAN7, kind: "monthly_draft", inputRef: "2027-01", status: "running",
+      run: { provider: ai!.provider, model: ai!.model, latencyMs: 0, tokensIn: null, tokensOut: null, audioSeconds: null, costOre: 0 },
+    }));
+    expect(await change(later, leila())).toMatchObject({ ok: true, droppedMonths: ["2027-01"] });
+    await expect(runVoiceJob(sys, "draft_monthly", { aiRunId: "ai-auto-jan7", caseId: JAN7, month: "2027-01" })).rejects.toMatchObject({ name: "VoiceJobError", code: "not_found" });
+    expect(janAssessments()).toEqual([]);
+  });
+
+  it("starten flyttas tillbaka: rättelseuppgiften stängs automatiskt och ingen ny skapas – rapporterna stämmer igen", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const open = () => raw().all("tasks").filter((t) => t.kind === "report_correction" && t.caseIds.includes(JAN7) && t.status === "open");
+    expect(await change(later, leila())).toMatchObject({ ok: true, corrections: 3 });
+    const [first] = open();
+    expect(first.text).toBe("BOT-27-0002: startdatumet är ändrat från 7 jan 2027 till 1 feb 2027. Rätta rapporterna som redan är lämnade till kommunen: veckorapporterna för vecka 1, 2 och 3 2027.");
+    const back = await change({ caseId: JAN7, startDate: "2027-01-07", expectedStartDate: "2027-02-01", motivation: "Fel datum valdes – tillbaka till 7 januari." }, leila());
+    expect(back).toMatchObject({ ok: true, corrections: 0 });
+    expect(open()).toEqual([]);
+    expect(raw().get("tasks", first.id)).toMatchObject({
+      status: "done", doneBy: "system", doneNote: "Startdatumet är ändrat igen, till 7 jan 2027. Rapporterna som är lämnade till kommunen stämmer nu – inget behöver rättas.",
+    });
+    expect(startLogs().at(-1)?.details).toMatchObject({ closedTaskIds: [first.id] });
+    expect(raw().all("audit_log").some((l) => l.action === "task.done" && l.entityId === first.id && l.details.auto === true)).toBe(true);
+  });
+
+  it("starten flyttas igen: den gamla uppgiften ersätts av en ny med rapporterna som räknade med det första datumet", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    expect(await change(later, leila())).toMatchObject({ ok: true, corrections: 3 });
+    const res = await change({ caseId: JAN7, startDate: "2027-01-18", expectedStartDate: "2027-02-01", motivation: "Deltagaren började den 18 januari, inte den 1 februari." }, leila());
+    expect(res).toMatchObject({ ok: true, corrections: 2 });
+    const tasks = raw().all("tasks").filter((t) => t.kind === "report_correction" && t.caseIds.includes(JAN7));
+    expect(tasks.map((t) => [t.status, t.text])).toEqual([
+      ["done", "BOT-27-0002: startdatumet är ändrat från 7 jan 2027 till 1 feb 2027. Rätta rapporterna som redan är lämnade till kommunen: veckorapporterna för vecka 1, 2 och 3 2027."],
+      ["open", "BOT-27-0002: startdatumet är ändrat från 7 jan 2027 till 18 jan 2027. Rätta rapporterna som redan är lämnade till kommunen: veckorapporterna för vecka 1 och 2 2027."],
+    ]);
+  });
+
+  it("uppgiften i samordnarens Min vecka länkar till ärendets rapporter – inte till inkorgen", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    expect(await change(later, leila())).toMatchObject({ ok: true, corrections: 3 });
+    const task = raw().all("tasks").find((t) => t.kind === "report_correction" && t.caseIds.includes(JAN7))!;
+    const v = await q(inboxStart, {}, sara());
+    expect(v.tasks.find((t) => t.id === task.id)).toMatchObject({ caseId: JAN7, href: `/arenden/${JAN7}?flik=rapporter` });
+    // Inkorgen: ett ärende utan post i inkorgen väljer ingen annan deltagares avrop.
+    const inbox = await q(inboxList, {}, sara());
+    expect(inbox.rows.some((r) => r.caseId === JAN7)).toBe(false);
+    expect(initialPick(inbox, null, JAN7, false)).toBeNull();
+    expect(initialPick(inbox, null, null, false)).toBe(inbox.pending[0]);
+  });
+
+  it("meddelandet säger att utkast togs bort bara när det fanns några – februari som inte är slut får ingen månadsrapport", async () => {
+    const res = await change({ caseId: "case-270038", startDate: "2027-02-25", expectedStartDate: "2027-02-01", motivation: WHY }, sara());
+    expect(res).toMatchObject({ ok: true, droppedMonths: ["2027-02"], draftMonths: [] });
+    if (!res.ok) return;
+    const text = startChangedText(res, false);
+    expect(text).toContain("Februari 2027 har nu för få dagar för en månadsrapport och får ingen månadsrapport eller månadsbedömning.");
+    expect(text).not.toContain("Utkasten");
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const jan = await change(later, leila());
+    expect(jan.ok && startChangedText(jan, false)).toContain("Januari 2027 har nu för få dagar för en månadsrapport. Utkasten till månadsrapport och månadsbedömning för månaden togs bort.");
   });
 });

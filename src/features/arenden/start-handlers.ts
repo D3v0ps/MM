@@ -6,7 +6,8 @@
 //               dag, senast planerat slut, ingen av månaderna som ändringen rör fakturerad eller godkänd, inget tillfälle före det
 //               nya datumet med närvaro som en människa registrerat och ingen godkänd mötesrapport före det, ingen månad som blir
 //               utan månadsrapport med en lämnad eller godkänd rapport eller en godkänd bedömning, motivering 10–300 tecken utan
-//               personnummer).
+//               personnummer). En månadsbedömning som coachen har sparat i en sådan månad stoppar också (revisionsloggen,
+//               reportsFor) – det en människa skrivit tas aldrig bort.
 //   Skrivning:  via ctx.repo (RLS): först anteckningen med motiveringen (case_notes – låst efteråt: den ändras och tas aldrig bort,
 //               0038), sedan ändringen (case_start_changes, nästa nummer i ärendet – seq). Ändringen ändrar ärendets startdatum i
 //               samma transaktion (triggern case_start_changes_apply i 0038, policy.ts afterInsert) och prövar reglerna igen i
@@ -194,6 +195,7 @@ async function loggedResult(ctx: Ctx, caseId: string, changeId: string, pending:
     autoAttendanceRemoved: uniq(ids("removedAutoAttendanceIds")).length,
     groups: pending?.groups ?? null,
     droppedMonths: (uniq(ids("droppedMonths").map(String)) as MonthKey[]).sort(),
+    draftMonths: (uniq(ids("draftMonths").map(String)) as MonthKey[]).sort(),
     corrections: uniq(ids("correctionReportIds")).length,
     incomplete: !logs.some((l) => l.details?.failed !== true),
   };

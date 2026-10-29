@@ -268,6 +268,8 @@ function ManadForm({ v }: { v: Ok }) {
         // Godkänd i en annan flik, eller sparad där sedan den här fliken öppnades: inget skrivs över.
         if (res.error === "approved") return { ok: false, reason: "invalid", text: "Bedömningen är redan godkänd – inget sparas. Ladda om sidan." };
         if (res.error === "conflict") return { ok: false, reason: "invalid", text: "Bedömningen har ändrats i en annan flik eller på en annan enhet – ladda om sidan. Inget skrivs över." };
+        // Månaden behöver ingen bedömning längre (startdatumet har ändrats): inget sparas.
+        if (res.error === "not_needed") return { ok: false, reason: "invalid", text: res.message };
         return { ok: false, reason: "failed" };
       }
       rememberVersion(res.version);

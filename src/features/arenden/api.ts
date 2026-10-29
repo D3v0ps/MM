@@ -354,11 +354,13 @@ export const caseStartView = query("arenden.startdatum", z.object({ caseId: IdSc
  * följderna i src/core/start-date.ts (planStartChange): inte före första mötets dag, inte efter planerat slut, ingen av månaderna
  * som ändringen rör får vara fakturerad eller godkänd (då behöver ekonomen kreditera först), ett tillfälle före det nya datumet
  * med närvaro som en människa registrerat eller en godkänd mötesrapport före det stoppar ändringen, och en månad som blir utan
- * månadsrapport får inte redan ha en lämnad eller godkänd rapport eller en godkänd bedömning (report). I ordning: motiveringen
+ * månadsrapport får inte redan ha en lämnad eller godkänd rapport, en godkänd bedömning eller en bedömning som coachen sparat
+ * (report). I ordning: motiveringen
  * sparas som en låst anteckning i deltagarkortet (bara Miljonbemanning ser den), ändringen sparas (case_start_changes – ärendets
  * startdatum ändras i samma steg), tillfällena före det nya datumet utan närvaro eller med bara automatisk närvaro tas bort (den
- * automatiska närvaron med dem), utkasten för en månad som blir utan månadsrapport tas bort, samordnaren får en uppgift att rätta
- * rapporter som redan är lämnade till kommunen, revisionsloggen får case.start_date_changed (id:n och datum – aldrig
+ * automatiska närvaron med dem), systemets utkast för en månad som blir utan månadsrapport tas bort (planen ligger kvar när nästa
+ * månad får en rapport), samordnaren får en uppgift att rätta rapporter som redan är lämnade till kommunen och räknade med ett annat
+ * startdatum (ärendets tidigare uppgift stängs), revisionsloggen får case.start_date_changed (id:n och datum – aldrig
  * motiveringen) och inbjudningarna till kommande gruppaktiviteter med målgrupp följer det nya datumet (deltagaren får då
  * aktivitetens vanliga meddelande med tid och plats). Inga tillfällen skapas bakåt i tiden. Planerat slut ändras inte. Kommunen
  * får inget meddelande. Avbryts det som görs efter att ändringen sparats svarar kommandot ok med incomplete – resten görs klart av
@@ -382,9 +384,14 @@ export const caseChangeStart = command("arenden.andraStartdatum", z.object({
       autoAttendanceRemoved: number;
       /** Kommande gruppaktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
       groups: { invited: number; removed: number } | null;
-      /** Månaderna som blev utan månadsrapport och månadsbedömning (utkasten togs bort). */
+      /** Månaderna som blev utan månadsrapport och månadsbedömning. */
       droppedMonths: MonthKey[];
-      /** Rapporter som redan är lämnade till kommunen och ska rättas – samordnaren har fått en uppgift. */
+      /** Månaderna där systemets utkast (rapport, bedömning eller plan) togs bort – tomt när månaden inte hade några utkast än. */
+      draftMonths: MonthKey[];
+      /**
+       * Rapporter som redan är lämnade till kommunen och räknade med ett annat startdatum – samordnaren har fått en uppgift (en
+       * tidigare uppgift i ärendet stängs). 0 = inget behöver rättas, också när starten flyttats tillbaka.
+       */
       corrections: number;
       /** Allt hann inte göras – startdatumet är ändrat och resten görs klart automatiskt. */
       incomplete: boolean;

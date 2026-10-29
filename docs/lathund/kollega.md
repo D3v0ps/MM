@@ -103,9 +103,9 @@ Det här händer:
 
 - Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har registrerad närvaro eller bara har automatisk närvaro. Den automatiska närvaron tas bort med tillfället.
 - Har ett tillfälle före det nya datumet närvaro som någon har registrerat, eller finns en godkänd mötesrapport före det nya datumet, går det inte att ändra. Meddelandet säger vilket startdatum som går.
-- Får en månad för få dagar för en månadsrapport med det nya startdatumet tas utkasten till månadsrapport och månadsbedömning för den månaden bort. Är månadsrapporten redan godkänd eller lämnad till kommunen, eller månadsbedömningen godkänd, går det inte att ändra. Meddelandet säger vilket startdatum som går.
-- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i Min vecka att rätta dem.
-- Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt.
+- Får en månad för få dagar för en månadsrapport med det nya startdatumet tas de automatiska utkasten till månadsrapport och månadsbedömning för den månaden bort. Planen för nästa månad ligger kvar. Är månadsrapporten redan godkänd eller lämnad till kommunen, är månadsbedömningen godkänd eller har coachen sparat månadsbedömningen, går det inte att ändra. Det coachen skrivit tas aldrig bort. Meddelandet säger vilket startdatum som går.
+- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i Min vecka att rätta dem. Uppgiften leder till ärendets rapporter. Ändras startdatumet igen stängs den gamla uppgiften av sig själv, och en ny skapas bara om något fortfarande behöver rättas.
+- Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt. En hel vecka utan tillfällen måste ekonomen godkänna innan den faktureras.
 - Planerat slut ändras inte.
 - Är månaden redan fakturerad, eller har ekonomen godkänt månadens faktura, går det inte att ändra. Kontakta ekonomen. En fakturerad månad behöver krediteras först.
 - Läggs deltagaren till i eller tas bort ur en kommande gruppaktivitet får deltagaren aktivitetens vanliga meddelande med tid och plats.

@@ -125,6 +125,7 @@ const DETAIL_KEY: Record<string, string> = {
   seq: "Ändringens nummer", removedActivityIds: "Borttagna tillfällen", removedAutoAttendanceIds: "Borttagen automatisk närvaro",
   keptActivityIds: "Tillfällen som låg kvar", droppedMonths: "Månader utan månadsrapport", removedReportIds: "Borttagna rapportutkast",
   removedAssessmentIds: "Borttagna bedömningsutkast", removedPlanIds: "Borttagna planutkast", correctionReportIds: "Rapporter att rätta", taskId: "Uppgift",
+  draftMonths: "Månader där utkasten togs bort", keptAssessmentIds: "Bedömningar som coachen sparat (låg kvar)", closedTaskIds: "Stängda uppgifter",
   finishedBy: "Gjordes klar av", failed: "Avbröts", error: "Felkod",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */

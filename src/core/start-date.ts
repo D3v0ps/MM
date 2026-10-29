@@ -11,11 +11,12 @@
 //     (raden tas bort med tillfället). Ett tillfälle med närvaro som en människa registrerat, och en godkänd mötesrapport, tas
 //     aldrig bort – då stoppas ändringen och meddelandet säger vilket datum som går.
 //   * En månad som med det nya startdatumet får för få inskrivna dagar för en månadsrapport (reportSchedule.monthly.minEnrolledDays,
-//     samma regel som rapportutkasten och månadsbedömningarna) blir utan månadsrapport och månadsbedömning: utkasten tas bort.
-//     Är månadens rapport redan granskad, godkänd eller lämnad till kommunen, eller månadsbedömningen godkänd, stoppas ändringen
-//     – meddelandet säger vilket datum som går (startChangeReportLock).
-//   * Rapporter som redan är lämnade till kommunen för veckor och månader som ändringen rör rättas: samordnaren får en uppgift
-//     (startChangeCorrections).
+//     samma regel som rapportutkasten och månadsbedömningarna) blir utan månadsrapport och månadsbedömning: systemets utkast tas
+//     bort (startChangeDrafts). Är månadens rapport redan granskad, godkänd eller lämnad till kommunen, månadsbedömningen godkänd
+//     eller har coachen sparat månadsbedömningen stoppas ändringen – meddelandet säger vilket datum som går (startChangeReportLock).
+//     Det en människa gjort tas aldrig bort. Planen för nästa månad ligger kvar när nästa månad fortfarande får en rapport.
+//   * Rapporter som redan är lämnade till kommunen och räknade med ett annat startdatum än det nya rättas: samordnaren får en
+//     uppgift, och en tidigare uppgift i ärendet stängs (startChangeCorrections).
 //   * Planerat slut, planerade veckor och beställningens veckor ändras inte – de räknas från första mötet (beslut 7, 2026-10-08).
 // Samma regler i databasen (mm.apply_case_start_change, mm.start_change_locked_month och mm.start_change_report_month, 0038) och
 // i policy.ts.
@@ -26,7 +27,9 @@ import type {
 import { CONTRACT_GROUP, isCreated, parseGroupingKey } from "./billing";
 import { plural } from "./format";
 import { enrolledDays } from "./report-schedule";
-import { addDays, addMonths, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, monthName, weekMonthKey, type LocalDate, type MonthKey, type WeekKey } from "./time";
+import {
+  addDays, addMonths, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, monthName, weekMonday, weekMonthKey, type LocalDate, type LocalDateTime, type MonthKey, type WeekKey,
+} from "./time";
 import { looksLikePnr } from "./validation";
 
 /** Ändrar startdatumet: huvudcoachen och de som leder ärendena (samma i hanteraren, RLS och policy.ts). */
@@ -157,11 +160,18 @@ const DELIVERED: readonly ReportStatus[] = ["delivered", "opened"];
 /** Rapporterna och bedömningarna som kontrollen behöver – bara id, typ, period och status (ingen text). */
 export type StartChangeReports = {
   /** Ärendets månadsrapporter och veckorapporterna till ärendets handläggare (alla versioner). */
-  reports: readonly Pick<Report, "id" | "kind" | "caseId" | "recipientUserId" | "week" | "month" | "status" | "superseded">[];
+  reports: readonly Pick<Report, "id" | "kind" | "caseId" | "recipientUserId" | "week" | "month" | "status" | "superseded" | "deliveredAt">[];
   /** Ärendets månadsbedömningar. */
   assessments: readonly Pick<MonthlyAssessment, "id" | "caseId" | "month" | "status">[];
   /** Avtalets reportSchedule.monthly.minEnrolledDays (Botkyrka 11) – undefined = ingen gräns (en inskriven dag räcker). */
   minEnrolledDays: number | undefined;
+  /**
+   * Månadsbedömningar som coachen har sparat (assessment.saved i revisionsloggen – bara coach.assessmentSave skriver den, också för
+   * planen). Det coachen skrivit tas aldrig bort: en sådan bedömning i en månad som blir utan månadsrapport stoppar ändringen
+   * (startChangeReportLock) och tas aldrig bort av städningen (startChangeDrafts). Prövas av servern (hanteraren); databasens kontroll
+   * och policy.ts läser inte revisionsloggen – hinner coachen spara efter kontrollen ligger bedömningen kvar (städningen loggar den).
+   */
+  savedAssessmentIds?: readonly string[];
 };
 export const NO_REPORTS: StartChangeReports = { reports: [], assessments: [], minEnrolledDays: undefined };
 
@@ -201,73 +211,119 @@ export function latestStartKeeping(c: Pick<Case, "endDate">, month: MonthKey, mi
   return addDays(last, -(monthlyMinDays(minDays) - 1));
 }
 
-export type StartChangeReportLock = { month: MonthKey; kind: "delivered" | "approved_report" | "approved_assessment"; latest: LocalDate };
+export type StartChangeReportLock = { month: MonthKey; kind: "delivered" | "approved_report" | "approved_assessment" | "saved_assessment"; latest: LocalDate };
 
 /**
  * Den första månaden som blir utan månadsrapport (startChangeDroppedMonths) men vars månadsrapport redan är lämnad till kommunen,
- * granskad eller godkänd, eller vars månadsbedömning är godkänd – då stoppas ändringen (en lämnad eller godkänd rapport tas aldrig
- * bort). latest = det senaste startdatumet som behåller månadens rapport. Ersatta versioner räknas inte. Samma regel som
- * mm.start_change_report_month (0038) och policy.ts caseStartChangeApplies.
+ * granskad eller godkänd, vars månadsbedömning är godkänd eller vars månadsbedömning coachen har sparat (savedAssessmentIds) – då
+ * stoppas ändringen (det en människa gjort tas aldrig bort). latest = det senaste startdatumet som behåller månadens rapport.
+ * Ersatta versioner räknas inte. Samma regel som mm.start_change_report_month (0038) och policy.ts caseStartChangeApplies – utom
+ * den sparade bedömningen, som bara hanteraren prövar (se savedAssessmentIds).
  */
 export function startChangeReportLock(c: EnrolledCase & Pick<Case, "endDate">, from: LocalDate, to: LocalDate, data: StartChangeReports): StartChangeReportLock | null {
+  const saved = new Set(data.savedAssessmentIds ?? []);
   for (const month of startChangeDroppedMonths(c, from, to, data.minEnrolledDays)) {
     const reports = data.reports.filter((r) => r.kind === "monthly" && r.caseId === c.id && r.month === month && !r.superseded && REPORT_LOCKING.includes(r.status));
     const latest = latestStartKeeping(c, month, data.minEnrolledDays);
+    const assessments = data.assessments.filter((a) => a.caseId === c.id && a.month === month);
     if (reports.some((r) => DELIVERED.includes(r.status))) return { month, kind: "delivered", latest };
     if (reports.length) return { month, kind: "approved_report", latest };
-    if (data.assessments.some((a) => a.caseId === c.id && a.month === month && a.status === "approved")) return { month, kind: "approved_assessment", latest };
+    if (assessments.some((a) => a.status === "approved")) return { month, kind: "approved_assessment", latest };
+    if (assessments.some((a) => saved.has(a.id))) return { month, kind: "saved_assessment", latest };
   }
   return null;
 }
 
 /**
- * Utkasten som tas bort för månaderna som blir utan månadsrapport (startChangeDroppedMonths): månadsrapporterna som är utkast,
- * månadsbedömningarna som inte är godkända och planerna för nästa månad som inte är godkända. Systemet skapade dem
- * (rapportjobbet) – en lämnad eller godkänd rapport eller en godkänd bedömning stoppar ändringen i stället.
+ * Utkasten som tas bort för månaderna som blir utan månadsrapport (startChangeDroppedMonths) – bara det systemet skapade
+ * (rapportjobbet och AI-utkastet):
+ *   reportIds      månadsrapporterna som är utkast
+ *   assessmentIds  månadsbedömningarna som inte är godkända och som coachen inte har sparat (savedAssessmentIds)
+ *   planIds        planerna som inte är godkända, inte hör till en bedömning som coachen sparat och vars nästa månad inte heller får
+ *                  någon rapport med det nya startdatumet – planen för månaden är planen för nästa månad, och den ligger kvar som
+ *                  underlag till nästa månads bedömning ("Förra månadens plan") när nästa månad får en rapport
+ *   keptAssessmentIds  bedömningar som coachen har sparat – tas aldrig bort (kontrollen stoppar ändringen; hann coachen spara efter
+ *                  kontrollen ligger de kvar och loggas)
+ *   months         månaderna där något tas bort, i tidsordning
+ * En lämnad eller godkänd rapport och en godkänd bedömning stoppar ändringen i stället (startChangeReportLock).
  */
 export function startChangeDrafts(
-  caseId: string,
+  c: EnrolledCase,
+  to: LocalDate,
   months: readonly MonthKey[],
-  data: Pick<StartChangeReports, "reports" | "assessments"> & { plans: readonly Pick<MonthlyPlan, "id" | "caseId" | "month" | "status">[] },
-): { reportIds: string[]; assessmentIds: string[]; planIds: string[] } {
-  const inMonths = (m: string | null) => m != null && months.includes(m);
+  data: Pick<StartChangeReports, "reports" | "assessments" | "minEnrolledDays" | "savedAssessmentIds"> & { plans: readonly Pick<MonthlyPlan, "id" | "caseId" | "month" | "status">[] },
+): { reportIds: string[]; assessmentIds: string[]; planIds: string[]; keptAssessmentIds: string[]; months: MonthKey[] } {
+  const inMonths = (m: string | null): m is MonthKey => m != null && months.includes(m);
+  const saved = new Set(data.savedAssessmentIds ?? []);
+  const assessments = data.assessments.filter((a) => a.caseId === c.id && inMonths(a.month) && a.status !== "approved");
+  const savedMonths = new Set(assessments.filter((a) => saved.has(a.id)).map((a) => a.month));
+  const nextCounts = (m: MonthKey) => daysIn(c, to, addMonths(m, 1)) >= monthlyMinDays(data.minEnrolledDays);
+  const reports = data.reports.filter((r) => r.kind === "monthly" && r.caseId === c.id && inMonths(r.month) && r.status === "draft");
+  const removedAssessments = assessments.filter((a) => !saved.has(a.id));
+  const plans = data.plans.filter((x) => x.caseId === c.id && inMonths(x.month) && x.status !== "approved" && !savedMonths.has(x.month) && !nextCounts(x.month));
+  const ids = (rows: readonly { id: string }[]) => rows.map((x) => x.id).sort();
   return {
-    reportIds: data.reports.filter((r) => r.kind === "monthly" && r.caseId === caseId && inMonths(r.month) && r.status === "draft").map((r) => r.id).sort(),
-    assessmentIds: data.assessments.filter((a) => a.caseId === caseId && inMonths(a.month) && a.status !== "approved").map((a) => a.id).sort(),
-    planIds: data.plans.filter((x) => x.caseId === caseId && inMonths(x.month) && x.status !== "approved").map((x) => x.id).sort(),
+    reportIds: ids(reports),
+    assessmentIds: ids(removedAssessments),
+    planIds: ids(plans),
+    keptAssessmentIds: ids(assessments.filter((a) => saved.has(a.id))),
+    months: [...new Set([...reports.map((r) => r.month as MonthKey), ...removedAssessments.map((a) => a.month), ...plans.map((x) => x.month)])].sort(),
   };
 }
 
-/** En rapport som redan är lämnad till kommunen och behöver rättas efter ändringen. */
-export type StartChangeCorrection = { reportId: string; kind: "weekly_attendance" | "monthly"; period: string };
+/**
+ * En rapport som redan är lämnad till kommunen och behöver rättas: den räknade med startdatumet frozenStart (det som gällde när
+ * den lämnades), och ärendet har nu ett annat.
+ */
+export type StartChangeCorrection = { reportId: string; kind: "weekly_attendance" | "monthly"; period: string; frozenStart: LocalDate };
 
 /**
- * Rapporterna som redan är lämnade till kommunen för dagarna som ändringen rör (från det tidigare datumet till dagen före det
- * senare): veckorapporterna till ärendets handläggare för de veckorna och ärendets månadsrapporter för de månaderna. Deltagaren
- * står med eller saknas där på fel dagar – rapporterna är frysta och rättas med Rätta (en ny version). Ersatta versioner räknas
- * inte. Veckorapporterna först, i tidsordning.
+ * Startdatumet som gällde vid tidpunkten at (t.ex. när en rapport lämnades): den första ändringen efter at utgick från det datum
+ * som gällde då; kom ingen ändring efter at gäller dagens (current). Utan tidpunkt (äldre rader): startdatumet före alla ändringar.
+ */
+export function startDateAt(
+  current: LocalDate,
+  changes: readonly Pick<CaseStartChange, "id" | "seq" | "changedAt" | "fromDate">[],
+  at: LocalDateTime | null,
+): LocalDate {
+  const ordered = startChangesInOrder(changes);
+  const next = at == null ? ordered[0] : ordered.find((x) => x.changedAt > at);
+  return next ? next.fromDate : current;
+}
+
+/**
+ * Rapporterna som redan är lämnade till kommunen och räknade med ett annat startdatum än dagens (current): veckorapporterna till
+ * ärendets handläggare och ärendets månadsrapporter vars period ligger i dagarna mellan startdatumet som gällde när rapporten
+ * lämnades (startDateAt, deliveredAt) och dagens – från det tidigare datumet till dagen före det senare. Deltagaren står med eller
+ * saknas där på fel dagar – rapporterna är frysta och rättas med Rätta (en ny version). En rapport som lämnades med samma startdatum
+ * som nu (också efter att starten flyttats tillbaka) behöver ingen rättelse, och en rättad version som lämnats efter ändringen räknar
+ * redan med den. Ersatta versioner räknas inte. Veckorapporterna först, i tidsordning.
  */
 export function startChangeCorrections(
   c: Pick<Case, "id" | "referrerId">,
-  from: LocalDate,
-  to: LocalDate,
+  current: LocalDate,
+  changes: readonly Pick<CaseStartChange, "id" | "seq" | "changedAt" | "fromDate">[],
   reports: StartChangeReports["reports"],
 ): StartChangeCorrection[] {
-  if (from === to) return [];
-  const lo = from < to ? from : to;
-  const last = addDays(from < to ? to : from, -1);
-  const weeks = new Set<string>();
-  for (let mon = monday(lo); mon <= last; mon = addDays(mon, 7)) weeks.add(isoWeek(mon).key);
-  const months = new Set<string>();
-  for (let m = monthKey(lo); m <= monthKey(last); m = addMonths(m, 1)) months.add(m);
   const delivered = reports.filter((r) => !r.superseded && DELIVERED.includes(r.status));
-  const weekly = delivered.filter((r) => r.kind === "weekly_attendance" && !!c.referrerId && r.recipientUserId === c.referrerId && r.week != null && weeks.has(r.week));
-  const monthly = delivered.filter((r) => r.kind === "monthly" && r.caseId === c.id && r.month != null && months.has(r.month));
-  const by = (a: StartChangeCorrection, b: StartChangeCorrection) => (a.period < b.period ? -1 : a.period > b.period ? 1 : a.reportId < b.reportId ? -1 : 1);
-  return [
-    ...weekly.map((r) => ({ reportId: r.id, kind: "weekly_attendance" as const, period: r.week as string })).sort(by),
-    ...monthly.map((r) => ({ reportId: r.id, kind: "monthly" as const, period: r.month as string })).sort(by),
-  ];
+  const out: StartChangeCorrection[] = [];
+  for (const r of delivered) {
+    const weekly = r.kind === "weekly_attendance" && !!c.referrerId && r.recipientUserId === c.referrerId && r.week != null;
+    const monthly = r.kind === "monthly" && r.caseId === c.id && r.month != null;
+    if (!weekly && !monthly) continue;
+    const frozen = startDateAt(current, changes, r.deliveredAt);
+    if (frozen === current) continue;
+    const lo = frozen < current ? frozen : current;
+    const last = addDays(frozen < current ? current : frozen, -1);
+    if (weekly) {
+      const mon = weekMonday(r.week as WeekKey);
+      if (addDays(mon, 6) >= lo && mon <= last) out.push({ reportId: r.id, kind: "weekly_attendance", period: r.week as string, frozenStart: frozen });
+    } else if (`${r.month}-01` <= last && monthEnd(r.month as MonthKey) >= lo) {
+      out.push({ reportId: r.id, kind: "monthly", period: r.month as string, frozenStart: frozen });
+    }
+  }
+  const rank = (x: StartChangeCorrection) => (x.kind === "weekly_attendance" ? 0 : 1);
+  return out.sort((a, b) => rank(a) - rank(b) || (a.period < b.period ? -1 : a.period > b.period ? 1 : a.reportId < b.reportId ? -1 : 1));
 }
 
 const listSv = (xs: readonly string[]): string => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}`);
@@ -284,16 +340,19 @@ function weeksText(keys: readonly string[]): string {
 /**
  * Uppgiften till samordnaren (tasks.text): ärendenumret, datumen och rapporterna att rätta – inga namn eller personnummer.
  * "BOT-27-0002: startdatumet är ändrat från 7 jan 2027 till 18 jan 2027. Rätta rapporterna som redan är lämnade till kommunen:
- * veckorapporterna för vecka 1 och 2 2027 samt månadsrapporten för januari 2027."
+ * veckorapporterna för vecka 1 och 2 2027 samt månadsrapporten för januari 2027." Från = startdatumet som rapporterna räknade med
+ * (frozenStart); räknade de med olika datum står bara det nya ("startdatumet är ändrat till 18 jan 2027").
  */
-export function startCorrectionTaskText(caseNumber: string, from: LocalDate, to: LocalDate, items: readonly StartChangeCorrection[]): string {
+export function startCorrectionTaskText(caseNumber: string, to: LocalDate, items: readonly StartChangeCorrection[]): string {
   const weeks = [...new Set(items.filter((x) => x.kind === "weekly_attendance").map((x) => x.period))];
   const months = [...new Set(items.filter((x) => x.kind === "monthly").map((x) => x.period))];
   const parts = [
     weeks.length ? `${weeks.length === 1 ? "veckorapporten" : "veckorapporterna"} för ${weeksText(weeks)}` : "",
     months.length ? `${months.length === 1 ? "månadsrapporten" : "månadsrapporterna"} för ${listSv(months.map(monthName))}` : "",
   ].filter(Boolean);
-  return `${caseNumber}: startdatumet är ändrat från ${fmtDate(from)} till ${fmtDate(to)}. Rätta ${items.length === 1 ? "rapporten som redan är lämnad" : "rapporterna som redan är lämnade"} till kommunen: ${parts.join(" samt ")}.`;
+  const froms = [...new Set(items.map((x) => x.frozenStart))];
+  const dates = froms.length === 1 ? `från ${fmtDate(froms[0])} till ${fmtDate(to)}` : `till ${fmtDate(to)}`;
+  return `${caseNumber}: startdatumet är ändrat ${dates}. Rätta ${items.length === 1 ? "rapporten som redan är lämnad" : "rapporterna som redan är lämnade"} till kommunen: ${parts.join(" samt ")}.`;
 }
 
 /**
@@ -372,10 +431,14 @@ function registeredText(attendance: number, checkIns: number, latest: LocalDate)
 function reportLockText(lock: StartChangeReportLock): string {
   const m = monthName(lock.month);
   const short = m.replace(/ \d{4}$/, "");
-  const what = lock.kind === "approved_assessment" ? "månadsbedömning" : "månadsrapport";
+  const what = lock.kind === "approved_assessment" || lock.kind === "saved_assessment" ? "månadsbedömning" : "månadsrapport";
   const head = lock.kind === "delivered"
     ? `Månadsrapporten för ${m} är redan lämnad till kommunen.`
-    : lock.kind === "approved_report" ? `Månadsrapporten för ${m} är redan godkänd.` : `Månadsbedömningen för ${m} är redan godkänd.`;
+    : lock.kind === "approved_report"
+      ? `Månadsrapporten för ${m} är redan godkänd.`
+      : lock.kind === "approved_assessment"
+        ? `Månadsbedömningen för ${m} är redan godkänd.`
+        : `Coachen har sparat månadsbedömningen för ${m}, och det coachen skrivit tas aldrig bort.`;
   return `${head} Med det nya startdatumet får ${short} för få inskrivna dagar för en ${what}, så startdatumet kan vara senast ${fmtDate(lock.latest)}.`;
 }
 
@@ -388,8 +451,9 @@ function reportLockText(lock: StartChangeReportLock): string {
  *   invoiced        en av månaderna ändringen rör är fakturerad eller godkänd (startChangeLock) – meddelandet säger vilken
  *   attendance      före det nya datumet finns ett tillfälle med närvaro som en människa registrerat eller en godkänd mötesrapport
  *                   – meddelandet säger senaste datum
- *   report          en månad som blir utan månadsrapport har redan en lämnad, granskad eller godkänd månadsrapport eller en godkänd
- *                   månadsbedömning (startChangeReportLock) – meddelandet säger senaste datum
+ *   report          en månad som blir utan månadsrapport har redan en lämnad, granskad eller godkänd månadsrapport, en godkänd
+ *                   månadsbedömning eller en månadsbedömning som coachen har sparat (startChangeReportLock) – meddelandet säger
+ *                   senaste datum
  *   motivation      motiveringen är kortare än 10 eller längre än 300 tecken
  *   pnr             motiveringen ser ut att innehålla ett personnummer
  */

@@ -389,7 +389,8 @@ export type StartView = {
   groupsToday: TodayGroupActivity[];
   /** Klockan nu (dagens gruppaktiviteter: passerade visar närvaron). */
   now: string;
-  tasks: { id: string; text: string; sub: string; emailId: string | null; caseId: string | null }[];
+  /** Öppna uppgifter till rollen. href = uppgiftens länk (mejlet, ärendets avrop eller – för en rättelse – ärendets rapporter). */
+  tasks: { id: string; text: string; sub: string; emailId: string | null; caseId: string | null; href: string | null }[];
   deviations: { id: string; description: string; sub: string; due: SlaInfo | null; href: string | null }[];
   deviationsHref: string | null;
   summaryReport: { id: string; title: string; due: SlaInfo | null; href: string | null } | null;

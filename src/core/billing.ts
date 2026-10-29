@@ -70,10 +70,15 @@ export function billableWeeks(c: Case, db: Pick<Db, "activities" | "attendance">
     const atts = weekActs.map((a) => attendanceFor(db, a.id));
     const attended = atts.filter((x) => x && (x.status === "present" || x.status === "late")).length;
     const registered = atts.filter(Boolean).length;
+    const partial = diffDays(firstDay, lastDay) < 6;
+    // En hel vecka som är slut utan ett enda tillfälle (t.ex. veckorna före ett startdatum som flyttats bakåt – inga tillfällen
+    // skapas bakåt, Karims beslut 2026-10-29) är debiterbar utan närvaro: samma kontroll som när inget tillfälle hade närvaro.
+    // Innevarande vecka (tillfällena har inte varit än) och en delvis start- eller slutvecka utan tillfällen räknas inte.
+    const noSessions = weekActs.length === 0 && !partial && next <= today;
     out.push({
-      key: w.key, week: w.week, year: w.year, monday: mon, monthKey: weekMonthKey(mon), paused, partial: diffDays(firstDay, lastDay) < 6,
+      key: w.key, week: w.week, year: w.year, monday: mon, monthKey: weekMonthKey(mon), paused, partial,
       enrolledDays: diffDays(firstDay, lastDay) + 1, planned: weekActs.length, attended, registered,
-      zeroAttendance: !paused && weekActs.length > 0 && registered === weekActs.length && attended === 0, missingRegistration: registered < weekActs.length,
+      zeroAttendance: !paused && (weekActs.length > 0 || noSessions) && registered === weekActs.length && attended === 0, missingRegistration: registered < weekActs.length,
     });
   }
   return out;
@@ -356,7 +361,10 @@ export function billingLines(db: Omit<BillingDb, "invoice_drafts" | "invoice_lin
         const approval = a ? { by: a.approvedBy, at: a.approvedAt, note: a.note } : null;
         checks.push({
           kind: "zero_week", severity: approval ? "approved" : "needs_approval", label: `Ingen närvaro ${fmtWeekKey(w.key)}`,
-          text: "Veckan är debiterbar men deltagaren har inte varit närvarande något tillfälle. Kontrollera och godkänn innan fakturering.", weekKey: w.key, approval,
+          text: w.planned
+            ? "Veckan är debiterbar men deltagaren har inte varit närvarande något tillfälle. Kontrollera och godkänn innan fakturering."
+            : "Veckan är debiterbar men har inga tillfällen, till exempel efter ett startdatum som flyttats bakåt. Kontrollera med coachen och godkänn innan fakturering.",
+          weekKey: w.key, approval,
         });
       }
     }

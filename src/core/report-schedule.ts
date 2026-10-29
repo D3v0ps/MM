@@ -84,6 +84,16 @@ export function enrolledDays(c: ScheduleCase, from: LocalDate, to: LocalDate): n
 /** Är ärendet inskrivet någon dag mellan from och to (inklusive)? */
 export const enrolledBetween = (c: ScheduleCase, from: LocalDate, to: LocalDate): boolean => enrolledDays(c, from, to) > 0;
 
+/**
+ * Behöver ärendet en månadsbedömning (och en månadsrapport) för månaden? Minst reportSchedule.monthly.minEnrolledDays inskrivna
+ * dagar (Botkyrka 11 – samma regel som rapportutkasten nedan), annars minst en. Används av rapportjobbets automatiska
+ * månadsbedömningar (ensureMonthlyAssessments), coachens sparning och AI-utkastet (en bedömning skapas aldrig för en månad som
+ * inte behöver den – t.ex. efter ett ändrat startdatum, Karims beslut 2026-10-29) och Ändra startdatum (src/core/start-date.ts).
+ */
+export function needsAssessment(c: ScheduleCase, month: MonthKey, minDays: number | undefined): boolean {
+  return enrolledDays(c, `${month}-01`, monthEnd(month)) >= Math.max(1, minDays ?? 1);
+}
+
 /** Nyckeln som de unika indexen i databasen speglar (0018_rapportutkast.sql; beställarrapporten 0026: avtal och månad). */
 export function reportKey(r: ScheduleReport): string | null {
   if (r.kind === "weekly_attendance") return r.recipientUserId && r.week ? `weekly_attendance|${r.contractId}|${r.recipientUserId}|${r.week}` : null;
