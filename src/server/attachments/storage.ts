@@ -7,7 +7,8 @@
 //   link          kopplas till ärendet när beställningen skickas
 //   signedDownload  signerad adress som gäller i 60 sekunder – UTAN parametern download, så att filnamnet aldrig hamnar i en
 //                 URL. Webbläsaren hämtar filen och sparar den med filnamnet ur svaret (useDownload).
-//   remove        filen raderas ur bucketen, raden får status deleted (spåret finns kvar, utan innehåll)
+//   remove        filen raderas ur bucketen, raden får status deleted (spåret finns kvar, utan innehåll) – villkorat, så att bara
+//                 ett av två samtidiga anrop får true
 //   listStoredPaths / removeStoredFile  avstämningen i gallringen: filer i bucketen utan levande rad raderas. Den signerade
 //                 uppladdningsadressen gäller i 2 timmar och kan inte återkallas – efter "Ta bort" eller en avvisad fil kan
 //                 samma adress användas igen så länge filen inte finns (granskningen 2026-10-07).
@@ -29,8 +30,8 @@ export interface AttachmentStorage {
   size(path: string): Promise<number | null>;
   /** Filens början (för filsignaturen), eller null om filen inte finns. */
   head(path: string): Promise<Uint8Array | null>;
-  /** Signerad adress för nedladdning som gäller i så många sekunder – utan filnamn. */
-  createSignedUrl(path: string, seconds: number): Promise<string>;
+  /** Signerad adress för nedladdning som gäller i så många sekunder – utan filnamn. Null om filen inte finns i lagringen. */
+  createSignedUrl(path: string, seconds: number): Promise<string | null>;
   /** Radera filen. Ingen fil är inget fel. */
   remove(path: string): Promise<void>;
   /** Alla filers sökvägar i bucketen ("<avtal>/<id>.<ändelse>"). */
@@ -94,14 +95,17 @@ export function createStorageAttachments(o: { system: AppRepo; storage: Attachme
     async signedDownload(id) {
       const a = await table().get(id);
       if (!a || a.status !== "uploaded") return null;
-      return { url: await o.storage.createSignedUrl(a.storagePath, ATTACHMENT_DOWNLOAD_SECONDS), content: null };
+      // Finns filen inte i lagringen (t.ex. testdatat i testmiljön före uppladdningen av platshållarna) är svaret "finns inte".
+      const url = await o.storage.createSignedUrl(a.storagePath, ATTACHMENT_DOWNLOAD_SECONDS);
+      return url ? { url, content: null } : null;
     },
     async remove(id, reason, by) {
       const a = await table().get(id);
-      if (!a || a.status === "deleted") return;
+      if (!a || a.status === "deleted") return false;
       // Filen raderas först. Misslyckas det står raden kvar oraderad och gallringen försöker igen.
       await o.storage.remove(a.storagePath);
-      await table().update(id, deletedPatch(o.now(), reason, by));
+      // Villkorat (update … where status <> 'deleted' returning): hann någon annan före är svaret false och inget loggas två gånger.
+      return !!(await table().updateIf(id, { status: { neq: "deleted" } }, deletedPatch(o.now(), reason, by)));
     },
     listStoredPaths: () => o.storage.list(),
     removeStoredFile: (path) => o.storage.remove(path),
@@ -164,6 +168,8 @@ export function supabaseAttachmentStorage(client: AttachmentStorageClientLike, b
     async createSignedUrl(path, seconds) {
       // Ingen download-parameter: då skulle filnamnet stå i adressen.
       const { data, error } = await b().createSignedUrl(path, seconds);
+      // Filen finns inte (Supabase svarar 400 eller 404 "Object not found").
+      if (error && ["400", "404"].includes(errCode(error))) return null;
       if (error || !data) throw new AttachmentStorageError("sign", errCode(error));
       return data.signedUrl;
     },

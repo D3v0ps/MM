@@ -44,7 +44,8 @@ const SAMPLES: Record<string, Sample[]> = {
   "admin.integrations": one("u-robin"), "admin.templates": one("u-robin"), "admin.auditLog": [...one("u-robin"), ...one("u-karin")],
   "admin.auditDetail": one("u-robin", { id: "__first_log__" }),
   "arenden.lista": [...one("u-sara"), ...one("u-amira"), ...one("u-petra")], "arenden.kort": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })],
-  "arenden.kortOversikt": one("u-amira", { caseId: NADIA }), "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
+  // Översikt med kortet Filer (Karims beslut 2026-10-29): Nadia har ett CV, ett personligt brev och ett intyg i testdatat.
+  "arenden.kortOversikt": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })], "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvstamningar": one("u-amira", { caseId: NADIA }), "arenden.kortNarvaro": one("u-amira", { caseId: NADIA }),
   "arenden.kortTidslinje": [...one("u-amira", { caseId: NADIA, visa: "alla" }), ...one("u-petra", { caseId: "case-260167", visa: "alla" })],
   "arenden.kortTidslinjeText": [...one("u-amira", { caseId: NADIA, id: "msg:msg-3" }), ...one("u-amira", { caseId: NADIA, id: "ci:ci-12498" })],
@@ -105,6 +106,9 @@ const WRITES: Record<string, string[]> = {
   "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", AUDIT_CASE, AUDIT],
   "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],
   "arenden.bilagaHamta": [AUDIT],
+  // Filer på deltagarkortet (0037).
+  "arenden.deltagarfilStart": ["case_attachments", AUDIT_CASE, AUDIT], "arenden.deltagarfilKlar": ["case_attachments", AUDIT_CASE, AUDIT],
+  "arenden.deltagarfilTaBort": ["case_attachments", AUDIT_CASE, AUDIT],
   "arenden.caseAccept": ["cases", "reports", "inbound_emails", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseDecline": ["cases", "inbound_emails", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
   "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
@@ -227,6 +231,10 @@ const KNOWN: Known[] = [
   { command: "arenden.messageSend", query: "session.navCounts", table: "user_notifications", reason: "notisen går till mottagaren (coachen när kommunen skriver) – avsändarens räknare berörs inte" },
   // Bilagor: en påbörjad uppladdning (pending) visas inte förrän den är klar (arenden.bilagaKlar räknar om).
   { command: "arenden.bilagaStart", query: "*", table: "case_attachments", reason: "raden är pending och visas inte förrän bilagaKlar" },
+  { command: "arenden.deltagarfilStart", query: "*", table: "case_attachments", reason: "raden är pending och visas inte förrän deltagarfilKlar" },
+  // Filerna på deltagarkortet (0037) visas bara i kortet Filer – acceptdialogens bakgrund läser bara beställningens bilagor (kind order).
+  { command: "arenden.deltagarfilKlar", query: "inkorg.decisionForm", table: "case_attachments", reason: "bakgrunden visar bara beställningens bilagor (kind order)" },
+  { command: "arenden.deltagarfilTaBort", query: "inkorg.decisionForm", table: "case_attachments", reason: "bakgrunden visar bara beställningens bilagor (kind order)" },
   { command: "rapporter.reportDeliver", query: "notiser.list", table: "user_notifications", reason: "notisen går till kommunen" },
   // Fält i ärendet som bara några skärmar visar.
   { command: "arenden.consentSet", query: "*", table: "cases", reason: "bara samtyckesfältet – kortet, listan, avstämningen, Min vecka och rösten räknas om" },

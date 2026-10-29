@@ -163,16 +163,16 @@ describe("städningen (jobbet attachments_retention)", () => {
     const linked = await upload(sara(), NADIA);
     const audits: { action: string; details: Record<string, unknown> }[] = [];
     // Inom 24 timmar: inget raderas.
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 0 });
     rt.clock.set("2027-02-02T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, unconfirmed: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", draft)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
     // Ärendet avslutas: ingenting raderas – inte ens år senare, och inte heller med den äldre avtalsregeln i konfigurationen.
     rt.store.updateRow("cases", NADIA, { status: "closed", endDate: "2027-02-02", closedAt: "2027-02-02T10:00" });
     const bot = rt.raw().get("contracts", "c-bot")!;
     rt.store.updateRow("contracts", "c-bot", { config: { ...bot.config, retentionRules: { attachmentsAfterCloseDays: 90 } } });
     rt.clock.set("2029-02-02T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", linked)).toMatchObject({ status: "uploaded" });
     expect(audits.map((a) => [a.action, a.details.reason])).toEqual([["attachment.deleted", "unlinked_24h"]]);
     expect(JSON.stringify(audits)).not.toContain("Kartläggning");
@@ -199,12 +199,12 @@ describe("städningen (jobbet attachments_retention)", () => {
     const audits: { action: string; details: Record<string, unknown> }[] = [];
     // Tre dagar senare (fredag → måndag): mejlets bilaga finns kvar, den övergivna raderas.
     rt.clock.set("2027-02-04T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, unconfirmed: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", abandoned.id)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
     expect(rt.raw().get("case_attachments", fromMail.id)).toMatchObject({ status: "uploaded", uploadedBy: "system" });
     // Mejlet hanteras utan registrering (Övrigt): bilagan väntar inte längre och gallras vid nästa körning.
     rt.store.updateRow("inbound_emails", "em-vantar", { status: "other" });
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, unconfirmed: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", fromMail.id)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
     expect(JSON.stringify(audits)).not.toContain("Kartläggning");
   });
@@ -220,7 +220,7 @@ describe("städningen (jobbet attachments_retention)", () => {
     expect(rt.raw().get("cases", c.caseId)).toMatchObject({ status: "declined", endDate: null });
     const audits: { action: string; details: Record<string, unknown> }[] = [];
     rt.clock.set("2029-01-01T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", id)).toMatchObject({ status: "uploaded" });
     expect(audits).toEqual([]);
     // Avböjd beställning: samordnaren får ta bort bilagan för hand (klockan tillbaka – se testet ovan).
@@ -236,12 +236,12 @@ describe("städningen (jobbet attachments_retention)", () => {
     rt.store.updateRow("case_attachments", id, { status: "deleted", deletedAt: rt.clock.now(), deleteReason: "removed" });
     expect(rt.attachments.stored()).toBe(1);
     const audits: { action: string; details: Record<string, unknown> }[] = [];
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 1 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 1 });
     expect(rt.attachments.stored()).toBe(0);
     expect(audits).toEqual([{ action: "attachment.deleted", details: { caseId: null, reason: "orphan" } }]);
     // En levande uppladdning rörs inte.
     const live = await upload(maria(), null);
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", live)).toMatchObject({ status: "uploaded" });
     expect(rt.attachments.stored()).toBe(1);
   });

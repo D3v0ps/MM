@@ -90,6 +90,7 @@ Vem: alla som arbetar i ärendet.
 - Röd samlad status blir en avvikelse automatiskt. Fyll i åtgärd, ansvarig och datum för uppföljning. Behöver kommunen besluta något: tryck på **Kalla kommunen till uppföljning**.
 - Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Händelser och utfall**. En praktik läggs in med **Ny praktik** under fliken **Praktik**.
 - Vill deltagaren bli kontaktad på ett annat sätt? Tryck på **Ändra** vid **Kontaktväg**.
+- Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på deltagarkortets **Översikt**. Tryck på **Ladda upp fil** och välj typ och fil. Filerna syns bara för Miljonbemanning, aldrig för kommunen.
 
 ### 9. Varje månad: månadsbedömning och månadsrapport
 

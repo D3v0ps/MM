@@ -31,9 +31,13 @@
 //   rapporter     egna och delade inom Miljonbemanning (mb – också arkiverade, hanterarna visar dem inte) · skrivs i eget namn ·
 //                 bara ägaren ändrar titel och definition · avtalsansvarig ändrar delningen och arkiverar andras delade rapporter
 //                 (aldrig till privat) · raderas aldrig · delas aldrig med kommunen (beslut 2026-10-07, 0026)
-//   Bilagor       bilagor till beställningen (case_attachments, 0024): den som laddade upp innan beställningen skickats · i
-//                 ärendet samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) och beställande handläggare ·
+//   Bilagor       bilagor till beställningen (case_attachments kind order, 0024): den som laddade upp innan beställningen
+//                 skickats · i ärendet samordnare, avtalsansvarig och coach med full åtkomst och beställande handläggare ·
 //                 aldrig handledare, ekonom, chef, admin eller deltagare · skrivs bara av systemet (ctx.attachments)
+//   Deltagar-     filer på deltagarkortet (case_attachments kind participant, 0037, Karims beslut 2026-10-29 – CV, personligt
+//   filer         brev, betyg och intyg): samordnare, avtalsansvarig och coach med full åtkomst till ärendet · aldrig kommunen
+//                 (inte heller handläggaren som beställde), ekonom, chef, admin, handledare eller deltagare · alltid i ett
+//                 ärende · skrivs bara av systemet (ctx.attachments)
 //   Grupp-        gruppaktiviteter (group_activities, 0030): Miljonbemanning i avtalet utom ekonomen läser ("alla ser alla",
 //   aktiviteter   beslut 2026-10-09) · de som arbetar i ärendena skapar (i eget namn) och ändrar · en inställd ändras inte ·
 //                 avtal, skapare och skapad-tid ändras aldrig · raderas aldrig · aldrig kommunen. Deltagarnas tillfällen ligger
@@ -79,6 +83,7 @@ import type { Cascade, Policies, RawAccess, RowPolicy } from "./memory";
 import { PolicyError } from "./repo";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
 import { AREA_CHANGE_READERS, AREA_CHANGE_STATUSES, AREA_CHANGERS, effectiveMonthOf } from "@/core/area-changes";
+import { PARTICIPANT_FILE_ROLES } from "@/core/attachments";
 import type { Case, Report, TableName, Tables } from "./schema";
 import { diffMinutes } from "@/core/time";
 
@@ -941,17 +946,18 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Rapportbyggarens sparade rapporter (0021). Ingen raderar – de arkiveras.
   saved_reports: { read: savedReportRead, write: savedReportWrite },
 
-  // ---- Bilagor till beställningen (0024). Raderna skrivs bara av systemet (ctx.attachments) efter hanterarens kontroll.
+  // ---- Bilagor till beställningen (0024) och filer på deltagarkortet (0037). Raderna skrivs bara av systemet (ctx.attachments)
+  // efter hanterarens kontroll.
   case_attachments: {
     read: (x, a, raw) => {
       if (x.deletedAt != null) return false;
-      // Den egna uppladdningen innan beställningen skickats.
-      if (!x.caseId) return a.role !== "deltagare" && self(a, x.uploadedBy);
+      // Den egna uppladdningen innan beställningen skickats (bara beställningens bilagor – en deltagarfil har alltid ett ärende).
+      if (!x.caseId) return x.kind === "order" && a.role !== "deltagare" && self(a, x.uploadedBy);
       const acc = accessTo(raw, a, x.caseId);
-      // Samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) – aldrig handledare, ekonom, chef eller admin.
-      if (a.role === "samordnare" || a.role === "avtalsansvarig" || a.role === "coach") return acc === "full";
-      // Kommunens handläggare som beställde.
-      if (a.role === "kommun_handlaggare") return acc === "customer" && self(a, raw.get("cases", x.caseId)?.referrerId);
+      // Samordnare, avtalsansvarig och coach med full åtkomst: båda slagen – aldrig handledare, ekonom, chef eller admin.
+      if (has(PARTICIPANT_FILE_ROLES, a)) return acc === "full";
+      // Kommunens handläggare som beställde: bara beställningens bilagor, aldrig deltagarfilerna (Karims beslut 2026-10-29).
+      if (a.role === "kommun_handlaggare") return x.kind === "order" && acc === "customer" && self(a, raw.get("cases", x.caseId)?.referrerId);
       return false;
     },
     write: never,

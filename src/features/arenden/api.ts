@@ -3,7 +3,8 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER, GRUPPER, CASE_FACTS } from "@/api/invalidation";
 import {
-  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
+  type ParticipantFileCategory,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
@@ -381,7 +382,10 @@ export type AttachmentRow = {
   sizeText: string;
   uploadedByName: string;
   createdAt: string;
-  /** Den inloggade får ta bort filen: egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig när ärendet är avslutat eller avböjt (beslut 5, 2026-10-08). */
+  /**
+   * Den inloggade får ta bort filen: egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig när ärendet
+   * är avslutat eller avböjt (beslut 5, 2026-10-08). Deltagarfilerna: samordnare, avtalsansvarig och coach – när som helst.
+   */
   canRemove: boolean;
 };
 
@@ -549,6 +553,8 @@ export type CaseCard = {
   manage: boolean;
   /** Chef och systemadmin ser ärendet i läsläge. */
   readOnly: boolean;
+  /** Kortet Filer (CV, personligt brev, betyg och intyg) visas: samordnare, avtalsansvarig och coach med full åtkomst (0037). */
+  files: boolean;
   status: CaseStatus;
   phase: number;
   phaseName: string;
@@ -663,8 +669,70 @@ export type CaseOverview = {
   /** Kommande 14 dagar (teamet: inga coachmöten). */
   upcoming: CaseActivity[];
   placement: { employerName: string | null; startsOn: string; endsOn: string | null; supervisorName: string; fourRights: FourRights | null } | null;
+  /**
+   * Kortet Filer (Karims beslut 2026-10-29) – med i Översikt så att kortet inte gör ett eget anrop. null för alla utom
+   * samordnare, avtalsansvarig och coach med full åtkomst (samma som CaseCard.files).
+   */
+  files: CaseFiles | null;
 };
 export const caseOverview = query("arenden.kortOversikt", CaseParams).returns<CaseOverview | null>();
+
+// ---- Filer på deltagarkortet (Karims beslut 2026-10-29, 0037): CV, personligt brev, betyg och intyg – bara Miljonbemanning.
+// "Vi vill kunna ladda upp filer på deltagares profiler. Typ CVn o så." Kommunen ser dem aldrig ("Nej, bara MB"). Samma lagring,
+// filtyper (PDF, Word, bild), storlek (10 MB) och filsignaturkontroll som bilagorna till beställningen (case_attachments,
+// kind participant). Läses, laddas upp och tas bort av samordnare, avtalsansvarig och coach med full åtkomst – aldrig ekonom,
+// chef, admin eller kommunen. Öppnas med arenden.bilagaHamta (signerad adress i 60 sekunder, loggas attachment.viewed).
+// Högst PARTICIPANT_FILE_MAX_FILES (30) filer per ärende. Uppladdning i bekräftade, pågående, pausade och avslutade ärenden;
+// ta bort när som helst. Aldrig i AI-underlag, rapporter, resultatfil, exporter, fakturor eller kommunens portal.
+
+/** En fil på deltagarkortet. */
+export type ParticipantFileRow = AttachmentRow & { category: ParticipantFileCategory; categoryLabel: string };
+/** Kortet Filer – i CaseOverview.files (arenden.kortOversikt). */
+export type CaseFiles = {
+  /** Alla fyra typer i ordning (CV, Personligt brev, Betyg och intyg, Övrigt), nyaste filen först i varje grupp. */
+  groups: { category: ParticipantFileCategory; label: string; files: ParticipantFileRow[] }[];
+  /** Antalet uppladdade filer (det som visas). */
+  count: number;
+  maxFiles: number;
+  /**
+   * Null = det högsta antalet är inte nått; annars varför det inte går att ladda upp fler. Samma räkning som
+   * arenden.deltagarfilStart: uppladdade filer plus uppladdningar som pågår (participantFileSlots i src/core/attachments.ts).
+   */
+  fullText: string | null;
+  /** Null = filer kan laddas upp; annars varför inte (beställningen är inte bekräftad eller är avböjd). */
+  uploadBlocked: string | null;
+  categories: { value: ParticipantFileCategory; label: string }[];
+  accept: string;
+  typesText: string;
+  maxBytes: number;
+  /** Hjälptexten vid filväljaren. */
+  help: string;
+};
+
+/**
+ * Börja ladda upp en fil på deltagarkortet. Kontroller: rollen, full åtkomst till ärendet, ärendets status, typen (category),
+ * filtyp, storlek och antal (högst 30 per ärende). Loggas attachment.upload_started med id, slag, typ och storlek – aldrig
+ * filnamnet. Svaret som arenden.bilagaStart (uploadUrl null i minnesläget).
+ */
+export const participantFileStart = command("arenden.deltagarfilStart", z.object({
+  caseId: IdSchema,
+  category: z.enum(PARTICIPANT_FILE_CATEGORIES),
+  fileName: z.string().max(400),
+  mimeType: z.string().max(200),
+  bytes: z.number().int().min(0).max(1_000_000_000),
+  // Raden är pending och visas inte förrän deltagarfilKlar – bara loggen (kortets Historik och revisionsloggen) räknas om.
+}), { invalidates: ["arenden.kortHistorik", ...LOG] }).returns<Result<{ attachmentId: string; uploadUrl: string | null; token: string | null; maxBytes: number }, "not_found" | "forbidden" | "wrong_status" | "invalid" | "too_many">>();
+
+/** Filen på deltagarkortet är uppladdad: storleken och filsignaturen kontrolleras (som arenden.bilagaKlar). Loggas attachment.uploaded. */
+export const participantFileDone = command("arenden.deltagarfilKlar", z.object({
+  attachmentId: IdSchema,
+  contentBase64: z.string().max(14_500_000).optional(),
+}), { invalidates: [CARD, ...LOG] }).returns<Result<{ file: ParticipantFileRow }, "not_found" | "invalid">>();
+
+/** Ta bort en fil på deltagarkortet – när som helst (inte bara efter avslutet, som beställningens bilagor). Loggas attachment.removed. */
+export const participantFileRemove = command("arenden.deltagarfilTaBort", z.object({ attachmentId: IdSchema }), { invalidates: [CARD, ...LOG] }).returns<
+  Result<object, "not_found" | "forbidden">
+>();
 
 export type CaseIntake = {
   intake: {

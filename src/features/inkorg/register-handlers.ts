@@ -141,7 +141,7 @@ handleCommand(inboxRegister, { roles: ROLES }, async (ctx, p) => {
     const rows = await ctx.repo.table("case_attachments").list({ id: { in: attachmentIds } });
     const allOk = attachmentIds.every((id) => {
       const a = rows.find((x) => x.id === id);
-      return !!a && a.uploadedBy === ctx.actor.userId && !a.caseId && a.contractId === contract.id && a.status === "uploaded";
+      return !!a && a.kind === "order" && a.uploadedBy === ctx.actor.userId && !a.caseId && a.contractId === contract.id && a.status === "uploaded";
     });
     if (!allOk) return fail("attachments", "En bilaga kunde inte kopplas till beställningen. Ta bort den och bifoga den igen.");
   }
@@ -149,7 +149,7 @@ handleCommand(inboxRegister, { roles: ROLES }, async (ctx, p) => {
   let mailAttachmentIds: string[] = [];
   if (mail && mail.attachments.some((a) => a.path)) {
     const paths = new Set(mail.attachments.map((a) => a.path).filter((x): x is string => !!x));
-    const stored: CaseAttachment[] = await ctx.system.table("case_attachments").list({ contractId: contract.id, caseId: { isNull: true }, status: "uploaded" });
+    const stored: CaseAttachment[] = await ctx.system.table("case_attachments").list({ contractId: contract.id, kind: "order", caseId: { isNull: true }, status: "uploaded" });
     mailAttachmentIds = stored.filter((a) => paths.has(a.storagePath)).map((a) => a.id);
   }
 

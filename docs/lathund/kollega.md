@@ -99,6 +99,19 @@ Hela vägen för en deltagare, från beställning till avslut, står i **Rutin f
 
 Samordnaren, avtalsansvarig, coachen och systemadministratören kan ändra kontaktvägen. Systemadministratören kan inte ändra något annat i ärendet. Revisionsloggen visar vilka fält som ändrades, aldrig vad som står i dem.
 
+### Filer på deltagarkortet
+
+Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på deltagarkortets **Översikt**. Filerna syns bara för Miljonbemanning. Kommunen ser dem aldrig.
+
+1. Tryck på **Ladda upp fil** i kortet **Filer**.
+2. Välj **Typ av fil**: **CV**, **Personligt brev**, **Betyg och intyg** eller **Övrigt**.
+3. Välj filen. Den ska vara en PDF, ett Word-dokument eller en bild och högst 10 MB.
+4. Tryck på **Ladda upp**. Filen hamnar under sin typ, med den senaste filen först.
+
+Tryck på **Hämta** för att ladda ned en fil till datorn och läsa den. Tryck på **Ta bort** för att ta bort en fil som inte behövs längre. Det går när som helst, och filen går inte att få tillbaka.
+
+Samordnaren, avtalsansvarig och coacherna kan ladda upp, hämta och ta bort filerna. En deltagare kan ha högst 30 filer. Du kan ladda upp filer när beställningen är bekräftad, och också efter att insatsen är avslutad. Bilagorna som kommunen skickade med beställningen ligger kvar i kortet **Bakgrund från beställningen**.
+
 ### Mina ärenden och Alla ärenden
 
 Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **Alla ärenden i avtalet** i listan för att se alla ärenden.
