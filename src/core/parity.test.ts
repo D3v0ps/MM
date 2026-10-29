@@ -10,6 +10,7 @@ import { DEFAULT_ORG_SETTINGS } from "./config";
 import { domainEnv } from "./env";
 import { paritySections, type Facit } from "./parity/sections";
 import { createSeed } from "@/data/seed";
+import { withoutAreaChanges } from "@/data/seed/decisions-2026-10-22";
 import { emptyDb, type Db } from "@/data/schema";
 
 // Läses som fil (inte import) så att typkontrollen slipper härleda typer för hela facit.
@@ -34,7 +35,8 @@ function loadSeed(): Db | null {
   try {
     const raw = createSeed() as unknown as Partial<Db>;
     if (!Array.isArray(raw.cases) || raw.cases.length === 0) return null;
-    return { ...emptyDb(), ...raw } as Db;
+    // Byt yrkesområde (Karims beslut 2026-10-22) finns inte i den gamla prototypen: jämförelsen görs utan testdatats byte.
+    return withoutAreaChanges({ ...emptyDb(), ...raw } as Db);
   } catch {
     return null;
   }

@@ -25,10 +25,14 @@ export function newCheckIn(r: Pick<CheckIn, "id" | "caseId" | "heldAt">): CheckI
 
 /** En ny månadsbedömning (utkast) utan områden. */
 export function newAssessment(r: Pick<MonthlyAssessment, "id" | "caseId" | "month">): MonthlyAssessment {
-  return { areas: {}, status: "draft", decidedBy: null, decidedAt: null, summary: "", aiSummaryDraft: null, overallStatus: null, version: 1, ...r };
+  return { areas: {}, status: "draft", decidedBy: null, decidedAt: null, summary: "", aiSummaryDraft: null, overallStatus: null, version: 1, prefill: {}, ...r };
 }
 
-/** Ett progressionsområde utan bedömning. Nivån är tom tills coachen valt (CLAUDE.md punkt 5). */
+/**
+ * Ett progressionsområde utan bedömning: nivån är tom (CLAUDE.md punkt 5). Månadsbedömningen fylls ändå i automatiskt med
+ * progressionsnivå 0 "Automatiskt – inget belägg" (autoArea/withAutoAreas i src/core/monthly-prefill.ts, Karims beslut
+ * 2026-10-22) – blankArea är bara utgångsläget för ett område som saknas i raden.
+ */
 export const blankArea = (): AreaAssessment => ({ level: null, observation: "", nextStep: "", aiLevelSuggestion: null, aiObservationDraft: null });
 
 /** En ny plan för nästa månad (utkast). */

@@ -1,20 +1,24 @@
 // Hanterare för området coach (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import { AI_OFF_TEXT, aiOff } from "@/features/_shared/ai-port";
+import { AI_OFF_TEXT, aiOff, areaChangeNoteIds } from "@/features/_shared/ai-port";
 import type { Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
+import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
 import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
+import { TRACKS } from "@/data/seed/constants";
 import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDraft, Deviation, IntakeAssessment, MonthlyAssessment, TranscriptLine } from "@/data/schema";
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
 import { blankArea, newAssessment, newCheckIn, newIntake, newPlan } from "../_shared/rows";
+import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill, refreshPrefillAfterAttendance } from "../_shared/monthly-prefill";
+import { approvalCounts, keptPrefill, levelSourceOf, missingAreas, nextLevelSource, withAutoAreas } from "@/core/monthly-prefill";
 import {
-  aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, resultVerify,
+  aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, NOT_REVIEWED_TEXT, resultVerify,
 } from "./api";
 import { publishWeeklyIfComplete, type WeeklyPublished } from "../_shared/weekly";
 // Frågorna för coachens skärmar (vy-modellerna).
@@ -47,7 +51,9 @@ const ASSESSMENT_APPROVED = "Bedömningen är redan godkänd och ändras inte. E
 type AutosaveParams = { autosave?: boolean; editSession?: string };
 /**
  * Versionskontrollen (0022, två flikar): expectedVersion är versionen skärmen senast såg eller sparade. Stämmer den inte
- * med radens har någon annan sparat sedan dess – "conflict", inget skrivs över. Utan expectedVersion ingen kontroll.
+ * med radens har någon annan sparat sedan dess – "conflict", inget skrivs över. 0 = skärmen visade en sida utan rad (t.ex. den
+ * förifyllda månadsbedömningen): finns raden nu har jobbet eller en annan flik skapat den – också "conflict". Utan
+ * expectedVersion ingen kontroll.
  */
 const versionMismatch = (existing: { version: number } | null, expected: number | undefined): boolean => !!existing && expected != null && existing.version !== expected;
 /**
@@ -117,6 +123,9 @@ handleCommand(attendanceSet, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   });
   // Veckorapporten publiceras automatiskt när alla handläggarens deltagare är registrerade.
   const published = await publishWeeklyIfComplete(ctx, c.contractId, c.referrerId, isoWeek(act.startsAt).key);
+  // Månadsbedömningens förifyllda sammanfattning (närvarosiffrorna) följer en rättad närvaro i en avslutad månad – bästa försök,
+  // efter veckorapporten: närvaron är sparad och ett fel här ger aldrig coachen ett fel.
+  await refreshPrefillAfterAttendance(ctx, [{ caseId: c.id, contractId: c.contractId, startsAt: act.startsAt }]);
   return ok({ attendanceId, published });
 });
 
@@ -176,6 +185,8 @@ handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
     const pub = await publishWeeklyIfComplete(ctx, contractId, referrerId || null, weekKey);
     if (pub) published.push(pub);
   }
+  // Månadsbedömningens förifyllda sammanfattning följer närvaron i en avslutad månad – bästa försök, efter veckorapporterna.
+  await refreshPrefillAfterAttendance(ctx, acts.filter((a) => marked.includes(a.id)).map((a) => ({ caseId: a.caseId, contractId: contractOfAct(a), startsAt: a.startsAt })));
   return ok({ marked, skipped, published, registeredAt: now });
 });
 
@@ -287,6 +298,12 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
     if (dv.needsCustomerDecision && !p.autosave) await customerDecisionTask(ctx, c, dv);
   }
   await auditSave(ctx, { action: p.approve ? "check_in.approved" : "check_in.saved", entity: "check_in", entityId: ci.id, contractId: c.contractId, details: { caseId: c.id, aiUsed: !!ci.ai } }, p);
+  // Månadsbedömningens förifyllnad hålls aktuell (Karims beslut 2026-10-22): godkänns en mötesrapport i en månad som redan har
+  // ett förifyllt utkast får de automatiskt märkta fälten (samlad status, sammanfattningen, mål 1) den nya mötesrapporten.
+  if (p.approve) {
+    const { cfg } = await contractOf(ctx, c.contractId);
+    await refreshMonthlyPrefill(ctx, c, monthKey(ci.heldAt), cfg, { checkInId: ci.id });
+  }
   return ok({ checkInId: ci.id, deviationId, rawTranscriptDeletedAt: ci.ai?.rawTranscriptDeletedAt ?? null, savedAt: now, version: ci.version });
 });
 
@@ -344,10 +361,12 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
   // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
+  // Motiveringen till ett byte av yrkesområde är intern och går aldrig in i sammanfattningen (kommunens månadsrapport).
   const usedNotes = [...new Set(p.usedNoteIds ?? [])];
+  const internal = usedNotes.length ? areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id })) : new Set<string>();
   for (const id of usedNotes) {
     const n = await ctx.repo.table("case_notes").get(id);
-    if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month) {
+    if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month || internal.has(n.id)) {
       return fail("bad_note", "En av anteckningarna hör inte till den här månaden eller finns inte längre. Ladda om sidan och försök igen.");
     }
   }
@@ -356,22 +375,47 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   // En godkänd bedömning ändras inte (rapporten byggs av den) – inte heller av en autosparning från en annan flik.
   if (existing && existing.status === "approved") return fail("approved", ASSESSMENT_APPROVED);
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
+  // Godkännandet kräver att coachen gått igenom den förifyllda bedömningen (Karims beslut 2026-10-22).
+  if (p.approve && p.reviewed !== true) return fail("not_reviewed", NOT_REVIEWED_TEXT);
   // Raden ändras på plats nedan – versionen den hade när den lästes behövs för den villkorade skrivningen.
   const readVersion = existing?.version ?? null;
-  const ma: MonthlyAssessment = existing ?? newAssessment({ id: ctx.newId("ma"), caseId: c.id, month: p.month });
-  // Bara avtalets progressionsområden. Nivån sätts av coachen – AI:s förslag ligger kvar som förslag.
+  const plans = ctx.repo.table("monthly_plans");
+  const curPlan = await plans.first({ caseId: c.id, month: p.month });
+  // Första sparningen från en sida som visade förifyllnaden: samma förifyllnad som jobbet (märkningen för de fält som sparas
+  // oförändrade). Raden får det fasta id:t, så att jobbet och coachen aldrig skapar två.
+  const pre = !existing ? await loadPrefill(ctx.repo, c, p.month, cfg, ctx.now()) : null;
+  const ma: MonthlyAssessment = existing ?? { ...newAssessment({ id: prefillAssessmentId(c.id, p.month), caseId: c.id, month: p.month }), areas: pre?.areas ?? {} };
+  const before = { summary: existing?.summary ?? pre?.summary ?? "", overallStatus: existing?.overallStatus ?? pre?.overallStatus ?? null, plan: curPlan ?? pre?.plan ?? null };
+  const marks = existing ? (existing.prefill ?? {}) : (pre?.prefill ?? {});
+  // Bara avtalets progressionsområden. Nivån sätts av coachens sparning – AI:s förslag ligger kvar som förslag och skrivs
+  // aldrig i nivån av servern. Ursprunget (auto/coach/ai) kontrolleras: nextLevelSource.
   const known = new Set([...cfg.progression.areas, ...cfg.progression.optionalAreas]);
-  const areas = { ...ma.areas };
-  for (const [k, v] of Object.entries(p.areas ?? {})) if (known.has(k)) areas[k] = { ...(areas[k] ?? blankArea()), ...defined(v) };
+  const areas = withAutoAreas(ma.areas, cfg.progression.areas);
+  const accepted: string[] = [];
+  for (const [k, v] of Object.entries(p.areas ?? {})) {
+    if (!known.has(k)) continue;
+    const cur = areas[k] ?? blankArea();
+    const { levelSource: claimed, ...rest } = v;
+    const level = v.level !== undefined ? v.level : cur.level;
+    const source = nextLevelSource(cur, level ?? null, claimed);
+    if (source === "ai" && levelSourceOf(cur) !== "ai") accepted.push(k);
+    areas[k] = { ...cur, ...defined(rest), ...(source ? { levelSource: source } : {}) };
+  }
   ma.areas = areas;
   if (p.summary != null) ma.summary = p.summary;
   if (p.overallStatus != null) ma.overallStatus = p.overallStatus;
+  const nextPlan = p.plan
+    ? (() => {
+        const base = curPlan ?? (pre ? prefilledPlan(prefillPlanId(c.id, p.month), c.id, p.month, pre) : newPlan({ id: ctx.newId("mp"), caseId: c.id, month: p.month }));
+        const { nextCustomerMeeting, ...rest } = p.plan;
+        return { ...base, ...defined(rest), ...(nextCustomerMeeting !== undefined ? { nextCustomerMeeting: nextCustomerMeeting || null } : {}) };
+      })()
+    : null;
+  // "Ifyllt automatiskt – kontrollera": ett fält som coachen ändrat är inte längre förifyllt.
+  ma.prefill = keptPrefill(marks, before, { summary: ma.summary, overallStatus: ma.overallStatus, plan: nextPlan ?? curPlan ?? pre?.plan ?? null });
+  const counts = approvalCounts(areas, cfg.progression.areas);
   if (p.approve) {
-    const from = cfg.progression.observationRequiredFromLevel;
-    const missing = cfg.progression.areas.filter((k) => {
-      const a = areas[k];
-      return !a || a.level == null || (a.level >= from && !String(a.observation ?? "").trim());
-    });
+    const missing = missingAreas(areas, cfg.progression.areas, cfg.progression.observationRequiredFromLevel);
     if (missing.length || !ma.overallStatus) {
       const text = `Bedömningen kan inte godkännas: ${plural(missing.length, "område saknar", "områden saknar")} uppgifter${!ma.overallStatus ? " och samlad status saknas" : ""}.`;
       return { ...fail("incomplete", text), missing };
@@ -383,18 +427,27 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   ma.version = readVersion != null ? readVersion + 1 : 1;
   if (readVersion != null) {
     if (!(await table.updateIf(ma.id, { version: readVersion }, ma))) return fail("conflict", CONFLICT);
-  } else await table.insert(ma);
+  } else {
+    try {
+      await table.insert(ma);
+    } catch (e) {
+      // Jobbet (eller en annan flik) hann skapa raden med det fasta id:t – inget skrivs över.
+      if (e instanceof UniqueError) return fail("conflict", CONFLICT);
+      throw e;
+    }
+  }
   if (p.approve) {
     const rep = await ctx.repo.table("reports").first({ kind: "monthly", caseId: c.id, month: p.month });
     if (rep && rep.status === "draft") await ctx.repo.table("reports").update(rep.id, { status: "reviewed" });
   }
-  if (p.plan) {
-    const plans = ctx.repo.table("monthly_plans");
-    const cur = (await plans.first({ caseId: c.id, month: p.month })) ?? newPlan({ id: ctx.newId("mp"), caseId: c.id, month: p.month });
-    const { nextCustomerMeeting, ...rest } = p.plan;
-    await upsert(plans, { ...cur, ...defined(rest), ...(nextCustomerMeeting !== undefined ? { nextCustomerMeeting: nextCustomerMeeting || null } : {}) });
+  if (nextPlan) await upsert(plans, nextPlan);
+  // Revisionsloggen: vid godkännandet antalen per ursprung och att coachen gått igenom bedömningen – bara antal.
+  const details = p.approve ? { caseId: c.id, month: p.month, reviewed: true, ...counts } : { caseId: c.id, month: p.month };
+  await auditSave(ctx, { action: p.approve ? "assessment.approved" : "assessment.saved", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details }, p);
+  // Godtagna AI-förslag (coachens "Godta" eller "Godta alla"): antalet och områdenas nycklar – aldrig citaten.
+  if (accepted.length) {
+    await ctx.audit({ action: "assessment.ai_accepted", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details: { caseId: c.id, month: p.month, count: accepted.length, areas: accepted } });
   }
-  await auditSave(ctx, { action: p.approve ? "assessment.approved" : "assessment.saved", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details: { caseId: c.id, month: p.month } }, p);
   // En loggrad per anteckning: bara id:n och månaden – aldrig texten.
   for (const id of usedNotes) {
     await ctx.audit({ action: "case_note.used_in_summary", entity: "case_note", entityId: id, contractId: c.contractId, details: { caseId: c.id, month: p.month } });
@@ -411,19 +464,41 @@ handleCommand(intakeSave, { roles: ["coach"] }, async (ctx, p) => {
   const table = ctx.repo.table("intake_assessments");
   const existing = await table.first({ caseId: c.id });
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
+  // Nivån sätts i kartläggningen och krävs innan den godkänns (Karims beslut 2026-10-22: "Nivåerna bestäms efter kartläggningen").
+  // En människa väljer nivån i kortet Nivå och yrkesområde – AI sätter den aldrig.
+  if (p.approve && !(await ctx.repo.table("grouping_members").first({ caseId: c.id, kind: "level", removedAt: { isNull: true } }))) {
+    return fail("level", LEVEL_REQUIRED_TEXT);
+  }
   const ia: IntakeAssessment = { ...(existing ?? newIntake({ id: ctx.newId("ia"), caseId: c.id })), ...defined(p.data ?? {}), version: existing ? existing.version + 1 : 1 };
   if (p.approve) {
     ia.status = "approved";
     ia.approvedBy = ctx.actor.userId;
     ia.approvedAt = ctx.now();
   }
+  // Det valda yrkesspåret blir ärendets när kartläggningen godkänns, och när coachen väljer om det i en redan godkänd
+  // kartläggning (t.ex. efter Byt yrkesområde utan spår, som tömmer valet och ber kartläggningen välja igen) – aldrig vid en
+  // sparning som inte väljer spåret: ett sparat spår som är äldre än ärendets (ett överhoppat steg i bytet) förs inte över.
+  // Spåret hör till yrkesområdet: bara ett spår i ärendets yrkesområde eller alternativ förs över.
+  const trackChosen = p.approve || (p.data?.chosenTrack !== undefined && p.data.chosenTrack !== (existing?.chosenTrack ?? ""));
+  const copyTrack = ia.status === "approved" && trackChosen && !!ia.chosenTrack && ia.chosenTrack !== c.vocationalTrack;
+  if (copyTrack && !trackInCaseAreas(ia.chosenTrack, c)) return fail("track", TRACK_OUTSIDE_AREA);
   if (existing) {
     if (!(await table.updateIf(ia.id, { version: existing.version }, ia))) return fail("conflict", CONFLICT);
   } else await table.insert(ia);
-  if (p.approve && ia.chosenTrack) await ctx.repo.table("cases").update(c.id, { vocationalTrack: ia.chosenTrack });
+  if (copyTrack) {
+    await ctx.repo.table("cases").update(c.id, { vocationalTrack: ia.chosenTrack });
+    await ctx.audit({ action: "case.updated", entity: "case", entityId: c.id, contractId: c.contractId, details: { fields: ["vocationalTrack"], source: "intake", intakeId: ia.id } });
+  }
   await auditSave(ctx, { action: p.approve ? "intake.approved" : "intake.saved", entity: "intake_assessment", entityId: ia.id, contractId: c.contractId, details: { caseId: c.id } }, p);
   return ok({ intakeId: ia.id, savedAt: ctx.now(), version: ia.version });
 });
+
+const TRACK_OUTSIDE_AREA = "Yrkesspåret hör inte till deltagarens yrkesområde. Välj ett spår i deltagarens yrkesområde – eller byt yrkesområde på deltagarkortet först.";
+/** Spåret är ett av yrkesspåren i ärendets yrkesområde eller alternativa yrkesområde (ett ärende utan yrkesområde: alla). */
+function trackInCaseAreas(track: string, c: Pick<Case, "primaryAreaCode" | "secondaryAreaCode">): boolean {
+  if (!c.primaryAreaCode) return true;
+  return [c.primaryAreaCode, c.secondaryAreaCode].some((code) => !!code && (TRACKS[code as keyof typeof TRACKS] ?? []).includes(track));
+}
 
 // ---------------------------------------------------------------- event.add
 handleCommand(eventAdd, { roles: ["coach"] }, async (ctx, p) => {

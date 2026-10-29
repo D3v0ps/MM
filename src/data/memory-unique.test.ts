@@ -68,10 +68,14 @@ describe("sammansatta och partiella unika nycklar (grupper, 0031)", () => {
     expect(() => s.updateRow("grouping_members", cur.id, { removedAt: null, removedBy: null })).toThrow(UniqueError);
   });
 
-  it("grupper har ingen plats (slot null): flera grupper per ärende går bra", () => {
+  it("en rad utan plats (slot null) krockar aldrig i platsnyckeln – som null i Postgres", () => {
+    // Fria grupper (slot null) finns inte längre (Karims beslut 2026-10-22, nekas av triggern i 0035 och av policy.ts) – här
+    // prövas bara den unika nyckeln i minnet, med två påhittade rader utan plats för samma ärende.
     const s = store();
-    const g = s.rows("grouping_members").find((m) => m.kind === "group" && m.removedAt == null)!;
-    const other = s.rows("groupings").find((x) => x.kind === "group" && x.id !== g.groupingId && !x.archivedAt)!;
-    expect(() => s.insertRow("grouping_members", { ...g, id: "gm-g2", groupingId: other.id })).not.toThrow();
+    const t = s.rows("grouping_members").find((m) => m.kind === "tag" && m.removedAt == null)!;
+    const others = s.rows("groupings").filter((x) => x.kind === "tag" && x.id !== t.groupingId && !s.rows("grouping_members").some((m) => m.caseId === t.caseId && m.groupingId === x.id));
+    expect(others.length).toBeGreaterThanOrEqual(2);
+    expect(() => s.insertRow("grouping_members", { ...t, id: "gm-n1", groupingId: others[0].id, slot: null })).not.toThrow();
+    expect(() => s.insertRow("grouping_members", { ...t, id: "gm-n2", groupingId: others[1].id, slot: null })).not.toThrow();
   });
 });

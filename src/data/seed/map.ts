@@ -132,14 +132,14 @@ export function toTables(S: ProtoState, meta: { checkInTags: Record<string, stri
   // version (0022): testdatat börjar på 1 – ökas av hanterarna vid varje sparning.
   db.intake_assessments.push(...S.intakeAssessments.map((x) => ({ ...x, version: 1 })));
   // Gruppaktiviteter och närvarons källa (0030): testdatat har inga gruppaktiviteter och all närvaro är registrerad av en människa.
-  db.activities.push(...S.activities.map((a) => ({ ...a, groupActivityId: null })));
+  db.activities.push(...S.activities.map((a) => ({ ...a, groupActivityId: null, inviteSource: "manual" as const })));
   db.attendance.push(...S.attendance.map((a) => ({ ...a, source: "manual" as const })));
   for (const ci of S.checkIns) {
     const { tags, ...rest } = ci;
     void tags;
     db.check_ins.push({ ...rest, ai: ci.ai ?? null, version: 1 });
   }
-  db.monthly_assessments.push(...S.monthlyAssessments.map((x) => ({ ...x, version: 1 })));
+  db.monthly_assessments.push(...S.monthlyAssessments.map((x) => ({ ...x, version: 1, prefill: {} })));
   db.monthly_plans.push(...S.monthlyPlans);
   for (const e of S.outcomeEvents) db.outcome_events.push({ ...e, possibleBonus: e.possibleBonus ?? false });
   for (const d of S.deviations) db.deviations.push({ ...d, checkInId: null });

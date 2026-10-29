@@ -6,6 +6,7 @@
 //     hämtas det igen och tar upp arbetet på nytt. Avbröts även sista försöket ger jobbet upp (failed, INTERRUPTED_REASON)
 //     – inget jobb blir hängande i running för evigt
 //   - felorsaken sparas i last_error, utan personuppgifter (errors.ts)
+//   - är tiden (budgetMs) slut innan ett hämtat jobb hunnit börja läggs det tillbaka i kön utan att försöket räknas
 //   - jobben ska själva vara idempotenta (send_message hoppar över utskick som redan är skickade)
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import type { JobRow } from "../notify/types";
@@ -18,7 +19,7 @@ export type JobHandler<C> = {
   onGiveUp?(job: JobRow, reason: string, ctx: C): Promise<void>;
 };
 
-export type JobPatch = Partial<Pick<JobRow, "status" | "lastError" | "finishedAt" | "runAfter">>;
+export type JobPatch = Partial<Pick<JobRow, "status" | "lastError" | "finishedAt" | "runAfter" | "attempts">>;
 
 export interface JobStore {
   /** Hämta upp till n jobb att köra (status running, attempts ökat). */
@@ -65,6 +66,8 @@ export type RunSummary = {
   failed: number;
   /** Jobb som inte kunde avslutas (t.ex. databasfel) – de hämtas igen efter en stund. */
   errors: number;
+  /** Hämtade jobb som inte hann börja innan tiden tog slut – tillbaka i kön utan att försöket räknas. */
+  released: number;
   /** Utfall per jobbtyp, t.ex. { "send_message:sent": 2, "send_message:suppressed": 1 }. */
   outcomes: Record<string, number>;
 };
@@ -78,7 +81,7 @@ export async function runJobs<C>(o: RunOpts<C>): Promise<RunSummary> {
   const budgetMs = o.budgetMs ?? 20_000;
   const elapsed = o.elapsedMs ?? (() => 0);
   const sleep = o.sleep ?? defaultSleep;
-  const sum: RunSummary = { claimed: 0, done: 0, retried: 0, failed: 0, errors: 0, outcomes: {} };
+  const sum: RunSummary = { claimed: 0, done: 0, retried: 0, failed: 0, errors: 0, released: 0, outcomes: {} };
   let first = true;
 
   while (sum.claimed < limit && elapsed() < budgetMs) {
@@ -87,7 +90,15 @@ export async function runJobs<C>(o: RunOpts<C>): Promise<RunSummary> {
     const batch = await o.store.claim(Math.min(batchSize, limit - sum.claimed), o.now, maxAttempts + 1);
     if (!batch.length) break;
     sum.claimed += batch.length;
-    for (const job of batch) {
+    for (let i = 0; i < batch.length; i++) {
+      // Tiden är slut innan jobbet hann börja (ett långt jobb före, t.ex. ett AI-utkast): resten av omgången läggs tillbaka i kön
+      // med samma plats (run_after) och utan att försöket räknas – annars står de som running tills de räknas som avbrutna
+      // (STALE_MINUTES) och förbrukar ett försök utan att ha körts. Det första jobbet i körningen körs alltid.
+      if (!first && elapsed() >= budgetMs) {
+        await release(o, batch.slice(i), sum);
+        return sum;
+      }
+      const job = batch[i];
       if (!first && o.pauseMs) await sleep(o.pauseMs);
       first = false;
       try {
@@ -99,6 +110,19 @@ export async function runJobs<C>(o: RunOpts<C>): Promise<RunSummary> {
     }
   }
   return sum;
+}
+
+/** Jobb som hämtats men inte börjat: tillbaka till queued, försöket räknas inte (claim ökade attempts). */
+async function release<C>(o: RunOpts<C>, jobs: readonly JobRow[], sum: RunSummary): Promise<void> {
+  for (const j of jobs) {
+    try {
+      await o.store.finish(j.id, { status: "queued", attempts: Math.max(0, j.attempts - 1) });
+      sum.released++;
+    } catch {
+      // Står kvar som running och hämtas igen efter STALE_MINUTES.
+      sum.errors++;
+    }
+  }
 }
 
 async function runOne<C>(o: RunOpts<C>, job: JobRow, sum: RunSummary, maxAttempts: number): Promise<void> {

@@ -1,12 +1,12 @@
 // Kontrakt för området coach (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Fail, type Result } from "@/api/contract";
-import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, START, INBOX, CASE_STATS, CASE_FACTS } from "@/api/invalidation";
+import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, START, INBOX, CASE_STATS, CASE_FACTS, GRUPPER } from "@/api/invalidation";
 import type { SlaTone } from "@/core/sla";
 import type { ProgressionRuleText } from "@/core/config";
 import {
-  AI_DECISIONS, AI_RUN_KINDS, ATTENDANCE_STATUSES, CHECK_IN_MODES, DEVIATION_STATUSES, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES, INPUT_METHODS, OUTCOME_EVENT_KINDS,
-  TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceSource, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
+  AI_DECISIONS, AI_RUN_KINDS, ATTENDANCE_STATUSES, CHECK_IN_MODES, DEVIATION_STATUSES, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES, INPUT_METHODS, LEVEL_SOURCES, OUTCOME_EVENT_KINDS,
+  TRAFFIC_LIGHTS, type LevelSource, type MonthlyPrefill, type ActivityKind, type AiConsentStatus, type AttendanceSource, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
   type GoalStatus, type InputMethod, type LocalDate, type LocalDateTime, type MonthKey, type OutcomeEventKind, type ProgressLevel, type ReportStatus,
   type ResultClass, type TrafficLight, type TranscriptLine, type WeekKey,
 } from "@/data/schema";
@@ -69,7 +69,8 @@ export const attendanceSetAll = command("coach.attendanceSetAll", z.object({
 const AutosaveFields = {
   autosave: z.boolean().optional(),
   editSession: z.string().regex(/^[a-z0-9]{12,32}$/).optional(),
-  expectedVersion: z.number().int().min(1).optional(),
+  /** Versionen skärmen såg (0 = raden fanns inte när sidan visades – finns den nu har någon annan, t.ex. jobbet, skapat den). */
+  expectedVersion: z.number().int().min(0).optional(),
 };
 /** Svaret från en sparning: serverns tid ("Utkast sparat 09.41") och radens nya version (nästa expectedVersion). */
 export type SavedInfo = { savedAt: LocalDateTime; version: number };
@@ -139,7 +140,7 @@ export const checkinSave = command("coach.checkinSave", z.object({
     changed: z.boolean().optional(),
   })).max(20).optional(),
   ...AutosaveFields,
-}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   Result<{ checkInId: string; deviationId: string | null; rawTranscriptDeletedAt: string | null } & SavedInfo, "not_found" | "forbidden" | "deviation_required" | "ai_not_allowed" | "invalid" | "approved" | "conflict">
 >();
 
@@ -162,11 +163,17 @@ export const deviationCallCustomer = command("coach.deviationCallCustomer", z.ob
   proposedAt: LocalDateTimeSchema.nullable().optional(),
 }), { invalidates: [CASES, "coach.minVecka", "coach.checkInReceipt", PORTAL, INBOX, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ messageId: string }, "not_found" | "forbidden" | "empty">>();
 
-/** Ett progressionsområde som coachen bedömt. Nivån sätts bara av coachen – aldrig av AI. */
+/**
+ * Ett progressionsområde som coachen bedömt. Nivån sätts bara av coachens sparning – aldrig av AI eller servern.
+ * levelSource (Karims beslut 2026-10-22): ursprunget som skärmen visar – "auto" (förifylld nivå 0, bara med nivå 0), "ai"
+ * (coachen tryckte Godta – bara med AI-förslagets nivå) eller "coach". Servern kontrollerar (nextLevelSource i
+ * src/core/monthly-prefill.ts): stämmer det inte blir det coachens val.
+ */
 export const AreaInputSchema = z.object({
   level: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).nullable().optional(),
   observation: z.string().max(2000).optional(),
   nextStep: z.string().max(1000).optional(),
+  levelSource: z.enum(LEVEL_SOURCES).optional(),
 });
 
 /** Högsta längd på månadsbedömningens sammanfattning (tecken). Skärmen räknar och stoppar innan anropet. */
@@ -187,10 +194,15 @@ export const noteInSummary = (summary: string, text: string): boolean => {
   return t.length > 0 && summary.includes(t);
 };
 
+/** Texten när coachen inte kryssat "Jag har gått igenom bedömningen" (Karims beslut 2026-10-22). */
+export const NOT_REVIEWED_TEXT = "Kryssa i att du har gått igenom bedömningen innan du godkänner den.";
 /**
  * Spara eller godkänn månadsbedömningen (prototypens assessment.save). Godkännande kräver nivå i varje område, observation
- * från avtalets nivå (observationRequiredFromLevel) och samlad status – annars incomplete med missing (områdesnycklarna).
- * Vid godkännande blir månadsrapporten "Granskad av coach". plan = planen för nästa månad.
+ * från avtalets nivå (observationRequiredFromLevel – den automatiska texten "Ingen förändring noterad …" räknas inte) och samlad status –
+ * annars incomplete med missing (områdesnycklarna). Godkännandet kräver också reviewed: true ("Jag har gått igenom
+ * bedömningen", Karims beslut 2026-10-22) – annars not_reviewed. Revisionsloggen vid godkännandet får antalet automatiska
+ * områden, coachens val och godtagna AI-förslag. Vid godkännande blir månadsrapporten "Granskad av coach". plan = planen för
+ * nästa månad. Förifyllda fält som coachen ändrar är inte längre märkta "Ifyllt automatiskt".
  * usedNoteIds = fria anteckningar som coachen lagt in i sammanfattningen (rapporter steg 2): kontrolleras och loggas
  * (case_note.used_in_summary, bara id:n och månad). Inget annat sparas – texten finns bara i sammanfattningen.
  */
@@ -211,12 +223,21 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
     status: z.enum(["draft", "approved"]).optional(),
   }).optional(),
   usedNoteIds: z.array(IdSchema).max(50).optional(),
+  /** "Jag har gått igenom bedömningen" – krävs för att godkänna. */
+  reviewed: z.boolean().optional(),
   ...AutosaveFields,
 }), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, ...START, "admin.contract", NAV, ...LOG] }).returns<
-  Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict"> | (Fail<"incomplete"> & { missing: string[] })
+  | Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict" | "not_reviewed">
+  | (Fail<"incomplete"> & { missing: string[] })
 >();
 
-/** Spara eller godkänn kartläggningen (prototypens intake.save). Vid godkännande blir valt yrkesspår ärendets yrkesspår. */
+/**
+ * Spara eller godkänn kartläggningen (prototypens intake.save). När kartläggningen godkänns blir valt yrkesspår ärendets
+ * yrkesspår – också när det väljs om efteråt i en godkänd kartläggning (t.ex. efter Byt yrkesområde utan spår, som tömmer
+ * valet), men aldrig vid en sparning som inte ändrar valet. Spåret som förs över ska höra till ärendets yrkesområde eller
+ * alternativ (annars "track"). Godkännandet kräver att deltagaren har en nivå (level – Karims beslut 2026-10-22; nivån väljs i
+ * kortet Nivå och yrkesområde).
+ */
 export const intakeSave = command("coach.intakeSave", z.object({
   caseId: IdSchema,
   data: z.object({
@@ -232,7 +253,7 @@ export const intakeSave = command("coach.intakeSave", z.object({
   }).partial().optional(),
   approve: z.boolean().optional(),
   ...AutosaveFields,
-}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict">>();
+}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, GRUPPER, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict" | "level" | "track">>();
 
 /** Registrera en händelse/ett utfall (prototypens event.add). Arbete påbörjat markeras som möjligt bonusunderlag. */
 export const eventAdd = command("coach.eventAdd", z.object({
@@ -255,7 +276,7 @@ export const resultVerify = command("coach.resultVerify", z.object({
   caseId: IdSchema,
   verificationKind: ShortText,
   file: ShortText.nullable().optional(),
-}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, GRUPPER, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
 /** Visas när verifieringen registreras efter att slutrapporten levererats (se resultVerify). */
 export const FINAL_DELIVERED_VERIFY_TEXT =
   "Slutrapporten är redan levererad till kommunen. Rätta slutrapporten så att verifieringen kommer med i rapporten och i kommunens resultatfil.";
@@ -413,7 +434,8 @@ export type MinVeckaView = {
     dueNote: string;
     done: number;
     total: number;
-    open: { caseId: string; caseNumber: string; name: string; hasAi: boolean }[];
+    /** prefilled: något är fortfarande ifyllt automatiskt (eller raden finns inte än) – "Ifylld automatiskt – gå igenom". */
+    open: { caseId: string; caseNumber: string; name: string; hasAi: boolean; prefilled: boolean }[];
   };
   /**
    * Olästa meddelanden från kommunen, ett per ärende (det senaste) – samma räkning som deltagarkortets olästa (unread):
@@ -591,8 +613,15 @@ export type AssessmentArea = {
   level: ProgressLevel | null;
   observation: string;
   nextStep: string;
-  /** AI:s förslag – bara när AI får användas i ärendet. Fylls aldrig i automatiskt. */
+  /**
+   * Varifrån nivån kommer (Karims beslut 2026-10-22): auto = förifylld progressionsnivå 0 ("Automatiskt – inget belägg"),
+   * coach = coachens val, ai = coachen godtog AI-förslaget. null = ingen nivå.
+   */
+  levelSource: LevelSource | null;
+  /** AI:s nivåförslag 1–3 – bara med belägg och bara när AI får användas i ärendet. Fylls aldrig i automatiskt. */
   aiLevelSuggestion: ProgressLevel | null;
+  /** Belägget för förslaget: citatet, källan ("Mötesrapport 15 jan", "Anteckning 26 jan") och dagen. */
+  aiLevelEvidence: { quote: string; source: string; date: LocalDate } | null;
   aiObservationDraft: { text: string; sources: string[]; noEvidence: boolean } | null;
 };
 export type AssessmentPage = Gated<{
@@ -609,7 +638,19 @@ export type AssessmentPage = Gated<{
    */
   progressionRule: { clearFromLevel: number; anyFromLevel: number } & ProgressionRuleText;
   areas: AssessmentArea[];
-  assessment: { status: "draft" | "approved"; decidedAt: LocalDateTime | null; summary: string; aiSummaryDraft: string | null; overallStatus: TrafficLight | null; /** Radens version – expectedVersion vid nästa sparning. */ version: number } | null;
+  /**
+   * Bedömningen. Finns ingen rad ännu visas förifyllnaden (Karims beslut 2026-10-22) med saved false och version null – den
+   * första sparningen skapar raden. prefill = fälten som fortfarande är ifyllda automatiskt ("Ifyllt automatiskt –
+   * kontrollera"); overallFrom = mötesrapporten som den samlade statusen kommer från ("Från mötesrapporten 15 okt").
+   */
+  assessment: {
+    status: "draft" | "approved"; decidedAt: LocalDateTime | null; summary: string; aiSummaryDraft: string | null; overallStatus: TrafficLight | null;
+    /** Radens version – expectedVersion vid nästa sparning. null = raden finns inte ännu. */
+    version: number | null;
+    saved: boolean;
+    prefill: MonthlyPrefill;
+    overallFrom: LocalDateTime | null;
+  } | null;
   plan: { goal1: string; goal2: string; plannedActivities: string; plannedEmployerContact: string; plannedAdaptation: string; nextCustomerMeeting: LocalDate | null } | null;
   basis: {
     checkIns: LocalDateTime[];
@@ -636,6 +677,8 @@ export type AssessmentPage = Gated<{
     createdAt: LocalDateTime;
     plan: { text: string; sources: string[]; noEvidence: boolean } | null;
     summary: { text: string; sources: string[]; noEvidence: boolean } | null;
+    /** En mötesrapport i månaden godkändes efter att utkastet skapades – den finns inte med i utkastet. */
+    newerCheckIn: boolean;
   } | null;
   /** AI-stödet är inte kopplat (produktion utan leverantör, beslut 2026-10-08): inga AI-utkast – skärmen säger det i klarspråk. */
   aiOff: boolean;

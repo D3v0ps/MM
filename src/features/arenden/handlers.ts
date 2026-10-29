@@ -50,6 +50,8 @@ import { freezeReport } from "../rapporter/freeze";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
 import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
+import { syncAudienceInvites } from "../aktiviteter/audience-sync";
+import "./area-handlers";
 import "./attachment-handlers";
 import "./contact-handlers";
 import { caseBackground } from "./background";
@@ -414,7 +416,7 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
 // mötet: startdatum, status, tillfällen enligt veckoplanen, statushistorik och logg.
 const START_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
 const NO_START = "Insatsen kan startas när avropet är accepterat.";
-const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null });
+const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null, inviteSource: "manual" });
 /** Planen i loggen: bara dag, tid och typ – inga personuppgifter. */
 const planKeys = (plan: readonly WeekPlanRow[]) => plan.map((r) => `${WEEKDAYS[r.weekday]} ${r.time} ${r.kind}`);
 const isPlanKind = (k: string) => (WEEK_PLAN_KINDS as readonly string[]).includes(k);
@@ -442,6 +444,8 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   });
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "active", toCoach: c.leadCoachId, reason: "Insatsen startad" });
   await ctx.audit({ action: "case.started", entity: "case", entityId: c.id, contractId: c.contractId, details: { startDate: p.startDate, plannedEnd: end, activities: rows.length, plan: planKeys(plan) } });
+  // Insatsen pågår: deltagaren bjuds in till kommande aktiviteter för sin nivå och sitt yrkesområde (Karims beslut 2026-10-22).
+  await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
   return ok({ activities: rows.length, firstActivityAt: rows[0]?.startsAt ?? null });
 });
 
@@ -487,7 +491,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
-  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null });
+  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null, inviteSource: "manual" });
   await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
   return ok({ activityId: id });
 });
@@ -576,6 +580,8 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
     });
   }
   await ctx.audit({ action: "case.closed", entity: "case", entityId: c.id, contractId: c.contractId, details: { endReason: p.endReason, resultClass } });
+  // Avslutad: kommande aktiviteter som målgruppen (nivån eller yrkesområdet) bjöd in till tas bort – utan registrerad närvaro.
+  await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
   return ok({ reportId: rep.id, resultClass });
 });
 
@@ -816,7 +822,7 @@ async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded
 /** Tabeller för flaggorna (prototypens sel.alerts). */
 const ALERT_TABLES = [
   "cases", "activities", "attendance", "check_ins", "placements", "reports", "price_items", "buyer_references", "invoice_drafts", "invoice_lines", "billing_runs",
-  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles",
+  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles", "case_area_changes",
 ] as const;
 
 // ---------------------------------------------------------------- arenden.lista
@@ -1188,8 +1194,8 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
   if (!L) return null;
   const { c, cfg, env, team, role, me, access } = L;
   const q = { caseId: c.id };
-  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles"], {
-    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q,
+  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles", "case_area_changes"], {
+    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q, case_area_changes: q,
   });
   const fullDb = team
     ? { check_ins: [], intake_assessments: [], monthly_assessments: [], deviations: [], consents: [], reports: [], messages: [], organizations: [] }
@@ -1203,6 +1209,12 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
 const NOTE_NOT_FOUND = "Anteckningen finns inte, eller så har du inte behörighet att se den.";
 /** Skriver anteckningar: den som arbetar i ärendet. Chef och systemadministratör läser bara. */
 const NOTE_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
+const AREA_NOTE_LOCKED = "Anteckningen är motiveringen till ett byte av yrkesområde och kan inte ändras eller tas bort.";
+/**
+ * Motiveringen till ett byte av yrkesområde (case_area_changes.noteId) är låst (0036, policy.ts caseNoteWrite). ctx.system: bara
+ * ja/nej – bytet läses av alla som skriver anteckningar, men svaret ska inte bero på rollens läsrätt.
+ */
+const isAreaChangeNote = async (ctx: Ctx, noteId: string): Promise<boolean> => !!(await ctx.system.table("case_area_changes").first({ noteId }));
 
 handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const L = await loadCase(ctx, p.caseId, "tidslinje");
@@ -1220,6 +1232,7 @@ handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   if (p.noteId) {
     const cur = await table.get(p.noteId);
     if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
+    if (await isAreaChangeNote(ctx, cur.id)) return fail("locked", AREA_NOTE_LOCKED);
     if (cur.authorId !== me) return fail("not_author", "Bara den som skrev anteckningen kan ändra den.");
     await table.update(cur.id, { occurredOn: p.occurredOn, kind: p.kind, audience, body: p.body, updatedAt: ctx.now() });
     // Revisionsloggen: bara id:n – aldrig texten eller typen.
@@ -1242,6 +1255,7 @@ handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const table = ctx.repo.table("case_notes");
   const cur = await table.get(p.noteId);
   if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
+  if (await isAreaChangeNote(ctx, cur.id)) return fail("locked", AREA_NOTE_LOCKED);
   // Författaren, och samordnare och avtalsansvarig med full åtkomst i ärendet (beslut 2026-10-01). Inget raderas på riktigt.
   if (cur.authorId !== me && !(isManager(role) && access === "full")) {
     return fail("not_author", "Bara den som skrev anteckningen, samordnaren och avtalsansvarig kan ta bort den.");
@@ -1265,9 +1279,9 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   const q = { caseId: c.id };
   const db = await loadDb(ctx.repo, [
     "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "tasks", "reports", "case_notes", "contract_areas",
-    "profiles", "persons", "organizations",
+    "profiles", "persons", "organizations", "case_area_changes",
   ], {
-    activities: q, attendance: q, check_ins: q, monthly_assessments: q, monthly_plans: q, outcome_events: q, deviations: q, reports: q, case_notes: q,
+    activities: q, attendance: q, check_ins: q, monthly_assessments: q, monthly_plans: q, outcome_events: q, deviations: q, reports: q, case_notes: q, case_area_changes: q,
     contract_areas: { contractId: c.contractId }, persons: { id: c.personId }, organizations: { id: { in: [contract.customerId, contract.supplierId] } },
   });
   const prog = cfg.progression;
@@ -1307,7 +1321,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
     const rdb: ReportDb & Pick<Db, "case_notes"> = {
       cases: [c], activities: db.activities, attendance: db.attendance, check_ins: db.check_ins, monthly_assessments: db.monthly_assessments, monthly_plans: db.monthly_plans,
       outcome_events: db.outcome_events, deviations: db.deviations, tasks: db.tasks, audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: db.contract_areas,
-      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes,
+      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes, case_area_changes: db.case_area_changes,
     };
     const m = monthlyPreview(rdb, c.id, month, renv);
     gaps = monthlyGaps(rdb, c.id, month, renv);
@@ -1492,10 +1506,11 @@ const AUDIT_TEXT: Record<string, string> = {
   "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
   "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
   "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
-  "person.contact_changed": "Kontaktvägen ändrades",
+  "person.contact_changed": "Kontaktvägen ändrades", "case.area_changed": "Yrkesområdet byttes",
   "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
+  "assessment.prefilled": "Månadsbedömningen fylldes i automatiskt", "assessment.ai_accepted": "AI-förslag till nivå godtogs",
   "intake.saved": "Kartläggning sparades", "intake.approved": "Kartläggning godkändes", "event.added": "Händelse registrerades", "result.verified": "Resultat verifierades",
   "attendance.registered": "Närvaro registrerades", "attendance.registered_all": "Närvaro registrerades för flera tillfällen samma dag", "report.approved": "Rapport godkändes", "report.delivered": "Rapport levererades", "report.corrected": "Rapport rättades", "report.view": "Rapport öppnades", "report.published": "Rapport publicerades",
   "transcript.deleted": "Råtranskript raderades", "ai.run": "AI-körning", "audio.deleted": "Ljudfil raderades", "notify.email": "E-post skickades",
@@ -1508,6 +1523,8 @@ const AUDIT_TEXT: Record<string, string> = {
   "group_activity.cancelled": "Gruppaktiviteten ställdes in", "group_activity.view": "Öppnade aktivitetsvyn",
   // Spår G: meddelandet till deltagaren och gruppmålet (internt – bara Miljonbemanning ser Historik).
   "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
+  // Karims beslut 2026-10-22: målgruppen (nivå eller yrkesområde) bjuder in och tar bort automatiskt; återkommande aktiviteter.
+  "group_activity.audience_synced": "Inbjudan ändrades automatiskt (nivå eller yrkesområde)", "group_activity_series.updated": "Den återkommande aktiviteten ändrades",
 };
 /** Fälten i en ändrad gruppaktivitet som ord (Historik). */
 const GROUP_FIELD_WORD: Record<string, string> = {
@@ -1541,9 +1558,17 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     const dt = x.details ?? {};
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     if (x.action === "case.coach_changed") return `${name(s(dt.from))} → ${name(s(dt.to))}. Orsak: ${s(dt.reason) || "–"}`;
+    // Byt yrkesområde: koderna och från vilken månad fakturan räknas på det nya – motiveringen står i anteckningen.
+    if (x.action === "case.area_changed") return `${s(dt.fromArea)} → ${s(dt.toArea)}${s(dt.effectiveMonth) ? `, fakturan från ${monthName(s(dt.effectiveMonth))}` : ""}`;
     // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
     if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";
     if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
+    // Automatisk månadsbedömning (Karims beslut 2026-10-22): månaden – och vid godkännandet antalen per ursprung.
+    if (x.action === "assessment.prefilled") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
+    if (x.action === "assessment.ai_accepted") return plural(Number(dt.count ?? 0), "område", "områden");
+    if (x.action === "assessment.approved" && dt.reviewed === true) {
+      return `Genomgången · ${plural(Number(dt.coachAreas ?? 0) + Number(dt.aiAccepted ?? 0), "område", "områden")} valda, ${plural(Number(dt.autoAreas ?? 0), "automatiskt", "automatiska")}`;
+    }
     // Nivå, grupp och tagg (internt): bara typen – namnen står i deltagarkortets huvud.
     if (x.action === "grouping_member.added" || x.action === "grouping_member.removed") return GROUPING_KIND_LABEL[s(dt.kind) as GroupingKind] ?? "";
     // "Markera alla som närvarande": antalet tillfällen den dagen (alla deltagare) – raden hör till flera ärenden.

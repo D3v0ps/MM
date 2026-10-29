@@ -10,23 +10,32 @@
 // börjat. Inbjudan per grupp eller nivå hoppar över de som inte kan vara med (skipUninvitable). Gruppmålet: group_activities.goal
 // och coachens val per deltagare i group_goal_results (ingen rad = Klarade automatiskt) – ett val gäller bara målets version
 // (goal_version) och deltagarens tillfälle det gjordes för.
+//
+// Karims beslut 2026-10-22: målgruppen (en nivå eller ett yrkesområde) och de återkommande aktiviteterna. Med en målgrupp bjuder
+// servern in de aktiva deltagarna och håller listan aktuell (syncAudienceInvites i audience-sync.ts – ett systemsteg); manuellt
+// inbjudna rörs aldrig. En återkommande aktivitet (group_activity_series) skrivs via ctx.repo; tillfällena skapas av servern
+// (ensureSeriesOccurrences) och ställs in när serien avslutas.
 import { fail, ok, type Fail } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import {
-  ACTIVITY_KIND_WORD, GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, overlaps, slotText, type InviteGrouping, type UninvitableMember,
-} from "@/core/group-activities";
+import { areaLabel, audienceColumns, audienceLabel, audienceOf, type Audience } from "@/core/audience";
+import { GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, type InviteGrouping, type UninvitableMember } from "@/core/group-activities";
+import { byOrder } from "@/core/groupings";
+import { normalizeWeekdays, seriesScheduleError, seriesScheduleText } from "@/core/group-series";
 import { ABSENCE_REASONS } from "@/core/labels";
-import { addDays, dayOf, fmtDate, type LocalDate, type LocalDateTime } from "@/core/time";
+import { addDays, dayOf, fmtDate, type LocalDate } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { looksLikePnr } from "@/core/validation";
-import { GROUP_ACTIVITY_KINDS, type Activity, type Case, type CaseStatus, type GroupActivity, type Person } from "@/data/schema";
+import { GROUP_ACTIVITY_KINDS, type Activity, type Case, type CaseStatus, type GroupActivity, type GroupActivitySeries, type Person } from "@/data/schema";
 import { NOTE_PNR_TEXT, noteProblem } from "../_shared/notes";
-import { closeActivityTasks, notifyManySummary, notifyParticipant, type ActivityTemplate, type NotifyParticipantResult } from "../_shared/participant-notify";
 import {
-  groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityList, groupActivityNotes, groupActivityRemove, groupActivityUpdate,
-  groupActivityView, groupGoalResultSet, type GroupActivityListRow, type GroupParticipant, type InviteProblem, type NotifyOutcome,
+  groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityList, groupActivityNotes, groupActivityRemove, groupActivitySeriesCreate,
+  groupActivitySeriesEnd, groupActivitySeriesUpdate, groupActivityUpdate, groupActivityView, groupGoalResultSet, type AudienceInput, type GroupActivityListRow,
+  type GroupParticipant, type InviteProblem, type NotifyOutcome, type SeriesListRow,
 } from "./api";
+import { audienceMembers, ensureSeriesOccurrences, removeParticipantRow, syncAudienceInvites, type AudienceSyncDetail } from "./audience-sync";
+import { audienceBusyOf, mergeProblems, overlapsFor } from "./busy";
+import { notifyAll, supersedeTasks, upcoming } from "./notify-all";
 
 /**
  * De som arbetar i ärendena skapar, ändrar, bjuder in, tar närvaro och skriver anteckningar (policyns CASE_WORKERS). Rollen
@@ -58,15 +67,6 @@ async function holidayOn(ctx: Ctx, day: LocalDate): Promise<string | null> {
 }
 const holidayText = (day: LocalDate, name: string) => `${fmtDate(day)} är en helgdag (${name}). Vill du lägga aktiviteten där ändå?`;
 
-/** En rad per ärende (orsakerna slås ihop), i ärendenummerordning. */
-function mergeProblems(problems: readonly InviteProblem[]): InviteProblem[] {
-  const byCase = new Map<string, InviteProblem>();
-  for (const p of problems) {
-    const cur = byCase.get(p.caseId);
-    byCase.set(p.caseId, cur ? { ...cur, reason: `${cur.reason}. ${p.reason}` } : p);
-  }
-  return [...byCase.values()].sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : 1));
-}
 /** Ärenden som inte kan bjudas in dagen – i ärendenummerordning. */
 function problemsOf(cases: readonly Case[], day: LocalDate): InviteProblem[] {
   return mergeProblems(
@@ -87,38 +87,6 @@ async function notWorkable(ctx: Ctx, cases: readonly Case[]): Promise<InviteProb
   return cases.filter((c) => !readable.has(c.personId)).map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, reason: NOT_WORKABLE }));
 }
 
-/**
- * Deltagarnas andra tillfällen som överlappar aktivitetens tid (samma dag; aktivitetens egna rader räknas inte). Ett eget tillfälle
- * utan närvaro kan ersättas (replaceable); ett tillfälle med registrerad närvaro eller en annan gruppaktivitet stoppar (blocking).
- * Utan kontrollen får deltagaren två planerade tillfällen samtidigt – båda räknas i veckorapporten, närvarograden och den
- * automatiska närvaron (avtalets veckoplan har t.ex. yrkesmoment tisdag och torsdag 09.00).
- */
-async function overlapsFor(
-  ctx: Ctx, cases: readonly Case[], slot: { startsAt: string; durationMin: number }, groupActivityId: string | null,
-): Promise<{ blocking: InviteProblem[]; replace: InviteProblem[]; replaceable: Activity[] }> {
-  const none = { blocking: [], replace: [], replaceable: [] };
-  if (!cases.length) return none;
-  const day = dayOf(slot.startsAt);
-  const caseOf = new Map(cases.map((c) => [c.id, c]));
-  const same = (await ctx.repo.table("activities").list({ caseId: { in: [...caseOf.keys()] }, startsAt: { gte: `${day}T00:00`, lte: `${day}T23:59` } }, { orderBy: "startsAt" }))
-    .filter((a) => (!groupActivityId || a.groupActivityId !== groupActivityId) && overlaps(a, slot));
-  if (!same.length) return none;
-  const registered = new Set((await ctx.repo.table("attendance").pick(["activityId"], { activityId: { in: same.map((a) => a.id) } })).map((r) => r.activityId));
-  const blocking: InviteProblem[] = [];
-  const replace: InviteProblem[] = [];
-  const replaceable: Activity[] = [];
-  for (const a of same) {
-    const c = caseOf.get(a.caseId)!;
-    const p = (reason: string): InviteProblem => ({ caseId: c.id, caseNumber: c.caseNumber, reason });
-    if (a.groupActivityId) blocking.push(p(`Är redan inbjuden till en annan aktivitet ${slotText(a)}`));
-    else if (registered.has(a.id)) blocking.push(p(`Har redan ${ACTIVITY_KIND_WORD[a.kind]} ${slotText(a)} med registrerad närvaro`));
-    else {
-      replace.push(p(`Har redan ${ACTIVITY_KIND_WORD[a.kind]} ${slotText(a)}. Det ersätts av aktiviteten`));
-      replaceable.push(a);
-    }
-  }
-  return { blocking: mergeProblems(blocking), replace: mergeProblems(replace), replaceable };
-}
 const overlapText = (problems: readonly InviteProblem[]) =>
   `${problems.length === 1 ? "En deltagare har" : `${problems.length} deltagare har`} redan ett tillfälle vid samma tid. Det ersätts av aktiviteten om du fortsätter, så att deltagaren inte räknas två gånger i närvaron och veckorapporten.`;
 
@@ -144,6 +112,36 @@ async function participantCheck(
 async function removeReplaced(ctx: Ctx, acts: readonly Activity[]): Promise<string[]> {
   for (const a of acts) await ctx.repo.table("activities").remove(a.id);
   return acts.map((a) => a.id);
+}
+
+/**
+ * De som målgruppen bjöd in och som inte kan vara med vid aktivitetens nya tid eller längd: insatsen pågår inte den dagen, eller
+ * deltagaren har ett annat tillfälle vid samma tid (eget eller i en annan aktivitet). Bara rader utan registrerad närvaro.
+ */
+async function audienceDropouts(ctx: Ctx, cases: readonly Case[], acts: readonly Activity[], slot: { startsAt: string; durationMin: number }, groupActivityId: string): Promise<Case[]> {
+  if (!cases.length) return [];
+  const ov = await overlapsFor(ctx, cases, slot, groupActivityId);
+  const out = new Set([...problemsOf(cases, dayOf(slot.startsAt)), ...ov.blocking, ...ov.replace].map((x) => x.caseId));
+  const ids = acts.filter((a) => out.has(a.caseId)).map((a) => a.id);
+  const registered = new Set(ids.length ? (await ctx.repo.table("attendance").pick(["activityId"], { activityId: { in: ids } })).map((r) => r.activityId) : []);
+  return cases.filter((c) => out.has(c.id) && !acts.some((a) => a.caseId === c.id && registered.has(a.id)));
+}
+
+/**
+ * Tar bort deltagarnas rader i en aktivitet som just ställts in. En rad som redan är borta (en samtidig synkning eller
+ * borttagning) räknas inte; en rad där närvaron registrerades under tiden (23503) läggs i kept. Efteråt sopas rader som den
+ * automatiska synkningen hann skriva efter att raderna lästes (aktiviteten är inställd – ingen ska stå kvar i den).
+ */
+async function removeAll(ctx: Ctx, groupActivityId: string, acts: readonly Activity[], kept: Activity[] = []): Promise<Activity[]> {
+  const removed: Activity[] = [];
+  const seen = new Set([...acts, ...kept].map((a) => a.id));
+  const late = (await participantsOf(ctx, groupActivityId)).filter((a) => !seen.has(a.id));
+  for (const a of [...acts, ...late]) {
+    const out = await removeParticipantRow(ctx, ctx.repo, a.id);
+    if (out === "removed") removed.push(a);
+    else if (out === "kept") kept.push(a);
+  }
+  return removed;
 }
 
 /**
@@ -177,7 +175,9 @@ async function addParticipants(ctx: Ctx, g: GroupActivity, cases: readonly Case[
   for (const c of [...cases].sort(by<Case>("caseNumber"))) {
     const id = ctx.newId("a");
     try {
-      await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id });
+      await ctx.repo.table("activities").insert({
+        id, caseId: c.id, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "manual",
+      });
     } catch (e) {
       if ((e as { code?: unknown } | null)?.code !== "23505") throw e;
       out.already.push(c.id);
@@ -198,35 +198,50 @@ function goalText(goal: string | null | undefined): { goal: string | null } | { 
 }
 
 /**
- * Meddelandet till deltagarna (spår G): ett utskick per deltagare via notifyParticipant – tid, plats och Miljonbemannings
- * telefonnummer, aldrig namn. Kanalerna och uppgiften till samordnaren när ingen kanal finns avgörs där. Loggas som
- * group_activity.notified med mallen, ärendena och antalen. null när ingen deltagare berördes.
+ * Målgruppens namn i avtalet: nivåernas namn (groupings) och yrkesområdenas (contract_areas), via behörigheten. Funktionen ger
+ * målgruppen i klarspråk för en rad, eller null (inbjudna för hand).
  */
-async function notifyAll(
-  ctx: Ctx, g: Pick<GroupActivity, "id" | "contractId">, template: ActivityTemplate, caseIds: readonly string[], slot: { when: LocalDateTime; place: string },
-  previous?: LocalDateTime,
-): Promise<NotifyOutcome> {
-  const results: NotifyParticipantResult[] = [];
-  for (const caseId of caseIds) results.push(await notifyParticipant(ctx, { caseId, template, when: slot.when, place: slot.place, previous: previous ?? null }));
-  const summary = notifyManySummary(template, results);
-  if (!summary) return null;
-  const sent = results.filter((r) => !r.blocked && r.channels.some((c) => c === "email" || c === "sms")).length;
-  const tasks = results.filter((r) => !r.blocked && r.taskId).length;
-  await ctx.audit({
-    action: "group_activity.notified", entity: "group_activity", entityId: g.id, contractId: g.contractId,
-    details: { template, caseIds: [...caseIds].sort(), count: caseIds.length, sent, tasks, startsAt: slot.when },
-  });
-  return { sent, tasks, summary };
+async function audienceNames(ctx: Ctx, contractIds: readonly string[]): Promise<(x: Parameters<typeof audienceOf>[0] & { contractId: string }) => string | null> {
+  const ids = uniq(contractIds);
+  if (!ids.length) return () => null;
+  const [levels, areas] = await Promise.all([
+    ctx.repo.table("groupings").list({ contractId: { in: ids }, kind: "level" }),
+    ctx.repo.table("contract_areas").list({ contractId: { in: ids } }),
+  ]);
+  const levelName = new Map(levels.map((g) => [g.id, g.name]));
+  const areaName = new Map(areas.map((a) => [`${a.contractId}|${a.code}`, a.name]));
+  return (x) => {
+    const a = audienceOf(x);
+    if (!a) return null;
+    return audienceLabel(a, { level: a.kind === "level" ? levelName.get(a.levelId) ?? null : null, area: a.kind === "area" ? areaName.get(`${x.contractId}|${a.areaCode}`) ?? null : null });
+  };
 }
-/** Meddelanden skickas bara inför en aktivitet som inte har börjat. */
-const upcoming = (ctx: Ctx, startsAt: LocalDateTime): boolean => startsAt > ctx.now();
 
-/**
- * Tiden eller platsen gäller inte längre (ny tid, inställd, borttagen deltagare): öppna uppgifter att ringa deltagarna om den
- * gamla tiden stängs (closeActivityTasks) – annars ringer samordnaren med fel tid.
- */
-async function supersedeTasks(ctx: Ctx, cases: readonly Pick<Case, "id" | "caseNumber" | "contractId">[], was: Pick<GroupActivity, "startsAt" | "location">, note: string): Promise<void> {
-  for (const c of cases) await closeActivityTasks(ctx, c, { when: was.startsAt, place: was.location }, note);
+/** Varför en deltagare i målgruppen inte kan tas bort – och vad coachen kan göra i stället (texten följer målgruppens typ). */
+function audienceRemoveText(kind: GroupActivity["audience"]): string {
+  return kind === "area"
+    ? "Deltagaren bjuds in automatiskt eftersom hen har aktivitetens yrkesområde. Byt yrkesområde på deltagarkortet, eller registrera frånvaro när aktiviteten har börjat."
+    : "Deltagaren bjuds in automatiskt eftersom hen är på aktivitetens nivå. Byt nivå på deltagarkortet, eller registrera frånvaro när aktiviteten har börjat.";
+}
+
+const AUDIENCE_MIXED = "Välj antingen en nivå, ett yrkesområde eller enskilda deltagare – inte flera sätt i samma inbjudan.";
+/** Målgruppen finns i avtalet: en nivå i avtalet, eller ett aktivt avtalsområde. Null = godkänd, annars felet i klarspråk. */
+async function audienceProblem(ctx: Ctx, contractId: string, a: AudienceInput): Promise<string | null> {
+  if (a.kind === "level") {
+    const g = await ctx.repo.table("groupings").get(a.levelId);
+    return g && g.kind === "level" && g.contractId === contractId && !g.archivedAt ? null : "Nivån finns inte i avtalet. Ladda om sidan.";
+  }
+  const area = await ctx.repo.table("contract_areas").first({ contractId, code: a.areaCode, active: true });
+  return area ? null : "Yrkesområdet finns inte i avtalet. Ladda om sidan.";
+}
+const audienceFrom = (a: AudienceInput): Audience => (a.kind === "level" ? { kind: "level", levelId: a.levelId } : { kind: "area", areaCode: a.areaCode });
+
+/** De som målgruppen hoppade över (en annan aktivitet vid samma tid) – med ärendenummer, till svaret. */
+async function skippedProblems(ctx: Ctx, detail: AudienceSyncDetail | undefined): Promise<InviteProblem[]> {
+  const ids = detail?.skipped ?? [];
+  if (!ids.length) return [];
+  const cases = await ctx.repo.table("cases").pick(["caseNumber"], { id: { in: ids } });
+  return cases.map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, reason: "Har en annan aktivitet vid samma tid" })).sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : 1));
 }
 
 /** Orsaken för en deltagare i en nivå eller grupp som inte kan bjudas in alls (insatsen pågår inte). */
@@ -241,13 +256,15 @@ handleQuery(groupActivityList, { roles: GROUP_READERS }, async (ctx) => {
   const now = ctx.now();
   const today = dayOf(now);
   const groups = await ctx.repo.table("group_activities").list({}, { orderBy: "startsAt" });
+  const seriesRows = (await ctx.repo.table("group_activity_series").list({ endedAt: { isNull: true } })).sort((a, b) => a.name.localeCompare(b.name, "sv") || a.id.localeCompare(b.id));
+  const labelOf = await audienceNames(ctx, [...groups.map((g) => g.contractId), ...seriesRows.map((x) => x.contractId)]);
   const upcoming = groups.filter((g) => dayOf(g.startsAt) >= today);
   const earlier = groups.filter((g) => dayOf(g.startsAt) < today).reverse().slice(0, 100);
   const shown = [...upcoming, ...earlier];
   const acts = shown.length ? await ctx.repo.table("activities").list({ groupActivityId: { in: shown.map((g) => g.id) } }) : [];
   const regs = new Set(acts.length ? (await ctx.repo.table("attendance").pick(["activityId"], { activityId: { in: acts.map((a) => a.id) } })).map((r) => r.activityId) : []);
   const names = new Map<string, string>();
-  for (const id of uniq(shown.map((g) => g.responsibleId).filter((x): x is string => !!x))) {
+  for (const id of uniq([...shown.map((g) => g.responsibleId), ...seriesRows.map((x) => x.responsibleId)].filter((x): x is string => !!x))) {
     const p = await ctx.repo.table("profiles").get(id);
     if (p) names.set(id, p.fullName);
   }
@@ -256,10 +273,18 @@ handleQuery(groupActivityList, { roles: GROUP_READERS }, async (ctx) => {
     return {
       id: g.id, name: g.name, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location,
       responsibleName: g.responsibleId ? names.get(g.responsibleId) ?? null : null, invited: mine.length, registered: mine.filter((a) => regs.has(a.id)).length,
-      cancelled: !!g.cancelledAt,
+      cancelled: !!g.cancelledAt, seriesId: g.seriesId, audienceLabel: labelOf(g),
     };
   };
-  return { now, canCreate: GROUP_WRITERS.includes(ctx.actor.role), upcoming: upcoming.map(row), earlier: earlier.map(row) };
+  const series: SeriesListRow[] = seriesRows.map((x) => {
+    const next = groups.filter((g) => g.seriesId === x.id && !g.cancelledAt && g.startsAt >= now);
+    return {
+      id: x.id, name: x.name, kind: x.kind, schedule: seriesScheduleText(x.weekdays, x.startTime), durationMin: x.durationMin, location: x.location,
+      audienceLabel: labelOf(x) ?? "", responsibleId: x.responsibleId, responsibleName: x.responsibleId ? names.get(x.responsibleId) ?? null : null, goal: x.goal,
+      startsOn: x.startsOn, endsOn: x.endsOn, notify: x.notify, next: next[0] ? { id: next[0].id, startsAt: next[0].startsAt } : null, upcoming: next.length,
+    };
+  });
+  return { now, canCreate: GROUP_WRITERS.includes(ctx.actor.role), series, upcoming: upcoming.map(row), earlier: earlier.map(row) };
 });
 
 handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
@@ -280,6 +305,8 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
   // för: rader för en tidigare version av målet, eller från innan deltagaren bjöds in igen (ett annat tillfälle), räknas inte.
   const goalRows = g.goal ? await ctx.repo.table("group_goal_results").list({ groupActivityId: g.id, goalVersion: g.goalVersion }) : [];
   const goalOf = new Map(goalRows.map((r) => [r.activityId, r]));
+  // De som hör till målgruppen kan inte tas bort för hand (synkningen skulle bjuda in dem igen) – samma regel som aktiviteter.taBort.
+  const members = g.audience !== "manual" && !g.cancelledAt ? await audienceMembers(ctx, g, caseIds) : new Set<string>();
   const participants: GroupParticipant[] = [];
   for (const a of acts) {
     const c = await ctx.repo.table("cases").get(a.caseId);
@@ -288,12 +315,18 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
     const at = regOf.get(a.id);
     participants.push({
       activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person),
-      attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null,
+      attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, inviteSource: a.inviteSource, audienceMember: members.has(c.id),
       goal: g.goal ? { achieved: goalOf.get(a.id)?.achieved ?? true, auto: !goalOf.has(a.id) } : null,
       notes: notes.filter((n) => n.caseId === c.id).map((n) => ({ id: n.id, body: n.body, authorName: authorNames.get(n.authorId) ?? "–" })),
     });
   }
   participants.sort((x, y) => x.name.localeCompare(y.name, "sv") || (x.caseNumber < y.caseNumber ? -1 : 1));
+  const labelOf = await audienceNames(ctx, [g.contractId]);
+  const series = g.seriesId ? await ctx.repo.table("group_activity_series").get(g.seriesId) : null;
+  const audience = audienceOf(g);
+  // Målgruppens deltagare som synkningen hoppade över (busy.ts – samma uppslag som visningsloggen, så att varje namn som visas
+  // också loggas).
+  const audienceBusy = await audienceBusyOf(ctx, g, caseIds);
   return {
     kind: "ok" as const,
     now: ctx.now(),
@@ -301,8 +334,18 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
       id: g.id, contractId: g.contractId, name: g.name, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, responsibleId: g.responsibleId,
       responsibleName: await profileName(g.responsibleId), createdByName: (await profileName(g.createdBy)) ?? "–", cancelledAt: g.cancelledAt, holiday: await holidayOn(ctx, day),
       goal: g.goal,
+      audience: audience ? { kind: audience.kind, label: labelOf(g) ?? "" } : null,
+      notify: g.notify,
+      series: series
+        ? {
+          id: series.id, name: series.name, schedule: seriesScheduleText(series.weekdays, series.startTime), startsOn: series.startsOn, endsOn: series.endsOn, ended: !!series.endedAt,
+          notify: series.notify,
+          location: series.location, responsibleId: series.responsibleId, goal: series.goal,
+        }
+        : null,
     },
     participants,
+    audienceBusy,
     canEdit: GROUP_WRITERS.includes(ctx.actor.role) && !g.cancelledAt,
     absenceReasons: [...ABSENCE_REASONS],
   };
@@ -327,17 +370,22 @@ handleQuery(groupActivityForm, { roles: GROUP_WRITERS }, async (ctx) => {
   const personOf = new Map(persons.map((p) => [p.id, p]));
   const coachName = new Map(coaches.map((c) => [c.id, c.name]));
   const holidays = await ctx.repo.table("holidays").list({ date: { gte: today, lte: addDays(today, 366) } }, { orderBy: "date" });
-  // Inbjudan per nivå eller grupp (spår G): avtalets aktiva nivåer och grupper med deltagarna den inloggade får se (policyn för
-  // grouping_members). Deltagare vars insats inte pågår räknas upp som överhoppade med orsaken.
-  const [gs, ms] = await Promise.all([
-    ctx.repo.table("groupings").list({ contractId, archivedAt: { isNull: true }, kind: { in: ["level", "group"] } }),
-    ctx.repo.table("grouping_members").list({ contractId, removedAt: { isNull: true }, kind: { in: ["level", "group"] } }),
-  ]);
-  const groupings: InviteGrouping[] = gs
-    .sort((a, b) => (a.kind === b.kind ? a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "sv") : a.kind === "level" ? -1 : 1))
-    .map((x) => ({ id: x.id, kind: x.kind as "level" | "group", name: x.name, caseIds: uniq(ms.filter((m) => m.groupingId === x.id).map((m) => m.caseId)).sort() }));
+  // Målgruppen (Karims beslut 2026-10-22): avtalets nivåer med deltagarna den inloggade får se (policyn för grouping_members) och
+  // yrkesområdena (aktiva avtalsområden) med de pågående och pausade ärendena som har yrkesområdet. Deltagare i nivåerna vars insats
+  // inte pågår räknas upp som överhoppade med orsaken.
   const candidateIds = new Set(cases.filter((c) => personOf.has(c.personId)).map((c) => c.id));
-  const otherIds = uniq(groupings.flatMap((x) => x.caseIds)).filter((id) => !candidateIds.has(id));
+  const [gs, ms, areas] = await Promise.all([
+    ctx.repo.table("groupings").list({ contractId, archivedAt: { isNull: true }, kind: "level" }),
+    ctx.repo.table("grouping_members").list({ contractId, removedAt: { isNull: true }, kind: "level" }),
+    ctx.repo.table("contract_areas").list({ contractId, active: true }),
+  ]);
+  const groupings: InviteGrouping[] = [
+    ...gs.sort(byOrder).map((x): InviteGrouping => ({ id: x.id, kind: "level", name: x.name, caseIds: uniq(ms.filter((m) => m.groupingId === x.id).map((m) => m.caseId)).sort() })),
+    ...areas.sort((a, b) => a.code.localeCompare(b.code, "sv")).map((a): InviteGrouping => ({
+      id: a.code, kind: "area", name: areaLabel(a.code, a.name), caseIds: cases.filter((c) => candidateIds.has(c.id) && c.primaryAreaCode === a.code).map((c) => c.id).sort(),
+    })),
+  ];
+  const otherIds = uniq(groupings.filter((x) => x.kind === "level").flatMap((x) => x.caseIds)).filter((id) => !candidateIds.has(id));
   const otherCases = otherIds.length ? await ctx.repo.table("cases").list({ id: { in: otherIds } }) : [];
   const otherPersons = otherCases.length ? await ctx.repo.table("persons").list({ id: { in: uniq(otherCases.map((c) => c.personId)) } }) : [];
   const otherPersonOf = new Map(otherPersons.map((x) => [x.id, x]));
@@ -366,17 +414,16 @@ handleQuery(groupActivityForm, { roles: GROUP_WRITERS }, async (ctx) => {
 });
 
 // ================================================================ Kommandon
-/** Nivåerna och grupperna som valdes (revisionsloggen) – bara de som finns i aktivitetens avtal. */
-async function selectionLog(ctx: Ctx, contractId: string, p: { via?: string; groupingIds?: string[] }): Promise<Record<string, unknown>> {
-  const ids = uniq(p.groupingIds ?? []);
-  const known = ids.length ? (await ctx.repo.table("groupings").pick(["id"], { id: { in: ids }, contractId })).map((x) => x.id).sort() : [];
-  return { ...(p.via ? { via: p.via } : {}), ...(known.length ? { groupingIds: known } : {}) };
+/** Hur deltagarna valdes (revisionsloggen): yrkesområde, nivå eller enskilda, och målgruppen (nivåns id eller områdets kod). */
+function selectionLog(p: { via?: string }, a: Audience | null): Record<string, unknown> {
+  return { ...(p.via ? { via: p.via } : {}), ...(a ? { audience: a.kind, audienceId: a.kind === "level" ? a.levelId : a.areaCode } : {}) };
 }
 
 handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const now = ctx.now();
   const day = dayOf(p.startsAt);
   const ids = uniq(p.caseIds);
+  if (p.audience && ids.length) return fail("audience", AUDIENCE_MIXED);
   const cases = ids.length ? await ctx.repo.table("cases").list({ id: { in: ids } }) : [];
   if (cases.length !== ids.length) return fail("not_found", CASES_NOT_FOUND);
   const contracts = uniq(cases.map((c) => c.contractId));
@@ -385,30 +432,42 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (!contractId || !ctx.actor.contractIds.includes(contractId)) return fail("contract", "Du kan bara skapa aktiviteter i avtal där du arbetar.");
   const goal = goalText(p.goal);
   if ("error" in goal) return fail("goal", goal.error);
+  if (p.audience) {
+    const problem = await audienceProblem(ctx, contractId, p.audience);
+    if (problem) return fail("audience", problem);
+  }
   const holiday = await holidayOn(ctx, day);
   if (holiday && !p.acceptHoliday) return fail("holiday", holidayText(day, holiday));
-  const check = await participantCheck(ctx, cases, p, null, p.replaceOverlapping, "", !!p.skipUninvitable);
+  const check = await participantCheck(ctx, cases, p, null, p.replaceOverlapping, "", false);
   if ("fail" in check) return check.fail;
   const responsibleId = p.responsibleId ?? null;
   if (!(await responsibleOk(ctx, contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
+  const audience = p.audience ? audienceFrom(p.audience) : null;
   const g: GroupActivity = {
     id: ctx.newId("ga"), contractId, name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId,
     createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: goal.goal, goalVersion: 0,
+    ...audienceColumns(audience), seriesId: null, notify: !!p.notify,
   };
   await ctx.repo.table("group_activities").insert(g);
   const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
   const added = await addParticipants(ctx, g, check.cases);
+  // Målgruppen: servern bjuder in de aktiva deltagarna i nivån eller yrkesområdet (systemsteg, loggas här nedan i samma rad).
+  const synced = audience ? (await syncAudienceInvites(ctx, { contractId, groupActivityIds: [g.id], quiet: true })).details[g.id] : undefined;
+  const invitedIds = [...added.caseIds, ...(synced?.added ?? [])];
+  const skipped = audience ? await skippedProblems(ctx, synced) : check.skipped;
   // Loggen: id:n, typ, tid och antal – aldrig namnet, platsen eller gruppmålet. caseIds gör att kortets Historik visar raden.
   await ctx.audit({
     action: "group_activity.created", entity: "group_activity", entityId: g.id, contractId,
     details: {
-      kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, count: added.caseIds.length, caseIds: [...added.caseIds].sort(), activityIds: added.activityIds,
+      kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, count: invitedIds.length, caseIds: [...invitedIds].sort(), activityIds: added.activityIds,
       ...(replacedActivityIds.length ? { replacedActivityIds } : {}), ...(holiday ? { holiday: true } : {}), ...(g.goal ? { goal: true } : {}),
-      ...(check.skipped.length ? { skippedCaseIds: check.skipped.map((x) => x.caseId) } : {}), ...(await selectionLog(ctx, contractId, p)),
+      ...(skipped.length ? { skippedCaseIds: skipped.map((x) => x.caseId) } : {}), ...selectionLog(p, audience),
     },
   });
-  const notified = p.notify && upcoming(ctx, g.startsAt) ? await notifyAll(ctx, g, "aktivitetsinbjudan", added.caseIds, { when: g.startsAt, place: g.location }) : null;
-  return ok({ groupActivityId: g.id, invited: added.caseIds.length, replaced: replacedActivityIds.length, skipped: check.skipped, notified });
+  const notified = audience
+    ? synced?.notifiedAdded ?? null
+    : p.notify && upcoming(ctx, g.startsAt) ? await notifyAll(ctx, g, "aktivitetsinbjudan", added.caseIds, { when: g.startsAt, place: g.location }) : null;
+  return ok({ groupActivityId: g.id, invited: invitedIds.length, replaced: replacedActivityIds.length, skipped, notified });
 });
 
 handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
@@ -424,28 +483,42 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if ("error" in goal) return fail("goal", goal.error);
   const next = { name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal };
   const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== g[k]);
-  if (!fields.length) return ok({ changed: 0, replaced: 0, notified: null });
+  if (!fields.length) return ok({ changed: 0, replaced: 0, dropped: 0, notified: null });
+  // Ett tillfälle i en återkommande aktivitet behåller seriens dag, tid och längd – annars skapas tillfället igen på den gamla tiden.
+  if (g.seriesId && (moved || next.durationMin !== g.durationMin)) {
+    return fail("series", "Tillfället hör till en återkommande aktivitet. Dag, tid och längd ändras för hela serien: avsluta serien och skapa en ny.");
+  }
   // Tid, längd, plats och typ ändras på alla deltagarnas tillfällen – också de aktören inte ser måste kunna ändras.
   const actFields = fields.filter((k) => k === "kind" || k === "startsAt" || k === "durationMin" || k === "location");
   if (actFields.length && (await hiddenParticipants(ctx, g.id, acts.length))) return fail("restricted", RESTRICTED);
   let replaceable: Activity[] = [];
   const cases = (await Promise.all(uniq(acts.map((a) => a.caseId)).map((id) => ctx.repo.table("cases").get(id)))).filter((c): c is Case => !!c);
+  // Målgruppens deltagare (Karims beslut 2026-10-22) prövas inte som en inbjudan: den som inte kan vara med vid den nya tiden
+  // (insatsen pågår inte den dagen, eller ett annat tillfälle vid samma tid) tas bort ur aktiviteten i stället för att stoppa
+  // ändringen – deltagarens egna tillfällen ersätts aldrig automatiskt. Målgruppens deltagare är raderna som målgruppen bjöd in
+  // OCH de som bjöds in för hand men hör till målgruppen: dem kan coachen inte ta bort för hand (aktiviteter.taBort, samma regel
+  // audienceMembers), så de får aldrig heller stoppa en flytt. Övriga manuellt inbjudna prövas som förut.
+  let dropped: Case[] = [];
   if (moved || next.durationMin !== g.durationMin) {
+    const members = g.audience !== "manual" ? await audienceMembers(ctx, g, cases.map((c) => c.id)) : new Set<string>();
+    const autoIds = new Set(g.audience !== "manual" ? acts.filter((a) => a.inviteSource === "audience" || members.has(a.caseId)).map((a) => a.caseId) : []);
+    const manualCases = cases.filter((c) => !autoIds.has(c.id));
     if (moved && acts.length && (await ctx.repo.table("attendance").list({ activityId: { in: acts.map((a) => a.id) } })).length) return fail("has_attendance", HAS_ATTENDANCE_TIME);
     const holiday = moved && day !== dayOf(g.startsAt) ? await holidayOn(ctx, day) : null;
     if (holiday && !p.acceptHoliday) return fail("holiday", holidayText(day, holiday));
     if (moved) {
       // Ny tid: samma kontroller som en inbjudan (insatsen den dagen och deltagarnas andra tillfällen – aktivitetens egna rader räknas inte).
-      const check = await participantCheck(ctx, cases, next, g.id, p.replaceOverlapping, `Aktiviteten kan inte flyttas till ${fmtDate(day)}. `);
+      const check = await participantCheck(ctx, manualCases, next, g.id, p.replaceOverlapping, `Aktiviteten kan inte flyttas till ${fmtDate(day)}. `);
       if ("fail" in check) return check.fail;
       replaceable = check.replaceable;
     } else {
       // Ny längd: bara deltagarnas andra tillfällen samma dag.
-      const ov = await overlapsFor(ctx, cases, next, g.id);
+      const ov = await overlapsFor(ctx, manualCases, next, g.id);
       if (ov.blocking.length) return { ...fail("not_invitable", `Längden kan inte ändras. ${problemsText(ov.blocking)}`), problems: ov.blocking };
       if (ov.replace.length && !p.replaceOverlapping) return { ...fail("overlap", overlapText(ov.replace)), problems: ov.replace };
       replaceable = ov.replaceable;
     }
+    dropped = await audienceDropouts(ctx, cases.filter((c) => autoIds.has(c.id)), acts, next, g.id);
   }
   if (responsibleId !== g.responsibleId && !(await responsibleOk(ctx, g.contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const now = ctx.now();
@@ -453,39 +526,73 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const goalVersion = next.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
   await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
   const replacedActivityIds = await removeReplaced(ctx, replaceable);
+  const droppedIds = new Set(dropped.map((c) => c.id));
+  const droppedNow: string[] = [];
+  for (const a of acts.filter((x) => droppedIds.has(x.caseId))) {
+    if ((await removeParticipantRow(ctx, ctx.repo, a.id)) === "removed") droppedNow.push(a.caseId);
+  }
+  const stay = acts.filter((a) => !droppedIds.has(a.caseId));
   if (actFields.length) {
-    for (const a of acts) await ctx.repo.table("activities").update(a.id, { kind: next.kind, startsAt: next.startsAt, durationMin: next.durationMin, location: next.location });
+    for (const a of stay) await ctx.repo.table("activities").update(a.id, { kind: next.kind, startsAt: next.startsAt, durationMin: next.durationMin, location: next.location });
   }
   await ctx.audit({
     action: "group_activity.updated", entity: "group_activity", entityId: g.id, contractId: g.contractId,
     details: {
-      fields, ...(moved ? { startsAt: next.startsAt } : {}), count: acts.length, caseIds: uniq(acts.map((a) => a.caseId)).sort(),
-      ...(replacedActivityIds.length ? { replacedActivityIds } : {}),
+      fields, ...(moved ? { startsAt: next.startsAt } : {}), count: stay.length, caseIds: uniq(acts.map((a) => a.caseId)).sort(),
+      ...(replacedActivityIds.length ? { replacedActivityIds } : {}), ...(droppedNow.length ? { droppedCaseIds: [...droppedNow].sort() } : {}),
     },
   });
-  // Ny tid eller plats (spår G): uppgifterna att ringa om den gamla tiden gäller inte längre, och deltagarna får den nya.
+  // Ny tid eller plats (spår G): uppgifterna att ringa om den gamla tiden gäller inte längre, och deltagarna får den nya. De som
+  // togs bort får beskedet att aktiviteten är inställd för dem.
   let notified: NotifyOutcome = null;
+  const add = (r: NotifyOutcome) => {
+    if (r) notified = notified ? { sent: notified.sent + r.sent, tasks: notified.tasks + r.tasks, summary: `${notified.summary} ${r.summary}` } : r;
+  };
+  const staying = cases.filter((c) => !droppedIds.has(c.id));
+  const droppedCases = cases.filter((c) => droppedNow.includes(c.id));
+  if (droppedCases.length) await supersedeTasks(ctx, droppedCases, g, "Deltagaren kan inte vara med vid aktivitetens nya tid och är borttagen.");
   if (moved || next.location !== g.location) {
-    await supersedeTasks(ctx, cases, g, "Aktiviteten har fått ny tid eller plats.");
-    if (p.notify && upcoming(ctx, next.startsAt)) {
-      notified = await notifyAll(ctx, g, "aktivitet_andrad", cases.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt);
-    }
+    await supersedeTasks(ctx, staying, g, "Aktiviteten har fått ny tid eller plats.");
+    if (p.notify && upcoming(ctx, next.startsAt)) add(await notifyAll(ctx, g, "aktivitet_andrad", staying.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt));
   }
-  return ok({ changed: fields.length, replaced: replacedActivityIds.length, notified });
+  if (droppedCases.length && p.notify && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
+  // Med målgrupp och ny dag: de som hör till målgruppen och kan vara med den nya dagen bjuds in (en insats som slutar före den
+  // nya dagen har redan fallit bort ovan).
+  if (moved && g.audience !== "manual") await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id] });
+  return ok({ changed: fields.length, replaced: replacedActivityIds.length, dropped: droppedNow.length, notified });
 });
 
 handleCommand(groupActivityInvite, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const g = await groupOf(ctx, p.id);
   if (!g) return fail("not_found", NOT_FOUND);
   if (g.cancelledAt) return fail("cancelled", CANCELLED);
+  if (p.audience) {
+    // Målgruppen (Karims beslut 2026-10-22): en aktivitet utan målgrupp som inte har börjat får nivån eller yrkesområdet.
+    if (p.caseIds.length) return fail("audience", AUDIENCE_MIXED);
+    if (g.audience !== "manual") return fail("audience", "Aktiviteten har redan en målgrupp. Bjud in fler enskilt.");
+    if (!upcoming(ctx, g.startsAt)) return fail("audience", "Aktiviteten har redan börjat. Bjud in enskilt i stället.");
+    const problem = await audienceProblem(ctx, g.contractId, p.audience);
+    if (problem) return fail("audience", problem);
+    const audience = audienceFrom(p.audience);
+    await ctx.repo.table("group_activities").update(g.id, { ...audienceColumns(audience), notify: !!p.notify, updatedAt: ctx.now(), updatedBy: ctx.actor.userId });
+    const synced = (await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id], quiet: true })).details[g.id];
+    const added = synced?.added ?? [];
+    const skipped = await skippedProblems(ctx, synced);
+    await ctx.audit({
+      action: "group_activity.invited", entity: "group_activity", entityId: g.id, contractId: g.contractId,
+      details: { count: added.length, caseIds: [...added].sort(), ...(skipped.length ? { skippedCaseIds: skipped.map((x) => x.caseId) } : {}), ...selectionLog(p, audience) },
+    });
+    return ok({ invited: added.length, already: 0, replaced: 0, skipped, notified: synced?.notifiedAdded ?? null });
+  }
   const invited = new Set((await participantsOf(ctx, g.id)).map((a) => a.caseId));
   const wanted = uniq(p.caseIds);
+  if (!wanted.length) return fail("not_found", "Välj minst en deltagare.");
   const ids = wanted.filter((id) => !invited.has(id));
   if (!ids.length) return ok({ invited: 0, already: wanted.length, replaced: 0, skipped: [], notified: null });
   const cases = await ctx.repo.table("cases").list({ id: { in: ids } });
   if (cases.length !== ids.length) return fail("not_found", CASES_NOT_FOUND);
   if (cases.some((c) => c.contractId !== g.contractId)) return fail("contract", "Deltagarna måste höra till aktivitetens avtal.");
-  const check = await participantCheck(ctx, cases, g, g.id, p.replaceOverlapping, "", !!p.skipUninvitable);
+  const check = await participantCheck(ctx, cases, g, g.id, p.replaceOverlapping, "", false);
   if ("fail" in check) return check.fail;
   const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
   const added = await addParticipants(ctx, g, check.cases);
@@ -494,7 +601,7 @@ handleCommand(groupActivityInvite, { roles: GROUP_WRITERS }, async (ctx, p) => {
       action: "group_activity.invited", entity: "group_activity", entityId: g.id, contractId: g.contractId,
       details: {
         count: added.caseIds.length, caseIds: [...added.caseIds].sort(), activityIds: added.activityIds, ...(replacedActivityIds.length ? { replacedActivityIds } : {}),
-        ...(check.skipped.length ? { skippedCaseIds: check.skipped.map((x) => x.caseId) } : {}), ...(await selectionLog(ctx, g.contractId, p)),
+        ...(check.skipped.length ? { skippedCaseIds: check.skipped.map((x) => x.caseId) } : {}), ...selectionLog(p, null),
       },
     });
   }
@@ -508,6 +615,9 @@ handleCommand(groupActivityRemove, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (g.cancelledAt) return fail("cancelled", CANCELLED);
   const act = await ctx.repo.table("activities").first({ groupActivityId: g.id, caseId: p.caseId });
   if (!act) return fail("not_found", "Deltagaren är inte inbjuden till aktiviteten.");
+  // Deltagaren hör till aktivitetens målgrupp (Karims beslut 2026-10-22) – oavsett hur hen bjöds in skulle synkningen bjuda in
+  // hen igen. Samma regel som synkningen (audienceMembers).
+  if (g.audience !== "manual" && (await audienceMembers(ctx, g, [p.caseId])).has(p.caseId)) return fail("audience", audienceRemoveText(g.audience));
   if (await ctx.repo.table("attendance").first({ activityId: act.id })) {
     return fail("has_attendance", "Närvaron är registrerad för deltagaren och tillfället kan inte tas bort. Ändra närvaron i stället.");
   }
@@ -535,22 +645,13 @@ handleCommand(groupActivityCancel, { roles: GROUP_WRITERS }, async (ctx, p) => {
   // aktiviteten är ändå inställd och ingen deltagare försvinner utan att det syns i loggen.
   const cancelled = await ctx.repo.table("group_activities").updateIf(g.id, { cancelledAt: { isNull: true } }, { cancelledAt: ctx.now(), cancelledBy: ctx.actor.userId });
   if (!cancelled) return fail("cancelled", "Aktiviteten är redan inställd.");
-  const removed: Activity[] = [];
   const kept: Activity[] = [];
+  const toRemove: Activity[] = [];
   for (const a of acts) {
-    if (await attendance.first({ activityId: a.id })) {
-      kept.push(a);
-      continue;
-    }
-    try {
-      await ctx.repo.table("activities").remove(a.id);
-      removed.push(a);
-    } catch (e) {
-      // Främmande nyckeln attendance.activity_id (23503): närvaron registrerades mellan kontrollen och borttagningen.
-      if ((e as { code?: unknown } | null)?.code !== "23503") throw e;
-      kept.push(a);
-    }
+    if (await attendance.first({ activityId: a.id })) kept.push(a);
+    else toRemove.push(a);
   }
+  const removed = await removeAll(ctx, g.id, toRemove, kept);
   await ctx.audit({
     action: "group_activity.cancelled", entity: "group_activity", entityId: g.id, contractId: g.contractId,
     details: {
@@ -646,4 +747,156 @@ handleCommand(groupActivityNotes, { roles: GROUP_WRITERS }, async (ctx, p) => {
     noteIds.push(id);
   }
   return ok({ saved: noteIds.length, noteIds });
+});
+
+// ================================================================ Återkommande aktiviteter (Karims beslut 2026-10-22)
+const SERIES_NOT_FOUND = "Den återkommande aktiviteten finns inte, eller så har du inte behörighet att se den.";
+const SERIES_ENDED = "Den återkommande aktiviteten är avslutad och kan inte ändras.";
+
+/** Seriens kommande tillfällen som inte har börjat och inte är inställda, i tidsordning. */
+async function futureOccurrences(ctx: Ctx, seriesId: string): Promise<GroupActivity[]> {
+  return (await ctx.repo.table("group_activities").list({ seriesId, cancelledAt: { isNull: true }, startsAt: { gt: ctx.now() } }, { orderBy: "startsAt" }))
+    .sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
+}
+
+handleCommand(groupActivitySeriesCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
+  const now = ctx.now();
+  const contractId = await primaryContractId(ctx);
+  if (!contractId) return fail("contract", "Du kan bara skapa aktiviteter i avtal där du arbetar.");
+  const weekdays = normalizeWeekdays(p.weekdays);
+  const plan = { weekdays, startTime: p.startTime, startsOn: p.startsOn, endsOn: p.endsOn ?? null };
+  const err = seriesScheduleError({ ...plan, weekdays: p.weekdays }, dayOf(now));
+  if (err) return fail("invalid", err);
+  const goal = goalText(p.goal);
+  if ("error" in goal) return fail("goal", goal.error);
+  const problem = await audienceProblem(ctx, contractId, p.audience);
+  if (problem) return fail("audience", problem);
+  const responsibleId = p.responsibleId ?? null;
+  if (!(await responsibleOk(ctx, contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
+  const audience = audienceFrom(p.audience);
+  const cols = audienceColumns(audience);
+  const series: GroupActivitySeries = {
+    id: ctx.newId("ser"), contractId, name: p.name.trim(), kind: p.kind, audience: cols.audience as GroupActivitySeries["audience"], audienceLevelId: cols.audienceLevelId,
+    audienceAreaCode: cols.audienceAreaCode, ...plan, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal, notify: !!p.notify,
+    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, endedAt: null, endedBy: null,
+  };
+  await ctx.repo.table("group_activity_series").insert(series);
+  // Bara koder, tider och id:n – aldrig namnet, platsen eller gruppmålet.
+  await ctx.audit({
+    action: "group_activity_series.created", entity: "group_activity_series", entityId: series.id, contractId,
+    details: { kind: series.kind, weekdays, startTime: series.startTime, durationMin: series.durationMin, startsOn: series.startsOn, endsOn: series.endsOn, ...selectionLog({}, audience), notify: series.notify },
+  });
+  // Tillfällena från i dag och 14 dagar framåt, med målgruppen inbjuden (systemsteg).
+  const made = await ensureSeriesOccurrences(ctx, { seriesIds: [series.id] });
+  const firstId = made.created.length ? (await ctx.repo.table("group_activities").list({ seriesId: series.id }, { orderBy: "startsAt" }))[0]?.id ?? null : null;
+  // De som målgruppen hoppade över (ett annat tillfälle vid samma tid) – antalet deltagare, till svaret och tillfällets vy.
+  const skipped = uniq(Object.values(made.synced?.details ?? {}).flatMap((d) => d.skipped)).length;
+  return ok({ seriesId: series.id, occurrences: made.created.length, invited: made.synced?.added ?? 0, firstId, skipped });
+});
+
+handleCommand(groupActivitySeriesUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
+  const x = await ctx.repo.table("group_activity_series").get(p.id);
+  if (!x) return fail("not_found", SERIES_NOT_FOUND);
+  if (x.endedAt) return fail("ended", SERIES_ENDED);
+  const goal = goalText(p.goal);
+  if ("error" in goal) return fail("goal", goal.error);
+  const responsibleId = p.responsibleId ?? null;
+  if (responsibleId !== x.responsibleId && !(await responsibleOk(ctx, x.contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
+  const next = { name: p.name.trim(), location: p.location.trim(), responsibleId, goal: goal.goal, notify: p.notify };
+  const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== x[k]);
+  if (!fields.length) return ok({ changed: 0, occurrences: 0, notified: null });
+  const future = await futureOccurrences(ctx, x.id);
+  const acts = future.length ? await ctx.repo.table("activities").list({ groupActivityId: { in: future.map((g) => g.id) } }) : [];
+  const moved = next.location !== x.location;
+  // Platsen ändras på deltagarnas tillfällen – också de aktören inte ser måste kunna ändras (vilande spärren).
+  if (moved) {
+    for (const g of future) if (await hiddenParticipants(ctx, g.id, acts.filter((a) => a.groupActivityId === g.id).length)) return fail("restricted", RESTRICTED);
+  }
+  const now = ctx.now();
+  await ctx.repo.table("group_activity_series").update(x.id, { ...next, updatedAt: now, updatedBy: ctx.actor.userId });
+  for (const g of future) {
+    const patch = { name: next.name, location: next.location, responsibleId: next.responsibleId, goal: next.goal, notify: next.notify };
+    const changed = (Object.keys(patch) as (keyof typeof patch)[]).filter((k) => patch[k] !== g[k]);
+    if (!changed.length) continue;
+    const goalVersion = patch.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
+    await ctx.repo.table("group_activities").update(g.id, { ...patch, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
+    if (moved) for (const a of acts.filter((r) => r.groupActivityId === g.id)) await ctx.repo.table("activities").update(a.id, { location: next.location });
+  }
+  await ctx.audit({
+    action: "group_activity_series.updated", entity: "group_activity_series", entityId: x.id, contractId: x.contractId,
+    details: { fields, occurrences: future.length, groupActivityIds: future.map((g) => g.id), caseIds: uniq(acts.map((a) => a.caseId)).sort() },
+  });
+  // Ny plats: uppgifterna att ringa om den gamla platsen gäller inte längre, och med meddelandet påslaget får deltagarna den nya.
+  let notified: NotifyOutcome = null;
+  if (moved) {
+    for (const g of future) {
+      const caseIds = uniq(acts.filter((a) => a.groupActivityId === g.id).map((a) => a.caseId));
+      const cases = (await Promise.all(caseIds.map((id) => ctx.repo.table("cases").get(id)))).filter((c): c is Case => !!c);
+      await supersedeTasks(ctx, cases, g, "Aktiviteten har fått ny plats.");
+      if (next.notify && caseIds.length) {
+        const r = await notifyAll(ctx, g, "aktivitet_andrad", caseIds, { when: g.startsAt, place: next.location }, g.startsAt);
+        if (r) notified = notified ? { sent: notified.sent + r.sent, tasks: notified.tasks + r.tasks, summary: r.summary } : r;
+      }
+    }
+  }
+  return ok({ changed: fields.length, occurrences: future.length, notified });
+});
+
+handleCommand(groupActivitySeriesEnd, { roles: GROUP_WRITERS }, async (ctx, p) => {
+  const x = await ctx.repo.table("group_activity_series").get(p.id);
+  if (!x) return fail("not_found", SERIES_NOT_FOUND);
+  if (x.endedAt) return fail("ended", "Den återkommande aktiviteten är redan avslutad.");
+  const now = ctx.now();
+  const future = await futureOccurrences(ctx, x.id);
+  const actsOf = new Map<string, Activity[]>();
+  for (const g of future) {
+    const acts = await participantsOf(ctx, g.id);
+    if (await hiddenParticipants(ctx, g.id, acts.length)) return fail("restricted", RESTRICTED);
+    actsOf.set(g.id, acts);
+  }
+  // Sista dagen är i dag – men aldrig före seriens första dag (en serie som inte har börjat kan avslutas; check
+  // group_activity_series_ends_after_start i 0035 och seriesShape i policy.ts).
+  const endsOn = dayOf(now) < x.startsOn ? x.startsOn : dayOf(now);
+  // Först avslutad (en gång – två samtidiga försök ger ended för det andra), sedan ställs de kommande tillfällena in.
+  const ended = await ctx.repo.table("group_activity_series").updateIf(x.id, { endedAt: { isNull: true } }, { endsOn, endedAt: now, endedBy: ctx.actor.userId });
+  if (!ended) return fail("ended", "Den återkommande aktiviteten är redan avslutad.");
+  // Tillfällena läses igen efter avslutet: jobbet kan ha skapat ett nytt tillfälle efter den första läsningen (ett tillfälle som
+  // skapas efter avslutet ställer jobbet själv in – ensureSeriesOccurrences).
+  for (const g of await futureOccurrences(ctx, x.id)) {
+    if (future.some((f) => f.id === g.id)) continue;
+    future.push(g);
+    actsOf.set(g.id, await participantsOf(ctx, g.id));
+  }
+  let cancelled = 0;
+  let kept = 0;
+  let notified: NotifyOutcome = null;
+  const attendance = ctx.repo.table("attendance");
+  const cancelledIds: string[] = [];
+  for (const g of future) {
+    const acts = actsOf.get(g.id) ?? [];
+    // Ett tillfälle med registrerad närvaro har genomförts – det ligger kvar.
+    if (acts.length && (await attendance.list({ activityId: { in: acts.map((a) => a.id) } })).length) {
+      kept++;
+      continue;
+    }
+    if (!(await ctx.repo.table("group_activities").updateIf(g.id, { cancelledAt: { isNull: true } }, { cancelledAt: now, cancelledBy: ctx.actor.userId }))) continue;
+    const removed = await removeAll(ctx, g.id, acts);
+    cancelled++;
+    cancelledIds.push(g.id);
+    const removedCases = (await Promise.all(uniq(removed.map((a) => a.caseId)).map((id) => ctx.repo.table("cases").get(id)))).filter((c): c is Case => !!c);
+    await supersedeTasks(ctx, removedCases, g, "Den återkommande aktiviteten är avslutad.");
+    if (x.notify && removedCases.length) {
+      const r = await notifyAll(ctx, g, "aktivitet_installd", removedCases.map((c) => c.id), { when: g.startsAt, place: g.location });
+      if (r) notified = notified ? { sent: notified.sent + r.sent, tasks: notified.tasks + r.tasks, summary: r.summary } : r;
+    }
+    await ctx.audit({
+      action: "group_activity.cancelled", entity: "group_activity", entityId: g.id, contractId: g.contractId,
+      details: { removed: removed.length, activityIds: removed.map((a) => a.id), caseIds: uniq(acts.map((a) => a.caseId)).sort(), seriesId: x.id },
+    });
+  }
+  await ctx.audit({
+    action: "group_activity_series.ended", entity: "group_activity_series", entityId: x.id, contractId: x.contractId,
+    details: { endsOn, cancelled, kept, groupActivityIds: cancelledIds },
+  });
+  return ok({ cancelled, kept, notified });
 });

@@ -2,11 +2,11 @@
 // Ärendets fakturaunderlag (prototypens eko.arende): beställning, upparbetat, fakturerat, ej fakturerat och återstående,
 // referenser och debiterbara veckor per månad med fakturan som har raden. Utan ärende: sök på ärendenummer.
 // Inget ordervärde (beslut 2026-10-07, synpunkt #11): beställningen visas i veckor.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
-import { fmtDate, fmtWeekKey, fmtWeekRange } from "@/core/time";
+import { dayOf, fmtDate, fmtWeekKey, fmtWeekRange, monthName } from "@/core/time";
 import { kr } from "@/core/format";
 import {
   Badge, Button, Card, CaseStatusBadge, CellSub, DemoNote, Empty, ErrorNotice, Field, Icon, Input, Kv, Loading, Meter, Page, PerspectiveLink, Table,
@@ -151,7 +151,25 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                   {v.name}
                 </span>,
               ],
-              ["Avtalsområde", `${v.areaName} · artikel ${v.articleNo} · ${kr(v.priceOre)} per vecka`],
+              [v.currentArea ? "Avtalsområde vid start" : "Avtalsområde", `${v.areaName} · artikel ${v.articleNo} · ${kr(v.priceOre)} per vecka`],
+              ...(v.currentArea
+                ? [[
+                    `Avtalsområde i ${monthName(v.currentArea.month)}`,
+                    `${v.currentArea.areaName} · artikel ${v.currentArea.articleNo} · ${kr(v.currentArea.priceOre)} per vecka`,
+                  ] as [string, ReactNode]]
+                : []),
+              ...(v.areaChanges.length
+                ? [[
+                    "Byte av yrkesområde",
+                    <ul key="byte" className="m-0 flex list-none flex-col gap-1 p-0">
+                      {v.areaChanges.map((x) => (
+                        <li key={`${x.changedAt}-${x.toArea}`}>
+                          {x.fromArea} → {x.toArea} {fmtDate(dayOf(x.changedAt))} · fakturan på {x.toArea} från {monthName(x.effectiveMonth)}
+                        </li>
+                      ))}
+                    </ul>,
+                  ] as [string, ReactNode]]
+                : []),
               ["Status", <CaseStatusBadge key="s" status={v.status} />],
               ["Start", fmtDate(v.startDate)],
               ["Slut", v.endDate ? fmtDate(v.endDate) : v.plannedEnd ? `Planerat ${fmtDate(v.plannedEnd)}` : "–"],

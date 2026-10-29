@@ -14,20 +14,22 @@ import { domainEnv, type DomainEnv } from "@/core/env";
 import {
   ABSENCE_REASONS, areaName, caseNoteKindLabel, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel,
 } from "@/core/labels";
+import { hasPrefill, levelSourceOf, withAutoAreas } from "@/core/monthly-prefill";
 import { notificationsFor, progressionWatch } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, weekMonday, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { weeklyReport } from "@/core/weekly-report";
-import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
+import type { Case, CheckIn, Contract, MonthlyPrefill, Person, Report } from "@/data/schema";
 // Mall 02:s listor (aktivitetstyper, hinder, veckomål per fas) och yrkesspåren per avtalsområde. Samma listor som den
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
-import { aiOff, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
+import { aiOff, areaChangeNoteIds, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { recordingOffered } from "../_shared/ai-types";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
+import { loadPrefill } from "../_shared/monthly-prefill";
 import { todaysGroupActivities } from "../aktiviteter/today";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
@@ -150,10 +152,10 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     ctx.repo,
     ["activities", "attendance", "check_ins", "monthly_assessments", "reports", "placements", "alert_acks", "profiles", "memberships", "deviations",
       "user_notifications", "notification_reads", "messages", "contract_deviations", "billing_runs", "price_items", "buyer_references", "invoice_drafts",
-      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails"],
+      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails", "case_area_changes"],
     {
       activities: byCase, attendance: byCase, check_ins: byCase, monthly_assessments: byCase, placements: byCase, deviations: byCase, messages: byCase, invoice_lines: byCase,
-      user_notifications: { recipientId: me },
+      case_area_changes: byCase, user_notifications: { recipientId: me },
     },
   );
   const all = { ...db, cases };
@@ -254,6 +256,9 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       open: maOpen.map(({ c, ma }) => ({
         ...row(c),
         hasAi: !!ma?.aiSummaryDraft || Object.values(ma?.areas ?? {}).some((x) => !!x?.aiObservationDraft && !x.aiObservationDraft.noEvidence),
+        // Förifylld (Karims beslut 2026-10-22): något är fortfarande ifyllt automatiskt – eller raden finns inte än (sidan visar
+        // samma förifyllnad).
+        prefilled: !ma || hasPrefill(ma),
       })),
     },
     messages: [...unreadByCase.entries()]
@@ -411,7 +416,13 @@ handleQuery(casePicker, { roles: ["coach"] }, async (ctx, p) => {
       });
     } else if (p.kind === "manad") {
       const ma = assessmentFor(db, c.id, month);
-      rows.push({ ...base, badge: ma?.status === "approved" ? { tone: "blue", icon: "check", text: "Godkänd" } : { tone: "outline", icon: "edit", text: "Utkast" }, note: null });
+      rows.push({
+        ...base,
+        badge: ma?.status === "approved"
+          ? { tone: "blue", icon: "check", text: "Godkänd" }
+          : !ma || hasPrefill(ma) ? { tone: "outline", icon: "edit", text: "Ifylld automatiskt – gå igenom" } : { tone: "outline", icon: "edit", text: "Utkast" },
+        note: null,
+      });
     } else if (p.kind === "kartlaggning") {
       const ia = intakeOf(db, c.id);
       rows.push({
@@ -548,6 +559,12 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
   });
   const ma = assessmentFor(db, c.id, month);
   const plan = planOf(db, c.id, month);
+  // Automatisk månadsbedömning (Karims beslut 2026-10-22): finns ingen rad (eller ingen plan) visas samma förifyllnad som
+  // jobbet skapar. Ett utkast utan nivå i ett område visas med progressionsnivå 0 "Automatiskt – inget belägg".
+  const approvedMa = ma?.status === "approved";
+  const pre = !approvedMa && (!ma || !plan) ? await loadPrefill(ctx.repo, c, month, env.cfg, env.now) : null;
+  const areaRows = ma ? (approvedMa ? ma.areas : withAutoAreas(ma.areas, prog.areas)) : (pre?.areas ?? {});
+  const marks: MonthlyPrefill = ma ? (ma.prefill ?? {}) : (pre?.prefill ?? {});
   const mStart = `${month}-01`;
   const mEnd = monthEnd(month);
   const cis = checkInsOf(db, c.id).filter((x) => x.status === "approved" && x.heldAt >= mStart && x.heldAt <= `${mEnd}T23:59`).sort(by("heldAt"));
@@ -566,19 +583,34 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     requiredFrom: prog.observationRequiredFromLevel,
     progressionRule: { clearFromLevel: prog.clearFromLevel, anyFromLevel: prog.anyFromLevel, ...progressionRuleText(env.cfg) },
     areas: prog.areas.map((key) => {
-      const a = ma?.areas[key];
+      const a = areaRows[key];
       const obs = aiOk && a?.aiObservationDraft ? { text: a.aiObservationDraft.text, sources: [...(a.aiObservationDraft.sources ?? [])], noEvidence: !!a.aiObservationDraft.noEvidence } : null;
+      // AI:s nivåförslag visas bara med belägg (citat, källa, dag) – ett förslag utan belägg (äldre utkast) visas inte.
+      const ev = aiOk && !obs?.noEvidence && a?.aiLevelSuggestion != null && a.aiLevelEvidence ? a.aiLevelEvidence : null;
       return {
         key, label: prog.areaLabels[key] ?? key, level: (a?.level ?? null) as ProgressLevel | null, observation: a?.observation ?? "", nextStep: a?.nextStep ?? "",
-        aiLevelSuggestion: aiOk && !obs?.noEvidence ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null, aiObservationDraft: obs,
+        levelSource: levelSourceOf(a),
+        aiLevelSuggestion: ev ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null,
+        aiLevelEvidence: ev ? { quote: ev.quote, source: ev.source, date: ev.date } : null,
+        aiObservationDraft: obs,
       };
     }),
     assessment: ma
-      ? { status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus, version: ma.version }
-      : null,
+      ? {
+          status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus, version: ma.version,
+          saved: true, prefill: marks, overallFrom: marks.overallStatus?.heldAt ?? null,
+        }
+      : pre
+        ? {
+            status: "draft" as const, decidedAt: null, summary: pre.summary, aiSummaryDraft: null, overallStatus: pre.overallStatus, version: null, saved: false,
+            prefill: marks, overallFrom: marks.overallStatus?.heldAt ?? null,
+          }
+        : null,
     plan: plan
       ? { goal1: plan.goal1, goal2: plan.goal2, plannedActivities: plan.plannedActivities, plannedEmployerContact: plan.plannedEmployerContact, plannedAdaptation: plan.plannedAdaptation, nextCustomerMeeting: plan.nextCustomerMeeting }
-      : null,
+      : pre && !approvedMa
+        ? { ...pre.plan }
+        : null,
     basis: {
       checkIns: cis.map((x) => x.heldAt),
       attendance: { rate: att.rate, present: att.present, late: att.late, planned: att.planned, unregistered: att.unregistered },
@@ -588,15 +620,20 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     dueAt: due,
     dueNote: monthDueNote(env.cfg),
     goals: [...(GOALS[Math.min(5, c.phase)] ?? [])],
-    aiDraft: aiOk ? await latestMonthlyDraft(ctx, c.id, month) : null,
+    aiDraft: aiOk ? await latestMonthlyDraft(ctx, c.id, month, cis.map((x) => x.approvedAt ?? "").sort().pop() ?? null) : null,
     aiOff: aiOff(ctx),
     notes: await monthNotes(ctx, c.id, month),
   };
 });
 
-/** Fria anteckningar från månaden (inte borttagna), lästa via ctx.repo – coachen ser bara det RLS släpper igenom. */
+/**
+ * Fria anteckningar från månaden (inte borttagna), lästa via ctx.repo – coachen ser bara det RLS släpper igenom. Motiveringen
+ * till ett byte av yrkesområde är intern för Miljonbemanning och visas inte här – sammanfattningen blir kommunens månadsrapport
+ * (samma undantag som AI-underlaget, areaChangeNoteIds).
+ */
 async function monthNotes(ctx: Ctx, caseId: string, month: MonthKey): Promise<{ id: string; occurredOn: LocalDate; kindLabel: string; authorName: string; body: string }[]> {
-  const notes = (await ctx.repo.table("case_notes").list({ caseId, occurredOn: { gte: `${month}-01`, lte: monthEnd(month) } })).filter((n) => !n.removedAt);
+  const internal = areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId }));
+  const notes = (await ctx.repo.table("case_notes").list({ caseId, occurredOn: { gte: `${month}-01`, lte: monthEnd(month) } })).filter((n) => !n.removedAt && !internal.has(n.id));
   if (!notes.length) return [];
   const profiles = await ctx.repo.table("profiles").list({ id: { in: uniq(notes.map((n) => n.authorId)) } });
   return notes
@@ -604,8 +641,11 @@ async function monthNotes(ctx: Ctx, caseId: string, month: MonthKey): Promise<{ 
     .map((n) => ({ id: n.id, occurredOn: n.occurredOn, kindLabel: caseNoteKindLabel(n.kind), authorName: personName(profiles, n.authorId), body: n.body }));
 }
 
-/** Senaste AI-utkastet för månaden (coach.monthlyDraft) – körningen i ai_runs (inputRef = månaden). */
-async function latestMonthlyDraft(ctx: Ctx, caseId: string, month: MonthKey) {
+/**
+ * Senaste AI-utkastet för månaden (coach.monthlyDraft) – körningen i ai_runs (inputRef = månaden). lastApprovedAt: när den senast
+ * godkända mötesrapporten i månaden godkändes – är den senare än utkastet saknas den i utkastet (newerCheckIn).
+ */
+async function latestMonthlyDraft(ctx: Ctx, caseId: string, month: MonthKey, lastApprovedAt: LocalDateTime | null) {
   const runs = (await ctx.repo.table("ai_runs").list({ caseId, kind: "monthly_draft" })).filter((r) => r.inputRef === month);
   const run = runs.sort(by("createdAt")).pop();
   if (!run) return null;
@@ -613,6 +653,7 @@ async function latestMonthlyDraft(ctx: Ctx, caseId: string, month: MonthKey) {
   const draft = (d: MonthlyDraftOutput["plan"] | undefined) => (d ? { text: d.text, sources: [...d.sources], noEvidence: d.noEvidence } : null);
   return {
     aiRunId: run.id, status: run.status, error: aiRunError(run)?.text ?? null, createdAt: run.createdAt, plan: draft(out?.plan), summary: draft(out?.summary),
+    newerCheckIn: run.status === "succeeded" && !!lastApprovedAt && lastApprovedAt > run.createdAt,
   };
 }
 

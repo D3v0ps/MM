@@ -28,6 +28,12 @@ export const INBOX = "inkorg.";
 export const BILLING = "ekonomi.";
 /** Gruppaktiviteterna (coachmötet 2026-10-09): listan, aktivitetsvyn och formulärets deltagare. */
 export const AKTIVITETER = "aktiviteter.";
+/**
+ * Grupper-sidan och filtren: yrkesområdena räknar pågående ärenden, nivåerna sina deltagare (Karims beslut 2026-10-22). Inte i
+ * CASE_FACTS: närvaro, avstämningar och rapporter ändrar inget här – kommandon som skriver ärendet (status, yrkesområde),
+ * kartläggningen, grupperingarna eller gruppaktiviteterna anger GRUPPER själva (src/api/invalidation.test.ts kontrollerar).
+ */
+export const GRUPPER = "grupper.";
 /** Adminsidor som räknar ärenden, avstämningar och körningar. */
 export const CASE_STATS = ["admin.contract", "admin.integrations", "admin.orgRules"] as const;
 /**

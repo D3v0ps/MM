@@ -3,6 +3,7 @@ import { fail, ok } from "@/api/contract";
 import { CUSTOMER_ROLES, SUPPLIER_ROLES, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { auditView, sessionPing, switchRole, VIEW_EVENTS, type ViewEvent } from "./api";
+import { audienceBusyOf } from "@/features/aktiviteter/busy";
 import "./nav-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -69,9 +70,14 @@ handleCommand(auditView, { roles: [...SUPPLIER_ROLES, ...CUSTOMER_ROLES], silent
   const allowed = DETAIL_KEYS[p.action] ?? [];
   const details: Record<string, unknown> = Object.fromEntries(Object.entries(p.details ?? {}).filter(([k, v]) => allowed.includes(k) && v !== undefined));
   // Aktivitetsvyn: vilka deltagares namn, närvaro och anteckningar som visades – ärendena slås upp här (det aktören får läsa),
-  // aldrig ur anropet. caseIds gör att visningen syns i deltagarkortets Historik för den som ser andras visningar.
+  // aldrig ur anropet. caseIds gör att visningen syns i deltagarkortets Historik för den som ser andras visningar. Också
+  // målgruppens deltagare som inte är inbjudna för att de har ett annat tillfälle vid samma tid: vyn visar deras namn och
+  // ärendenummer (audienceBusyOf – samma uppslag som vyn).
   if (p.action === "group_activity.view" && p.entityId) {
-    details.caseIds = [...new Set((await ctx.repo.table("activities").pick(["caseId"], { groupActivityId: p.entityId })).map((a) => a.caseId))].sort();
+    const invited = [...new Set((await ctx.repo.table("activities").pick(["caseId"], { groupActivityId: p.entityId })).map((a) => a.caseId))].sort();
+    const g = await ctx.repo.table("group_activities").get(p.entityId);
+    const busy = g ? (await audienceBusyOf(ctx, g, invited)).map((x) => x.caseId) : [];
+    details.caseIds = [...new Set([...invited, ...busy])].sort();
   }
   await ctx.audit({ action: p.action, entity: p.entity, entityId: p.entityId, contractId: target.contractId, details });
   return ok({});

@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfirmHost } from "@/ui";
-import { clearAllDrafts, leaveWithoutAsking, useDraft, useUnsavedGuard } from "./guard";
+import { clearAllDrafts, dropStaleDraft, leaveWithoutAsking, rebaseStaleDraft, useDraft, useUnsavedGuard } from "./guard";
 import { cancelLeaveDocument, confirmLeaveDocument, NavProvider, runBeforeNavigate, type LinkImpl, type Nav } from "./nav";
 import { SessionProvider, type Session } from "./session";
 
@@ -206,5 +206,81 @@ describe("useDraft", () => {
     cleanup();
     render(wrap(<Note k="avstamning|case-2" />, "u-erik"));
     expect((screen.getByLabelText("Anteckning") as HTMLTextAreaElement).value).toBe("");
+  });
+});
+
+describe("dropStaleDraft (minnet äldre än raden på servern)", () => {
+  const fake = (entries: Record<string, unknown>) => {
+    const m = new Map(Object.entries(entries));
+    return { m, memory: { peek: (k: string) => ({ has: m.has(k), value: m.get(k) }), drop: (keys: readonly string[]) => keys.forEach((k) => m.delete(k)) } };
+  };
+  const o = (serverVersion: number | null) => ({ fields: [["f|a", "server-a"], ["f|b", 1]] as const, saved: "f|sparat", version: "f|version", others: ["f|tid"], serverVersion });
+
+  it("äldre version utan osparade ändringar: minnet glöms (serverns värden och version gäller)", () => {
+    const { m, memory } = fake({ "f|a": "mitt", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3, "f|tid": "09.00" });
+    expect(dropStaleDraft(memory, o(4))).toBe(true);
+    expect([...m.keys()]).toEqual([]);
+  });
+
+  it("osparade ändringar, samma version eller inget versionsminne: minnet ligger kvar", () => {
+    const dirty = fake({ "f|a": "ändrat", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3 });
+    expect(dropStaleDraft(dirty.memory, o(4))).toBe(false);
+    expect(dirty.m.size).toBe(3);
+    const same = fake({ "f|a": "mitt", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 4 });
+    expect(dropStaleDraft(same.memory, o(4))).toBe(false);
+    expect(dropStaleDraft(fake({ "f|a": "mitt" }).memory, o(4))).toBe(false);
+    expect(dropStaleDraft(fake({ "f|version": 1 }).memory, o(null))).toBe(false);
+    // Ett sparat läge som inte går att läsa: minnet ligger kvar.
+    expect(dropStaleDraft(fake({ "f|a": "mitt", "f|sparat": "{trasigt", "f|version": 3 }).memory, o(4))).toBe(false);
+  });
+
+  it("servern ändrade ett fält som inte finns i minnet (t.ex. sammanfattningen när närvaron rättades): ingen osparad ändring – minnet glöms (granskningen, tredje rundan)", () => {
+    // Coachen ändrade bara a och autosparade. Sedan skrev servern om b (1 -> 2) och höjde versionen.
+    const { m, memory } = fake({ "f|a": "mitt", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3, "f|tid": "09.00" });
+    const server = { fields: [["f|a", "mitt"], ["f|b", 2]] as const, saved: "f|sparat", version: "f|version", others: ["f|tid"], serverVersion: 4 };
+    expect(dropStaleDraft(memory, server)).toBe(true);
+    expect([...m.keys()]).toEqual([]);
+    // Har coachen också ändrat a efter autosparningen ligger minnet kvar – det är en osparad ändring.
+    const dirty = fake({ "f|a": "ändrat igen", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3 });
+    expect(dropStaleDraft(dirty.memory, server)).toBe(false);
+  });
+});
+
+describe("rebaseStaleDraft (utkastet lyfts till raden på servern – granskningen, fjärde rundan)", () => {
+  const fake = (entries: Record<string, unknown>) => {
+    const m = new Map(Object.entries(entries));
+    return { m, memory: { peek: (k: string) => ({ has: m.has(k), value: m.get(k) }), put: (k: string, v: unknown) => void m.set(k, v) } };
+  };
+  const base = { a: "mitt", spar: "Truckförare A+B", c: "" };
+  const o = (server: Record<string, unknown>, serverVersion: number | null = 4) => ({ key: "f", saved: "f|sparat", version: "f|version", server, serverVersion });
+
+  it("servern tömde spåret (Byt yrkesområde) och coachen skrev i ett annat fält: spåret blir serverns, coachens text ligger kvar, versionen blir serverns", () => {
+    const { m, memory } = fake({ f: { ...base, c: "osparat" }, "f|sparat": JSON.stringify(base), "f|version": 3 });
+    const server = { ...base, spar: "" };
+    expect(rebaseStaleDraft(memory, o(server))).toBe("rebased");
+    expect(m.get("f")).toEqual({ a: "mitt", spar: "", c: "osparat" });
+    expect(m.get("f|sparat")).toBe(JSON.stringify(server));
+    expect(m.get("f|version")).toBe(4);
+  });
+
+  it("ett godkänt formulär som aldrig sparats (fälten utan version i minnet) eller bara versionen i minnet", () => {
+    // Utan version i minnet: inget att lyfta – formuläret läser serverns version.
+    const noVersion = fake({ f: base, "f|sparat": JSON.stringify(base) });
+    expect(rebaseStaleDraft(noVersion.memory, o({ ...base, spar: "" }))).toBe("kept");
+    // Bara sparat läge och version (inga fält i minnet): lyfts till serverns.
+    const onlyVersion = fake({ "f|sparat": JSON.stringify(base), "f|version": 3 });
+    expect(rebaseStaleDraft(onlyVersion.memory, o({ ...base, spar: "" }))).toBe("rebased");
+    expect([...onlyVersion.m.keys()].sort()).toEqual(["f|sparat", "f|version"]);
+    expect(onlyVersion.m.get("f|version")).toBe(4);
+  });
+
+  it("samma fält ändrat både av coachen och servern, ett sparat läge som inte går att läsa, samma version eller ingen rad: minnet ligger kvar", () => {
+    const both = fake({ f: { ...base, spar: "Lagerarbetare – plock och pack" }, "f|sparat": JSON.stringify(base), "f|version": 3 });
+    expect(rebaseStaleDraft(both.memory, o({ ...base, spar: "" }))).toBe("kept");
+    expect(both.m.get("f")).toEqual({ ...base, spar: "Lagerarbetare – plock och pack" });
+    expect(both.m.get("f|version")).toBe(3);
+    expect(rebaseStaleDraft(fake({ f: base, "f|sparat": "{trasigt", "f|version": 3 }).memory, o({ ...base, spar: "" }))).toBe("kept");
+    expect(rebaseStaleDraft(fake({ f: base, "f|sparat": JSON.stringify(base), "f|version": 4 }).memory, o({ ...base, spar: "" }))).toBe("kept");
+    expect(rebaseStaleDraft(fake({ f: base, "f|sparat": JSON.stringify(base), "f|version": 3 }).memory, o({ ...base, spar: "" }, null))).toBe("kept");
   });
 });

@@ -62,8 +62,14 @@
 //   (finns inte i prototypen)        -> saved_reports (rapportbyggaren, rapporter steg 4, 0021).
 //                                       Testdatat: src/data/seed/gen-saved-reports.ts
 //   (finns inte i prototypen)        -> group_activities (gruppaktiviteter, coachmötet 2026-10-09, 0030), activities.groupActivityId
-//                                       och attendance.source (automatisk närvaro). Testdatat har inga gruppaktiviteter.
+//                                       och attendance.source (automatisk närvaro).
 //   (finns inte i prototypen)        -> group_activities.goal och group_goal_results (gruppmål, Karims beslut 2, 0033).
+//   (finns inte i prototypen)        -> group_activity_series, group_activities.audience/seriesId/notify och activities.inviteSource
+//                                       (nivå- och yrkesområdesaktiviteter, Karims beslut 2026-10-22, 0035).
+//                                       Testdatat: src/data/seed/gen-group-activities.ts
+//   (finns inte i prototypen)        -> case_area_changes (byt yrkesområde, Karims beslut 2026-10-22, 0036) och
+//                                       monthly_assessments.prefill (automatisk månadsbedömning, samma beslut, 0036).
+//                                       Testdatat: src/data/seed/decisions-2026-10-22.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -164,6 +170,16 @@ export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
  */
 export const GROUP_ACTIVITY_KINDS = ["yrkesmoment", "arbetsgivarbesök", "annat"] as const;
 export type GroupActivityKind = (typeof GROUP_ACTIVITY_KINDS)[number];
+/**
+ * Målgruppen för en gruppaktivitet (0035, Karims beslut 2026-10-22): manual = deltagarna bjuds in för hand; level = en nivå
+ * (audienceLevelId); area = ett yrkesområde (audienceAreaCode, ett av avtalets avtalsområden A–L). Med en målgrupp bjuder
+ * servern in de aktiva deltagarna i målgruppen och håller listan aktuell fram till aktiviteten.
+ */
+export const GROUP_AUDIENCES = ["manual", "level", "area"] as const;
+export type GroupAudience = (typeof GROUP_AUDIENCES)[number];
+/** Hur deltagaren bjöds in (0035): för hand, eller av målgruppen (den automatiska synkningen rör bara de senare). */
+export const INVITE_SOURCES = ["manual", "audience"] as const;
+export type InviteSource = (typeof INVITE_SOURCES)[number];
 
 export const ATTENDANCE_STATUSES = ["present", "late", "absent_valid", "absent_invalid"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
@@ -705,6 +721,12 @@ export type Activity = {
    * närvarograden och fakturan räknar raderna som förut. Tid, längd, plats och typ följer gruppaktiviteten.
    */
   groupActivityId: string | null;
+  /**
+   * Hur deltagaren bjöds in till gruppaktiviteten (0035): manual (för hand – också alla tillfällen utanför gruppaktiviteter) eller
+   * audience (av aktivitetens målgrupp, en nivå eller ett yrkesområde). Den automatiska synkningen tar bara bort audience-rader.
+   * Användare skriver bara manual och ändrar aldrig källan (triggern activities_invite_source) – audience skrivs av servern.
+   */
+  inviteSource: InviteSource;
 };
 
 /**
@@ -739,7 +761,61 @@ export type GroupActivity = {
    * val (group_goal_results) gäller bara den version de gjordes för.
    */
   goalVersion: number;
+  /** Målgruppen (0035): manual, level eller area – se GROUP_AUDIENCES. */
+  audience: GroupAudience;
+  /** Nivån (groupings.id, kind level) när målgruppen är en nivå, annars null. */
+  audienceLevelId: string | null;
+  /** Yrkesområdet (avtalsområdets kod) när målgruppen är ett yrkesområde, annars null. */
+  audienceAreaCode: AreaCode | null;
+  /** Den återkommande aktiviteten tillfället hör till (0035), annars null. Unikt (seriesId, startsAt). Skapas bara av servern. */
+  seriesId: string | null;
+  /**
+   * Deltagarna som målgruppen bjuder in eller tar bort efter att aktiviteten skapats får meddelande (aktivitetsinbjudan,
+   * aktivitet_installd). Enstaka aktiviteter: kryssrutan när aktiviteten skapades; återkommande: seriens val (standard av).
+   */
+  notify: boolean;
 };
+
+/**
+ * Återkommande gruppaktivitet (0035, Karims beslut 2026-10-22: "Nivå aktiviteterna sker 1-3 gånger i veckan"): samma tid varje
+ * vecka på de valda veckodagarna, för en nivå eller ett yrkesområde. Tillfällena är vanliga group_activities med seriesId – servern
+ * skapar dem från i dag och 14 dagar framåt (aldrig på helgdagar, aldrig ett inställt tillfälle igen). Samma behörighet som
+ * gruppaktiviteterna: Miljonbemanning i avtalet utom ekonomen – aldrig kommunen. Raderas aldrig – avslutas (endedAt).
+ */
+export type GroupActivitySeries = {
+  id: string;
+  contractId: string;
+  /** 1–120 tecken, internt. */
+  name: string;
+  kind: GroupActivityKind;
+  /** level eller area – en återkommande aktivitet har alltid en målgrupp. */
+  audience: Exclude<GroupAudience, "manual">;
+  audienceLevelId: string | null;
+  audienceAreaCode: AreaCode | null;
+  /** ISO-veckodagar 1–5 (måndag–fredag), stigande, minst en. */
+  weekdays: number[];
+  /** "HH:MM". */
+  startTime: string;
+  durationMin: number;
+  location: string;
+  responsibleId: UserId | null;
+  /** Gruppmålet för varje tillfälle (internt), eller null. */
+  goal: string | null;
+  startsOn: LocalDate;
+  /** Sista dagen, eller null (tills vidare). Sätts till dagen när serien avslutas. */
+  endsOn: LocalDate | null;
+  /** Deltagarna får meddelande inför varje tillfälle (standard av – coachen ger tiderna). */
+  notify: boolean;
+  createdBy: UserId;
+  createdAt: LocalDateTime;
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  /** Avslutad: inga nya tillfällen, kommande tillfällen utan närvaro är inställda. */
+  endedAt: LocalDateTime | null;
+  endedBy: UserId | null;
+};
+/** Längsta längd för en serie (samma som en gruppaktivitet). */
+export const SERIES_NAME_MAX = 120;
 
 /** Gruppmålets längd (0033, group_activities_goal_length). */
 export const GROUP_GOAL_MAX = 300;
@@ -832,16 +908,36 @@ export type CheckIn = {
   version: number;
 };
 
-/** AI-utkast till en observation, med källor ("Avstämning 15 jan"). noEvidence = "Framgår inte". */
+/** AI-utkast till en observation, med källor ("Mötesrapport 15 jan"). noEvidence = "Framgår inte". */
 export type AiObservationDraft = { text: string; sources: string[]; noEvidence?: boolean };
+/**
+ * Varifrån nivån kommer (Karims beslut 2026-10-22, automatisk månadsbedömning):
+ *   auto   förifylld progressionsnivå 0 – inget belägg ("Automatiskt – inget belägg"), tills coachen väljer något annat
+ *   coach  coachens eget val
+ *   ai     coachen godtog AI:s förslag ("Godta") – också det ett val av coachen. Servern och jobben skriver aldrig ett
+ *          AI-förslag i nivån: bara coachens sparning gör det, och bara med förslagets nivå.
+ * Saknas fältet (äldre rader): en satt nivå räknas som coachens val (levelSourceOf i src/core/monthly-prefill.ts).
+ */
+export const LEVEL_SOURCES = ["auto", "coach", "ai"] as const;
+export type LevelSource = (typeof LEVEL_SOURCES)[number];
+/**
+ * Belägget för AI:s nivåförslag: ett ordagrant citat som finns i en källa i underlaget (en godkänd mötesrapport eller en
+ * anteckning), källans namn ("Mötesrapport 15 jan", "Anteckning 26 jan") och dag. Citatet kontrolleras på servern mot
+ * underlaget – finns det inte där slängs förslaget (verifyLevelSuggestion i src/features/_shared/ai-port.ts).
+ */
+export type AiLevelEvidence = { quote: string; source: string; date: LocalDate };
 export type AreaAssessment = {
-  /** Coachens bedömning 0–3 – null tills coachen gjort ett aktivt val (aldrig AI). */
+  /** Progressionsnivån 0–3. Förifylld 0 (levelSource auto) tills coachen väljer – AI sätter den aldrig. */
   level: ProgressLevel | null;
   observation: string;
   nextStep: string;
-  /** AI:s förslag visas bara som förslag. */
+  /** AI:s förslag (1–3, bara med belägg) visas bara som förslag – coachen godtar det med "Godta". */
   aiLevelSuggestion: ProgressLevel | null;
   aiObservationDraft: AiObservationDraft | null;
+  /** Varifrån nivån kommer (se LevelSource). Saknas: äldre rad – en satt nivå är coachens val. */
+  levelSource?: LevelSource;
+  /** Belägget för aiLevelSuggestion (citat, källa, dag). Utan belägg finns inget förslag. */
+  aiLevelEvidence?: AiLevelEvidence | null;
 };
 
 /**
@@ -862,6 +958,24 @@ export type MonthlyAssessment = {
   overallStatus: TrafficLight | null;
   /** Radens version (0022): ökas vid varje sparning – en sparning med fel expectedVersion avvisas (två flikar). */
   version: number;
+  /**
+   * Vad som fylldes i automatiskt och ännu inte ändrats av coachen ("Ifyllt automatiskt – kontrollera", Karims beslut
+   * 2026-10-22, 0036). Tomt objekt = inget förifyllt. Ett fält försvinner härifrån när coachen ändrar värdet.
+   */
+  prefill: MonthlyPrefill;
+};
+
+/**
+ * Förifyllda fält i månadsbedömningen och planen (src/core/monthly-prefill.ts). Bara id:n, dagar och källornas typ – aldrig
+ * texten (den står i fälten själva).
+ *   overallStatus  samlad status från coachens senaste godkända mötesrapport i månaden (coachens eget val, inte AI)
+ *   summary        sammanfattningen: AI-utkastet ("ai") eller en saklig text ur godkända uppgifter ("rules")
+ *   plan           planens fält: AI-utkastet ("ai"), senaste godkända veckomålet ("check_in") eller förra månadens plan ("previous")
+ */
+export type MonthlyPrefill = {
+  overallStatus?: { checkInId: string; heldAt: LocalDateTime };
+  summary?: "ai" | "rules";
+  plan?: Partial<Record<"goal1" | "goal2" | "plannedActivities" | "plannedEmployerContact" | "plannedAdaptation", "ai" | "check_in" | "previous">>;
 };
 
 /** Plan för nästa månad (mall 02 avsnitt 7). */
@@ -1763,6 +1877,41 @@ export type GroupingMember = {
   removedBy: UserId | null;
 };
 
+// ================================================================ Byt yrkesområde (0036, Karims beslut 2026-10-22)
+/**
+ * Huvudcoachen (och samordnare, avtalsansvarig) byter deltagarens yrkesområde (avtalsområde A–L) med en kort motivering.
+ * Motiveringen är en vanlig anteckning i deltagarkortet (case_notes, noteId) – raden här har bara koder, id:n, tider och
+ * yrkesspåren (ingen fritext), så att ekonomen kan läsa den för faktureringen. Grupp och inbjudningar ändras direkt; fakturan
+ * räknas på det nya yrkesområdet från och med månaden efter bytet (effectiveMonth, areaForMonth i src/core/area-changes.ts).
+ * En ny rad ändrar ärendet i samma steg (yrkesområdet, yrkesspåret och alternativet – triggern case_area_changes_apply, 0036;
+ * policy.ts afterInsert): bytet och ärendet skrivs alltid tillsammans. Ändras och raderas aldrig av användare. Kommunen läser
+ * den aldrig.
+ */
+export type CaseAreaChange = {
+  id: string;
+  contractId: string;
+  caseId: string;
+  fromArea: AreaCode;
+  toArea: AreaCode;
+  /** 'YYYY-MM': månaden efter bytet – från den månaden faktureras det nya yrkesområdet. */
+  effectiveMonth: MonthKey;
+  changedBy: UserId;
+  changedAt: LocalDateTime;
+  /** Anteckningen med motiveringen (case_notes.id) – en ny anteckning av den som byter, en per byte. */
+  noteId: string;
+  /**
+   * Bytets nummer i ärendet: 1, 2, 3 … i tur och ordning (unikt per ärende). Ordningen för faktureringen (areaForMonth) – två
+   * byten samma minut har samma changedAt, men aldrig samma nummer. Ett nytt byte utgår från det förra bytets nya yrkesområde.
+   */
+  seq: number;
+  /** Ärendets yrkesspår före bytet – rapporterna för månaderna före bytet visar det (trackForMonth). */
+  fromTrack: string;
+  /** Yrkesspåret i det nya yrkesområdet ('' = väljs i kartläggningen). */
+  toTrack: string;
+  /** Ärendets alternativa yrkesområde före bytet (det tas bort när det blir det nya – secondaryAreaForMonth). */
+  fromSecondaryArea: AreaCode | null;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1780,6 +1929,7 @@ export type Tables = {
   case_team: CaseTeamMember;
   inbound_emails: InboundEmail;
   intake_assessments: IntakeAssessment;
+  group_activity_series: GroupActivitySeries;
   group_activities: GroupActivity;
   group_goal_results: GroupGoalResult;
   activities: Activity;
@@ -1833,6 +1983,7 @@ export type Tables = {
   case_attachments: CaseAttachment;
   groupings: Grouping;
   grouping_members: GroupingMember;
+  case_area_changes: CaseAreaChange;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1845,7 +1996,9 @@ export const TABLE_NAMES = [
   "profiles", "memberships", "role_choices",
   "persons", "cases", "case_status_history", "case_counters", "case_team", "buyer_references",
   "inbound_emails",
-  "intake_assessments", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
+  // Grupperingarna före gruppaktiviteterna: group_activities.audience_level_id pekar på en nivå (0035).
+  "groupings", "grouping_members",
+  "intake_assessments", "group_activity_series", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
   "reports", "messages", "user_notifications", "notification_reads", "tasks", "outbound_messages", "case_seen",
   "contract_deviations", "alerts", "alert_acks", "deadlines", "kpi_snapshots", "pulse_invites", "pulse_responses", "bonus_claims",
   "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals", "invoice_credits", "fortnox_runs", "integrations",
@@ -1856,8 +2009,8 @@ export const TABLE_NAMES = [
   "case_notes",
   "saved_reports",
   "case_attachments",
-  "groupings", "grouping_members",
   "group_goal_results",
+  "case_area_changes",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -1877,6 +2030,8 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   attendance: ["activityId"],
   // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
   activities: [{ fields: ["groupActivityId", "caseId"] }],
+  // Ett tillfälle per återkommande aktivitet och starttid (0035, group_activities_series_starts_key – bara rader med series_id).
+  group_activities: [{ fields: ["seriesId", "startsAt"] }],
   // Ett val per deltagare och gruppmål (0033, group_goal_results_activity_case_key).
   group_goal_results: [{ fields: ["groupActivityId", "caseId"] }],
   pulse_responses: ["inviteId"],
@@ -1890,4 +2045,7 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
     { fields: ["caseId", "slot"], whenNull: ["removedAt"] },
     { fields: ["caseId", "groupingId"], whenNull: ["removedAt"] },
   ],
+  // Bytena av yrkesområde numreras i tur och ordning per ärende (0036, case_area_changes_case_seq_key): två samtidiga byten kan
+  // aldrig få samma nummer. En anteckning är motivering till högst ett byte (case_area_changes_note_id_key).
+  case_area_changes: [{ fields: ["caseId", "seq"] }, "noteId"],
 };

@@ -11,7 +11,8 @@
 // Automatisk närvaro (src/features/_shared/auto-attendance.ts, beslut 2026-10-09) körs på samma sätt när klockan passerar dagens
 // slut (organisationens klockslag) – före rapportutkasten, med samma golv: nyinläst testdata får ingen automatisk närvaro.
 // Månadens fakturakörning (src/features/ekonomi/ensure-runs.ts) skapas i samma steg som rapportutkasten, med samma golv – som
-// jobbet i testmiljön och produktionen.
+// jobbet i testmiljön och produktionen. Likaså de förifyllda månadsbedömningarna och AI-utkasten till dem
+// (src/features/coach/ensure-assessments.ts, Karims beslut 2026-10-22) – AI-jobbet körs direkt med den simulerade AI:n.
 import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
@@ -24,10 +25,13 @@ import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
 import { createSimulatedFortnox } from "@/features/_shared/fortnox-port";
 import { isParticipantRecipient, MESSAGING_OFF, memoryDeliveryStatus, type MessagingStatus } from "@/features/_shared/messaging-port";
+import { ensureMonthlyAssessments } from "@/features/coach/ensure-assessments";
 import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
+import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
 import { nextDayEnd } from "@/core/auto-attendance";
+import { isSystemSendTime } from "@/core/group-series";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
@@ -73,6 +77,8 @@ export function createMemoryRuntime(opts: {
 }) {
   // Samma unika nycklar som databasen (UNIQUE_KEYS): en dubblett stoppas med UniqueError, som i Postgres.
   const store = new MemoryStore<Tables>(opts.data, UNIQUE_KEYS);
+  // Policyerna ser samma klocka som hanterarna (byt yrkesområde registreras med aktuell tid – som mm.app_now() i databasen).
+  store.clock = opts.clock.now;
   let seq = 0;
   const newId = (prefix: string) => `${prefix}-n${String(++seq).padStart(5, "0")}`;
   const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
@@ -141,6 +147,9 @@ export function createMemoryRuntime(opts: {
   // Nästa gång dagen tar slut (automatisk närvaro). null = inte räknat än (första anropet räknar bara ut tiden – golvet gör ändå
   // att nyinläst testdata inte får något).
   let attendanceNext: LocalDateTime | null = null;
+  // Nivåaktiviteternas tillfällen och målgruppernas inbjudningar (Karims beslut 2026-10-22): en gång per dag, första gången när
+  // dagen byts efter inläsningen – testdatat har redan tillfällena 14 dagar framåt och sina inbjudningar (samma golv som rapporterna).
+  let groupsCheckedDay: string = opts.clock.now().slice(0, 10);
   let ensuring: Promise<void> | null = null;
   const orgRows = () => (system as unknown as { table(n: "org_settings"): { list(): Promise<Tables["org_settings"][]> } }).table("org_settings").list();
   async function ensureScheduledReports(): Promise<void> {
@@ -148,7 +157,9 @@ export function createMemoryRuntime(opts: {
     const now = opts.clock.now();
     const reportsDue = !checkedAt || nextScheduleBoundary(checkedAt) <= now;
     const attendanceDue = attendanceNext === null || attendanceNext <= now;
-    if (!reportsDue && !attendanceDue) return;
+    // Tillfällena och inbjudningarna bara dagtid (isSystemSendTime – som jobbet): på natten väntar steget till efter 08.00.
+    const groupsDue = now.slice(0, 10) !== groupsCheckedDay && isSystemSendTime(now);
+    if (!reportsDue && !attendanceDue && !groupsDue) return;
     ensuring = (async () => {
       if (attendanceDue) {
         try {
@@ -162,13 +173,32 @@ export function createMemoryRuntime(opts: {
           attendanceNext = nextDayEnd(now, "18:00");
         }
       }
+      // Samma ordning som jobbet report_schedule (src/server/jobs/reports.ts): rapportutkasten, nivåaktiviteternas tillfällen och
+      // målgruppernas inbjudningar, de förifyllda månadsbedömningarna och sist månadens fakturakörning. Varje steg för sig – ett
+      // fel i ett steg stoppar inte de andra och inte appen. Bara feltypen loggas.
       if (reportsDue) {
         // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
         try {
           await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
         } catch (e) {
-          // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
+          // Nästa försök vid nästa vecko- eller månadsgräns.
           console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+      }
+      if (groupsDue) {
+        try {
+          await ensureGroupActivities(ctxFor(SYSTEM_ACTOR));
+        } catch (e) {
+          console.error("nivåaktiviteter: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        groupsCheckedDay = now.slice(0, 10);
+      }
+      if (reportsDue) {
+        // Förifyllda månadsbedömningar för månaden att bedöma nu (samma golv: testdatat har sina utkast).
+        try {
+          await ensureMonthlyAssessments(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+        } catch (e) {
+          console.error("månadsbedömningar: kunde inte skapas", e instanceof Error ? e.name : typeof e);
         }
         // Månadens fakturakörning när månaden är slut (samma golv: testdatat har sina körningar).
         try {

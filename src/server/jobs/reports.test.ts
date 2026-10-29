@@ -63,7 +63,7 @@ function setup() {
     await ensureReportScheduleJob(system, at);
     return runJobs({ store: jobStore, handlers: JOB_HANDLERS, ctx: d, now: at, sleep: async () => undefined });
   };
-  return { store, system, run, settings };
+  return { store, system, run, settings, deps, ctx };
 }
 
 describe("rapportutkasten i jobbkörningen", () => {
@@ -155,6 +155,33 @@ describe("rapportutkasten i jobbkörningen", () => {
     const st = reportScheduleState(failing, [], REAL_CLOCK);
     await expect(st.markChecked("c-bot", "2027-02-08T00:15")).rejects.toThrow("Databasfel i app_settings (57014)");
     expect(await st.checkedThrough("c-bot")).toBeNull();
+  });
+
+  it("ett steg som kastar stoppar inte de andra: fakturakörningen skapas ändå, felet sparas (bara feltypen) och jobbet försöker igen", async () => {
+    const t = setup();
+    await t.run(DEMO_START);
+    // De återkommande aktiviteterna går inte att läsa (t.ex. migrationen saknas) – ensureGroupActivities kastar.
+    const failing = new Proxy(t.system, {
+      get(target, prop, recv) {
+        if (prop !== "table") return Reflect.get(target, prop, recv);
+        return (name: string) => {
+          if (name === "group_activity_series") throw new Error("relation saknas: Nadia Ali");
+          return target.table(name as never);
+        };
+      },
+    });
+    const deps = { reportSchedule: async () => ({ ...(await (t.deps as { reportSchedule: () => Promise<{ ctx: Ctx; state: unknown }> }).reportSchedule()), ctx: { ...t.ctx, repo: failing, system: failing } }) } as unknown as JobDeps;
+    // Dagtid (steget med aktiviteterna körs bara 08.00–20.00 – isSystemSendTime).
+    expect(await t.run("2027-03-01T08:03", deps)).toMatchObject({ claimed: 1, done: 0 });
+    // Stegen efter det som kastade kördes: månadens fakturakörning och veckans rapporter finns.
+    expect(t.store.rows("billing_runs").filter((r) => r.month === "2027-02").map((r) => r.id)).toEqual(["br-c-bot-2027-02"]);
+    expect(t.store.rows("reports").some((r) => r.week === "2027-W08")).toBe(true);
+    const job = t.store.getRow("jobs", reportScheduleJobId("2027-03-01T08:03"))!;
+    expect(job).toMatchObject({ status: "queued", lastError: "Oväntat fel (Error)" });
+    expect(JSON.stringify(job)).not.toContain("Nadia");
+    // Nästa försök (utan felet) skapar bara det som fattas.
+    expect(await t.run("2027-03-01T08:13")).toMatchObject({ failed: 0 });
+    expect(t.store.rows("billing_runs").filter((r) => r.month === "2027-02")).toHaveLength(1);
   });
 
   it("utan systemets Ctx stoppas jobbet utan nya försök", async () => {

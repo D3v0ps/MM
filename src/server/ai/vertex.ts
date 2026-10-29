@@ -14,8 +14,8 @@
 // Inga personuppgifter i loggar eller fel: bara HTTP-status och fältnamn.
 import "server-only";
 import {
-  assertApprovedInput, DraftTextSchema, EXTRACT_SCHEMAS, noteSourceLabel, TranscriptSchema, TranslationSchema,
-  type AiPort, type AiResult, type AiRunMeta, type AudioInput, type DraftInput, type DraftTemplateKey, type DraftText, type ExtractSchemaKey,
+  assertApprovedInput, DraftTextSchema, EXTRACT_SCHEMAS, noteSourceLabel, TranscriptSchema, TranslationSchema, verifyLevelSuggestion,
+  type AiPort, type AiResult, type AiRunMeta, type AudioInput, type DraftInput, type DraftOptions, type DraftTemplateKey, type DraftText, type ExtractSchemaKey,
   type ExtractSchemas, type Transcript, type Translation,
 } from "@/features/_shared/ai-port";
 import { ACTIVITY_TYPES, OBSTACLES } from "@/data/seed/constants";
@@ -309,13 +309,13 @@ export function createVertexAi(o: VertexAiOptions): AiPort {
       );
     },
 
-    async draft(input: DraftInput, templateKey: DraftTemplateKey): Promise<AiResult<DraftText>> {
+    async draft(input: DraftInput, templateKey: DraftTemplateKey, opts?: DraftOptions): Promise<AiResult<DraftText>> {
       assertApprovedInput(input);
       // Inget underlag: inget anrop (ingen kostnad och inget att hitta på).
       if (!input.checkIns.length && !input.attendance.length && !input.notes.length) return { value: { ...NOT_FOUND }, run: meta(0, null, null) };
       return call(
         {
-          system: draftInstructions(templateKey),
+          system: draftInstructions(templateKey, opts),
           parts: [{ text: `Underlag (JSON):\n${draftInputForPrompt(input)}` }],
           schema: DRAFT_RESPONSE_SCHEMA,
           maxOutputTokens: MAX_OUTPUT_TEXT,
@@ -323,7 +323,7 @@ export function createVertexAi(o: VertexAiOptions): AiPort {
           timeoutMs: TIMEOUT_TEXT_MS,
           audioSeconds: null,
         },
-        (json) => validateDraft(json, input),
+        (json) => validateDraft(json, input, templateKey),
       );
     },
 
@@ -415,11 +415,13 @@ const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända möte
 
 /**
  * Utkastet: bara id för avstämningar och anteckningar som finns i underlaget (annars ogiltigt – påhittade källor visas
- * aldrig). Källornas namn ("Närvaroregistrering", "Avstämning 15 jan", "Anteckning 26 jan") sätts här, inte av modellen –
+ * aldrig). Källornas namn ("Närvaroregistrering", "Mötesrapport 15 jan", "Anteckning 26 jan") sätts här, inte av modellen –
  * aldrig författarens namn. Utan belägg: standardtexten "Framgår inte".
+ * Nivåförslaget (bara monthly_area, Karims beslut 2026-10-22): behålls bara om citatet finns ordagrant i källan i underlaget
+ * (verifyLevelSuggestion) – annars slängs förslaget och resten av utkastet gäller. Andra mallar får aldrig ett förslag.
  */
-export function validateDraft(json: unknown, input: DraftInput): DraftText {
-  const j = (json ?? {}) as { text?: unknown; sourceIds?: unknown; usedAttendance?: unknown; noEvidence?: unknown };
+export function validateDraft(json: unknown, input: DraftInput, templateKey: DraftTemplateKey = "monthly_summary"): DraftText {
+  const j = (json ?? {}) as { text?: unknown; sourceIds?: unknown; usedAttendance?: unknown; noEvidence?: unknown; levelSuggestion?: unknown };
   const bad: string[] = [];
   if (typeof j.text !== "string") bad.push("text");
   if (!Array.isArray(j.sourceIds) || j.sourceIds.some((x) => typeof x !== "string")) bad.push("sourceIds");
@@ -436,11 +438,15 @@ export function validateDraft(json: unknown, input: DraftInput): DraftText {
   // Källorna i tidsordning, som i den simulerade leverantören: närvaron, avstämningarna, anteckningarna.
   const used = input.checkIns.filter((c) => ids.includes(c.id));
   const usedNotes = input.notes.filter((n) => ids.includes(n.id));
+  const raw = j.levelSuggestion as { level?: unknown; quote?: unknown; sourceId?: unknown } | null | undefined;
+  const verified = templateKey.startsWith("monthly_area:") && raw ? verifyLevelSuggestion(raw, input) : null;
   const out = DraftTextSchema.safeParse({
     text,
-    sources: [...(j.usedAttendance ? ["Närvaroregistrering"] : []), ...used.map((c) => `Avstämning ${fmtDateShort(c.heldAt)}`), ...usedNotes.map(noteSourceLabel)],
+    sources: [...(j.usedAttendance ? ["Närvaroregistrering"] : []), ...used.map((c) => `Mötesrapport ${fmtDateShort(c.heldAt)}`), ...usedNotes.map(noteSourceLabel)],
     sourceIds: [...used.map((c) => c.id), ...usedNotes.map((n) => n.id)],
     noEvidence: false,
+    // Bara ett kontrollerat förslag följer med – annars finns fältet inte (som för de andra mallarna).
+    ...(verified ? { levelSuggestion: { level: verified.level, quote: verified.evidence.quote, sourceId: String(raw?.sourceId) } } : {}),
   });
   if (!out.success) throw invalid(out.error.issues);
   return out.data;

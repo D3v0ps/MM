@@ -17,7 +17,7 @@ import { EXTRACT_SCHEMAS, type AiPort, type AiRunMeta } from "./ai-port";
 import { createSimulatedAi, simulatedDraft } from "./ai-sim";
 import { createMemoryAudio } from "./audio-port";
 import {
-  aiRunError, checkEvidence, enqueueVoiceJob, failVoiceJob, monthlyDraftInput, ownDictation, retentionAudio, retentionTranscripts, runVoiceJob,
+  aiRunError, checkEvidence, DRAFT_CONCURRENCY, enqueueVoiceJob, failVoiceJob, monthlyDraftInput, ownDictation, retentionAudio, retentionTranscripts, runVoiceJob,
   toVoiceJobError, VoiceJobError, type CheckInAiOutput, type CtxWithJobs, type MonthlyDraftOutput,
 } from "./voice-jobs";
 
@@ -309,6 +309,66 @@ describe("transcribe_participant (deltagarens länk)", () => {
   });
 });
 
+describe("draft_monthly: utkasten några i taget (jobbet ska rymmas i jobbkörningens tidsgräns)", () => {
+  it("högst DRAFT_CONCURRENCY AI-anrop samtidigt, fler än ett, och alla områden plus sammanfattning och plan", async () => {
+    const sim = createSimulatedAi();
+    let inflight = 0;
+    let max = 0;
+    let calls = 0;
+    const ai: AiPort = {
+      ...sim,
+      draft: async (...args: Parameters<AiPort["draft"]>) => {
+        calls++;
+        inflight++;
+        max = Math.max(max, inflight);
+        await new Promise((r) => setTimeout(r, 5));
+        inflight--;
+        return sim.draft(...args);
+      },
+    };
+    const t = setup({ ai });
+    const r = await enqueueVoiceJob(t.amira, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.status).toBe("succeeded");
+    const areas = Object.keys(t.store.getRow("monthly_assessments", "ma-15934")!.areas).length;
+    expect(calls).toBe(areas + 2);
+    expect(max).toBe(DRAFT_CONCURRENCY);
+  });
+
+  it("ett anrop misslyckas: inga nya anrop efter det, de pågående blir klara innan jobbet ger upp, och alla anropens kostnad finns i körningen (granskningen, tredje rundan)", async () => {
+    const sim = createSimulatedAi();
+    let calls = 0;
+    let finishedAfterReturn = 0;
+    let returned = false;
+    const failRun = { provider: "vertex", model: "x", inputTokens: 10, outputTokens: 0, costOre: 1, latencyMs: 1 };
+    const ai: AiPort = {
+      ...sim,
+      draft: async (...args: Parameters<AiPort["draft"]>) => {
+        calls++;
+        if (calls === 1) {
+          await new Promise((r) => setTimeout(r, 1));
+          throw Object.assign(new Error("429"), { code: "unavailable", retryable: true, run: failRun });
+        }
+        await new Promise((r) => setTimeout(r, 20));
+        if (returned) finishedAfterReturn++;
+        const out = await sim.draft(...args);
+        return { ...out, run: { ...out.run, costOre: 2 } };
+      },
+    };
+    const t = setup({ ai });
+    const r = await enqueueVoiceJob(t.amira, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    returned = true;
+    const callsAtReturn = calls;
+    await new Promise((res) => setTimeout(res, 150));
+    expect(r.status).not.toBe("succeeded");
+    // Bara de anrop som startade innan felet (högst DRAFT_CONCURRENCY) – inget skickas efter att jobbet gett upp.
+    expect(callsAtReturn).toBeLessThanOrEqual(DRAFT_CONCURRENCY);
+    expect(calls).toBe(callsAtReturn);
+    expect(finishedAfterReturn).toBe(0);
+    // Kostnaden: det misslyckade anropet (1 öre) och de som hann bli klara (2 öre var).
+    expect(t.run(r.aiRunId).costOre).toBe(1 + 2 * (callsAtReturn - 1));
+  });
+});
+
 describe("draft_monthly (bara godkända uppgifter)", () => {
   it("Mehmet januari: testdatats (prototypens) AI-utkast per område och sammanfattningen med anteckningen som källa – nivåerna rörs aldrig", async () => {
     const t = setup();
@@ -332,8 +392,11 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
     expect(ma.aiSummaryDraft).toBe(
       `${before.aiSummaryDraft} Ur anteckningarna – 26 jan: Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten.`,
     );
-    expect(before.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända avstämningar, 8 jan, 22 jan.)");
-    expect(ma).toMatchObject({ status: "draft", summary: before.summary, overallStatus: before.overallStatus });
+    expect(before.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända mötesrapporter, 8 jan, 22 jan.)");
+    // Sammanfattningen var ifylld automatiskt från AI-utkastet och inte ändrad av coachen (Karims beslut 2026-10-22): det nya
+    // utkastet ersätter den och märkningen står kvar. En sammanfattning som coachen skrivit rörs aldrig (monthly-prefill.test.ts).
+    expect(before.prefill.summary).toBe("ai");
+    expect(ma).toMatchObject({ status: "draft", summary: ma.aiSummaryDraft, overallStatus: before.overallStatus, prefill: { summary: "ai" } });
     const run = t.run(r.aiRunId);
     const out = run.output as MonthlyDraftOutput;
     expect(run).toMatchObject({ kind: "monthly_draft", caseId: MEHMET, inputRef: "2027-01", status: "succeeded" });
@@ -379,6 +442,68 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
     expect((t.run(r.aiRunId).output as MonthlyDraftOutput).assessmentId).toBeNull();
     const r2 = await enqueueVoiceJob(t.amira, { kind: "draft_monthly", caseId: YUSUF, month: "2027-01" });
     expect(r2.error?.code).toBe("blocked_no_consent");
+  });
+});
+
+describe("draft_monthly: coachen sparar eller godkänner medan AI arbetar (villkorad skrivning)", () => {
+  /** Systemet där coachen hinner skriva i månadsbedömningen precis innan jobbets villkorade skrivning. */
+  const racing = (system: AppRepo, coach: () => void): AppRepo => {
+    let done = false;
+    return {
+      table: (name: string) => {
+        const t = system.table(name as "monthly_assessments");
+        if (name !== "monthly_assessments") return t;
+        return {
+          ...t,
+          updateIf: async (...args: Parameters<typeof t.updateIf>) => {
+            if (!done) {
+              done = true;
+              coach();
+            }
+            return t.updateIf(...args);
+          },
+        };
+      },
+    } as unknown as AppRepo;
+  };
+
+  it("coachen sparar en ny nivå: jobbet läser om raden och lägger utkastet ovanpå – coachens val ligger kvar", async () => {
+    const t = setup();
+    const before = structuredClone(t.store.getRow("monthly_assessments", "ma-15934")!);
+    const key = Object.keys(before.areas)[0];
+    const ctx = {
+      ...t.amira,
+      system: racing(t.system, () => {
+        const cur = t.store.getRow("monthly_assessments", "ma-15934")!;
+        t.store.updateRow("monthly_assessments", "ma-15934", {
+          areas: { ...cur.areas, [key]: { ...cur.areas[key], level: 2, levelSource: "coach", observation: "Coachens egen observation." } }, version: cur.version + 1,
+        });
+      }),
+    };
+    const r = await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.status).toBe("succeeded");
+    const ma = t.store.getRow("monthly_assessments", "ma-15934")!;
+    expect(ma.areas[key]).toMatchObject({ level: 2, levelSource: "coach", observation: "Coachens egen observation." });
+    expect(ma.areas[key].aiObservationDraft).not.toBeNull();
+    expect(ma.version).toBeGreaterThanOrEqual(before.version + 1);
+    expect((t.run(r.aiRunId).output as MonthlyDraftOutput).assessmentId).toBe("ma-15934");
+  });
+
+  it("coachen godkänner under tiden: jobbet ändrar ingenting i den godkända bedömningen", async () => {
+    const t = setup();
+    let approved: Tables["monthly_assessments"] | null = null;
+    const ctx = {
+      ...t.amira,
+      system: racing(t.system, () => {
+        const cur = t.store.getRow("monthly_assessments", "ma-15934")!;
+        t.store.updateRow("monthly_assessments", "ma-15934", { status: "approved", decidedBy: "u-amira", decidedAt: "2027-02-01T09:20", version: cur.version + 1 });
+        approved = structuredClone(t.store.getRow("monthly_assessments", "ma-15934")!);
+      }),
+    };
+    const r = await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.status).toBe("succeeded");
+    expect(t.store.getRow("monthly_assessments", "ma-15934")).toEqual(approved);
+    expect((t.run(r.aiRunId).output as MonthlyDraftOutput).assessmentId).toBeNull();
   });
 });
 

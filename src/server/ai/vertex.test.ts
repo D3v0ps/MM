@@ -329,7 +329,7 @@ describe("draft (bara godkända uppgifter)", () => {
   it("källornas namn sätts av appen i tidsordning; påhittade källor underkänns", async () => {
     const v = vertex(ENV, [reply({ text: "Har sökt jobb och övat intervju.", sourceIds: ["ci-2", "ci-1"], usedAttendance: true, noEvidence: false })]);
     const r = await v.ai.draft(INPUT, "monthly_area:digital_sjalvstandighet");
-    expect(r.value).toEqual({ text: "Har sökt jobb och övat intervju.", sources: ["Närvaroregistrering", "Avstämning 8 jan", "Avstämning 22 jan"], sourceIds: ["ci-1", "ci-2"], noEvidence: false });
+    expect(r.value).toEqual({ text: "Har sökt jobb och övat intervju.", sources: ["Närvaroregistrering", "Mötesrapport 8 jan", "Mötesrapport 22 jan"], sourceIds: ["ci-1", "ci-2"], noEvidence: false });
     const sys = (v.calls[0].body.systemInstruction as { parts: { text: string }[] }).parts[0].text;
     expect(sys).toContain('"digital sjalvstandighet"');
     expect(sys).toContain("Sätt aldrig nivå");
@@ -357,7 +357,7 @@ describe("draft (bara godkända uppgifter)", () => {
     const notes = [{ id: "note-1", date: "2027-01-15", kind: "conversation" as const, text: "Var med på gruppträffen och pratade om CV." }];
     const v = vertex(ENV, [reply({ text: "Har deltagit i gruppträff och arbetat med CV.", sourceIds: ["note-1", "ci-1"], usedAttendance: false, noEvidence: false })]);
     const r = await v.ai.draft({ ...INPUT, notes }, "monthly_summary");
-    expect(r.value).toEqual({ text: "Har deltagit i gruppträff och arbetat med CV.", sources: ["Avstämning 8 jan", "Anteckning 15 jan"], sourceIds: ["ci-1", "note-1"], noEvidence: false });
+    expect(r.value).toEqual({ text: "Har deltagit i gruppträff och arbetat med CV.", sources: ["Mötesrapport 8 jan", "Anteckning 15 jan"], sourceIds: ["ci-1", "note-1"], noEvidence: false });
     const user = (v.calls[0].body.contents as { parts: { text: string }[] }[])[0].parts[0].text;
     expect(user).toContain('"anteckningar":[{"id":"note-1","datum":"15 jan","typ":"Samtal med deltagaren","text":"Var med på gruppträffen och pratade om CV."}]');
     expect(user).not.toMatch(/authorId|u-amira|Amira|grp-|Nivå \d|Vill arbeta/);

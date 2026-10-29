@@ -1,6 +1,7 @@
 "use client";
 // Kartläggning vecka 1 (/kartlaggning/:caseId) – deltagarens reella kompetens, yrkesmål och valt yrkesspår. Längst ned
-// kortet "Nivå och grupp" (src/features/grupper/screens/grouping-card.tsx, coachmötet 2026-10-09) – sparas direkt.
+// kortet "Nivå och yrkesområde" (src/features/grupper/screens/grouping-card.tsx, coachmötet 2026-10-09) – sparas direkt. Nivån
+// krävs innan kartläggningen godkänns (Karims beslut 2026-10-22: "Nivåerna bestäms efter kartläggningen").
 // Anpassningar beskrivs funktionellt – aldrig diagnoser. Port av prototypens coach.kartlaggning. Utkastet sparas automatiskt
 // på servern tills kartläggningen är godkänd (useAutosave, beslut 2026-10-02) – en text som ser ut som en diagnos stoppar
 // autosparningen tills den är borttagen. Fälten ligger i utkastminnet (useDraft), så Tillbaka visar dem igen.
@@ -9,9 +10,11 @@ import { AUTOSAVE_INTAKE } from "@/api/invalidation";
 import { fmtDate } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useDraft, useUnsavedGuard } from "@/shell/guard";
+import { rebaseStaleDraft, useDraft, useDraftMemory, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { AutosaveStatus, Badge, Button, Card, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
+import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
+import { caseGroupingsView } from "@/features/grupper/api";
 import { GroupingCard } from "@/features/grupper/screens/grouping-card";
 import { intakePage, intakeSave, type IntakePage } from "../api";
 import { CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, useCaseView } from "./shared";
@@ -59,6 +62,8 @@ const trimmed = (f: F): F => Object.fromEntries(Object.entries(f).map(([k, x]) =
 
 function IntakeForm({ v }: { v: Ok }) {
   const save = useCommand(intakeSave);
+  // Nivån (kortet Nivå och yrkesområde) – krävs innan godkännandet. Samma fråga som kortet, så valet syns här direkt.
+  const levels = useQuery(caseGroupingsView, { caseId: v.head.caseId });
   // Automatisk utkastsparning räknar bara om deltagarlistan och kortet – inte sidan själv.
   const draftSave = useCommand(intakeSave, { invalidate: AUTOSAVE_INTAKE });
   const [editSession] = useState(newEditSession);
@@ -71,6 +76,14 @@ function IntakeForm({ v }: { v: Ok }) {
   });
   // Utkastminne (bara i minnet): fälten, sparat läge och senaste sparningstid finns kvar om sidan lämnas (2.A).
   const draftKey = `kartlaggning|${c.caseId}`;
+  // Raden på servern är nyare än utkastet i minnet (t.ex. Byt yrkesområde, som tömmer valt yrkesspår, medan coachen var på
+  // deltagarkortet): utkastet lyfts till raden innan formuläret läser det – fält som bara servern ändrat tar serverns värde,
+  // coachens osparade ändringar ligger kvar, och versionen blir serverns. Annars skulle ett gammalt yrkesspår visas som valt och
+  // nästa sparning få "ändrats i en annan flik" fast ingen annan flik finns. En gång, när formuläret visas.
+  const memory = useDraftMemory();
+  useState(() =>
+    rebaseStaleDraft(memory, { key: draftKey, saved: `${draftKey}|sparat`, version: `${draftKey}|version`, server: initialForm(), serverVersion: ia?.version ?? null }),
+  );
   const fDraft = useDraft<F>(draftKey, initialForm);
   const f = fDraft.value;
   const setF = fDraft.set;
@@ -91,7 +104,14 @@ function IntakeForm({ v }: { v: Ok }) {
   const [allTracks, setAllTracks] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savedNow, setSavedNow] = useState<"approved" | "draft" | null>(null);
+  // Utkastet bygger på det sparade läget och versionen: de läggs i minnet med första ändringen (också i en godkänd kartläggning,
+  // som inte sparas automatiskt), så att utkastet kan lyftas till raden på servern om den ändras medan sidan är lämnad.
+  const anchorDraft = () => {
+    if (!memory.peek(`${draftKey}|sparat`).has) baselineDraft.set(baseline);
+    if (!memory.peek(`${draftKey}|version`).has && versionRef.current != null) versionDraft.set(versionRef.current);
+  };
   const set = (k: keyof F, val: string) => {
+    anchorDraft();
     setF((x) => ({ ...x, [k]: val }));
     if (errors[k]) setErrors((e) => {
       const n = { ...e };
@@ -137,15 +157,21 @@ function IntakeForm({ v }: { v: Ok }) {
     const e: Record<string, string> = {};
     if (approve) for (const [k, msg] of Object.entries(REQUIRED)) if (!String(f[k as keyof F] || "").trim()) e[k] = msg;
     if (diag) e.adaptations = "Texten ser ut att innehålla en diagnos. Beskriv i stället vad deltagaren behöver i arbetet.";
+    // Nivån krävs innan godkännandet (servern prövar igen) – prövas med de andra fälten och felet står vid nivåvalet.
+    if (approve && levels.data && !levels.data.current.level) e.level = LEVEL_REQUIRED_TEXT;
     setErrors(e);
     if (Object.keys(e).length) {
       toast(approve ? "Kartläggningen kan inte godkännas ännu. Se markerade fält." : "Ta bort diagnosen innan du sparar.", "error");
+      // Bara nivån saknas: fokus till nivåvalet.
+      if (Object.keys(e).length === 1 && e.level) document.getElementById(`gr-niva-${c.caseId}`)?.querySelector<HTMLElement>("button")?.focus();
       return;
     }
     // En pågående autosparning får bli klar först.
     await autosave.settle();
     const res = await save.run({ caseId: c.caseId, data: trimmed(f), approve, expectedVersion: versionRef.current ?? undefined }).catch(() => null);
     if (!res || !res.ok) {
+      // Spåret hör inte till deltagarens yrkesområde: felet står vid valet.
+      if (res && !res.ok && res.error === "track" && res.message) setErrors({ chosenTrack: res.message });
       toast(res && !res.ok && res.message ? res.message : "Kartläggningen kunde inte sparas.", "error");
       return;
     }
@@ -252,7 +278,11 @@ function IntakeForm({ v }: { v: Ok }) {
             id="ia-track"
             required={req}
             error={errors.chosenTrack}
-            help={`Spår inom ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""}.`}
+            help={
+              allTracks
+                ? `Spår i alla avtalsområden. Ett spår utanför ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""} kräver att du först byter yrkesområde på deltagarkortet.`
+                : `Spår inom ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""}.`
+            }
           >
             {allTracks ? (
               <Select value={f.chosenTrack} placeholder="Välj yrkesspår" onValueChange={(x) => set("chosenTrack", x)} options={v.tracks.all} />
@@ -285,8 +315,8 @@ function IntakeForm({ v }: { v: Ok }) {
         </Stack>
       </Card>
 
-      {/* Nivå, grupper och Vill arbeta (coachmötet 2026-10-09) – sparas direkt, internt för Miljonbemanning. */}
-      <GroupingCard caseId={c.caseId} />
+      {/* Nivå, yrkesområde och Vill arbeta (coachmötet 2026-10-09, Karims beslut 2026-10-22) – sparas direkt, internt för Miljonbemanning. */}
+      <GroupingCard caseId={c.caseId} requiredForApproval={!approved} levelError={errors.level} />
 
       <Row>
         {approved ? (

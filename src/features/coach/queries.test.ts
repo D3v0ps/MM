@@ -154,11 +154,12 @@ describe("Ärendevyerna", () => {
     expect(await q(checkInAttendance, { caseId: SC.skyddad, date: "2027-01-29" }, amira())).toBeNull();
   });
 
-  it("månadsbedömningen för Nadia: nivåerna är tomma och AI-utkast har källor", async () => {
+  it("månadsbedömningen för Nadia: progressionsnivå 0 automatiskt i varje område och AI-utkast har källor", async () => {
     const v = await q(assessmentPage, { caseId: SC.nadia, month: "2027-01" }, amira());
     if (v.kind !== "ok") throw new Error("spärrad");
     expect(v.areas).toHaveLength(10);
-    expect(v.areas.every((a) => a.level === null)).toBe(true);
+    // Karims beslut 2026-10-22: allt är ifyllt – nivå 0 "Automatiskt – inget belägg" tills coachen väljer eller godtar.
+    expect(v.areas.every((a) => a.level === 0 && a.levelSource === "auto")).toBe(true);
     expect(v.aiOk).toBe(true);
     expect(v.requiredFrom).toBe(1);
     expect(v.areas.some((a) => a.aiObservationDraft?.noEvidence && a.aiLevelSuggestion === null)).toBe(true);

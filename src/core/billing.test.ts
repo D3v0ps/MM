@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createSeed } from "@/data/seed";
+import { withoutAreaChanges } from "@/data/seed/decisions-2026-10-22";
 import type { Db, InvoiceDraft, InvoiceLine } from "@/data/schema";
 import {
   billableWeeks, billingLines, billingRunIdOf, buyerRefProblem, CONTRACT_GROUP, groupingKeyOf, invoiceIdOf, invoiceLookup, invoiceRefProblem, invoiceStatus, missingBillingRuns,
@@ -119,6 +120,35 @@ describe("fakturarader per ärende och månad (räknas som förut)", () => {
   it("raderna sorteras på ärendenummer", () => {
     const cs = [mkCase({ id: "b", caseNumber: "BOT-27-0010", startDate: "2027-01-04" }), mkCase({ id: "a", caseNumber: "BOT-26-0100", startDate: "2027-01-04" })];
     expect(billingLines(testDb({ cases: cs, price_items: price }), "2027-01", env).map((x) => x.caseNumber)).toEqual(["BOT-26-0100", "BOT-27-0010"]);
+  });
+});
+
+describe("byt yrkesområde (Karims beslut 2026-10-22): raden räknas på yrkesområdet som gäller för månaden", () => {
+  // Bytt från G till E den 20 januari: januari faktureras på G, februari på E. Ärendet har E nu.
+  const c = mkCase({ id: "c7", caseNumber: "BOT-26-0007", startDate: "2026-12-01", primaryAreaCode: "E", orderValueWeeks: 20 });
+  const change = {
+    id: "cac-1", contractId: "c-bot", caseId: "c7", fromArea: "G", toArea: "E", effectiveMonth: "2027-02", changedBy: "u-amira", changedAt: "2027-01-20T10:00", noteId: "note-1", seq: 1,
+    fromTrack: "", toTrack: "", fromSecondaryArea: null,
+  };
+  const db = testDb({ cases: [c], price_items: price, case_area_changes: [change] });
+
+  it("bytesmånaden på det gamla yrkesområdet, månaden efter på det nya – pris och områdeskod", () => {
+    const [dec] = billingLines(db, "2026-12", env);
+    const [jan] = billingLines(db, "2027-01", env);
+    const [feb] = billingLines(db, "2027-02", env);
+    expect([dec.areaCode, dec.unitPriceOre]).toEqual(["G", 139800]);
+    expect([jan.areaCode, jan.unitPriceOre]).toEqual(["G", 139800]);
+    expect([feb.areaCode, feb.unitPriceOre]).toEqual(["E", 156200]);
+  });
+
+  it("utan byten: ärendets yrkesområde", () => {
+    const [jan] = billingLines(testDb({ cases: [c], price_items: price }), "2027-01", env);
+    expect([jan.areaCode, jan.unitPriceOre]).toEqual(["E", 156200]);
+  });
+
+  it("ofakturerade veckor räknas med priset för veckans månad", () => {
+    const old = unbilledOld(db, testEnv({ now: "2027-03-20T09:00" }));
+    expect(new Set(old.filter((x) => x.week.monthKey === "2026-12").map((x) => x.amountOre))).toEqual(new Set([139800]));
   });
 });
 
@@ -289,10 +319,21 @@ describe("testdatat: fakturornas rader per månad = den gamla modellens fakturor
     meta: { now: string };
     billing: Record<string, { totalOre: number; count: number; weeks: number; invoices: { caseId: string; quantity: number; amountOre: number; unitPriceOre: number }[] }>;
   };
-  const db = createSeed() as unknown as Db;
+  // Byt yrkesområde (Karims beslut 2026-10-22) finns inte i den gamla modellen: jämförelsen görs utan testdatats byte
+  // (withoutAreaChanges) – bytet prövas för sig nedan.
+  const seeded = createSeed() as unknown as Db;
+  const db = withoutAreaChanges(seeded);
   const contract = db.contracts.find((c) => c.id === "c-bot")!;
   const seedEnv = domainEnv(contract, db.org_settings[0]?.settings ?? DEFAULT_ORG_SETTINGS, facit.meta.now);
   const months = Object.keys(facit.billing);
+
+  it("testdatats byte av yrkesområde (G → D den 27 januari): januari faktureras på G, februari på D", () => {
+    const line = (mk: string) => monthInvoices(seeded, mk, seedEnv).lines.find((l) => l.caseId === "case-260163")!;
+    const price = (code: string) => seeded.price_items.find((p) => p.areaCode === code)!.priceOre;
+    expect([line("2027-01").areaCode, line("2027-01").unitPriceOre]).toEqual(["G", price("G")]);
+    expect([line("2027-02").areaCode, line("2027-02").unitPriceOre]).toEqual(["D", price("D")]);
+    expect(seeded.cases.find((c) => c.id === "case-260163")?.primaryAreaCode).toBe("D");
+  });
 
   it("alla sex månader i testdatat (september 2026 – februari 2027) finns i facit", () => {
     expect(months).toEqual(["2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]);

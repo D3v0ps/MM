@@ -10,11 +10,14 @@
 //   transcribe_dictation    kommunens "Tala in": transcribe -> ljudet raderas -> texten i ai_runs.output (gallras efter 24 h)
 //   transcribe_participant  deltagarens länk: transcribe -> ljudet raderas -> translate till svenska -> participant_voice_notes
 //   draft_monthly           utkast till månadsbedömningen – BARA från godkända avstämningar, registrerad närvaro och (med
-//                           samtycke) anteckningarna i deltagarkortet utan personnummer (beslut 4 2026-10-09)
+//                           samtycke) anteckningarna i deltagarkortet utan personnummer (beslut 4 2026-10-09). Nivåförslag
+//                           1–3 per område bara med ett citat som finns i underlaget (verifyLevelSuggestion, Karims beslut
+//                           2026-10-22) – aldrig i nivån. Saknas raden skapas den förifylld (src/core/monthly-prefill.ts).
 //   retention_audio         ljud som inte raderats efter 24 timmar raderas (CLAUDE.md punkt 7)
 //   retention_transcripts   råtranskript raderas när avstämningen godkänts, senast efter 30 dagar; dikteringens text efter 24 h
 //
-// Regler (CLAUDE.md punkt 5–8): AI sätter aldrig nivå, samlad status, avslutsorsak eller resultat. Aldrig AI för skyddade
+// Regler (CLAUDE.md punkt 5–8): AI sätter aldrig nivå, samlad status, avslutsorsak eller resultat (nivåförslag med belägg visas
+// bara som förslag – coachen godtar dem själv). Aldrig AI för skyddade
 // personuppgifter och aldrig coachens inspelning utan samtycke – kontrolleras när jobbet läggs OCH när det körs (samtycket
 // kan ha återkallats). Ljudet raderas direkt efter lyckad transkribering. Ogiltiga AI-svar sparas som fel och visas aldrig.
 // Varje körning i ai_runs (leverantör, modell, tid, token, kostnad), varje radering och körning i revisionsloggen (bara id).
@@ -25,18 +28,20 @@
 import { z } from "zod";
 import type { Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
-import { aiLanguages, isOperational, progressionAreas, recordingEnabled, type ContractConfig } from "@/core/config";
+import { aiLanguages, isOperational, progressionAreas, recordingEnabled, requireOperational, type ContractConfig } from "@/core/config";
+import { applyAiDraft, type AiAreaDraft } from "@/core/monthly-prefill";
 import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
-import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, ParticipantVoiceNote, Person } from "@/data/schema";
+import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, MonthlyPlan, ParticipantVoiceNote, Person } from "@/data/schema";
+import { UniqueError } from "@/data/repo";
 import {
   AI_OFF_TEXT,
-  aiRunRow, approvedCheckIns, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema,
-  type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
+  aiRunRow, approvedCheckIns, areaChangeNoteIds, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
+  type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftOptions, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
 import { SIMULATED_PROVIDER } from "./ai-sim";
 import { AUDIO_RETENTION_HOURS, requireAudio } from "./audio-port";
 import { AI_FIELDS, type AiSource } from "./ai-types";
-import { blankArea, newAssessment } from "./rows";
+import { loadPrefill, planFieldsOf, prefillAssessmentId, prefilledAssessment, prefilledPlan, prefillPlanId } from "./monthly-prefill";
 
 // ---------------------------------------------------------------- Jobbtyperna och deras innehåll
 export const VOICE_JOB_KINDS = [
@@ -189,7 +194,15 @@ const zeroRun = (ctx: Ctx): AiRunMeta => {
  * (ärendet via ctx.repo, confirmOwnUpload). Minnesläget: jobbet körs direkt och resultatet finns när kommandot svarar.
  * Supabase-läget: jobbet körs direkt efter svaret (after()) – frågan om läget läser ai_runs tills status ändras.
  */
-export async function enqueueVoiceJob(ctx: CtxWithJobs, req: VoiceJobRequest): Promise<EnqueueResult> {
+export async function enqueueVoiceJob(
+  ctx: CtxWithJobs,
+  req: VoiceJobRequest,
+  /**
+   * ids: fasta id:n för körningen och jobbet (det automatiska månadsutkastet – två samtidiga körningar av rapportjobbet lägger
+   * aldrig två: den andra får UniqueError). runAfter: när jobbet får köras (sprider de automatiska utkasten i kön).
+   */
+  opts: { ids?: { aiRunId: string; jobId: string }; runAfter?: LocalDateTime } = {},
+): Promise<EnqueueResult> {
   const now = ctx.now();
   const { kind } = req;
   // ctx.system: systemsteg – körningen och jobbet skrivs av systemet efter hanterarens behörighetskontroll.
@@ -203,12 +216,12 @@ export async function enqueueVoiceJob(ctx: CtxWithJobs, req: VoiceJobRequest): P
     caseId = u?.caseId ?? null;
     inputRef = req.uploadId;
   }
-  const aiRunId = ctx.newId("ai");
+  const aiRunId = opts.ids?.aiRunId ?? ctx.newId("ai");
   await ctx.system.table("ai_runs").insert(aiRunRow({ id: aiRunId, now, caseId, kind: RUN_KIND[kind] as AiRunKind, inputRef, status: "running", run: zeroRun(ctx) }));
   const payload = payloadOf(req, aiRunId);
-  const jobId = ctx.newId("job");
+  const jobId = opts.ids?.jobId ?? ctx.newId("job");
   const job: Job = {
-    id: jobId, kind, payload, status: ctx.jobs ? "queued" : "running", attempts: ctx.jobs ? 0 : 1, runAfter: now, lastError: null, createdAt: now,
+    id: jobId, kind, payload, status: ctx.jobs ? "queued" : "running", attempts: ctx.jobs ? 0 : 1, runAfter: opts.runAfter && opts.runAfter > now ? opts.runAfter : now, lastError: null, createdAt: now,
     createdBy: ctx.actor.userId, finishedAt: null,
   };
   await ctx.system.table("jobs").insert(job);
@@ -519,8 +532,8 @@ async function transcribeParticipant(ctx: Ctx, p: VoiceJobPayloads["transcribe_p
 /**
  * Underlaget för månadens utkast: godkända avstämningar, registrerad närvaro (tillfällen som redan varit) och – bara när
  * deltagaren har registrerat samtycke till AI (samma samtycke som inspelningen, aiAllowed) – månadens anteckningar i
- * deltagarkortet, med personnummer tvättade och utan författare (Karims beslut 4, 2026-10-09). Nivå, grupper och taggar läses
- * aldrig här och skickas aldrig till AI.
+ * deltagarkortet, med personnummer tvättade och utan författare (Karims beslut 4, 2026-10-09) – utom motiveringen till ett byte
+ * av yrkesområde (Karims beslut 2026-10-22). Nivå, grupper, taggar och gruppaktiviteter läses aldrig här och skickas aldrig till AI.
  */
 export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKey): Promise<DraftInput> {
   const now = ctx.now();
@@ -534,8 +547,41 @@ export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKe
   const byActivity = new Map(att.map((x) => [x.activityId, x]));
   const attendance = monthActs.map((a) => byActivity.get(a.id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ status: x.status }));
   const person = c ? await ctx.system.table("persons").get(c.personId) : null;
-  const notes = aiAllowed(c, person) ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month) : [];
+  // Motiveringen till ett byte av yrkesområde är en anteckning men aldrig underlag till AI (areaChangeNoteIds).
+  const notes = aiAllowed(c, person)
+    ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month, { exclude: areaChangeNoteIds(await ctx.system.table("case_area_changes").list({ caseId })) })
+    : [];
   return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance, notes };
+}
+
+/** Så många gånger skrivs AI-utkastet om när coachen sparade samtidigt (versionen ändrades) innan det bara finns i körningen. */
+const DRAFT_WRITE_ATTEMPTS = 3;
+/** Så många AI-anrop åt gången i ett månadsutkast. */
+export const DRAFT_CONCURRENCY = 4;
+
+/**
+ * fn för varje värde, högst limit åt gången; resultaten i samma ordning som värdena. Efter första felet startas inga nya anrop,
+ * och de som redan pågår får bli klara innan felet kastas vidare – så att inget AI-anrop skickas efter att jobbet gett upp, och
+ * kostnaden för alla anrop som skickades kommer med i körningen (ai_runs).
+ */
+export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  let failure: { e: unknown } | null = null;
+  const worker = async () => {
+    while (!failure && next < items.length) {
+      const i = next++;
+      try {
+        out[i] = await fn(items[i]);
+      } catch (e) {
+        failure ??= { e };
+        return;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+  if (failure) throw (failure as { e: unknown }).e;
+  return out;
 }
 
 async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Promise<string> {
@@ -548,40 +594,109 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   if (!aiAllowed(cc.c, cc.person)) throw new VoiceJobError("blocked_no_consent");
   if (!cc.config || !isOperational(cc.config)) throw new VoiceJobError("not_found");
   const input = await monthlyDraftInput(ctx, cc.c.id, p.month);
+  const cfg = requireOperational(cc.config);
   const ai = requireAi(ctx);
+  // Alla anrop som skickades, också de som misslyckades (felets run) – kostnaden i körningen (ai_runs) även när jobbet ger upp.
   const spent: AiRunMeta[] = [];
-  const draft = async (key: DraftTemplateKey): Promise<DraftText> => {
+  const runOf = (e: unknown): unknown => (e && typeof e === "object" ? (e as { run?: unknown }).run : undefined);
+  const draft = async (key: DraftTemplateKey, opts?: DraftOptions): Promise<DraftText> => {
     try {
-      const r = await ai.draft(input, key);
+      const r = await ai.draft(input, key, opts);
       spent.push(r.run);
       return r.value;
     } catch (e) {
-      throw toVoiceJobError(e, spent);
+      const run = runOf(e);
+      if (run && typeof run === "object") spent.push(run as AiRunMeta);
+      throw e;
     }
   };
+  // Skalans texter ur avtalet till instruktionerna (nivåförslagen 1–3).
+  const levelScale = { 1: cfg.progression.scale["1"], 2: cfg.progression.scale["2"], 3: cfg.progression.scale["3"] };
   const areas: Record<string, DraftText> = {};
-  for (const a of progressionAreas(cc.config)) areas[a.key] = await draft(`monthly_area:${a.key}`);
-  const summary = await draft("monthly_summary");
-  const plan = await draft("monthly_plan");
+  const verified: Record<string, ReturnType<typeof verifyLevelSuggestion>> = {};
+  // Utkasten hämtas några i taget (DRAFT_CONCURRENCY) i stället för ett i taget: Botkyrkas tio områden plus sammanfattning och plan
+  // är tolv anrop, och jobbet ska bli klart långt inom jobbkörningens tidsgräns (maxDuration 60 s, src/server/jobs/runner.ts).
+  const keys = progressionAreas(cc.config).map((a) => a.key);
+  // Ett anrop som misslyckas: inga nya startas, de pågående blir klara, och felet får alla anrops kostnad (felets egen run
+  // räknas en gång – toVoiceJobError lägger till den).
+  let texts: DraftText[];
+  try {
+    texts = await mapLimit([...keys.map((k) => `monthly_area:${k}` as DraftTemplateKey), "monthly_summary", "monthly_plan"] as DraftTemplateKey[], DRAFT_CONCURRENCY, (key) =>
+      draft(key, key.startsWith("monthly_area:") ? { levelScale } : undefined));
+  } catch (e) {
+    throw toVoiceJobError(e, spent.filter((r) => r !== runOf(e)));
+  }
+  keys.forEach((k, i) => {
+    const d = texts[i];
+    // Kontrollen på servern, oavsett leverantör: förslaget gäller bara om citatet finns i underlaget – annars slängs det.
+    const v = d.levelSuggestion && !d.noEvidence ? verifyLevelSuggestion(d.levelSuggestion, input) : null;
+    verified[k] = v;
+    areas[k] = { ...d, levelSuggestion: v ? { level: v.level as 1 | 2 | 3, quote: v.evidence.quote, sourceId: d.levelSuggestion?.sourceId ?? "" } : null };
+  });
+  const summary = texts[keys.length];
+  const plan = texts[keys.length + 1];
 
-  // Utkasten in i månadsbedömningen (om den inte redan är godkänd). Nivå, observation, nästa steg, sammanfattning och
-  // samlad status rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5).
+  // Utkasten in i månadsbedömningen (om den inte redan är godkänd). Nivån, observationen, nästa steg och den samlade statusen
+  // rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5). Nivåförslaget med belägg sparas bara som förslag. Sammanfattningen
+  // och planens aktiviteter fylls i bara där de fortfarande är förifyllda eller tomma (applyAiDraft). Saknas raden skapas den
+  // förifylld (Karims beslut 2026-10-22), med fasta id:n.
+  // Villkorat (version och status): coachen kan spara eller godkänna medan AI arbetar. Missar villkoret läses raden om och utkastet
+  // läggs in i den nya versionen – en godkänd bedömning ändras aldrig, och coachens sparade ändringar skrivs aldrig över. Skapas
+  // raden samtidigt av jobbet eller coachen (samma fasta id) läses den om på samma sätt.
   const table = ctx.system.table("monthly_assessments");
-  const cur = await table.first({ caseId: cc.c.id, month: p.month });
+  const plans = ctx.system.table("monthly_plans");
+  const drafts: Record<string, AiAreaDraft> = {};
+  for (const [k, d] of Object.entries(areas)) drafts[k] = { observation: { text: d.text, sources: d.sources, noEvidence: d.noEvidence }, suggestion: verified[k] ?? null };
+  const aiSummaryDraft = summary.noEvidence ? null : summary.text;
   let assessmentId: string | null = null;
-  if (!cur || cur.status !== "approved") {
-    const ma: MonthlyAssessment = cur ?? newAssessment({ id: ctx.newId("ma"), caseId: cc.c.id, month: p.month });
-    const next = { ...ma.areas };
-    for (const [k, d] of Object.entries(areas)) next[k] = { ...(next[k] ?? blankArea()), aiObservationDraft: { text: d.text, sources: d.sources, noEvidence: d.noEvidence } };
-    const aiSummaryDraft = summary.noEvidence ? null : summary.text;
-    if (cur) await table.update(cur.id, { areas: next, aiSummaryDraft });
-    else await table.insert({ ...ma, areas: next, aiSummaryDraft });
+  let approved = false;
+  for (let attempt = 0; attempt < DRAFT_WRITE_ATTEMPTS && !assessmentId && !approved; attempt++) {
+    const cur = await table.first({ caseId: cc.c.id, month: p.month });
+    if (cur?.status === "approved") {
+      approved = true;
+      break;
+    }
+    const pre = cur ? null : await loadPrefill(ctx.system, cc.c, p.month, cfg, ctx.now());
+    const ma: MonthlyAssessment = cur ?? prefilledAssessment(prefillAssessmentId(cc.c.id, p.month), cc.c.id, p.month, pre!);
+    const curPlan = (await plans.first({ caseId: cc.c.id, month: p.month })) ?? (pre ? prefilledPlan(prefillPlanId(cc.c.id, p.month), cc.c.id, p.month, pre) : null);
+    const next = applyAiDraft(ma, curPlan ? planFieldsOf(curPlan) : null, {
+      areas: drafts, summary: summary.noEvidence ? null : summary.text, plan: plan.noEvidence ? null : plan.text,
+    });
+    // Ändras något som coachen ser i formuläret (sammanfattningen eller planen) får raden en ny version – ett öppet formulär
+    // får då "ändrats i en annan flik" i stället för att skriva över utkastet.
+    if (cur) {
+      const version = next.visible ? cur.version + 1 : cur.version;
+      const done = await table.updateIf(cur.id, { version: cur.version, status: cur.status }, { areas: next.ma.areas, aiSummaryDraft, summary: next.ma.summary, prefill: next.ma.prefill, version });
+      if (!done) continue;
+    } else {
+      try {
+        await table.insert({ ...next.ma, aiSummaryDraft });
+      } catch (e) {
+        if (e instanceof UniqueError) continue;
+        throw e;
+      }
+    }
+    if (curPlan && next.plan) {
+      const row: MonthlyPlan = { ...curPlan, ...next.plan };
+      // Bara fälten som utkastet ändrade (planerade aktiviteter) – coachens samtidiga ändringar i andra fält ligger kvar.
+      const patch = Object.fromEntries(Object.entries(next.plan).filter(([k, v]) => curPlan[k as keyof MonthlyPlan] !== v)) as Partial<MonthlyPlan>;
+      if (await plans.get(curPlan.id)) {
+        if (Object.keys(patch).length) await plans.update(curPlan.id, patch);
+      } else {
+        try {
+          await plans.insert(row);
+        } catch (e) {
+          // Coachen hann spara planen (samma fasta id) – coachens plan gäller.
+          if (!(e instanceof UniqueError)) throw e;
+        }
+      }
+    }
     assessmentId = ma.id;
   }
   const output: MonthlyDraftOutput = { month: p.month, areas, summary, plan, assessmentId };
   await finishRun(ctx, run, spent, { output, evidence: { sourceIds: [...new Set([...Object.values(areas), summary, plan].flatMap((d) => d.sourceIds))] } });
-  // Redan godkänd månadsbedömning: utkasten finns bara i körningen.
-  return assessmentId ? "succeeded" : "succeeded_approved";
+  // Redan godkänd månadsbedömning (eller ändrad hela tiden medan utkastet skrevs): utkasten finns bara i körningen.
+  return assessmentId ? "succeeded" : approved ? "succeeded_approved" : "succeeded_conflict";
 }
 
 // ---------------------------------------------------------------- Gallring

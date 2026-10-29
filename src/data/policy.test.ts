@@ -236,7 +236,8 @@ describe("kommunen har bara rollen handläggare (beslut 2026-10-07)", () => {
 describe("ekonomen ser inga coachanteckningar", () => {
   it("ärenden, närvaro, priser och fakturor – men inga namn, anteckningar, rapporter eller meddelanden", async () => {
     expect(await count(LARS, "cases")).toBe(231);
-    expect(await count(LARS, "activities")).toBe(3861);
+    // Tillfällena i testdatat inklusive deltagarnas rader i nivåaktiviteterna och yrkesområdesträffarna (Karims beslut 2026-10-22).
+    expect(await count(LARS, "activities")).toBe(4108);
     expect(await count(LARS, "attendance")).toBe(3590);
     expect(await count(LARS, "price_items")).toBe(12);
     expect(await count(LARS, "billing_runs")).toBe(5);
@@ -551,7 +552,8 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
 
   it("läsning: alla på Miljonbemanning som arbetar i ärenden (beslut 2026-10-09), aldrig ekonom eller kommunen; skyddat ärende bara namngivna", async () => {
     const ALL = all("case_notes").map((n) => n.id).sort();
-    expect(ALL).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad"]);
+    // note-byte-linnea: motiveringen till bytet av yrkesområde (Karims beslut 2026-10-22).
+    expect(ALL).toEqual(["note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad"]);
     // Coach, handledare och en coach utanför teamet läser alla anteckningar i avtalet – också dem som är skrivna för "full".
     for (const a of [AMIRA, PETRA, ERIK, who("u-leila")]) expect(await ids(a), a.userId).toEqual(ALL);
     for (const a of [LARS, MARIA, OMAR]) expect(await ids(a), a.userId).toEqual([]);
@@ -593,6 +595,139 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
     await expect(t(AMIRA).update("note-nadia-borttagen", { body: "Ny" })).rejects.toBeInstanceOf(PolicyError);
     await expect(t(AMIRA).remove("note-nadia-samtal")).rejects.toBeInstanceOf(PolicyError);
     await expect(t(JOHAN).update("note-skyddad", { removedAt: "2027-02-01T09:40", removedBy: "u-johan" })).resolves.toBeTruthy();
+  });
+});
+
+describe("byt yrkesområde (case_area_changes, 0036, Karims beslut 2026-10-22)", () => {
+  const NADIA = tagged("nadia");
+  const fresh = () => new MemoryStore<Tables>(createSeed());
+  const note = (id: string, authorId = "u-amira", caseId = NADIA, createdAt = "2027-02-01T09:30"): Tables["case_notes"] => ({
+    id, contractId: "c-bot", caseId, authorId, occurredOn: "2027-02-01", kind: "other", audience: "team", body: "Byte av yrkesområde: motivering.",
+    createdAt, updatedAt: null, removedAt: null, removedBy: null,
+  });
+  // Nadia har G och yrkesspåret Truckförare A+B, inget alternativ.
+  const change = (patch: Partial<Tables["case_area_changes"]> = {}): Tables["case_area_changes"] => ({
+    id: "cac-x", contractId: "c-bot", caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changedBy: "u-amira", changedAt: "2027-02-01T09:31",
+    noteId: "note-cac", seq: 1, fromTrack: "Truckförare A+B", toTrack: "", fromSecondaryArea: null, ...patch,
+  });
+
+  it("läsning: Miljonbemanning i avtalet, också ekonomen – aldrig kommunen", async () => {
+    for (const a of [AMIRA, ERIK, SARA, JOHAN, KARIN, ROBIN, LARS, PETRA]) expect(await count(a, "case_area_changes"), a.userId).toBe(1);
+    for (const a of [MARIA, OMAR, DELTAGARE]) expect(await count(a, "case_area_changes"), a.userId).toBe(0);
+  });
+
+  it("skriva: coach, samordnare och avtalsansvarig i eget namn med full åtkomst – raden stämmer med ärendet, avtalets yrkesområden, anteckningen och månaden", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-cac"));
+    s.insertRow("case_notes", note("note-sara", "u-sara"));
+    const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
+    await expect(t(AMIRA).insert(change({ toTrack: "Bygg – grund och arbetsmiljö" }))).resolves.toBeTruthy();
+    // Bytet ändrar ärendet i samma steg (triggern case_area_changes_apply): det nya yrkesområdet och yrkesspåret.
+    expect(s.getRow("cases", NADIA)).toMatchObject({ primaryAreaCode: "C", vocationalTrack: "Bygg – grund och arbetsmiljö" });
+    // Nästa byte utgår från ärendets nya yrkesområde och spår och får nästa nummer.
+    await expect(t(SARA).insert(change({ id: "cac-sara", changedBy: "u-sara", noteId: "note-sara", fromArea: "C", toArea: "G", seq: 2, changedAt: "2027-02-01T09:35", fromTrack: "Bygg – grund och arbetsmiljö" }))).resolves.toBeTruthy();
+    expect(s.getRow("cases", NADIA)).toMatchObject({ primaryAreaCode: "G", vocationalTrack: "" });
+    // I någon annans namn, fel avtal, inaktivt eller okänt område, samma område, fel månad, anteckning i ett annat ärende,
+    // yrkesspåret eller alternativet stämmer inte med ärendet – på ett ärende utan byten, där raden annars är giltig.
+    const s2 = fresh();
+    s2.insertRow("case_notes", note("note-cac"));
+    const t2 = (a: Actor) => repoFor(a, s2).table("case_area_changes");
+    const bad: Partial<Tables["case_area_changes"]>[] = [
+      { id: "cac-1", changedBy: "u-sara" }, { id: "cac-2", contractId: "c-ny" }, { id: "cac-3", toArea: "Z" }, { id: "cac-4", toArea: "G" },
+      { id: "cac-5", effectiveMonth: "2027-02" }, { id: "cac-6", noteId: "note-mehmet-handledare" }, { id: "cac-7", fromTrack: "Lagerarbetare – plock och pack" },
+      { id: "cac-8", fromSecondaryArea: "D" }, { id: "cac-9", toTrack: "x".repeat(201) },
+    ];
+    for (const patch of bad) await expect(t2(AMIRA).insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
+    // Läsläge, ekonomen, den vilande rollen handledare och kommunen skapar aldrig ett byte.
+    for (const a of [KARIN, ROBIN, LARS, PETRA, MARIA]) {
+      await expect(t2(a).insert(change({ id: `cac-${a.userId}`, changedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+    expect(s2.getRow("cases", NADIA)).toMatchObject({ primaryAreaCode: "G", vocationalTrack: "Truckförare A+B" });
+    await expect(t2(AMIRA).insert(change({ id: "cac-ok" }))).resolves.toBeTruthy();
+  });
+
+  it("bytet och ärendet tillsammans: alternativet som blir det nya tas bort; ett pausat ärende kan byta, ett avslutat aldrig – och servern ändrar inte ärendet", async () => {
+    const s = fresh();
+    s.updateRow("cases", NADIA, { secondaryAreaCode: "C", status: "paused" });
+    s.insertRow("case_notes", note("note-cac"));
+    await expect(repoFor(AMIRA, s).table("case_area_changes").insert(change({ fromSecondaryArea: "C" }))).resolves.toBeTruthy();
+    expect(s.getRow("cases", NADIA)).toMatchObject({ primaryAreaCode: "C", secondaryAreaCode: null, vocationalTrack: "" });
+    const closed = fresh();
+    closed.updateRow("cases", NADIA, { status: "closed" });
+    closed.insertRow("case_notes", note("note-cac"));
+    await expect(repoFor(AMIRA, closed).table("case_area_changes").insert(change())).rejects.toBeInstanceOf(PolicyError);
+    expect(closed.getRow("cases", NADIA)?.primaryAreaCode).toBe("G");
+    expect(closed.rows("case_area_changes").filter((x) => x.caseId === NADIA)).toEqual([]);
+    // Servern (bypass, t.ex. testdatat) skriver bara raden – ärendet ändras inte.
+    const sys = fresh();
+    sys.insertRow("case_notes", note("note-cac"));
+    await new MemoryRepo(sys, AMIRA, POLICIES, { bypass: true }).table("case_area_changes").insert(change());
+    expect(sys.getRow("cases", NADIA)?.primaryAreaCode).toBe("G");
+  });
+
+  it("motiveringen: en ny anteckning av den som byter, typ other, inte borttagen, skriven nyss – en per byte", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-sara", "u-sara"));
+    s.insertRow("case_notes", { ...note("note-kontakt"), kind: "customer_contact", audience: "full" });
+    s.insertRow("case_notes", { ...note("note-borta"), removedAt: "2027-02-01T09:30", removedBy: "u-amira" });
+    s.insertRow("case_notes", note("note-gammal", "u-amira", NADIA, "2027-01-20T10:00"));
+    const t = repoFor(AMIRA, s).table("case_area_changes");
+    for (const noteId of ["note-sara", "note-kontakt", "note-borta", "note-gammal"]) {
+      await expect(t.insert(change({ id: `cac-${noteId}`, noteId })), noteId).rejects.toBeInstanceOf(PolicyError);
+    }
+    // Den kapade anteckningen är inte låst: Sara ändrar och döljer sin egen anteckning som förut.
+    await expect(repoFor(SARA, s).table("case_notes").update("note-sara", { body: "Ny text." })).resolves.toBeTruthy();
+    // En motivering används bara en gång (unik), också i ett nytt byte i samma ärende.
+    s.insertRow("case_notes", note("note-cac"));
+    await expect(t.insert(change())).resolves.toBeTruthy();
+    await expect(t.insert(change({ id: "cac-igen", fromArea: "C", toArea: "D", seq: 2, fromTrack: "" }))).rejects.toThrow();
+  });
+
+  it("ärendets yrkesområde ändras aldrig direkt efter bekräftelsen – och kommunen ändrar aldrig yrkesområdena efter mottagandet", async () => {
+    const s = fresh();
+    const cases = (a: Actor) => repoFor(a, s).table("cases");
+    await expect(cases(AMIRA).update(NADIA, { primaryAreaCode: "C" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).update(NADIA, { primaryAreaCode: "C" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(MARIA).update(NADIA, { primaryAreaCode: "C" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(MARIA).update(NADIA, { secondaryAreaCode: "C" })).rejects.toBeInstanceOf(PolicyError);
+    // Det alternativa yrkesområdet (Miljonbemanning) och övriga fält ändras som förut.
+    await expect(cases(SARA).update(NADIA, { secondaryAreaCode: "C" })).resolves.toBeTruthy();
+    await expect(cases(MARIA).update(NADIA, { referrerPhone: "08-000 00 00" })).resolves.toBeTruthy();
+    // Före bekräftelsen väljs yrkesområdet som förut (avropsinkorgen, accepten).
+    const waiting = s.rows("cases").find((c) => c.status === "acknowledged" && c.contractId === "c-bot")!;
+    await expect(cases(SARA).update(waiting.id, { primaryAreaCode: "C" })).resolves.toBeTruthy();
+  });
+
+  it("kedjan: nästa nummer, från ärendets nuvarande yrkesområde och det förra bytets nya, inte äldre än det förra – och med aktuell tid", async () => {
+    const s = fresh();
+    for (const id of ["note-cac", "note-cac2", "note-cac3", "note-cac4"]) s.insertRow("case_notes", note(id));
+    const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
+    // En påhittad historik: ett första byte som inte utgår från ärendets yrkesområde (G), eller med fel nummer.
+    for (const patch of [{ id: "cac-a", fromArea: "A", toArea: "G" }, { id: "cac-b", seq: 2 }, { id: "cac-c", seq: 0 }] as Partial<Tables["case_area_changes"]>[]) {
+      await expect(t(AMIRA).insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
+    }
+    await expect(t(AMIRA).insert(change({ id: "cac-1" }))).resolves.toBeTruthy();
+    // Samma nummer igen (två samtidiga byten): den unika nyckeln.
+    await expect(t(AMIRA).insert(change({ id: "cac-2", fromArea: "C", toArea: "D", seq: 1, noteId: "note-cac2", fromTrack: "" }))).rejects.toThrow();
+    // Från det gamla yrkesområdet i stället för det förra bytets nya, eller äldre än det förra bytet.
+    await expect(t(AMIRA).insert(change({ id: "cac-3", fromArea: "G", toArea: "D", seq: 2, noteId: "note-cac2", fromTrack: "" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).insert(change({ id: "cac-4", fromArea: "C", toArea: "D", seq: 2, noteId: "note-cac3", fromTrack: "", changedAt: "2027-02-01T09:29", effectiveMonth: "2027-03" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).insert(change({ id: "cac-5", fromArea: "C", toArea: "D", seq: 2, noteId: "note-cac4", fromTrack: "", changedAt: "2027-02-01T09:32" }))).resolves.toBeTruthy();
+    // Med klocka (minnesläget): bytet registreras med aktuell tid – högst 10 minuter ifrån.
+    const c = fresh();
+    c.insertRow("case_notes", note("note-cac", "u-amira", NADIA, "2027-02-01T09:12"));
+    c.clock = () => "2027-02-01T09:12";
+    const tc = repoFor(AMIRA, c).table("case_area_changes");
+    await expect(tc.insert(change({ id: "cac-gammal", changedAt: "2026-11-03T10:00", effectiveMonth: "2026-12" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(tc.insert(change({ id: "cac-sen", changedAt: "2027-02-01T09:31" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(tc.insert(change({ id: "cac-nu", changedAt: "2027-02-01T09:12" }))).resolves.toBeTruthy();
+  });
+
+  it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det", async () => {
+    const s = fresh();
+    const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
+    await expect(t(AMIRA).update("cac-seed-linnea", { toArea: "C" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN).remove("cac-seed-linnea")).rejects.toBeInstanceOf(PolicyError);
   });
 });
 

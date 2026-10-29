@@ -53,7 +53,7 @@ export type PAiRun = Pick<AiRun, "id" | "caseId" | "kind" | "provider" | "model"
 export type PTask = Pick<Task, "id" | "toRole" | "fromId" | "createdAt" | "status" | "text"> & Partial<Pick<Task, "caseIds" | "emailId">>;
 export type PConsent = Omit<Consent, "declinedAt"> & { declinedAt?: string | null };
 /** Tillfälle och närvaro som i prototypen: gruppaktiviteten och närvarons källa (0030) läggs till i map.ts. */
-export type PActivity = Omit<Activity, "groupActivityId">;
+export type PActivity = Omit<Activity, "groupActivityId" | "inviteSource">;
 export type PAttendance = Omit<Attendance, "source">;
 export type PCheckIn = Omit<CheckIn, "ai" | "version"> & { ai?: CheckIn["ai"]; tags?: string[] };
 export type POutcomeEvent = Omit<OutcomeEvent, "possibleBonus"> & { possibleBonus?: boolean };
@@ -64,7 +64,7 @@ export type ProtoState = {
   users: PUser[]; customerUsers: PUser[]; buyerReferences: PBuyerRef[]; persons: PPerson[]; cases: PCase[];
   caseCounters: Record<string, number>; caseStatusHistory: (Omit<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt"> & Partial<Pick<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt">>)[];
   inboundEmails: PEmail[]; intakeAssessments: Omit<IntakeAssessment, "version">[]; activities: PActivity[]; attendance: PAttendance[]; checkIns: PCheckIn[];
-  monthlyAssessments: Omit<MonthlyAssessment, "version">[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
+  monthlyAssessments: Omit<MonthlyAssessment, "version" | "prefill">[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
   contractDeviations: PContractDeviation[]; employers: { id: string; name: string; orgNr: string; contactName: string; phone: string; email: string; areas: string[] }[];
   placements: Placement[]; reports: PReport[]; pulseInvites: PPulseInvite[]; pulseResponses: PulseResponse[]; messages: Omit<Message, "kind">[];
   invoiceStatus: Record<string, Record<string, InvoiceStatus>>; billingRuns: PBillingRun[]; consents: PConsent[]; aiRuns: PAiRun[];

@@ -47,11 +47,15 @@ export function overlaps(a: Slot, b: Slot): boolean {
 /** "kl. 09.00–12.00" */
 export const slotText = (a: Slot): string => `kl. ${fmtTime(a.startsAt)}–${fmtTime(addMinutes(a.startsAt, a.durationMin))}`;
 
-// ---------------------------------------------------------------- Bjud in per grupp, nivå eller enskilda (spår G)
-/** Sätten att välja vilka som bjuds in (coachmötet 2026-10-09: "grupper åt gången, nivå åt gången, individuell nivå"). */
-export const INVITE_MODES = ["grupp", "niva", "enskilda"] as const;
+// ---------------------------------------------------------------- Bjud in per yrkesområde, nivå eller enskilda
+/**
+ * Sätten att välja vilka som bjuds in (coachmötet 2026-10-09: "grupper åt gången, nivå åt gången, individuell nivå"; Karims beslut
+ * 2026-10-22: grupperna är yrkesområdena). Yrkesområde och Nivå sätter aktivitetens målgrupp – de som tillkommer bjuds in
+ * automatiskt fram till aktiviteten (src/core/audience.ts). Enskilda bjuds in för hand.
+ */
+export const INVITE_MODES = ["omrade", "niva", "enskilda"] as const;
 export type InviteMode = (typeof INVITE_MODES)[number];
-export const INVITE_MODE_LABEL: Record<InviteMode, string> = { grupp: "Grupp", niva: "Nivå", enskilda: "Enskilda" };
+export const INVITE_MODE_LABEL: Record<InviteMode, string> = { omrade: "Yrkesområde", niva: "Nivå", enskilda: "Enskilda" };
 
 export const ALREADY_INVITED_TEXT = "Redan inbjuden";
 export const NO_DAY_TEXT = "Välj datum först";
@@ -66,9 +70,12 @@ export function candidateBlockText(c: InviteCase & { caseId: string }, day: Loca
 
 /** En deltagare som kan bjudas in i avtalet (pågående eller pausad): det inviteBlock behöver, nummer och namn. */
 export type SelectableCase = InviteCase & { caseId: string; caseNumber: string; name: string };
-/** En nivå eller grupp med sina aktiva deltagare (ärende-id:n). */
-export type InviteGrouping = { id: string; kind: "level" | "group"; name: string; caseIds: readonly string[] };
-/** En deltagare i en vald grupp eller nivå som aldrig kan bjudas in (avslutad, avböjd, inte startad) – orsaken från servern. */
+/**
+ * En nivå (id = nivåns id) eller ett yrkesområde (id = avtalsområdets kod) med sina deltagare (ärende-id:n): nivåns aktiva
+ * medlemmar respektive ärendena med yrkesområdet.
+ */
+export type InviteGrouping = { id: string; kind: "level" | "area"; name: string; caseIds: readonly string[] };
+/** En deltagare i en vald nivå som aldrig kan bjudas in (avslutad, avböjd, inte startad) – orsaken från servern. */
 export type UninvitableMember = { caseId: string; caseNumber: string; name: string | null; reason: string };
 /** En deltagare som hoppas över, och varför. */
 export type InviteSkip = { caseId: string; caseNumber: string; name: string | null; reason: string };
@@ -77,9 +84,9 @@ export type InviteSelection = { invite: SelectableCase[]; skipped: InviteSkip[] 
 const byNumber = (a: { caseNumber: string }, b: { caseNumber: string }) => (a.caseNumber < b.caseNumber ? -1 : a.caseNumber > b.caseNumber ? 1 : 0);
 
 /**
- * Inbjudan per grupp eller nivå: alla aktiva deltagare i de valda grupperingarna (en gång var, i ärendenummerordning). Redan
- * inbjudna och de som inte kan bjudas in den dagen (inviteBlock – samma regel som servern) hoppas över med orsaken, liksom
- * deltagare i grupperna vars insats inte pågår (others). Utan dag kan ingen bjudas in. Ren funktion – samma i skärmen och testerna.
+ * Vilka i de valda nivåerna eller yrkesområdena som bjuds in den dagen (en gång var, i ärendenummerordning). Redan inbjudna och de
+ * som inte kan bjudas in den dagen (inviteBlock – samma regel som servern och målgruppen) hoppas över med orsaken, liksom deltagare
+ * vars insats inte pågår (others). Utan dag kan ingen bjudas in. Ren funktion – samma i skärmen och testerna.
  */
 export function selectByGroupings(
   groupingIds: readonly string[],
@@ -122,7 +129,7 @@ const SKIP_LABEL: Record<string, string> = {
   [INVITE_BLOCK_TEXT.not_started]: "insatsen har inte startat",
   [INVITE_BLOCK_TEXT.ended]: "insatsen har slutat",
   [INVITE_BLOCK_TEXT.paused_week]: "uppehåll den veckan",
-  // Serverns orsak för en deltagare i en grupp vars insats inte har startat (aktiviteter.form, others).
+  // Serverns orsak för en deltagare i en nivå vars insats inte har startat (aktiviteter.form, others).
   "Insatsen har inte startat": "insatsen har inte startat",
 };
 export function skipLabel(reason: string): string {
