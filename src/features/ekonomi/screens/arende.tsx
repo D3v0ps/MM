@@ -290,7 +290,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                 { key: "range", label: "Period", nowrap: true, render: (w) => fmtWeekRange(w.key) },
                 { key: "month", label: "Faktureras i", nowrap: true, render: (w) => monthLabel(w.monthKey) },
                 { key: "days", label: "Inskrivna dagar", num: true, render: (w) => w.enrolledDays },
-                { key: "att", label: "Närvaro", nowrap: true, render: (w) => (w.planned ? `${w.attended} av ${plural(w.planned, "tillfälle", "tillfällen")}` : "Inga tillfällen än") },
+                { key: "att", label: "Närvaro", nowrap: true, render: (w) => (w.planned ? `${w.attended} av ${plural(w.planned, "tillfälle", "tillfällen")}` : w.zeroAttendance ? "Inga tillfällen" : "Inga tillfällen än") },
                 {
                   key: "note",
                   label: "Anmärkning",

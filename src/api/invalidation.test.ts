@@ -54,6 +54,8 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortRapporter": one("u-amira", { caseId: NADIA }), "arenden.kortMeddelanden": one("u-amira", { caseId: NADIA }),
   "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   "arenden.yrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
+  // BOT-27-0031 har testdatats ändring av startdatum (motiveringen läses).
+  "arenden.startdatum": [...one("u-amira", { caseId: "case-270031" }), ...one("u-karin", { caseId: "case-270031" })],
   "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],
@@ -177,6 +179,12 @@ const WRITES: Record<string, string[]> = {
   // Byt yrkesområde (Karims beslut 2026-10-22): anteckningen med motiveringen, bytet och ärendets yrkesområde.
   // Grupp och inbjudningar följer direkt (syncAudienceInvites): deltagarens rader i kommande aktiviteter med målgrupp.
   "arenden.bytYrkesomrade": ["case_notes", "case_area_changes", "cases", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  // Ändra startdatum (Karims beslut 2026-10-29): anteckningen, ändringen och ärendet, tillfällena och den automatiska närvaron före det
+  // nya datumet, utkasten till månadsrapport, månadsbedömning och plan för en månad som blir utan månadsrapport (och den förifyllda
+  // bedömningens närvaro), uppgiften att rätta lämnade rapporter, uppgifterna om inbjudan och inbjudningarna (syncAudienceInvites).
+  "arenden.andraStartdatum": [
+    "case_notes", "case_start_changes", "cases", "activities", "attendance", "reports", "monthly_assessments", "monthly_plans", "outbound_messages", "tasks", AUDIT_CASE, AUDIT,
+  ],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -250,6 +258,9 @@ const KNOWN: Known[] = [
   // Aktivitetsvyn läser ärendena för namn och ärendenummer och för om deltagaren hör till målgruppen (då visas inte Ta bort). Ett
   // kommando som ändrar ärendets nivå eller yrkesområde räknar om aktiviteter. (GRUPPER/AKTIVITETER); servern prövar Ta bort igen.
   { command: "*", query: "aktiviteter.visa", table: "cases", reason: "målgruppens Ta bort prövas av servern (audience); nivå- och yrkesområdesbyten räknar om aktiviteter." },
+  // Startdatumets rad på kortet läser bara anteckningarna som är motivering till en ändring (Karims beslut 2026-10-29) – de är låsta
+  // (0038) och skrivs bara av arenden.andraStartdatum, som räknar om arenden.
+  { command: "*", query: "arenden.startdatum", table: "case_notes", reason: "bara den låsta motiveringen läses – den skrivs bara av arenden.andraStartdatum" },
   // Nivåerna, yrkesområdena och Grupper-sidan räknas om av alla kommandon som ändrar ett ärende (GRUPPER i CASE_FACTS, Karims
   // beslut 2026-10-22) – de tidigare undantagen för grupper.* och formulärets nivåer behövs inte längre.
 ];

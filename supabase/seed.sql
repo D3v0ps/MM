@@ -17,7 +17,7 @@ $$;
 
 -- Töm appens tabeller (aldrig auth.*). Revisionsloggen töms bara här: triggern stoppar update och delete, inte truncate.
 -- Testarnas synpunkter (feedback, feedback_replies) hör inte till testdatat och töms aldrig.
-truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.role_choices, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.groupings, public.grouping_members, public.intake_assessments, public.group_activity_series, public.group_activities, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.case_notes, public.saved_reports, public.case_attachments, public.group_goal_results, public.case_area_changes, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
+truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.role_choices, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.groupings, public.grouping_members, public.intake_assessments, public.group_activity_series, public.group_activities, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.case_notes, public.saved_reports, public.case_attachments, public.group_goal_results, public.case_area_changes, public.case_start_changes, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
 
 -- holidays (32)
 insert into public.holidays (id, date, name) values
@@ -14250,7 +14250,7 @@ insert into public.ai_runs (id, case_id, kind, provider, model, input_ref, statu
 
 -- ai_field_decisions (0)
 
--- audit_log (19)
+-- audit_log (20)
 insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details) values
   ('log-17284', '2027-01-29T10:05', 'system', 'email.received', 'inbound_email', 'em-106', 'c-bot', '{"parseMethod":"template"}'::jsonb),
   ('log-17285', '2027-01-29T10:07', 'system', 'case.created', 'case', 'case-270048', 'c-bot', '{"number":"BOT-27-0048","source":"email"}'::jsonb),
@@ -14270,7 +14270,8 @@ insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_
   ('log-17300', '2027-02-01T08:43', 'system', 'case.created', 'case', 'case-270050', 'c-bot', '{"number":"BOT-27-0050","source":"email"}'::jsonb),
   ('log-17301', '2027-02-01T08:43', 'system', 'notify.email', 'case', 'case-270050', 'c-bot', '{"template":"ordererkannande","to":"handläggare"}'::jsonb),
   ('log-17302', '2027-02-01T08:50', 'u-sara', 'case.view', 'case', 'case-260143', 'c-bot', '{}'::jsonb),
-  ('log-17303', '2027-02-01T09:05', 'u-lars', 'billing.view', 'billing_run', 'br-2027-01', 'c-bot', '{}'::jsonb);
+  ('log-17303', '2027-02-01T09:05', 'u-lars', 'billing.view', 'billing_run', 'br-2027-01', 'c-bot', '{}'::jsonb),
+  ('log-csc-seed-0031', '2027-01-28T10:05', 'u-amira', 'case.start_date_changed', 'case', 'case-270031', 'c-bot', '{"caseId":"case-270031","changeId":"csc-seed-0031","noteId":"note-startdatum-0031","seq":1,"from":"2027-02-01","to":"2027-01-26","removedActivityIds":[],"removedAutoAttendanceIds":[]}'::jsonb);
 
 -- org_settings (1)
 insert into public.org_settings (id, organization_id, settings, updated_at, updated_by) values
@@ -14329,7 +14330,7 @@ insert into public.audio_uploads (id, case_id, owner_id, purpose, storage_path, 
   ('aud-pvn-nadia', 'case-260143', 'deltagare', 'participant', 'participant/aud-pvn-nadia.webm', 'audio/webm', 212000, 53, 'deleted', '2027-01-28T19:41', '2027-01-28T19:42'),
   ('aud-mehmet', 'case-260130', 'u-amira', 'checkin', 'checkin/aud-mehmet.webm', 'audio/webm', 9840000, 2460, 'deleted', '2027-01-29T13:47', '2027-01-29T13:49');
 
--- case_notes (7)
+-- case_notes (8)
 insert into public.case_notes (id, contract_id, case_id, author_id, occurred_on, kind, audience, body, created_at, updated_at, removed_at, removed_by) values
   ('note-nadia-kommun', 'c-bot', 'case-260143', 'u-sara', '2027-01-22', 'customer_contact', 'full', 'Handläggaren ringde och frågade om det planerade slutdatumet. Jag bekräftade att planen gäller och att månadsrapporten för januari kommer i början av februari.', '2027-01-22T14:05', null, null, null),
   ('note-nadia-samtal', 'c-bot', 'case-260143', 'u-amira', '2027-01-27', 'conversation', 'full', 'Samtal om praktiken på lagret. Nadia beskriver att arbetsuppgifterna går bra och att hon vill öva mer på plockning med handdator.
@@ -14339,7 +14340,8 @@ Vi bokar ett uppföljningssamtal med handledaren på arbetsplatsen nästa vecka.
   ('note-nadia-borttagen', 'c-bot', 'case-260143', 'u-amira', '2027-01-29', 'other', 'team', 'Påminnelse: mötet med arbetsgivaren är flyttat till torsdag kl. 10.', '2027-01-29T11:25', null, '2027-01-29T13:10', 'u-sara'),
   ('note-mehmet-handledare', 'c-bot', 'case-260130', 'u-petra', '2027-01-26', 'practical', 'team', 'Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten. Inget mer behövs inför nästa vecka.', '2027-01-26T16:05', null, null, null),
   ('note-skyddad', 'c-bot', 'case-260120', 'u-erik', '2027-01-25', 'conversation', 'full', 'Samtal per telefon enligt den säkra rutinen. Deltagaren följer planen och vill fortsätta med yrkesmomenten i februari.', '2027-01-25T10:30', null, null, null),
-  ('note-byte-linnea', 'c-bot', 'case-260163', 'u-amira', '2027-01-27', 'other', 'team', 'Byte av yrkesområde: G Lager och logistik → D Kök, restaurang och måltidsservice. Kartläggningen visade erfarenhet från storkök och ett tydligt mål att arbeta i kök.', '2027-01-27T14:10', null, null, null);
+  ('note-byte-linnea', 'c-bot', 'case-260163', 'u-amira', '2027-01-27', 'other', 'team', 'Byte av yrkesområde: G Lager och logistik → D Kök, restaurang och måltidsservice. Kartläggningen visade erfarenhet från storkök och ett tydligt mål att arbeta i kök.', '2027-01-27T14:10', null, null, null),
+  ('note-startdatum-0031', 'c-bot', 'case-270031', 'u-amira', '2027-01-28', 'other', 'team', 'Ändrat startdatum: 1 feb 2027 → 26 jan 2027. Deltagaren började redan vid första mötet den 26 januari. Startdatumet var registrerat en vecka för sent.', '2027-01-28T10:05', null, null, null);
 
 -- saved_reports (3)
 insert into public.saved_reports (id, contract_id, owner_id, title, template_key, definition, visibility, created_at, updated_at, updated_by, shared_at, shared_by, archived_at, archived_by) values
@@ -14359,6 +14361,10 @@ insert into public.case_attachments (id, contract_id, kind, category, case_id, u
 -- case_area_changes (1)
 insert into public.case_area_changes (id, contract_id, case_id, from_area, to_area, effective_month, changed_by, changed_at, note_id, seq, from_track, to_track, from_secondary_area) values
   ('cac-seed-linnea', 'c-bot', 'case-260163', 'G', 'D', '2027-02', 'u-amira', '2027-01-27T14:10', 'note-byte-linnea', 1, 'Lagerarbetare – plock och pack', 'Restaurangbiträde', 'D');
+
+-- case_start_changes (1)
+insert into public.case_start_changes (id, contract_id, case_id, from_date, to_date, changed_by, changed_at, note_id, seq) values
+  ('csc-seed-0031', 'c-bot', 'case-270031', '2027-02-01', '2027-01-26', 'u-amira', '2027-01-28T10:05', 'note-startdatum-0031', 1);
 
 -- Testmiljön: miljö och testklocka. Klockan startar på testtiden när seeden läses in och går sedan i vanlig takt.
 insert into public.app_settings (key, value) values

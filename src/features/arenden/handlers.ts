@@ -31,6 +31,7 @@ import {
   WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
+import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
@@ -53,6 +54,7 @@ import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
+import "./start-handlers";
 import "./attachment-handlers";
 import "./contact-handlers";
 import { participantFilesFor } from "./participant-file-handlers";
@@ -438,12 +440,27 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
   const rows = planActivities(plan, p.startDate, end, { pausedWeeks: c.pausedWeeks });
   const acts = ctx.repo.table("activities");
-  for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
+  // Tillfällena skrivs före ärendet (ingen transaktion). Kan ärendet inte startas (t.ex. behörigheten eller triggern
+  // cases_start_date_guard nekar) tas de som hann skrivas bort igen – annars blir de kvar och dubbleras vid nästa försök.
+  const inserted: string[] = [];
+  const undo = async () => {
+    for (const id of inserted) await acts.remove(id).catch(() => undefined);
+  };
   const meet = plan.find((r) => r.kind === "möte");
-  await ctx.repo.table("cases").update(c.id, {
-    status: "active", startDate: p.startDate, meetingDay: meet?.weekday ?? c.meetingDay, meetingTime: meet?.time ?? c.meetingTime,
-    phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate,
-  });
+  try {
+    for (const r of rows) {
+      const a = toActivity(ctx, c.id, r);
+      await acts.insert(a);
+      inserted.push(a.id);
+    }
+    await ctx.repo.table("cases").update(c.id, {
+      status: "active", startDate: p.startDate, meetingDay: meet?.weekday ?? c.meetingDay, meetingTime: meet?.time ?? c.meetingTime,
+      phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate,
+    });
+  } catch (e) {
+    await undo();
+    throw e;
+  }
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "active", toCoach: c.leadCoachId, reason: "Insatsen startad" });
   await ctx.audit({ action: "case.started", entity: "case", entityId: c.id, contractId: c.contractId, details: { startDate: p.startDate, plannedEnd: end, activities: rows.length, plan: planKeys(plan) } });
   // Insatsen pågår: deltagaren bjuds in till kommande aktiviteter för sin nivå och sitt yrkesområde (Karims beslut 2026-10-22).
@@ -1054,6 +1071,12 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       : null,
     weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
+    // Ändra startdatum (Karims beslut 2026-10-29): knappen och om raden med ändringarna ska hämtas (arenden.startdatum) – så att
+    // kortet inte gör en egen fråga för startdatumet när ärendet aldrig har ändrat det.
+    startChange: {
+      canChange: START_CHANGERS.includes(ctx.actor.role) && access === "full" && !startChangeBlockedText(c),
+      changes: await ctx.repo.table("case_start_changes").count({ caseId: c.id }),
+    },
   };
 });
 
@@ -1203,8 +1226,8 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
   if (!L) return null;
   const { c, cfg, env, team, role, me, access } = L;
   const q = { caseId: c.id };
-  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles", "case_area_changes"], {
-    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q, case_area_changes: q,
+  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles", "case_area_changes", "case_start_changes"], {
+    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q, case_area_changes: q, case_start_changes: q,
   });
   const fullDb = team
     ? { check_ins: [], intake_assessments: [], monthly_assessments: [], deviations: [], consents: [], reports: [], messages: [], organizations: [] }
@@ -1219,11 +1242,17 @@ const NOTE_NOT_FOUND = "Anteckningen finns inte, eller så har du inte behörigh
 /** Skriver anteckningar: den som arbetar i ärendet. Chef och systemadministratör läser bara. */
 const NOTE_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 const AREA_NOTE_LOCKED = "Anteckningen är motiveringen till ett byte av yrkesområde och kan inte ändras eller tas bort.";
+const START_NOTE_LOCKED = "Anteckningen är motiveringen till ett ändrat startdatum och kan inte ändras eller tas bort.";
 /**
- * Motiveringen till ett byte av yrkesområde (case_area_changes.noteId) är låst (0036, policy.ts caseNoteWrite). ctx.system: bara
- * ja/nej – bytet läses av alla som skriver anteckningar, men svaret ska inte bero på rollens läsrätt.
+ * Motiveringen till ett byte av yrkesområde (case_area_changes.noteId, 0036) eller ett ändrat startdatum (case_start_changes.noteId,
+ * 0038) är låst (policy.ts caseNoteWrite). ctx.system: bara ja/nej – ändringen läses av alla som skriver anteckningar, men svaret
+ * ska inte bero på rollens läsrätt. Texten säger vilken motivering det är, eller null när anteckningen inte är låst.
  */
-const isAreaChangeNote = async (ctx: Ctx, noteId: string): Promise<boolean> => !!(await ctx.system.table("case_area_changes").first({ noteId }));
+const lockedNoteText = async (ctx: Ctx, noteId: string): Promise<string | null> => {
+  if (await ctx.system.table("case_area_changes").first({ noteId })) return AREA_NOTE_LOCKED;
+  if (await ctx.system.table("case_start_changes").first({ noteId })) return START_NOTE_LOCKED;
+  return null;
+};
 
 handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const L = await loadCase(ctx, p.caseId, "tidslinje");
@@ -1241,7 +1270,8 @@ handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   if (p.noteId) {
     const cur = await table.get(p.noteId);
     if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
-    if (await isAreaChangeNote(ctx, cur.id)) return fail("locked", AREA_NOTE_LOCKED);
+    const locked = await lockedNoteText(ctx, cur.id);
+    if (locked) return fail("locked", locked);
     if (cur.authorId !== me) return fail("not_author", "Bara den som skrev anteckningen kan ändra den.");
     await table.update(cur.id, { occurredOn: p.occurredOn, kind: p.kind, audience, body: p.body, updatedAt: ctx.now() });
     // Revisionsloggen: bara id:n – aldrig texten eller typen.
@@ -1264,7 +1294,8 @@ handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const table = ctx.repo.table("case_notes");
   const cur = await table.get(p.noteId);
   if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
-  if (await isAreaChangeNote(ctx, cur.id)) return fail("locked", AREA_NOTE_LOCKED);
+  const locked = await lockedNoteText(ctx, cur.id);
+  if (locked) return fail("locked", locked);
   // Författaren, och samordnare och avtalsansvarig med full åtkomst i ärendet (beslut 2026-10-01). Inget raderas på riktigt.
   if (cur.authorId !== me && !(isManager(role) && access === "full")) {
     return fail("not_author", "Bara den som skrev anteckningen, samordnaren och avtalsansvarig kan ta bort den.");
@@ -1515,7 +1546,7 @@ const AUDIT_TEXT: Record<string, string> = {
   "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
   "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
   "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
-  "person.contact_changed": "Kontaktvägen ändrades", "case.area_changed": "Yrkesområdet byttes",
+  "person.contact_changed": "Kontaktvägen ändrades", "case.area_changed": "Yrkesområdet byttes", "case.start_date_changed": "Startdatumet ändrades",
   "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
@@ -1585,6 +1616,16 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     if (x.action === "case.coach_changed") return `${name(s(dt.from))} → ${name(s(dt.to))}. Orsak: ${s(dt.reason) || "–"}`;
     // Byt yrkesområde: koderna och från vilken månad fakturan räknas på det nya – motiveringen står i anteckningen.
     if (x.action === "case.area_changed") return `${s(dt.fromArea)} → ${s(dt.toArea)}${s(dt.effectiveMonth) ? `, fakturan från ${monthName(s(dt.effectiveMonth))}` : ""}`;
+    // Ändra startdatum: datumen och hur många tillfällen före det nya datumet som togs bort – motiveringen står i anteckningen.
+    // En ändring som avbröts har en rad med failed och en rad när den gjordes klar (finishedBy, av en kollega eller systemet).
+    if (x.action === "case.start_date_changed") {
+      const removed = Array.isArray(dt.removedActivityIds) ? dt.removedActivityIds.length : 0;
+      const months = Array.isArray(dt.droppedMonths) ? (dt.droppedMonths as string[]).map((m) => monthName(m)) : [];
+      const dates = `${dt.finishedBy ? "Gjordes klar: " : ""}${fmtDate(s(dt.from))} → ${fmtDate(s(dt.to))}`;
+      if (dt.failed === true) return `${dates}, avbröts – görs klart automatiskt`;
+      return [dates, removed ? `${plural(removed, "tillfälle", "tillfällen")} före det nya datumet togs bort` : "", months.length ? `utan månadsrapport: ${months.join(", ")}` : ""]
+        .filter(Boolean).join(", ");
+    }
     // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
     if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";
     if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
@@ -1605,6 +1646,8 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     if (x.action === "group_goal.marked") return dt.achieved === false ? "Klarade inte" : "Klarade";
     // Meddelandet till deltagaren: mallens namn och aktivitetens tid.
     if (x.action === "group_activity.notified") return [templateLabel(s(dt.template)), s(dt.startsAt) ? fmtDateTimeLong(s(dt.startsAt)) : ""].filter(Boolean).join(", ");
+    // Tillfället i gruppaktiviteten låg före ett nytt startdatum och togs bort med ändringen.
+    if (x.action === "group_activity.removed_participant" && dt.via === "start_date_changed") return "Låg före det nya startdatumet";
     if (x.action.startsWith("group_activity.")) {
       if (Array.isArray(dt.fields)) return `Ändrat: ${(dt.fields as string[]).map((f) => GROUP_FIELD_WORD[f] ?? f).join(", ")}`;
       if (s(dt.startsAt)) return fmtDateTimeLong(s(dt.startsAt));

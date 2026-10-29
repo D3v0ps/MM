@@ -70,6 +70,8 @@
 //   (finns inte i prototypen)        -> case_area_changes (byt yrkesområde, Karims beslut 2026-10-22, 0036) och
 //                                       monthly_assessments.prefill (automatisk månadsbedömning, samma beslut, 0036).
 //                                       Testdatat: src/data/seed/decisions-2026-10-22.ts
+//   (finns inte i prototypen)        -> case_start_changes (ändra startdatum, Karims beslut 2026-10-29, 0038).
+//                                       Testdatat: src/data/seed/decisions-2026-10-29.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -286,8 +288,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 /**
  * participant_contact = ring deltagaren: kallelsen eller inbjudan kunde inte skickas (ingen e-postadress och SMS inte kopplat,
  * src/features/_shared/participant-notify.ts). Går till samordnaren med ärendenumret – aldrig namnet.
+ * report_correction = rätta rapporter som redan är lämnade till kommunen efter ett ändrat startdatum (Karims beslut 2026-10-29,
+ * src/features/arenden/start-handlers.ts). Går till samordnaren med ärendenumret och perioderna – aldrig namnet. Kolumnen är
+ * text utan check – ingen migration behövs.
  */
-export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact"] as const;
+export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact", "report_correction"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation"] as const;
@@ -1927,6 +1932,32 @@ export type CaseAreaChange = {
   fromSecondaryArea: AreaCode | null;
 };
 
+// ================================================================ Ändra startdatum (0038, Karims beslut 2026-10-29)
+/**
+ * Huvudcoachen (och samordnare, avtalsansvarig) ändrar startdatumet i en pågående eller pausad insats med en kort motivering.
+ * Motiveringen är en anteckning i deltagarkortet (case_notes, noteId) – raden här har bara datum, id:n och tid (ingen fritext).
+ * En ny rad ändrar ärendets startdatum i samma steg (triggern case_start_changes_apply, 0038; policy.ts afterInsert): ändringen
+ * och ärendet skrivs alltid tillsammans, och bara när ärendet fortfarande har det gamla startdatumet, det nya ligger mellan
+ * första mötet och planerat slut, ingen av månaderna emellan är fakturerad eller godkänd och inget tillfälle före det nya
+ * datumet har närvaro som en människa registrerat (src/core/start-date.ts). Ändras och raderas aldrig av användare. Kommunen
+ * och ekonomen läser den aldrig.
+ */
+export type CaseStartChange = {
+  id: string;
+  contractId: string;
+  caseId: string;
+  /** Startdatumet före ändringen. */
+  fromDate: LocalDate;
+  /** Det nya startdatumet. */
+  toDate: LocalDate;
+  changedBy: UserId;
+  changedAt: LocalDateTime;
+  /** Anteckningen med motiveringen (case_notes.id) – en ny anteckning av den som ändrar, en per ändring. */
+  noteId: string;
+  /** Ändringens nummer i ärendet: 1, 2, 3 … i tur och ordning (unikt per ärende). */
+  seq: number;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1999,6 +2030,7 @@ export type Tables = {
   groupings: Grouping;
   grouping_members: GroupingMember;
   case_area_changes: CaseAreaChange;
+  case_start_changes: CaseStartChange;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -2026,6 +2058,7 @@ export const TABLE_NAMES = [
   "case_attachments",
   "group_goal_results",
   "case_area_changes",
+  "case_start_changes",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -2063,4 +2096,7 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   // Bytena av yrkesområde numreras i tur och ordning per ärende (0036, case_area_changes_case_seq_key): två samtidiga byten kan
   // aldrig få samma nummer. En anteckning är motivering till högst ett byte (case_area_changes_note_id_key).
   case_area_changes: [{ fields: ["caseId", "seq"] }, "noteId"],
+  // Ändringarna av startdatum numreras på samma sätt (0038, case_start_changes_case_seq_key), och en anteckning är motivering
+  // till högst en ändring (case_start_changes_note_id_key).
+  case_start_changes: [{ fields: ["caseId", "seq"] }, "noteId"],
 };

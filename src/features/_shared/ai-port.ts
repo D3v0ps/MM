@@ -275,7 +275,8 @@ function clipNote(text: string): string {
  * Månadens anteckningar som underlag: inte borttagna, dagen i månaden, i tidsordning. Personnummer tvättas bort; bara id,
  * dag, typ och text följer med – aldrig författaren. Anroparen tar bara med dem när deltagaren har samtycke till AI.
  * exclude: anteckningar som aldrig skickas till AI – motiveringen till ett byte av yrkesområde (case_area_changes.noteId,
- * Karims beslut 2026-10-22: Miljonbemannings interna skäl, inget underlag för bedömningen). Se areaChangeNoteIds.
+ * Karims beslut 2026-10-22) och till ett ändrat startdatum (case_start_changes.noteId, Karims beslut 2026-10-29):
+ * Miljonbemannings interna skäl, inget underlag för bedömningen. Se internalNoteIds.
  */
 export function draftNotes(notes: readonly CaseNote[], month: MonthKey, opts: { exclude?: ReadonlySet<string> } = {}): DraftNote[] {
   return notes
@@ -284,8 +285,13 @@ export function draftNotes(notes: readonly CaseNote[], month: MonthKey, opts: { 
     .map((n) => ({ id: n.id, date: n.occurredOn, kind: n.kind, text: clipNote(scrubPnr(n.body)) }));
 }
 
-/** Anteckningarna med motiveringen till ett byte av yrkesområde – aldrig underlag till AI (draftNotes exclude). */
-export const areaChangeNoteIds = (changes: readonly { noteId: string }[]): ReadonlySet<string> => new Set(changes.map((x) => x.noteId));
+/**
+ * Anteckningarna med motiveringen till ett byte av yrkesområde eller ett ändrat startdatum – interna för Miljonbemanning: aldrig
+ * underlag till AI (draftNotes exclude) och aldrig i månadsbedömningens anteckningar eller sammanfattning.
+ */
+export const internalNoteIds = (...changes: readonly (readonly { noteId: string }[])[]): ReadonlySet<string> => new Set(changes.flat().map((x) => x.noteId));
+/** Bara bytena av yrkesområde (internalNoteIds med en lista). */
+export const areaChangeNoteIds = (changes: readonly { noteId: string }[]): ReadonlySet<string> => internalNoteIds(changes);
 
 /**
  * Källfiltret (CLAUDE.md punkt 6 och Karims beslut 4, 2026-10-09). Stoppar ett utkast som bygger på något annat än godkända

@@ -1,13 +1,14 @@
 // Hanterare för området coach (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import { AI_OFF_TEXT, aiOff, areaChangeNoteIds } from "@/features/_shared/ai-port";
+import { AI_OFF_TEXT, aiOff, internalNoteIds } from "@/features/_shared/ai-port";
 import type { Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
 import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
-import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
+import { needsAssessment } from "@/core/report-schedule";
+import { addDays, dayOf, isoWeek, monthKey, monthName, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
 import { TRACKS } from "@/data/seed/constants";
@@ -48,6 +49,9 @@ const AUTOSAVE_APPROVE = "Automatisk sparning kan inte godkänna. Godkänn med k
 const CONFLICT = "Utkastet har ändrats i en annan flik eller på en annan enhet. Ladda om sidan för att se den senaste versionen – inget har skrivits över.";
 const CHECK_IN_APPROVED = "Mötesrapporten är redan godkänd och ändras inte. Gör ett nytt möte om något behöver rättas.";
 const ASSESSMENT_APPROVED = "Bedömningen är redan godkänd och ändras inte. En godkänd bedömning ändras genom en rättad rapportversion.";
+/** Månaden behöver ingen månadsbedömning (för få inskrivna dagar – t.ex. efter ett ändrat startdatum). */
+const assessmentNotNeeded = (month: string) =>
+  `${monthName(month).replace(/^./, (x) => x.toUpperCase())} har för få inskrivna dagar för en månadsbedömning, till exempel efter ett ändrat startdatum. Ladda om sidan – inget har sparats.`;
 type AutosaveParams = { autosave?: boolean; editSession?: string };
 /**
  * Versionskontrollen (0022, två flikar): expectedVersion är versionen skärmen senast såg eller sparade. Stämmer den inte
@@ -361,9 +365,12 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
   // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
-  // Motiveringen till ett byte av yrkesområde är intern och går aldrig in i sammanfattningen (kommunens månadsrapport).
+  // Motiveringen till ett byte av yrkesområde eller ett ändrat startdatum är intern och går aldrig in i sammanfattningen
+  // (kommunens månadsrapport).
   const usedNotes = [...new Set(p.usedNoteIds ?? [])];
-  const internal = usedNotes.length ? areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id })) : new Set<string>();
+  const internal = usedNotes.length
+    ? internalNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id }), await ctx.repo.table("case_start_changes").pick(["noteId"], { caseId: c.id }))
+    : new Set<string>();
   for (const id of usedNotes) {
     const n = await ctx.repo.table("case_notes").get(id);
     if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month || internal.has(n.id)) {
@@ -375,6 +382,13 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   // En godkänd bedömning ändras inte (rapporten byggs av den) – inte heller av en autosparning från en annan flik.
   if (existing && existing.status === "approved") return fail("approved", ASSESSMENT_APPROVED);
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
+  if (!existing) {
+    // En bedömning skapas bara för en månad som behöver den (samma regel som rapportjobbet, needsAssessment) – en månad som blev
+    // utan månadsrapport när startdatumet ändrades (Karims beslut 2026-10-29) får ingen ny rad från en öppen flik.
+    if (!needsAssessment(c, p.month, cfg.reportSchedule?.monthly?.minEnrolledDays)) return fail("not_needed", assessmentNotNeeded(p.month));
+    // Raden som skärmen såg (expectedVersion 1 eller mer) finns inte längre: skapas inte på nytt av en autosparning.
+    if ((p.expectedVersion ?? 0) > 0) return fail("conflict", CONFLICT);
+  }
   // Godkännandet kräver att coachen gått igenom den förifyllda bedömningen (Karims beslut 2026-10-22).
   if (p.approve && p.reviewed !== true) return fail("not_reviewed", NOT_REVIEWED_TEXT);
   // Raden ändras på plats nedan – versionen den hade när den lästes behövs för den villkorade skrivningen.

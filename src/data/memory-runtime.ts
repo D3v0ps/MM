@@ -30,6 +30,7 @@ import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
+import { finishStartChanges } from "@/features/arenden/start-finish";
 import { nextDayEnd } from "@/core/auto-attendance";
 import { isSystemSendTime } from "@/core/group-series";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
@@ -174,8 +175,9 @@ export function createMemoryRuntime(opts: {
         }
       }
       // Samma ordning som jobbet report_schedule (src/server/jobs/reports.ts): rapportutkasten, nivåaktiviteternas tillfällen och
-      // målgruppernas inbjudningar, de förifyllda månadsbedömningarna och sist månadens fakturakörning. Varje steg för sig – ett
-      // fel i ett steg stoppar inte de andra och inte appen. Bara feltypen loggas.
+      // målgruppernas inbjudningar, de förifyllda månadsbedömningarna, månadens fakturakörning och sist ändringarna av
+      // startdatum som inte blev klara. Varje steg för sig – ett fel i ett steg stoppar inte de andra och inte appen. Bara
+      // feltypen loggas.
       if (reportsDue) {
         // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
         try {
@@ -205,6 +207,12 @@ export function createMemoryRuntime(opts: {
           await ensureBillingRuns(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
         } catch (e) {
           console.error("fakturakörning: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        // Ändringar av startdatum som inte blev klara (Karims beslut 2026-10-29) – samma steg som jobbet.
+        try {
+          await finishStartChanges(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+        } catch (e) {
+          console.error("ändra startdatum: kunde inte göras klart", e instanceof Error ? e.name : typeof e);
         }
         checkedAt = now;
       }

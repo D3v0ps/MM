@@ -227,7 +227,7 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
   reviewed: z.boolean().optional(),
   ...AutosaveFields,
 }), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, ...START, "admin.contract", NAV, ...LOG] }).returns<
-  | Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict" | "not_reviewed">
+  | Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict" | "not_reviewed" | "not_needed">
   | (Fail<"incomplete"> & { missing: string[] })
 >();
 

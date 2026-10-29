@@ -37,9 +37,9 @@ beforeAll(async () => {
   await db.waitReady;
   await db.exec(SUPABASE_STUB_SQL);
   for (const f of files.slice(0, at)) await db.exec(readFileSync(f, "utf8"));
-  // De återkommande aktiviteterna (0035) och bytena av yrkesområde (0036) finns inte ännu – deras rader läses inte in
-  // (tillfällenas series_id tas bort med kolumnen).
-  await loadSeedForExistingTables(db, undefined, { later: ["group_activity_series", "case_area_changes"] });
+  // De återkommande aktiviteterna (0035), bytena av yrkesområde (0036) och ändringarna av startdatum (0038) finns inte ännu –
+  // deras rader läses inte in (tillfällenas series_id tas bort med kolumnen).
+  await loadSeedForExistingTables(db, undefined, { later: ["group_activity_series", "case_area_changes", "case_start_changes"] });
   // Före beslutet: två aktiva fria grupper med aktiva medlemskap, och ett medlemskap som redan var borttaget.
   await db.exec(`
     insert into public.groupings (id, contract_id, kind, category, name, description, sort_order, created_at, created_by, updated_at, updated_by, archived_at, archived_by) values

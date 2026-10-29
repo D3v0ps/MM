@@ -1,9 +1,11 @@
 // Vy-modellerna för skärmarna i området inkorg (startsidan, avropsinkorgen, förfaller) – port av prototypens
 // views/inkorg.js. Bara för hanterare. Läsning via ctx.repo; ctx.system bara där det står en kommentar om varför.
+import type { Role } from "@/api/roles";
 import type { Ctx, PnrCrypto } from "@/api/server";
 import { buyerRefLengthText, isUnset, phaseLabel } from "@/core/config";
 import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/core/cases";
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
+import { viewLink } from "@/core/links";
 import { TRACKS } from "@/data/seed/constants";
 import { caseBackground, orderPeriodText } from "@/features/arenden/background";
 import { looksLikeCancellation } from "./parse";
@@ -672,10 +674,13 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
       sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,
     })),
-    tasks: tasks.map((t) => ({
-      id: t.id, text: t.text, sub: `${t.fromId === "system" ? "Skapad automatiskt" : `Från ${name(t.fromId)}`} · ${whenText(t.createdAt, now)}`,
-      emailId: t.emailId, caseId: !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null,
-    })),
+    tasks: tasks.map((t) => {
+      const caseId = !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null;
+      return {
+        id: t.id, text: t.text, sub: `${t.fromId === "system" ? "Skapad automatiskt" : `Från ${name(t.fromId)}`} · ${whenText(t.createdAt, now)}`,
+        emailId: t.emailId, caseId, href: taskHref(t, caseId, role),
+      };
+    }),
     deviations: cds.map((x) => {
       const step = e.cfg.escalationLadder.find((s) => s.step === x.escalationStep);
       const dueAt = cdDue.get(x.id) || x.actionPlanDue;
@@ -696,6 +701,17 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     flagDaysText: flagText,
     today: e.today,
   };
+}
+
+/**
+ * Uppgiftens länk i Min vecka: mejlet i inkorgen; en rättelse efter ett ändrat startdatum (report_correction) till ärendets
+ * rapporter (deltagarkortets flik Rapporter – ärendet har ofta inget i inkorgen); annars ärendets avrop i inkorgen. null = ingen länk.
+ */
+function taskHref(t: { kind: string | null; emailId: string | null }, caseId: string | null, role: Role): string | null {
+  if (t.emailId) return `/inkorg/${encodeURIComponent(t.emailId)}`;
+  if (!caseId) return null;
+  if (t.kind === "report_correction") return hrefFor(viewLink("arende.kort", { caseId, tab: "rapporter" }), role);
+  return `/inkorg?arende=${encodeURIComponent(caseId)}`;
 }
 
 // ---------------------------------------------------------------- Förfaller

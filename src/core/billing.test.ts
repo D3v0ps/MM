@@ -53,6 +53,24 @@ describe("debiterbara veckor", () => {
     expect(w[2]).toMatchObject({ planned: 1, registered: 0, zeroAttendance: false, missingRegistration: true });
     expect(w[3]).toMatchObject({ planned: 1, attended: 0, registered: 1, zeroAttendance: true });
   });
+  it("en hel vecka som är slut utan ett enda tillfälle flaggas som vecka utan närvaro (startdatum som flyttats bakåt)", () => {
+    // Start onsdag 6 jan (v. 1 delvis), tillfällen bara i v. 4 (25 jan), v. 3 pausad. Klockan måndag 1 feb 09.12 – v. 5 pågår.
+    const c = mkCase({ id: "c5", caseNumber: "BOT-27-0005", startDate: "2027-01-06", pausedWeeks: ["2027-W03"], orderValueWeeks: 8 });
+    const db = testDb({ cases: [c], activities: [mkActivity({ id: "a5", caseId: "c5", startsAt: "2027-01-25T10:00" })], attendance: [], price_items: price });
+    const w = billableWeeks(c, db, env);
+    expect(w.map((x) => [x.key, x.planned, x.partial, x.paused, x.zeroAttendance, x.missingRegistration])).toEqual([
+      ["2027-W01", 0, true, false, false, false], // delvis startvecka utan tillfällen: ingen kontroll
+      ["2027-W02", 0, false, false, true, false], // hel vecka, slut, inga tillfällen: Ingen närvaro
+      ["2027-W03", 0, false, true, false, false], // pausad: debiteras inte
+      ["2027-W04", 1, false, false, false, true], // ett tillfälle utan registrering: Närvaro saknas
+      ["2027-W05", 0, false, false, false, false], // innevarande vecka: tillfällena har inte varit än
+    ]);
+    const [l] = billingLines(db, "2027-01", env);
+    expect(l.needsApproval).toBe(true);
+    expect(l.checks.filter((x) => x.kind === "zero_week").map((x) => [x.label, x.severity, x.text])).toEqual([
+      ["Ingen närvaro v. 2 2027", "needs_approval", "Veckan är debiterbar men har inga tillfällen, till exempel efter ett startdatum som flyttats bakåt. Kontrollera med coachen och godkänn innan fakturering."],
+    ]);
+  });
   it("pågående ärende: till och med innevarande vecka", () => {
     const c = mkCase({ id: "c9", startDate: "2027-01-20" });
     expect(billableWeeks(c, base, env).map((x) => x.key)).toEqual(["2027-W03", "2027-W04", "2027-W05"]);

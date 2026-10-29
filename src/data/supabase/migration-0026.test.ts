@@ -34,8 +34,9 @@ beforeAll(async () => {
   await db.exec(SUPABASE_STUB_SQL);
   for (const f of files.slice(0, at)) await db.exec(readFileSync(f, "utf8"));
   // Seeden tömmer också tabeller från senare migrationer (role_choices, 0027) – bara de som finns här. Grupperna (0031), de
-  // återkommande aktiviteterna (0035) och bytena av yrkesområde (0036) behövs inte i testet och läses inte in.
-  await loadSeedForExistingTables(db, undefined, { later: ["groupings", "grouping_members", "group_activity_series", "group_activities", "case_area_changes"] });
+  // återkommande aktiviteterna (0035), bytena av yrkesområde (0036) och ändringarna av startdatum (0038) behövs inte i testet och
+  // läses inte in.
+  await loadSeedForExistingTables(db, undefined, { later: ["groupings", "grouping_members", "group_activity_series", "group_activities", "case_area_changes", "case_start_changes"] });
 
   // Raderna som fanns före beslutet.
   const maria = data.profiles.find((p) => p.id === "k-maria")!;

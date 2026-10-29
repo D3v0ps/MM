@@ -329,6 +329,79 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
   >
 >();
 
+// ---------------------------------------------------------------- Ändra startdatum (Karims beslut 2026-10-29)
+/**
+ * Startdatumet på deltagarkortet (bara Miljonbemanning): nuvarande startdatum, om det får ändras och inom vilka datum, och
+ * ändringarna hittills (nyast först) med motiveringen. null = ingen åtkomst till ärendet (kommunen ser startdatumet i portalen –
+ * aldrig ändringarna eller motiveringen).
+ */
+export type CaseStartView = {
+  caseId: string;
+  startDate: LocalDate | null;
+  /** Coach, samordnare och avtalsansvarig med full åtkomst i en pågående eller pausad insats (annars ingen knapp). */
+  canChange: boolean;
+  /** Tidigast: första mötets dag (null = inget möte registrerat). */
+  earliest: LocalDate | null;
+  /** Senast: slutdatumet, annars planerat slut (null = inget angivet). */
+  latest: LocalDate | null;
+  /** Ändringarna, nyast först. motivation = den låsta anteckningen (null om läsaren inte ser den). */
+  history: { id: string; changedAt: LocalDateTime; fromDate: LocalDate; toDate: LocalDate; byName: string; motivation: string | null }[];
+};
+// Nyckeln ligger utanför CARD ("arenden.kort…") som yrkesområdets rad: den ändras bara när ärendet ändras (CASES räknar om den).
+export const caseStartView = query("arenden.startdatum", z.object({ caseId: IdSchema })).returns<CaseStartView | null>();
+
+/**
+ * Ändra startdatumet i en pågående eller pausad insats med en kort motivering (10–300 tecken, inga personnummer). Kontrollen och
+ * följderna i src/core/start-date.ts (planStartChange): inte före första mötets dag, inte efter planerat slut, ingen av månaderna
+ * som ändringen rör får vara fakturerad eller godkänd (då behöver ekonomen kreditera först), ett tillfälle före det nya datumet
+ * med närvaro som en människa registrerat eller en godkänd mötesrapport före det stoppar ändringen, och en månad som blir utan
+ * månadsrapport får inte redan ha en lämnad eller godkänd rapport, en godkänd bedömning eller en bedömning som coachen sparat
+ * (report). I ordning: motiveringen
+ * sparas som en låst anteckning i deltagarkortet (bara Miljonbemanning ser den), ändringen sparas (case_start_changes – ärendets
+ * startdatum ändras i samma steg), tillfällena före det nya datumet utan närvaro eller med bara automatisk närvaro tas bort (den
+ * automatiska närvaron med dem), systemets utkast för en månad som blir utan månadsrapport tas bort (planen ligger kvar när nästa
+ * månad får en rapport), samordnaren får en uppgift att rätta rapporter som redan är lämnade till kommunen och räknade med ett annat
+ * startdatum (ärendets tidigare uppgift stängs), revisionsloggen får case.start_date_changed (id:n och datum – aldrig
+ * motiveringen) och inbjudningarna till kommande gruppaktiviteter med målgrupp följer det nya datumet (deltagaren får då
+ * aktivitetens vanliga meddelande med tid och plats). Inga tillfällen skapas bakåt i tiden. Planerat slut ändras inte. Kommunen
+ * får inget meddelande. Avbryts det som görs efter att ändringen sparats svarar kommandot ok med incomplete – resten görs klart av
+ * nästa ändring i ärendet eller rapportjobbet.
+ */
+// Omräkning CASE_FACTS (brett med flit), grupperna och inkorgen: startdatumet styr fakturaunderlaget, närvaron, veckorapporterna,
+// flaggorna, listorna, kortet, portalen och aktiviteterna (tillfällen och inbjudningar tas bort eller läggs till).
+export const caseChangeStart = command("arenden.andraStartdatum", z.object({
+  caseId: IdSchema,
+  startDate: LocalDateSchema,
+  /** Startdatumet som dialogen visade – har ärendet ett annat nu blir det conflict (någon annan har ändrat under tiden). */
+  expectedStartDate: LocalDateSchema,
+  motivation: z.string().max(2000),
+}), { invalidates: [...CASE_FACTS, GRUPPER, INBOX] }).returns<
+  Result<
+    {
+      changeId: string; noteId: string; startDate: LocalDate;
+      /** Tillfällen före det nya startdatumet som togs bort (också rader i gruppaktiviteter). */
+      removed: number;
+      /** Automatiska närvarorader som togs bort med tillfällena. */
+      autoAttendanceRemoved: number;
+      /** Kommande gruppaktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
+      groups: { invited: number; removed: number } | null;
+      /** Månaderna som blev utan månadsrapport och månadsbedömning. */
+      droppedMonths: MonthKey[];
+      /** Månaderna där systemets utkast (rapport, bedömning eller plan) togs bort – tomt när månaden inte hade några utkast än. */
+      draftMonths: MonthKey[];
+      /**
+       * Rapporter som redan är lämnade till kommunen och räknade med ett annat startdatum – samordnaren har fått en uppgift (en
+       * tidigare uppgift i ärendet stängs). 0 = inget behöver rättas, också när starten flyttats tillbaka.
+       */
+      corrections: number;
+      /** Allt hann inte göras – startdatumet är ändrat och resten görs klart automatiskt. */
+      incomplete: boolean;
+    },
+    | "not_found" | "forbidden" | "wrong_status" | "same" | "before_meeting" | "after_end" | "invoiced" | "attendance" | "report" | "motivation" | "pnr" | "conflict"
+    | "unknown"
+  >
+>();
+
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
  * och exit-pulsmätning (inte vid skyddade personuppgifter). verified = arbete/studier är verifierat.
@@ -646,6 +719,12 @@ export type CaseCard = {
    * Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09).
    */
   teamOptions: { staff: { id: string; name: string }[] } | null;
+  /**
+   * Ändra startdatum (Karims beslut 2026-10-29): canChange = coach, samordnare eller avtalsansvarig med full åtkomst i en pågående
+   * eller pausad insats (knappen bland åtgärderna i kortets huvud); changes = antal ändringar hittills (raden med ändringarna hämtas bara då,
+   * arenden.startdatum).
+   */
+  startChange: { canChange: boolean; changes: number };
 };
 export type CaseCardResult =
   | CaseCard

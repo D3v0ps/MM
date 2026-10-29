@@ -9,9 +9,11 @@
 // src/features/aktiviteter/audience-sync.ts – tillfällen som redan har börjat rörs aldrig) och de förifyllda
 // månadsbedömningarna för månaden att bedöma nu med AI-utkasten till dem (ensureMonthlyAssessments,
 // src/features/coach/ensure-assessments.ts – AI-jobben läggs i kön och körs av samma jobbkörning eller nästa).
-// Ordningen: rapportutkasten, tillfällena och inbjudningarna, månadsbedömningarna, fakturakörningen. Ett fel i ett steg stoppar
-// inte de andra (som i minnesläget, src/data/memory-runtime.ts) – det första felet kastas efteråt, så att jobbet sparar
-// felorsaken och försöker igen. Alla steg är idempotenta, så ett nytt försök skapar bara det som fattas.
+// Sist gör jobbet klart ändringar av startdatum som inte blev klara (Karims beslut 2026-10-29, finishStartChanges i
+// src/features/arenden/start-finish.ts – städningen efter en ändring som avbröts).
+// Ordningen: rapportutkasten, tillfällena och inbjudningarna, månadsbedömningarna, fakturakörningen, ändringarna av startdatum.
+// Ett fel i ett steg stoppar inte de andra (som i minnesläget, src/data/memory-runtime.ts) – det första felet kastas efteråt, så
+// att jobbet sparar felorsaken och försöker igen. Alla steg är idempotenta, så ett nytt försök skapar bara det som fattas.
 //
 // Var körningarna har kommit sparas i app_settings och läses utan cache när jobbet körs (reportScheduleState):
 //   report_schedule_checked:<avtal>  högvattenmärket – appens klocka vid den senaste körningen där hela avtalet gicks igenom
@@ -26,6 +28,7 @@ import type { Repo } from "@/data/repo";
 import type { Job } from "@/data/schema";
 import { DataError, type PgError } from "@/data/supabase/repo";
 import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
+import { finishStartChanges } from "@/features/arenden/start-finish";
 import { ensureMonthlyAssessments } from "@/features/coach/ensure-assessments";
 import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
@@ -93,7 +96,8 @@ export type ReportDeps = { reportSchedule?: () => Promise<{ ctx: Ctx; state: Rep
 
 /**
  * Jobbet: kör ensureReports, ensureGroupActivities (nivåaktiviteternas tillfällen och målgruppernas inbjudningar),
- * ensureMonthlyAssessments (förifyllda månadsbedömningar) och ensureBillingRuns (månadens fakturakörning) – i den ordningen,
+ * ensureMonthlyAssessments (förifyllda månadsbedömningar), ensureBillingRuns (månadens fakturakörning) och finishStartChanges
+ * (ändringar av startdatum som inte blev klara) – i den ordningen,
  * alla steg också när ett tidigare steg kastar (det första felet kastas sist). Utfallet är "created" (något skapades eller
  * ändrades) eller "none" – inga id:n eller namn.
  */
@@ -121,6 +125,7 @@ export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
         return assessments.created.length > 0 || assessments.aiQueued.length > 0;
       });
       await step(async () => (await ensureBillingRuns(ctx, { floor: state.floor })).created.length > 0);
+      await step(async () => (await finishStartChanges(ctx, { floor: state.floor })) > 0);
       if (errors.length > 0) throw errors[0];
       return changed ? "created" : "none";
     },
