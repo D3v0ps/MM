@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor, Role } from "@/api/roles";
 import { actorFor, listPersonas, personaFor } from "./actors";
 import { MemoryRepo, MemoryStore, PolicyError } from "./memory";
-import { POLICIES } from "./policy";
+import { canReadRow, POLICIES } from "./policy";
 import { createSeed } from "./seed";
 import { TABLE_NAMES, type AppRepo, type Tables } from "./schema";
 
@@ -805,8 +805,8 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
   const NADIA = tagged("nadia");
   const at = "2027-02-01T09:13";
   const att = (id: string, patch: Partial<Tables["case_attachments"]> = {}): Tables["case_attachments"] => ({
-    id, contractId: "c-bot", caseId: NADIA, uploadedBy: "k-maria", fileName: "Bakgrund.pdf", mimeType: "application/pdf", bytes: 1200, storagePath: `c-bot/${id}.pdf`,
-    status: "uploaded", createdAt: at, linkedAt: at, removedAt: null, removedBy: null, deletedAt: null, deleteReason: null, ...patch,
+    id, contractId: "c-bot", kind: "order", category: null, caseId: NADIA, uploadedBy: "k-maria", fileName: "Bakgrund.pdf", mimeType: "application/pdf", bytes: 1200,
+    storagePath: `c-bot/${id}.pdf`, status: "uploaded", createdAt: at, linkedAt: at, removedAt: null, removedBy: null, deletedAt: null, deleteReason: null, ...patch,
   });
   const withFiles = (s = new MemoryStore<Tables>(createSeed())) => {
     s.insertRow("case_attachments", att("att-nadia"));
@@ -815,7 +815,8 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
     return s;
   };
   const files = withFiles();
-  const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list()).map((r) => r.id).sort();
+  // Testdatats egna deltagarfiler (att-seed-…) prövas i blocket nedan.
+  const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list()).map((r) => r.id).filter((id) => !id.startsWith("att-seed-")).sort();
 
   it("läsning: samordnare, avtalsansvarig, coach med full åtkomst och beställande handläggare – aldrig handledare, ekonom, chef eller admin", async () => {
     // Nadias ärende: Maria beställde, Amira är huvudcoach. Erik (coach) ser den sedan 2026-10-09. Den vilande rollen handledare aldrig.
@@ -840,6 +841,62 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
       await expect(repoFor(a, s).table("case_attachments").insert(att(`att-${a.userId}`, { uploadedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
       await expect(repoFor(a, s).table("case_attachments").update("att-nadia", { status: "deleted" }), a.userId).rejects.toBeInstanceOf(PolicyError);
       await expect(repoFor(a, s).table("case_attachments").remove("att-nadia"), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+  });
+});
+
+describe("filer på deltagarkortet (case_attachments kind participant, 0037 – Karims beslut 2026-10-29)", () => {
+  const NADIA = tagged("nadia");
+  const at = "2027-02-01T09:13";
+  const file = (id: string, patch: Partial<Tables["case_attachments"]> = {}): Tables["case_attachments"] => ({
+    id, contractId: "c-bot", kind: "participant", category: "cv", caseId: NADIA, uploadedBy: "u-amira", fileName: "CV.pdf", mimeType: "application/pdf", bytes: 1200,
+    storagePath: `c-bot/${id}.pdf`, status: "uploaded", createdAt: at, linkedAt: at, removedAt: null, removedBy: null, deletedAt: null, deleteReason: null, ...patch,
+  });
+  const withFiles = (s = new MemoryStore<Tables>(createSeed())) => {
+    s.insertRow("case_attachments", file("att-cv"));
+    s.insertRow("case_attachments", file("att-brev", { category: "personligt_brev", uploadedBy: "u-sara" }));
+    // Uppladdad av kommunens handläggare (kan inte hända – prövar att uppladdaren inte avgör läsrätten för en deltagarfil).
+    s.insertRow("case_attachments", file("att-fran-kommunen", { category: "ovrigt", uploadedBy: "k-maria" }));
+    s.insertRow("case_attachments", file("att-cv-borttagen", { status: "deleted", removedAt: at, removedBy: "u-amira", deletedAt: at, deleteReason: "removed" }));
+    return s;
+  };
+  const files = withFiles();
+  const mine = ["att-brev", "att-cv", "att-fran-kommunen"];
+  const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list({ kind: "participant", caseId: NADIA })).map((r) => r.id).filter((id) => !id.startsWith("att-seed-")).sort();
+
+  it("läsning: samordnare, avtalsansvarig och coach med full åtkomst – aldrig kommunen (inte heller handläggaren som beställde), ekonom, chef, admin eller handledare", async () => {
+    for (const a of [SARA, JOHAN, AMIRA, ERIK]) expect(await ids(a), a.userId).toEqual(mine);
+    for (const a of [MARIA, OMAR, who("k-ahmed"), PETRA, LARS, KARIN, ROBIN, DELTAGARE]) expect(await ids(a), a.userId).toEqual([]);
+    // Också get(id) – kommunens handläggare får inte ens filen hon själv skulle ha laddat upp.
+    expect(await repoFor(MARIA, files).table("case_attachments").get("att-fran-kommunen")).toBeFalsy();
+    expect(canReadRow("case_attachments", file("x"), MARIA, files.raw())).toBe(false);
+    // Testdatats deltagarfiler: samma regel.
+    const seeded = files.raw().all("case_attachments").filter((x) => x.kind === "participant" && x.id.startsWith("att-seed-"));
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const x of seeded) {
+      expect(canReadRow("case_attachments", x, SARA, files.raw()), x.id).toBe(true);
+      for (const a of [MARIA, OMAR, LARS, KARIN, ROBIN]) expect(canReadRow("case_attachments", x, a, files.raw()), `${x.id} ${a.userId}`).toBe(false);
+    }
+  });
+  it("en raderad fil läses av ingen; en deltagarfil utan ärende (finns inte – kontrollen i 0037) läses inte heller av den som laddade upp", async () => {
+    for (const a of [SARA, JOHAN, AMIRA]) expect(await ids(a), a.userId).not.toContain("att-cv-borttagen");
+    const orphan = file("att-utan-arende", { caseId: null, linkedAt: null, uploadedBy: "u-sara" });
+    expect(canReadRow("case_attachments", orphan, SARA, files.raw())).toBe(false);
+  });
+  it("skyddade personuppgifter (vilande spärr): bara namngiven huvudcoach och avtalsansvarig – kommunen aldrig", async () => {
+    const s = withFiles(withProtected());
+    const sk = s.getRow("cases", tagged("skyddad"))!;
+    s.insertRow("case_attachments", file("att-skyddad-cv", { caseId: sk.id }));
+    const read = async (a: Actor) => (await repoFor(a, s).table("case_attachments").list({ caseId: sk.id, kind: "participant" })).map((r) => r.id);
+    for (const a of [ERIK, JOHAN]) expect(await read(a), a.userId).toEqual(["att-skyddad-cv"]);
+    for (const a of [SARA, AMIRA, OMAR, KARIN, ROBIN, MARIA]) expect(await read(a), a.userId).toEqual([]);
+  });
+  it("raderna skrivs bara av systemet (ctx.attachments)", async () => {
+    const s = withFiles();
+    for (const a of [SARA, JOHAN, AMIRA, MARIA, ROBIN]) {
+      await expect(repoFor(a, s).table("case_attachments").insert(file(`att-${a.userId}`, { uploadedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+      await expect(repoFor(a, s).table("case_attachments").update("att-cv", { category: "ovrigt" }), a.userId).rejects.toBeInstanceOf(PolicyError);
+      await expect(repoFor(a, s).table("case_attachments").remove("att-cv"), a.userId).rejects.toBeInstanceOf(PolicyError);
     }
   });
 });

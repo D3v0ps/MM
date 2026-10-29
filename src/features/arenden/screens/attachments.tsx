@@ -15,7 +15,7 @@ import { attachmentDone, attachmentDownload, attachmentRemove, attachmentStart, 
 import { ATTACHMENTS_REMOVED_BY_MB } from "../background";
 
 /** Ikon och text för filtypen ("PDF", "Word", "Bild"). */
-function typeText(mime: string): string {
+export function typeText(mime: string): string {
   if (mime === "application/pdf") return "PDF";
   if (mime.startsWith("image/")) return "Bild";
   return "Word";
@@ -103,6 +103,33 @@ export type UploadingFile = {
   message: string | null;
 };
 
+/** Kontrollen i webbläsaren före uppladdningen (servern kontrollerar igen, och filsignaturen efter uppladdningen). Null = går bra. */
+export function fileProblem(file: File): string | null {
+  if (!attachmentMime(file.name, file.type)) return "Filtypen tas inte emot. Bifoga en PDF, ett Word-dokument eller en bild.";
+  if (file.size > ATTACHMENT_MAX_BYTES) return `Filen är större än 10 MB (${fileSizeText(file.size)}).`;
+  if (file.size === 0) return "Filen är tom.";
+  return null;
+}
+
+/**
+ * Skicka filen till lagringen: appen med PUT direkt till den signerade adressen (privat bucket i Stockholm); minnesläget och
+ * prototypen har ingen lagring – innehållet skickas då med klar-kommandot (contentBase64, sparas bara i minnet).
+ */
+export async function sendFile(uploadUrl: string | null, file: File): Promise<{ ok: true; contentBase64?: string } | { ok: false }> {
+  if (!uploadUrl) return { ok: true, contentBase64: bytesToBase64(new Uint8Array(await file.arrayBuffer())) };
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    body: file,
+    headers: {
+      "content-type": attachmentMime(file.name, file.type) ?? "application/octet-stream",
+      "x-upsert": "false",
+      "cache-control": "no-store",
+    },
+    credentials: "omit",
+  });
+  return res.ok ? { ok: true } : { ok: false };
+}
+
 /**
  * Ladda upp filer. Kontrollerar typ och storlek i webbläsaren först (servern kontrollerar igen, och filsignaturen efter
  * uppladdningen). Returnerar de uppladdade raderna och felen per fil.
@@ -111,17 +138,8 @@ export function useAttachmentUpload(caseId: string | null) {
   const start = useCommand(attachmentStart);
   const done = useCommand(attachmentDone);
   return async (file: File): Promise<{ ok: true; row: AttachmentRow } | { ok: false; message: string }> => {
-    if (!attachmentMime(file.name, file.type))
-      return {
-        ok: false,
-        message: "Filtypen tas inte emot. Bifoga en PDF, ett Word-dokument eller en bild.",
-      };
-    if (file.size > ATTACHMENT_MAX_BYTES)
-      return {
-        ok: false,
-        message: `Filen är större än 10 MB (${fileSizeText(file.size)}).`,
-      };
-    if (file.size === 0) return { ok: false, message: "Filen är tom." };
+    const problem = fileProblem(file);
+    if (problem) return { ok: false, message: problem };
     try {
       const s = await start.run({
         caseId,
@@ -134,27 +152,13 @@ export function useAttachmentUpload(caseId: string | null) {
           ok: false,
           message: s.message || "Filen kunde inte laddas upp.",
         };
-      let contentBase64: string | undefined;
-      if (s.uploadUrl) {
-        const res = await fetch(s.uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: {
-            "content-type": attachmentMime(file.name, file.type) ?? "application/octet-stream",
-            "x-upsert": "false",
-            "cache-control": "no-store",
-          },
-          credentials: "omit",
-        });
-        if (!res.ok)
-          return {
-            ok: false,
-            message: "Filen kunde inte laddas upp. Försök igen.",
-          };
-      } else {
-        // Minnesläget och prototypen: ingen lagring att ladda upp till – innehållet skickas med (sparas bara i minnet).
-        contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
-      }
+      const sent = await sendFile(s.uploadUrl, file);
+      if (!sent.ok)
+        return {
+          ok: false,
+          message: "Filen kunde inte laddas upp. Försök igen.",
+        };
+      const contentBase64 = sent.contentBase64;
       const d = await done.run({
         attachmentId: s.attachmentId,
         ...(contentBase64 ? { contentBase64 } : {}),

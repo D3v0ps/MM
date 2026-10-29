@@ -14347,7 +14347,12 @@ insert into public.saved_reports (id, contract_id, owner_id, title, template_key
   ('sr-seed-mb', 'c-bot', 'u-karin', 'Progression per avtalsområde', 'progression-per-omrade', '{"v":1,"filters":{},"columns":[],"split":"inget","dataset":"deltagarmanader","period":{"kind":"senaste","months":3},"output":"sammanstallning","groupBy":"avtalsomrade_kod","measures":["tydlig_progression","nagon_progression"],"chart":{"measure":"tydlig_progression"}}'::jsonb, 'mb', '2027-01-21T14:05', null, null, '2027-01-21T14:05', 'u-karin', null, null),
   ('sr-seed-kommun', 'c-bot', 'u-johan', 'Resultatgrad per avtalsområde', 'resultatgrad-per-omrade', '{"v":1,"filters":{},"columns":[],"split":"inget","dataset":"avslut","period":{"kind":"senaste","months":6},"output":"sammanstallning","groupBy":"avtalsomrade_kod","measures":["avslut_som_raknas","verifierat_resultat","preliminara","resultatgrad"],"chart":{"measure":"resultatgrad"}}'::jsonb, 'mb', '2027-01-25T09:40', null, null, '2027-01-25T09:45', 'u-johan', null, null);
 
--- case_attachments (0)
+-- case_attachments (4)
+insert into public.case_attachments (id, contract_id, kind, category, case_id, uploaded_by, file_name, mime_type, bytes, storage_path, status, created_at, linked_at, removed_at, removed_by, deleted_at, delete_reason) values
+  ('att-seed-nadia-cv', 'c-bot', 'participant', 'cv', 'case-260143', 'u-amira', 'CV truckförare januari 2027.pdf', 'application/pdf', 184320, 'c-bot/att-seed-nadia-cv.pdf', 'uploaded', '2027-01-12T14:05', '2027-01-12T14:05', null, null, null, null),
+  ('att-seed-nadia-brev', 'c-bot', 'participant', 'personligt_brev', 'case-260143', 'u-amira', 'Personligt brev lager.pdf', 'application/pdf', 96256, 'c-bot/att-seed-nadia-brev.pdf', 'uploaded', '2027-01-19T10:40', '2027-01-19T10:40', null, null, null, null),
+  ('att-seed-nadia-truck', 'c-bot', 'participant', 'betyg_intyg', 'case-260143', 'u-sara', 'Intyg truckkort A och B.pdf', 'application/pdf', 412672, 'c-bot/att-seed-nadia-truck.pdf', 'uploaded', '2027-01-26T15:20', '2027-01-26T15:20', null, null, null, null),
+  ('att-seed-linnea-cv', 'c-bot', 'participant', 'cv', 'case-260163', 'u-amira', 'CV restaurangbiträde.pdf', 'application/pdf', 158720, 'c-bot/att-seed-linnea-cv.pdf', 'uploaded', '2027-01-28T09:30', '2027-01-28T09:30', null, null, null, null);
 
 -- group_goal_results (0)
 

@@ -29,8 +29,8 @@ export interface AttachmentStorage {
   size(path: string): Promise<number | null>;
   /** Filens början (för filsignaturen), eller null om filen inte finns. */
   head(path: string): Promise<Uint8Array | null>;
-  /** Signerad adress för nedladdning som gäller i så många sekunder – utan filnamn. */
-  createSignedUrl(path: string, seconds: number): Promise<string>;
+  /** Signerad adress för nedladdning som gäller i så många sekunder – utan filnamn. Null om filen inte finns i lagringen. */
+  createSignedUrl(path: string, seconds: number): Promise<string | null>;
   /** Radera filen. Ingen fil är inget fel. */
   remove(path: string): Promise<void>;
   /** Alla filers sökvägar i bucketen ("<avtal>/<id>.<ändelse>"). */
@@ -94,7 +94,9 @@ export function createStorageAttachments(o: { system: AppRepo; storage: Attachme
     async signedDownload(id) {
       const a = await table().get(id);
       if (!a || a.status !== "uploaded") return null;
-      return { url: await o.storage.createSignedUrl(a.storagePath, ATTACHMENT_DOWNLOAD_SECONDS), content: null };
+      // Finns filen inte i lagringen (t.ex. testdatat i testmiljön före uppladdningen av platshållarna) är svaret "finns inte".
+      const url = await o.storage.createSignedUrl(a.storagePath, ATTACHMENT_DOWNLOAD_SECONDS);
+      return url ? { url, content: null } : null;
     },
     async remove(id, reason, by) {
       const a = await table().get(id);
@@ -164,6 +166,8 @@ export function supabaseAttachmentStorage(client: AttachmentStorageClientLike, b
     async createSignedUrl(path, seconds) {
       // Ingen download-parameter: då skulle filnamnet stå i adressen.
       const { data, error } = await b().createSignedUrl(path, seconds);
+      // Filen finns inte (Supabase svarar 400 eller 404 "Object not found").
+      if (error && ["400", "404"].includes(errCode(error))) return null;
       if (error || !data) throw new AttachmentStorageError("sign", errCode(error));
       return data.signedUrl;
     },

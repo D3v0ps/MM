@@ -3,11 +3,15 @@
 //
 // Beslut 5 (Karim 2026-10-08, svar till Botkyrka): bilagor i ett ärende gallras ALDRIG automatiskt. De tas bort för hand av
 // Miljonbemanning (samordnare eller avtalsansvarig, arenden.bilagaTaBort) och tidigast när ärendet är avslutat eller
-// beställningen avböjd. Avtalets gamla regel retentionRules.attachmentsAfterCloseDays läses inte längre. Det som körs här är
-// bara städning av filer som inte hör till något ärende – inte gallring av ärendets handlingar:
+// beställningen avböjd. Samma sak gäller filerna på deltagarkortet (CV m.m., kind participant, Karims beslut 2026-10-29) – de
+// tas bort för hand när som helst (arenden.deltagarfilTaBort). Avtalets gamla regel retentionRules.attachmentsAfterCloseDays
+// läses inte längre. Det som körs här är bara städning av filer som aldrig blev en handling – inte gallring av ärendets handlingar:
 //   1. Uppladdningar som aldrig kopplades till en beställning raderas efter 24 timmar (plattformsregel). Undantag (beslut 4c,
 //      2026-10-08): bilagor ur ett inläst mejl till avrop@ (uppladdade av systemet) som väntar på att samordnaren registrerar
 //      beställningen för hand – de behålls så länge mejlet väntar (status received, utan ärende), t.ex. fredag → måndag.
+//   1b. Uppladdningar i ett ärende som aldrig blev klara (pending – filen kontrollerades aldrig och har aldrig visats, t.ex. när
+//      webbläsaren stängdes mellan uppladdningen och kontrollen) raderas efter 24 timmar (2026-10-29, båda slagen). Utan det
+//      skulle en okontrollerad fil ligga kvar i lagringen för alltid och räknas mot ärendets högsta antal filer.
 //   2. Avstämning: filer i lagringen utan levande rad (pending/uploaded) raderas. Den signerade uppladdningsadressen gäller i
 //      2 timmar och kan inte återkallas, så efter "Ta bort" eller en avvisad fil kan samma adress användas igen så länge
 //      filen inte finns – en sådan fil fångas här (granskningen 2026-10-07). Lagringen listas FÖRE raderna läses: en fil som
@@ -17,7 +21,7 @@
 import { SYSTEM_ACTOR } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import type { CaseAttachment } from "@/data/schema";
-import { attachmentIdOfPath, attachmentUnlinkedOverdue, requireAttachments } from "./attachment-port";
+import { attachmentIdOfPath, attachmentUnconfirmedOverdue, attachmentUnlinkedOverdue, requireAttachments } from "./attachment-port";
 
 /**
  * Okopplade bilagor som hör till ett inläst mejl som väntar på registrering (beslut 4c): uppladdade av systemet och med
@@ -31,7 +35,7 @@ async function awaitingRegistration(ctx: Ctx, overdue: readonly CaseAttachment[]
   return new Set(fromMail.filter((a) => paths.has(a.storagePath)).map((a) => a.id));
 }
 
-export type AttachmentRetentionResult = { unlinked: number; orphans: number };
+export type AttachmentRetentionResult = { unlinked: number; unconfirmed: number; orphans: number };
 
 export async function runAttachmentRetention(ctx: Ctx): Promise<AttachmentRetentionResult> {
   const port = requireAttachments(ctx);
@@ -41,9 +45,10 @@ export async function runAttachmentRetention(ctx: Ctx): Promise<AttachmentRetent
   // ctx.system: städningen är ett systemsteg och går igenom alla avtal.
   const rows = await ctx.system.table("case_attachments").list({ status: { in: ["pending", "uploaded"] } });
   let unlinked = 0;
+  let unconfirmed = 0;
   let orphans = 0;
   const removed = new Set<string>();
-  const log = async (id: string, contractId: string, caseId: string | null, reason: "unlinked_24h" | "orphan") =>
+  const log = async (id: string, contractId: string, caseId: string | null, reason: "unlinked_24h" | "unconfirmed_24h" | "orphan") =>
     ctx.audit({ action: "attachment.deleted", entity: "case_attachment", entityId: id, contractId, details: { caseId, reason } });
 
   // Mejlets bilagor som väntar på registrering för hand behålls (se 1 ovan) – övriga okopplade raderas efter 24 timmar.
@@ -56,7 +61,15 @@ export async function runAttachmentRetention(ctx: Ctx): Promise<AttachmentRetent
     unlinked++;
   }
 
-  // Bilagor som hör till ett ärende rörs aldrig här (beslut 5, 2026-10-08).
+  // 1b. Uppladdningar i ett ärende som aldrig blev klara (pending) – raderas som ogiltiga (filen kontrollerades aldrig).
+  for (const a of rows.filter((x) => attachmentUnconfirmedOverdue(x, now))) {
+    await port.remove(a.id, "invalid");
+    await log(a.id, a.contractId, a.caseId, "unconfirmed_24h");
+    removed.add(a.id);
+    unconfirmed++;
+  }
+
+  // Uppladdade bilagor och deltagarfiler som hör till ett ärende rörs aldrig här (beslut 5, 2026-10-08; 2026-10-29).
 
   // 2. Filer utan levande rad (raderade, avvisade eller okända rader).
   const live = new Set(rows.filter((x) => !removed.has(x.id)).map((x) => x.storagePath));
@@ -68,5 +81,5 @@ export async function runAttachmentRetention(ctx: Ctx): Promise<AttachmentRetent
     await ctx.audit({ action: "attachment.deleted", entity: "case_attachment", entityId: ref?.id ?? null, contractId: ref?.contractId ?? null, details: { caseId: null, reason: "orphan" } });
     orphans++;
   }
-  return { unlinked, orphans };
+  return { unlinked, unconfirmed, orphans };
 }

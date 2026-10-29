@@ -1,4 +1,6 @@
 // Hanterare: bilagor till beställningen (beslut 2026-10-07, synpunkt #7 och beslut 4). Registreras via arenden/handlers.ts.
+// Filerna på deltagarkortet (kind participant, 0037) har egna kommandon i ./participant-file-handlers.ts – bilagaStart, bilagaKlar
+// och bilagaTaBort rör bara beställningens bilagor (kind order). bilagaHamta öppnar båda slagen (läsrätten avgör).
 // Bakgrunden med bilagorna (caseBackground) byggs i ./background.ts – den importeras av flera områden utan att registrera något.
 // Behörigheten kontrolleras alltid först – ärendet och raderna läses via ctx.repo (policy.ts/RLS case_attachments, 0024);
 // raderna skrivs bara av porten (ctx.attachments, service role). Revisionsloggen får id, typ och storlek – aldrig filnamnet.
@@ -9,6 +11,7 @@ import { caseAccessIn } from "@/core/access";
 import { base64ToBytes, bytesToBase64 } from "@/core/export/base64";
 import { isOperational } from "@/core/config";
 import type { Contract } from "@/data/schema";
+import { PARTICIPANT_FILE_ROLES } from "@/core/attachments";
 import { ATTACHMENT_MAX_FILES, requireAttachments } from "../_shared/attachment-port";
 import { accessSourceFor } from "../rapporter/load";
 import { attachmentDone, attachmentDownload, attachmentRemove, attachmentStart } from "./api";
@@ -38,8 +41,8 @@ handleCommand(attachmentStart, { roles: ["kommun_handlaggare", ...MB_EDITORS] },
     const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
     const allowed = ctx.actor.role === "kommun_handlaggare" ? access === "customer" && c.referrerId === me : access === "full";
     if (!allowed) return fail("forbidden", "Du kan inte bifoga filer i det här ärendet.");
-    // ctx.system: antalet bilagor i ärendet (bara antal) – också sådana läsaren inte ser.
-    const n = await ctx.system.table("case_attachments").count({ caseId: c.id, status: { neq: "deleted" } });
+    // ctx.system: antalet bilagor till beställningen i ärendet (bara antal) – också sådana läsaren inte ser. Deltagarfilerna räknas för sig.
+    const n = await ctx.system.table("case_attachments").count({ caseId: c.id, kind: "order", status: { neq: "deleted" } });
     if (n >= ATTACHMENT_MAX_FILES) return fail("too_many", `Högst ${ATTACHMENT_MAX_FILES} filer per beställning.`);
     contractId = c.contractId;
   } else {
@@ -47,7 +50,7 @@ handleCommand(attachmentStart, { roles: ["kommun_handlaggare", ...MB_EDITORS] },
     const contract = await orderContract(ctx);
     if (!contract) return fail("no_contract", "Det finns inget aktivt avtal att beställa i.");
     // Egna uppladdningar som inte är skickade (via behörigheten).
-    const mine = await ctx.repo.table("case_attachments").count({ uploadedBy: me, caseId: { isNull: true }, status: { neq: "deleted" } });
+    const mine = await ctx.repo.table("case_attachments").count({ uploadedBy: me, kind: "order", caseId: { isNull: true }, status: { neq: "deleted" } });
     if (mine >= ATTACHMENT_MAX_FILES) return fail("too_many", `Högst ${ATTACHMENT_MAX_FILES} filer per beställning.`);
     contractId = contract.id;
   }
@@ -68,7 +71,7 @@ handleCommand(attachmentStart, { roles: ["kommun_handlaggare", ...MB_EDITORS] },
 // ---------------------------------------------------------------- arenden.bilagaKlar
 handleCommand(attachmentDone, { roles: ["kommun_handlaggare", ...MB_EDITORS] }, async (ctx, p) => {
   const a = await ctx.repo.table("case_attachments").get(p.attachmentId);
-  if (!a || a.uploadedBy !== ctx.actor.userId) return fail("not_found", NOT_FOUND);
+  if (!a || a.kind !== "order" || a.uploadedBy !== ctx.actor.userId) return fail("not_found", NOT_FOUND);
   let content: Uint8Array | null = null;
   // Innehållet skickas bara med i minnesläget och prototypen (servern läser filen ur lagringen).
   if (p.contentBase64) {
@@ -94,7 +97,8 @@ handleCommand(attachmentDone, { roles: ["kommun_handlaggare", ...MB_EDITORS] }, 
 // när ärendet är avslutat eller beställningen avböjd (beslut 5, 2026-10-08). Ingen automatisk gallring av bilagor.
 handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }, async (ctx, p) => {
   const a = await ctx.repo.table("case_attachments").get(p.attachmentId);
-  if (!a) return fail("not_found", NOT_FOUND);
+  // Deltagarfilerna tas bort med arenden.deltagarfilTaBort.
+  if (!a || a.kind !== "order") return fail("not_found", NOT_FOUND);
   const own = !a.caseId && a.uploadedBy === ctx.actor.userId;
   let allowed = own;
   if (!allowed && a.caseId && MB_EDITORS.includes(ctx.actor.role)) {
@@ -110,12 +114,17 @@ handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }
 
 // ---------------------------------------------------------------- arenden.bilagaHamta (tyst)
 handleCommand(attachmentDownload, { roles: ["kommun_handlaggare", "samordnare", "avtalsansvarig", "coach"], silent: true }, async (ctx, p) => {
-  // Läsrätten avgörs av behörigheten (policy.ts/RLS): uppladdaren, samordnare, avtalsansvarig, namngiven huvudcoach och
-  // beställande handläggare – aldrig handledare, ekonom, chef eller admin.
+  // Läsrätten avgörs av behörigheten (policy.ts/RLS): uppladdaren, samordnare, avtalsansvarig, coach med full åtkomst och
+  // beställande handläggare – aldrig handledare, ekonom, chef eller admin. Filerna på deltagarkortet (kind participant, 0037)
+  // bara Miljonbemanning – kommunen läser aldrig raden; kontrolleras här en gång till.
   const a = await ctx.repo.table("case_attachments").get(p.attachmentId);
   if (!a || a.status !== "uploaded") return fail("not_found", NOT_FOUND);
-  // Loggen först: misslyckas den lämnas ingen adress ut. Inget filnamn i loggen.
-  await ctx.audit({ action: "attachment.viewed", entity: "case_attachment", entityId: a.id, contractId: a.contractId, details: { attachmentId: a.id, caseId: a.caseId } });
+  if (a.kind === "participant" && !PARTICIPANT_FILE_ROLES.includes(ctx.actor.role)) return fail("not_found", NOT_FOUND);
+  // Loggen först: misslyckas den lämnas ingen adress ut. Inget filnamn i loggen – bara id:n, slag och typ.
+  await ctx.audit({
+    action: "attachment.viewed", entity: "case_attachment", entityId: a.id, contractId: a.contractId,
+    details: { attachmentId: a.id, caseId: a.caseId, ...(a.kind === "participant" ? { fileKind: "participant", fileCategory: a.category } : {}) },
+  });
   const d = await requireAttachments(ctx).signedDownload(a.id);
   if (!d) return fail("not_found", NOT_FOUND);
   if (d.placeholder) return ok({ url: null, contentBase64: d.content ? bytesToBase64(d.content) : null, fileName: `${a.fileName}.txt`, mimeType: "text/plain;charset=utf-8" });

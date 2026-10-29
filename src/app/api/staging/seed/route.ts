@@ -12,6 +12,7 @@ import { liveSession, type LiveSession } from "@/server/live";
 import { BACKEND } from "@/server/runtime";
 import { clearAppSettingsCache, loadAppSettings } from "@/server/settings";
 import { seedGuard } from "@/server/staging/guard";
+import { uploadSeedPlaceholders } from "@/server/staging/placeholders";
 import { loadTestData, SeedLoadError, type SeedClient } from "@/server/staging/load";
 
 /** Inläsningen tar normalt 10–30 sekunder (ca 13 000 rader i ett 60-tal anrop). 60 sekunder är taket på alla
@@ -64,7 +65,16 @@ export async function POST(request: Request) {
       console.error("testdata", "bilagor", e instanceof Error ? e.name : "okänt");
       return null;
     });
-    await audit("staging.seed", { rows: summary.rows, tables: summary.tables, seconds: Math.round((Date.now() - started) / 1000), ...(files != null ? { attachmentFiles: files } : {}) });
+    // Testdatats filer på deltagarkortet (Karims beslut 2026-10-29) får en påhittad PDF i bucketen, så att de går att öppna.
+    // Ett fel här stoppar inte inläsningen (filen visas då som "finns inte" när den öppnas).
+    const placeholders = files == null ? null : await uploadSeedPlaceholders(s.service as unknown as AttachmentStorageClientLike).catch((e: unknown) => {
+      console.error("testdata", "platshållare", e instanceof Error ? e.name : "okänt");
+      return null;
+    });
+    await audit("staging.seed", {
+      rows: summary.rows, tables: summary.tables, seconds: Math.round((Date.now() - started) / 1000),
+      ...(files != null ? { attachmentFiles: files } : {}), ...(placeholders != null ? { placeholderFiles: placeholders } : {}),
+    });
     return json(200, { ok: true, rows: summary.rows });
   } catch (e) {
     const step = e instanceof SeedLoadError ? `${e.step} ${e.code}` : e instanceof Error ? e.name : "okänt";

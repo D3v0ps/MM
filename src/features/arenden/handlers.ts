@@ -7,6 +7,7 @@ import { hidesCommercial } from "@/api/tester-access";
 import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
 import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
+import { PARTICIPANT_FILE_ROLES } from "@/core/attachments";
 import { buyerRefProblem } from "@/core/billing";
 import { hasContactDetails } from "@/core/contact";
 import { coaches, phaseSince, stuck } from "@/core/cases";
@@ -54,6 +55,7 @@ import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
 import "./attachment-handlers";
 import "./contact-handlers";
+import "./participant-file-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
@@ -140,7 +142,7 @@ handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_hand
     const rows = await ctx.repo.table("case_attachments").list({ id: { in: attachmentIds } });
     const ok = attachmentIds.every((id) => {
       const a = rows.find((x) => x.id === id);
-      return !!a && a.uploadedBy === ctx.actor.userId && !a.caseId && a.contractId === contract.id && a.status === "uploaded";
+      return !!a && a.kind === "order" && a.uploadedBy === ctx.actor.userId && !a.caseId && a.contractId === contract.id && a.status === "uploaded";
     });
     if (!ok) return fail("attachments", "En bilaga kunde inte kopplas till beställningen. Ta bort den och bifoga den igen.");
   }
@@ -979,6 +981,8 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     edit,
     manage,
     readOnly: READ_ONLY.includes(role),
+    // Filer på deltagarkortet (0037): samma läsrätt som RLS – samordnare, avtalsansvarig och coach med full åtkomst.
+    files: access === "full" && PARTICIPANT_FILE_ROLES.includes(role),
     status: c.status,
     phase: c.phase,
     phaseName: phaseName(cfg, c.phase),

@@ -1,5 +1,6 @@
-// Porten till bilagorna i beställningen (beslut 2026-10-07, synpunkt #7: "Bakgrundsinformation om deltagaren" – bifoga fil).
-// Hanterare når filerna bara via ctx.attachments – samma mönster som ctx.audio (audio-port.ts). Isomorf.
+// Porten till bilagorna i beställningen (beslut 2026-10-07, synpunkt #7: "Bakgrundsinformation om deltagaren" – bifoga fil) och
+// filerna på deltagarkortet (kind participant – CV, personligt brev, betyg och intyg; bara Miljonbemanning, Karims beslut
+// 2026-10-29, 0037). Hanterare når filerna bara via ctx.attachments – samma mönster som ctx.audio (audio-port.ts). Isomorf.
 //   Minnesläget (prototypen, utveckling, e2e): createMemoryAttachments nedan – innehållet i minnet (prototypen: bara i
 //   webbläsarens minne, aldrig i kommandologgen).
 //   Supabase-läget: privat bucket "bilagor" i Supabase Storage (Stockholm, 0024_bilagor.sql) via service role
@@ -22,25 +23,37 @@
 // Städningen (jobbet attachments_retention): uppladdningar som aldrig kopplades raderas efter 24 timmar, och filer i lagringen
 // utan levande rad raderas (avstämningen – en signerad uppladdningsadress gäller i 2 timmar och kan användas igen efter att
 // filen tagits bort eller avvisats, granskningen 2026-10-07). Bilagor i ett ärende gallras aldrig automatiskt: Miljonbemanning
-// tar bort dem för hand tidigast när ärendet är avslutat (beslut 5, 2026-10-08).
+// tar bort dem för hand tidigast när ärendet är avslutat (beslut 5, 2026-10-08) – deltagarfilerna när som helst (2026-10-29).
+// En uppladdning i ett ärende som aldrig blev klar (pending) raderas efter 24 timmar (2026-10-29).
 import { ApiError, type Ctx } from "@/api/server";
 import {
   ATTACHMENT_MAX_BYTES, ATTACHMENT_TYPES_TEXT, attachmentMime, attachmentStoragePath, cleanFileName, signatureMatches,
 } from "@/core/attachments";
 import type { LocalDateTime } from "@/core/time";
-import type { AppRepo, AttachmentDeleteReason, CaseAttachment } from "@/data/schema";
+import { PARTICIPANT_FILE_CATEGORIES, type AppRepo, type AttachmentDeleteReason, type AttachmentKind, type CaseAttachment, type ParticipantFileCategory } from "@/data/schema";
 
 export type { CaseAttachment };
 
 // ---------------------------------------------------------------- Konstanter och rena funktioner (src/core/attachments.ts)
 export {
   ATTACHMENT_ACCEPT, ATTACHMENT_BUCKET, ATTACHMENT_DOWNLOAD_SECONDS, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES, ATTACHMENT_MIME_TYPES, ATTACHMENT_NAME_MAX,
-  ATTACHMENT_TYPES, ATTACHMENT_TYPES_TEXT, ATTACHMENT_UNLINKED_HOURS, attachmentMime, attachmentStoragePath, attachmentUnlinkedOverdue, cleanFileName,
-  fileSizeText, signatureMatches,
+  ATTACHMENT_TYPES, ATTACHMENT_TYPES_TEXT, ATTACHMENT_UNLINKED_HOURS, attachmentMime, attachmentStoragePath, attachmentUnconfirmedOverdue, attachmentUnlinkedOverdue,
+  cleanFileName, fileSizeText, signatureMatches,
 } from "@/core/attachments";
 
-/** Kontroll före createUpload (samma i båda körlägena): namn, typ och storlek. Kastar ApiError 400 med text till användaren. */
-export function validateAttachment(meta: { fileName: string; mimeType: string; bytes: number }): { fileName: string; mimeType: string } {
+/**
+ * Kontroll före createUpload och store (samma i båda körlägena): namn, typ och storlek – och för en deltagarfil att den har en
+ * typ och ett ärende (samma som kontrollen case_attachments_participant_shape i 0037). Kastar ApiError 400 med text till användaren.
+ */
+export function validateAttachment(meta: {
+  fileName: string; mimeType: string; bytes: number; kind?: AttachmentKind; category?: ParticipantFileCategory | null; caseId?: string | null;
+}): { fileName: string; mimeType: string } {
+  if ((meta.kind ?? "order") === "participant") {
+    if (!meta.category || !(PARTICIPANT_FILE_CATEGORIES as readonly string[]).includes(meta.category)) throw new ApiError(400, "attachment_category", "Välj vilken typ av fil det är.");
+    if (!meta.caseId) throw new ApiError(400, "attachment_case", "Filen måste höra till ett ärende.");
+  } else if (meta.category) {
+    throw new ApiError(400, "attachment_category", "En bilaga till beställningen har ingen typ.");
+  }
   const fileName = cleanFileName(meta.fileName);
   if (!fileName) throw new ApiError(400, "attachment_name", "Filen saknar namn.");
   const mimeType = attachmentMime(fileName, meta.mimeType);
@@ -52,7 +65,12 @@ export function validateAttachment(meta: { fileName: string; mimeType: string; b
 
 
 // ---------------------------------------------------------------- Typerna
-export type AttachmentUploadMeta = { contractId: string; caseId: string | null; ownerId: string; fileName: string; mimeType: string; bytes: number };
+export type AttachmentUploadMeta = {
+  contractId: string; caseId: string | null; ownerId: string; fileName: string; mimeType: string; bytes: number;
+  /** Standard order (bilaga till beställningen). participant = fil på deltagarkortet – kräver category och caseId. */
+  kind?: AttachmentKind;
+  category?: ParticipantFileCategory | null;
+};
 /** Var webbläsaren laddar upp filen. uploadUrl null = minnesläget/prototypen (innehållet skickas med i confirm). */
 export type AttachmentTicket = { attachmentId: string; uploadUrl: string | null; token: string | null; maxBytes: number };
 /** Nedladdning: en kort signerad adress (appen) eller innehållet (minnet). placeholder = innehållet finns inte kvar (prototypen). */
@@ -97,8 +115,9 @@ export function requireAttachments(ctx: Pick<Ctx, "attachments">): AttachmentPor
 
 /** Raden för en ny uppladdning (samma i båda körlägena). */
 export function newAttachmentRow(id: string, meta: AttachmentUploadMeta, mimeType: string, fileName: string, now: LocalDateTime): CaseAttachment {
+  const kind = meta.kind ?? "order";
   return {
-    id, contractId: meta.contractId, caseId: meta.caseId, uploadedBy: meta.ownerId, fileName, mimeType, bytes: meta.bytes,
+    id, contractId: meta.contractId, kind, category: kind === "participant" ? meta.category ?? null : null, caseId: meta.caseId, uploadedBy: meta.ownerId, fileName, mimeType, bytes: meta.bytes,
     storagePath: attachmentStoragePath(meta.contractId, id, mimeType), status: "pending", createdAt: now, linkedAt: meta.caseId ? now : null,
     removedAt: null, removedBy: null, deletedAt: null, deleteReason: null,
   };

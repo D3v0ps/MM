@@ -88,8 +88,8 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const audio = (id: string, caseId: string | null, ownerId: string, purpose: Tables["audio_uploads"]["purpose"]): Tables["audio_uploads"] => ({
     id, caseId, ownerId, purpose, storagePath: `${purpose}/${id}.webm`, mimeType: "audio/webm", bytes: 4000, durationSec: 1, status: "uploaded", createdAt: at, deletedAt: null,
   });
-  const attachment = (id: string, caseId: string | null, uploadedBy: string, deleted = false): Tables["case_attachments"] => ({
-    id, contractId: "c-bot", caseId, uploadedBy, fileName: "Kartläggning.pdf", mimeType: "application/pdf", bytes: 2048, storagePath: `c-bot/${id}.pdf`,
+  const attachment = (id: string, caseId: string | null, uploadedBy: string, deleted = false, category: Tables["case_attachments"]["category"] = null): Tables["case_attachments"] => ({
+    id, contractId: "c-bot", kind: category ? "participant" : "order", category, caseId, uploadedBy, fileName: category ? "CV.pdf" : "Kartläggning.pdf", mimeType: "application/pdf", bytes: 2048, storagePath: `c-bot/${id}.pdf`,
     status: deleted ? "deleted" : "uploaded", createdAt: at, linkedAt: caseId ? at : null, removedAt: deleted ? at : null, removedBy: deleted ? uploadedBy : null,
     deletedAt: deleted ? at : null, deleteReason: deleted ? "removed" : null,
   });
@@ -217,6 +217,11 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       attachment("att-x-maria", mariaCase.id, "k-maria"), attachment("att-x-utkast", null, "k-maria"),
       attachment("att-x-borttagen", mariaCase.id, "k-maria", true), attachment("att-x-skyddad", protectedCase.id, protectedCase.referrerId!),
       attachment("att-x-petra", petraCase.id, "u-sara"),
+      // Filer på deltagarkortet (0037): i Marias ärende (Maria beställde – får ändå aldrig läsa dem), en raderad, en i det
+      // skyddade ärendet och en som (felaktigt) skulle ha laddats upp av Maria själv – uppladdaren avgör aldrig läsrätten.
+      attachment("att-x-deltagare-cv", mariaCase.id, "u-sara", false, "cv"), attachment("att-x-deltagare-borttagen", mariaCase.id, "u-sara", true, "betyg_intyg"),
+      attachment("att-x-deltagare-skyddad", protectedCase.id, protectedCase.leadCoachId!, false, "personligt_brev"),
+      attachment("att-x-deltagare-maria", mariaCase.id, "k-maria", false, "ovrigt"),
     ],
   };
 }
@@ -472,6 +477,9 @@ describe("bilagor till beställningen (0024): läsning och skrivning – samma r
   const pgAtt = (userId: string) => asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.case_attachments order by id")).rows.map((r) => r.id));
   const memAtt = (userId: string) => data.case_attachments.filter((x) => canReadRow("case_attachments", x, actorOf(findPersona(userId)), raw)).map((x) => x.id).sort();
 
+  // Beställningens bilagor (kind order) – deltagarfilerna prövas i blocket för 0037 nedan.
+  const orderAtt = (userId: string) => memAtt(userId).filter((id) => data.case_attachments.find((x) => x.id === id)?.kind === "order");
+
   it("läsning per testperson: den som laddade upp, samordnare, avtalsansvarig, namngiven huvudcoach och beställande handläggare", async () => {
     // Samma rader i RLS och policy.ts för varje testperson.
     for (const p of personas) expect(await pgAtt(p.actor.userId), personaKey(p)).toEqual(memAtt(p.actor.userId));
@@ -479,7 +487,7 @@ describe("bilagor till beställningen (0024): läsning och skrivning – samma r
     expect(memAtt("k-maria")).toEqual(expect.arrayContaining(["att-x-maria", "att-x-utkast"]));
     expect(memAtt("k-omar")).toEqual(["att-x-skyddad"]);
     expect(memAtt("u-sara")).toEqual(expect.arrayContaining(["att-x-maria", "att-x-petra"]));
-    expect(memAtt("u-johan")).toEqual(["att-x-maria", "att-x-petra", "att-x-skyddad"]);
+    expect(orderAtt("u-johan")).toEqual(["att-x-maria", "att-x-petra", "att-x-skyddad"]);
     expect(memAtt(SKYDDAD_CASE.leadCoachId!)).toContain("att-x-skyddad");
     // Den vilande spärren: samordnaren ser inte bilagan i det skyddade ärendet; ingen ser utkastet utom uppladdaren eller en raderad fil.
     for (const p of personas) {
@@ -516,6 +524,92 @@ describe("bilagor till beställningen (0024): läsning och skrivning – samma r
     expect(await tryRow({ storagePath: base.storagePath })).toMatchObject({ ok: false, code: "23505" });
     expect(await tryRow({ caseId: null })).toMatchObject({ ok: false, code: "23514" }); // kopplad tid utan ärende
     expect(await tryRow({})).toMatchObject({ ok: true, rows: 1 });
+  });
+});
+
+// ================================================================ Filer på deltagarkortet (0037)
+describe("filer på deltagarkortet (0037): bara Miljonbemanning – samma regler i RLS och policy.ts", () => {
+  const PARTICIPANT = () => data.case_attachments.filter((x) => x.kind === "participant").map((x) => x.id);
+  const pgFiles = (key: string) =>
+    asPersona(findPersona(key), async (tx) => (await tx.query<{ id: string }>("select id from public.case_attachments where kind = 'participant' order by id")).rows.map((r) => r.id));
+  const memFiles = (key: string) => data.case_attachments.filter((x) => x.kind === "participant" && canReadRow("case_attachments", x, actorOf(findPersona(key)), raw)).map((x) => x.id).sort();
+
+  it("läsning per testperson: samordnare, avtalsansvarig och coach med full åtkomst – aldrig kommunen, ekonom, chef, admin eller handledare", async () => {
+    // Testdatats egna deltagarfiler (att-seed-…) och de extra raderna ovan.
+    expect(PARTICIPANT().filter((id) => id.startsWith("att-seed-")).length).toBeGreaterThan(0);
+    for (const p of personas) expect(await pgFiles(personaKey(p)), personaKey(p)).toEqual(memFiles(personaKey(p)));
+    const live = PARTICIPANT().filter((id) => !["att-x-deltagare-borttagen", "att-x-deltagare-skyddad"].includes(id)).sort();
+    for (const key of ["u-sara", "u-johan", "u-amira", "u-erik"]) expect(memFiles(key), key).toEqual(expect.arrayContaining(live));
+    expect(memFiles("u-johan")).toContain("att-x-deltagare-skyddad");
+    expect(memFiles(SKYDDAD_CASE.leadCoachId!)).toContain("att-x-deltagare-skyddad");
+    expect(memFiles("u-sara"), "den vilande spärren: samordnaren ser inte det skyddade ärendets filer").not.toContain("att-x-deltagare-skyddad");
+    // Kommunen aldrig – inte heller handläggaren som beställde, inte heller en fil som står i hennes namn.
+    for (const key of ["k-maria", "k-omar", "k-ahmed", SUPERVISOR, "u-lars", "u-karin", "u-robin", "deltagare", "tester-karim"]) expect(memFiles(key), key).toEqual([]);
+    for (const p of personas) expect(memFiles(personaKey(p)), personaKey(p)).not.toContain("att-x-deltagare-borttagen");
+  }, 30_000);
+
+  it("kommunens handläggare läser beställningens bilagor i sitt ärende men aldrig deltagarfilerna – också med get på id", async () => {
+    const got = await asPersona(findPersona("k-maria"), async (tx) => ({
+      order: (await tx.query<{ id: string }>("select id from public.case_attachments where id = 'att-x-maria'")).rows.length,
+      files: (await tx.query<{ id: string }>("select id from public.case_attachments where id in ('att-x-deltagare-cv', 'att-x-deltagare-maria')")).rows.length,
+    }));
+    expect(got).toEqual({ order: 1, files: 0 });
+  });
+
+  it("ingen inloggad användare skriver deltagarfilerna – bara servern (service role)", async () => {
+    const row = { ...data.case_attachments.find((a) => a.id === "att-x-deltagare-cv")!, id: "att-x-deltagare-ny", storagePath: "c-bot/att-x-deltagare-ny.pdf" };
+    for (const userId of ["u-sara", "u-johan", "u-amira", "k-maria"]) {
+      const res = await asPersona(findPersona(userId), async (tx) => ({
+        insert: await attempt(tx, insertSql("case_attachments", row as unknown as Record<string, unknown>)),
+        update: await attempt(tx, "update public.case_attachments set category = 'ovrigt' where id = 'att-x-deltagare-cv'"),
+        kind: await attempt(tx, "update public.case_attachments set kind = 'order', category = null where id = 'att-x-deltagare-cv'"),
+        remove: await attempt(tx, "delete from public.case_attachments where id = 'att-x-deltagare-cv'"),
+      }));
+      expect([userId, allowed(res.insert), allowed(res.update), allowed(res.kind), allowed(res.remove)]).toEqual([userId, false, false, false, false]);
+      expect(canWriteRow("case_attachments", row, actorOf(findPersona(userId)), raw)).toBe(false);
+    }
+    const sys = await asUser(db, null, (tx) => attempt(tx, insertSql("case_attachments", row as unknown as Record<string, unknown>)), { role: "service_role" });
+    expect(sys).toMatchObject({ ok: true, rows: 1 });
+  });
+
+  it("kontrollerna i tabellen: en deltagarfil har alltid en typ och ett ärende, en bilaga till beställningen aldrig en typ", async () => {
+    const base = { ...data.case_attachments.find((a) => a.id === "att-x-deltagare-cv")! };
+    const tryRow = (patch: Partial<Tables["case_attachments"]>) =>
+      asUser(db, null, (tx) => attempt(tx, insertSql("case_attachments", { ...base, id: "att-x-k", storagePath: "c-bot/att-x-k.pdf", ...patch } as unknown as Record<string, unknown>)), { role: "service_role" });
+    expect(await tryRow({ category: null })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ category: "intyg" as never })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ caseId: null, linkedAt: null })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ kind: "annat" as never })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ kind: "order" })).toMatchObject({ ok: false, code: "23514" }); // bilaga med typ
+    expect(await tryRow({})).toMatchObject({ ok: true, rows: 1 });
+    // Befintliga rader (före 0037) blev bilagor till beställningen: standardvärdet order och ingen typ.
+    const def = await db.query<{ d: string | null; n: string }>("select column_default as d, is_nullable as n from information_schema.columns where table_name = 'case_attachments' and column_name = 'kind'");
+    expect(def.rows[0]).toEqual({ d: "'order'::text", n: "NO" });
+  });
+
+  it("migrationen tål att köras igen (SQL Editor) och ändrar då ingenting", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0037_deltagarfiler.sql`, "utf8");
+    type Snap = { rows: string; policies: string; constraints: string };
+    let res: { before: Snap; after: Snap } | null = null;
+    await db.transaction(async (tx) => {
+      const snap = async (): Promise<Snap> => ({
+        rows: (await tx.query<{ x: string }>("select string_agg(id || ':' || kind || ':' || coalesce(category, '-'), ',' order by id) as x from public.case_attachments")).rows[0].x,
+        policies: (await tx.query<{ x: string }>("select string_agg(policyname || ':' || cmd || ':' || coalesce(qual, '-'), ',' order by policyname) as x from pg_policies where tablename = 'case_attachments'")).rows[0].x,
+        constraints: (await tx.query<{ x: string }>("select string_agg(conname, ',' order by conname) as x from pg_constraint where conrelid = 'public.case_attachments'::regclass")).rows[0].x,
+      });
+      const before = await snap();
+      await tx.exec(sql);
+      await tx.exec(sql);
+      res = { before, after: await snap() };
+      await tx.rollback();
+    });
+    expect(res).not.toBeNull();
+    expect(res!.after).toEqual(res!.before);
+    // En enda policy (select) – ingen insert-, update- eller delete-policy.
+    expect(res!.after.policies.startsWith("case_attachments_select:SELECT:")).toBe(true);
+    expect(res!.after.policies.match(/case_attachments_\w+:(SELECT|INSERT|UPDATE|DELETE|ALL):/g)).toHaveLength(1);
+    expect(res!.after.policies).toContain("kind = 'order'");
+    expect(res!.after.constraints).toContain("case_attachments_participant_shape");
   });
 });
 

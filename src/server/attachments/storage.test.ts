@@ -103,6 +103,25 @@ describe("createStorageAttachments", () => {
     expect(t.removed).toHaveLength(1);
   });
 
+  it("deltagarfiler (0037): slag och typ på raden, samma sökväg och kontroller; en fil som saknas i lagringen ger ingen adress", async () => {
+    const t = setup();
+    const meta = { ...META, caseId: "case-260143", ownerId: "u-amira", fileName: "CV Samira Testsson.pdf", kind: "participant" as const, category: "cv" as const };
+    const a = await t.port.createUpload(meta);
+    expect(t.store.getRow("case_attachments", a.attachmentId)).toMatchObject({ kind: "participant", category: "cv", caseId: "case-260143", storagePath: `c-bot/${a.attachmentId}.pdf`, linkedAt: DEMO_START });
+    expect(a.uploadUrl).not.toMatch(/CV|Samira/);
+    // En deltagarfil har alltid en typ och ett ärende; en bilaga till beställningen har ingen typ.
+    await expect(t.port.createUpload({ ...meta, category: null })).rejects.toMatchObject({ code: "attachment_category" });
+    await expect(t.port.createUpload({ ...meta, caseId: null })).rejects.toMatchObject({ code: "attachment_case" });
+    await expect(t.port.createUpload({ ...META, category: "cv" })).rejects.toMatchObject({ code: "attachment_category" });
+    expect(t.store.getRow("case_attachments", (await t.port.createUpload(META)).attachmentId)).toMatchObject({ kind: "order", category: null });
+    // Uppladdad och kontrollerad – men filen har försvunnit ur lagringen: ingen adress.
+    t.files.set(`c-bot/${a.attachmentId}.pdf`, PDF);
+    expect(await t.port.confirm(a.attachmentId)).toMatchObject({ status: "uploaded", kind: "participant" });
+    const gone: AttachmentStorage = { ...t.storage, createSignedUrl: async () => null };
+    const system = new MemoryRepo<Tables>(t.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
+    expect(await createStorageAttachments({ system, storage: gone, now: () => DEMO_START, newId: (p) => `${p}-x` }).signedDownload(a.attachmentId)).toBeNull();
+  });
+
   it("avstämningen i gallringen: en fil som laddas upp igen med samma signerade adress efter Ta bort raderas", async () => {
     // Supabase: uppladdningsadressen gäller i 2 timmar och kan inte återkallas – finns ingen fil kan den användas igen.
     const t = setup();
@@ -118,7 +137,7 @@ describe("createStorageAttachments", () => {
     const audits: unknown[] = [];
     const system = new MemoryRepo<Tables>(t.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
     const ctx = { now: () => DEMO_START, system, attachments: t.port, audit: async (e: unknown) => void audits.push(e) } as unknown as Ctx;
-    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, orphans: 1 });
+    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 1 });
     expect([...t.files.keys()]).toEqual(["c-bot/att-2.pdf"]);
     expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted" });
     expect(audits).toEqual([{ action: "attachment.deleted", entity: "case_attachment", entityId: "att-1", contractId: "c-bot", details: { caseId: null, reason: "orphan" } }]);
@@ -162,6 +181,11 @@ describe("supabaseAttachmentStorage", () => {
     expect(err).toBeInstanceOf(AttachmentStorageError);
     expect((err as Error).message).toBe("Bilagorna: sign misslyckades (500)");
     expect((err as Error).message).not.toContain("att-1");
+    // Nedladdningsadressen till en fil som inte finns i lagringen (Supabase: 400 eller 404 "Object not found") är null.
+    for (const statusCode of ["400", "404"]) {
+      const gone = supabaseAttachmentStorage({ storage: { from: bucket({ createSignedUrl: async () => ({ data: null, error: { statusCode } }) }).from } });
+      expect(await gone.createSignedUrl("c-bot/att-1.pdf", 60), statusCode).toBeNull();
+    }
   });
 
   it("list: filerna i avtalsmapparna, sida för sida (1 000 per anrop)", async () => {

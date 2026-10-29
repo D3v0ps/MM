@@ -13,6 +13,7 @@ import {
   TabQuery,
 } from "./common";
 import { CaseBackgroundCard } from "./attachments";
+import { ParticipantFilesCard } from "./participant-files";
 import { recordingOffered } from "@/features/coach/api";
 import type { TabProps } from "./kort";
 
@@ -183,6 +184,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 <FourBadges rights={pl.fourRights} className="mt-2" />
               </Card>
             )}
+            {/* Filer på deltagarkortet (CV, personligt brev, betyg och intyg) – bara Miljonbemanning (Karims beslut 2026-10-29). */}
+            {card.files && <ParticipantFilesCard card={card} />}
             {/* Beställningens bakgrund och bilagor – bara med full åtkomst (samordnare, avtalsansvarig, huvudcoach). */}
             {card.background && <CaseBackgroundCard bg={card.background} title="Bakgrund från beställningen" />}
           </Stack>

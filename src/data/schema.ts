@@ -142,6 +142,15 @@ export type AttachmentStatus = (typeof ATTACHMENT_STATUSES)[number];
 /** Varför filen raderades: aldrig kopplad (24 h), gallring enligt avtalet, borttagen av en användare eller ogiltig fil. */
 export const ATTACHMENT_DELETE_REASONS = ["unlinked_24h", "retention", "removed", "invalid"] as const;
 export type AttachmentDeleteReason = (typeof ATTACHMENT_DELETE_REASONS)[number];
+/**
+ * Filens slag (0037_deltagarfiler.sql): order = bilaga till beställningen (kommunen och Miljonbemanning), participant = fil på
+ * deltagarkortet – CV, personligt brev, betyg och intyg – som bara Miljonbemanning ser (Karims beslut 2026-10-29).
+ */
+export const ATTACHMENT_KINDS = ["order", "participant"] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+/** Deltagarfilens typ (0037). Bara för kind participant – beställningens bilagor har ingen typ. */
+export const PARTICIPANT_FILE_CATEGORIES = ["cv", "personligt_brev", "betyg_intyg", "ovrigt"] as const;
+export type ParticipantFileCategory = (typeof PARTICIPANT_FILE_CATEGORIES)[number];
 
 export const END_REASONS = ["arbete", "studier", "avbrott_flytt", "avbrott_kommunens_beslut", "avbrott_deltagarens_val", "avbrott_ovriga_skal", "planerat_utan_resultat"] as const;
 export type EndReason = (typeof END_REASONS)[number];
@@ -1792,15 +1801,21 @@ export type FeedbackReply = {
   submittedAt: LocalDateTime | null;
 };
 
-// ================================================================ Bilagor till beställningen (0024, beslut 2026-10-07)
+// ================================================================ Bilagor till beställningen (0024, beslut 2026-10-07) och deltagarfiler (0037)
 /**
- * En fil som kommunens handläggare (eller Miljonbemanning) bifogat beställningen, t.ex. en kartläggning. Innehållet ligger i
- * den privata bucketen "bilagor" (Supabase Storage, Stockholm) – raden är spåret. Filnamnet visas bara i appen: sökvägen har
- * bara avtal och id, och revisionsloggen får aldrig filnamnet. Raderna skrivs bara av systemet (ctx.attachments).
+ * En fil som kommunens handläggare (eller Miljonbemanning) bifogat beställningen, t.ex. en kartläggning (kind order), eller en
+ * fil som Miljonbemanning laddat upp på deltagarkortet, t.ex. deltagarens CV (kind participant – aldrig synlig för kommunen,
+ * Karims beslut 2026-10-29). Innehållet ligger i den privata bucketen "bilagor" (Supabase Storage, Stockholm) – raden är
+ * spåret. Filnamnet visas bara i appen: sökvägen har bara avtal och id, och revisionsloggen får aldrig filnamnet. Raderna
+ * skrivs bara av systemet (ctx.attachments).
  */
 export type CaseAttachment = {
   id: string;
   contractId: string;
+  /** order = bilaga till beställningen, participant = fil på deltagarkortet (bara Miljonbemanning). */
+  kind: AttachmentKind;
+  /** Deltagarfilens typ (CV, personligt brev, betyg och intyg, övrigt). Null för beställningens bilagor. */
+  category: ParticipantFileCategory | null;
   /** Ärendet, eller null tills beställningen har skickats (uppladdningen görs medan formuläret fylls i). */
   caseId: string | null;
   /** Den som laddade upp (profiles.id). */

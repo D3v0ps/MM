@@ -1,6 +1,6 @@
 // Testscenarierna – exakt port av den gamla prototypens MM.scenarios() (prototyp/src/90-feedback.js), plus scenario s14
-// "Röstinspelning" (nytt, beslut 2026-09-30) och sist s15 "Byt yrkesområde" och s16 "Fem nivåer och nivåaktiviteter" (Karims
-// beslut 2026-10-22).
+// "Röstinspelning" (nytt, beslut 2026-09-30), s15 "Byt yrkesområde" och s16 "Fem nivåer och nivåaktiviteter" (Karims beslut
+// 2026-10-22) och sist s17 "Filer på deltagarkortet" (Karims beslut 2026-10-29).
 // Varje steg byter roll och öppnar en vy. Vyn anges som i den gamla prototypen (vy-id + parametrar) och översätts
 // till sökväg med pathForView (src/demo/paths.ts). Ärenden refereras med taggar i testdatat (demo_tags),
 // som slås upp med frågan demo.refs när steget öppnas – så att t.ex. Nadias januarirapport hittas även om den
@@ -124,6 +124,11 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "coach", view: "coach.kartlaggning", params: (r) => ({ caseId: sc(r, "amal") }), text: "Amal saknar nivå. Välj nivå i kortet Nivå och yrkesområde längst ned – nivån krävs innan kartläggningen kan godkännas. Hon bjuds in till nivåns kommande aktiviteter direkt." },
     { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "mehmet") }), text: "Mehmet är på nivå 3. Tryck Ändra i kortets huvud och sedan Höj nivå: han bjuds in till nivå 4:s kommande aktiviteter och tas bort ur nivå 3:s." },
     { role: "coach", view: "/aktiviteter/ny?niva=grp-c-bot-niva-2&upprepa=1", params: {}, text: "Ny nivåaktivitet med Upprepa varje vecka: välj veckodagar och tid. Tillfällena skapas två veckor framåt och nivåns deltagare bjuds in automatiskt – också den som får nivån senare. Planera på Grupper och nivåer gör samma sak för månadens yrkesområdesträff." },
+  ] },
+  // Karims beslut 2026-10-29: filer på deltagarkortet – bara Miljonbemanning.
+  { id: "s17", title: "Filer på deltagarkortet", lead: "Deltagarens CV, personliga brev, betyg och intyg sparas på deltagarkortet. Filerna syns bara för Miljonbemanning – aldrig för kommunen.", steps: [
+    { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Kortet Filer på fliken Översikt: Nadias CV, personliga brev och intyg om truckkort, sorterade efter typ. Tryck Ladda upp fil, välj typ och en fil (PDF, Word eller bild, högst 10 MB). Öppna en fil och ta bort den du laddade upp – det går när som helst." },
+    { role: "kommun_handlaggare", view: "kom.deltagare", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Byt till kommunens handläggare: Nadias sida i portalen visar inga filer. Kommunen ser bara bilagorna till sin egen beställning." },
   ] },
 ];
 

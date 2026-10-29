@@ -106,6 +106,8 @@ const DETAIL_KEY: Record<string, string> = {
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
   day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
+  // Filer på deltagarkortet (Karims beslut 2026-10-29): slag och typ – aldrig filnamnet.
+  fileKind: "Slag av fil", fileCategory: "Typ av fil",
   // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
   rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
   // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
@@ -148,6 +150,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
   via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare" },
   weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
+  fileKind: { order: "bilaga till beställningen", participant: "fil på deltagarkortet" },
+  fileCategory: { cv: "CV", personligt_brev: "personligt brev", betyg_intyg: "betyg och intyg", ovrigt: "övrigt" },
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
@@ -162,6 +166,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   reason: {
     columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
+    unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
   },
   // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).

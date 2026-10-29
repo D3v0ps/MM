@@ -2,8 +2,10 @@
 // filsignatur och gallringen av uppladdningar som aldrig kopplades.
 import { describe, expect, it } from "vitest";
 import {
-  ATTACHMENT_MAX_BYTES, attachmentMime, attachmentStoragePath, attachmentUnlinkedOverdue, cleanFileName, fileSizeText, signatureMatches,
+  ATTACHMENT_MAX_BYTES, attachmentMime, attachmentStoragePath, attachmentUnconfirmedOverdue, attachmentUnlinkedOverdue, cleanFileName, fileSizeText, groupParticipantFiles,
+  PARTICIPANT_FILE_CATEGORY_LABEL, PARTICIPANT_FILE_MAX_FILES, PARTICIPANT_FILE_ROLES, participantFileUploadBlocked, participantFileUploadOpen, signatureMatches,
 } from "./attachments";
+import { CASE_STATUSES, PARTICIPANT_FILE_CATEGORIES } from "@/data/schema";
 
 const bytes = (...b: number[]) => new Uint8Array([...b, ...new Array(16).fill(0)].slice(0, 16));
 const ascii = (s: string) => new Uint8Array([...s].map((c) => c.charCodeAt(0)).concat(new Array(16).fill(0)).slice(0, 16));
@@ -71,5 +73,38 @@ describe("attachmentUnlinkedOverdue", () => {
     expect(attachmentUnlinkedOverdue(a({ status: "pending" }), "2027-02-03T09:00")).toBe(true);
     expect(attachmentUnlinkedOverdue(a({ caseId: "case-1" }), "2027-02-03T09:00")).toBe(false);
     expect(attachmentUnlinkedOverdue(a({ status: "deleted" }), "2027-02-03T09:00")).toBe(false);
+  });
+});
+
+describe("attachmentUnconfirmedOverdue (2026-10-29)", () => {
+  const a = (patch: Partial<{ status: string; caseId: string | null; createdAt: string }> = {}) => ({ status: "pending", caseId: "case-1", createdAt: "2027-02-01T09:00", ...patch });
+  it("en uppladdning i ett ärende som aldrig blev klar raderas efter 24 timmar – aldrig en uppladdad fil eller en utan ärende", () => {
+    expect(attachmentUnconfirmedOverdue(a(), "2027-02-02T08:59")).toBe(false);
+    expect(attachmentUnconfirmedOverdue(a(), "2027-02-02T09:00")).toBe(true);
+    expect(attachmentUnconfirmedOverdue(a({ status: "uploaded" }), "2030-01-01T09:00")).toBe(false);
+    expect(attachmentUnconfirmedOverdue(a({ status: "deleted" }), "2030-01-01T09:00")).toBe(false);
+    // Utan ärende gäller attachmentUnlinkedOverdue – de två överlappar aldrig.
+    expect(attachmentUnconfirmedOverdue(a({ caseId: null }), "2030-01-01T09:00")).toBe(false);
+  });
+});
+
+describe("filer på deltagarkortet (Karims beslut 2026-10-29)", () => {
+  it("bara Miljonbemanning: samordnare, avtalsansvarig och coach – aldrig ekonom, chef, admin eller kommunen", () => {
+    expect([...PARTICIPANT_FILE_ROLES].sort()).toEqual(["avtalsansvarig", "coach", "samordnare"]);
+    expect(PARTICIPANT_FILE_MAX_FILES).toBe(30);
+  });
+  it("uppladdning i bekräftade, pågående, pausade och avslutade ärenden – med en förklaring annars", () => {
+    expect(CASE_STATUSES.filter(participantFileUploadOpen)).toEqual(["confirmed", "active", "paused", "closed"]);
+    for (const s of CASE_STATUSES) expect(participantFileUploadBlocked(s) === null, s).toBe(participantFileUploadOpen(s));
+    expect(participantFileUploadBlocked("received")).toBe("Filer kan laddas upp när beställningen är bekräftad.");
+    expect(participantFileUploadBlocked("acknowledged")).toBe("Filer kan laddas upp när beställningen är bekräftad.");
+    expect(participantFileUploadBlocked("declined")).toBe("Beställningen är avböjd. Det går inte att ladda upp filer.");
+  });
+  it("typerna i ordning med namn i klartext; grupperna har alla fyra typer och nyaste filen först", () => {
+    expect(Object.keys(PARTICIPANT_FILE_CATEGORY_LABEL)).toEqual([...PARTICIPANT_FILE_CATEGORIES]);
+    expect(Object.values(PARTICIPANT_FILE_CATEGORY_LABEL)).toEqual(["CV", "Personligt brev", "Betyg och intyg", "Övrigt"]);
+    const f = (id: string, category: (typeof PARTICIPANT_FILE_CATEGORIES)[number], createdAt: string) => ({ id, category, createdAt });
+    const g = groupParticipantFiles([f("a", "cv", "2027-01-10T10:00"), f("b", "ovrigt", "2027-01-11T10:00"), f("c", "cv", "2027-01-12T10:00"), f("d", "cv", "2027-01-12T10:00")]);
+    expect(g.map((x) => [x.label, x.files.map((y) => y.id)])).toEqual([["CV", ["d", "c", "a"]], ["Personligt brev", []], ["Betyg och intyg", []], ["Övrigt", ["b"]]]);
   });
 });
