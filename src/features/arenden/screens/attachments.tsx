@@ -62,7 +62,8 @@ export function AttachmentList({ rows, empty, onRemoved, className }: { rows: re
       {rows.map((a) => (
         <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-mb border-[1.5px] border-ljusgra px-3 py-2">
           <Icon name="file" className="flex-none" />
-          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+          {/* En egen grundbredd (200 px): på en smal skärm flyttas knapparna ned på en egen rad i stället för att texten krymper. */}
+          <span className="min-w-0 flex-[1_1_200px] [overflow-wrap:anywhere]">
             <span className="font-bold">{a.fileName}</span>
             <span className="block text-text-muted">
               {typeText(a.mimeType)} · {a.sizeText}

@@ -108,9 +108,9 @@ Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på de
 3. Välj filen. Den ska vara en PDF, ett Word-dokument eller en bild och högst 10 MB.
 4. Tryck på **Ladda upp**. Filen hamnar under sin typ, med den senaste filen först.
 
-Tryck på **Öppna** för att läsa en fil. Tryck på **Ta bort** för att ta bort en fil som inte behövs längre. Det går när som helst, och filen går inte att få tillbaka.
+Tryck på **Hämta** för att ladda ned en fil till datorn och läsa den. Tryck på **Ta bort** för att ta bort en fil som inte behövs längre. Det går när som helst, och filen går inte att få tillbaka.
 
-Samordnaren, avtalsansvarig och coacherna kan ladda upp, öppna och ta bort filerna. En deltagare kan ha högst 30 filer. Du kan ladda upp filer när beställningen är bekräftad, och också efter att insatsen är avslutad. Bilagorna som kommunen skickade med beställningen ligger kvar i kortet **Bakgrund från beställningen**.
+Samordnaren, avtalsansvarig och coacherna kan ladda upp, hämta och ta bort filerna. En deltagare kan ha högst 30 filer. Du kan ladda upp filer när beställningen är bekräftad, och också efter att insatsen är avslutad. Bilagorna som kommunen skickade med beställningen ligger kvar i kortet **Bakgrund från beställningen**.
 
 ### Mina ärenden och Alla ärenden
 

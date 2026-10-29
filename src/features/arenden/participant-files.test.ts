@@ -1,5 +1,6 @@
 // Filer på deltagarkortet (Karims beslut 2026-10-29, 0037) i minnesläget: CV, personligt brev, betyg och intyg – bara
-// Miljonbemanning. Roller, ärendets status, högsta antal, öppna och ta bort (när som helst), revisionsloggen utan filnamn,
+// Miljonbemanning. Roller, ärendets status, högsta antal (med uppladdningar som pågår), hämta och ta bort (när som helst, villkorat),
+// revisionsloggen utan filnamn och Historik i klarspråk,
 // att kommunen aldrig får filerna (portalens alla frågor, bakgrunden i kortet och inkorgen), att beställningens bilagor och
 // deltagarfilerna hålls isär, och städningen (filer i ett ärende gallras aldrig automatiskt). Bara påhittade filer.
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -10,6 +11,7 @@ import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
 import { ApiError, type Ctx } from "@/api/server";
 import { PARTICIPANT_FILE_MAX_FILES } from "@/core/attachments";
 import { bytesToBase64 } from "@/core/export/base64";
+import { addMinutes } from "@/core/time";
 import { listPersonas } from "@/data/actors";
 import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import { MemoryRepo, type MemoryData } from "@/data/memory";
@@ -21,8 +23,8 @@ import type { AppRepo, CaseStatus, Tables } from "@/data/schema";
 import { runAttachmentRetention } from "@/features/_shared/attachment-retention";
 import * as kommunApi from "@/features/kommun/api";
 import {
-  attachmentDone, attachmentDownload, attachmentRemove, attachmentStart, caseCard, caseFiles, participantFileDone, participantFileRemove, participantFileStart,
-  type CaseCard, type CaseFiles,
+  attachmentDone, attachmentDownload, attachmentRemove, attachmentStart, caseCard, caseHistory, caseOverview, participantFileDone, participantFileRemove, participantFileStart,
+  type CaseCard, type CaseFiles, type CaseHistory, type CaseOverview,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -57,7 +59,8 @@ async function upload(actor: Actor, caseId = NADIA, category: "cv" | "personligt
   if (!d.ok) throw new Error(`klar: ${d.error}`);
   return d.file.id;
 }
-const files = (actor: Actor, caseId = NADIA) => q<CaseFiles | null>(caseFiles.key, { caseId }, actor);
+/** Kortet Filer – följer med fliken Översikt (arenden.kortOversikt, files). null = ingen åtkomst till filerna. */
+const files = async (actor: Actor, caseId = NADIA): Promise<CaseFiles | null> => ((await q<CaseOverview | null>(caseOverview.key, { caseId }, actor)) ?? null)?.files ?? null;
 
 describe("ladda upp", () => {
   it("coachen laddar upp ett CV – filen hamnar under CV på deltagarkortet, och loggen har id, slag och typ men aldrig filnamnet", async () => {
@@ -86,7 +89,10 @@ describe("ladda upp", () => {
     for (const a of [sara(), johan(), erik()]) expect(rt.raw().get("case_attachments", await upload(a)), a.userId).toMatchObject({ uploadedBy: a.userId });
     for (const a of [as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin"), maria(), dormantSupervisor()]) {
       await expect(run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "x.pdf", mimeType: "application/pdf", bytes: 10 }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(q(caseFiles.key, { caseId: NADIA }, a), a.role).rejects.toBeInstanceOf(ApiError);
+      // Översikt (där kortet Filer följer med): rollen nekas, ser inte fliken (null) eller får files null – aldrig ett filnamn.
+      const o = await q<CaseOverview | null>(caseOverview.key, { caseId: NADIA }, a).catch((e: unknown) => (e instanceof ApiError ? null : Promise.reject(e)));
+      expect(o?.files ?? null, a.role).toBeNull();
+      expect(JSON.stringify(o), a.role).not.toMatch(/CV truckförare|Personligt brev lager|att-seed-nadia/);
     }
     // Deltagarkortet visar kortet Filer bara för dem som får läsa filerna (chef och admin ser kortet i läsläge utan filer).
     for (const [a, shown] of [[amira(), true], [sara(), true], [johan(), true], [as("u-karin", "chef"), false], [as("u-robin", "admin"), false]] as const) {
@@ -136,15 +142,45 @@ describe("ladda upp", () => {
   it(`högst ${PARTICIPANT_FILE_MAX_FILES} filer per deltagare – räknat skilt från beställningens bilagor`, async () => {
     const seeded = SEED_PARTICIPANT_FILES.filter((f) => f.caseId === NADIA).length;
     for (let i = seeded; i < PARTICIPANT_FILE_MAX_FILES; i++) await upload(amira(), NADIA, "ovrigt", `fil-${i}.pdf`);
+    const fullText = `Deltagaren har ${PARTICIPANT_FILE_MAX_FILES} filer, vilket är det högsta antalet. Ta bort en fil som inte behövs för att ladda upp en ny.`;
     expect(await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "en-till.pdf", mimeType: "application/pdf", bytes: 10 }, amira())).toMatchObject({
-      ok: false, error: "too_many", message: `Högst ${PARTICIPANT_FILE_MAX_FILES} filer per deltagare. Ta bort en fil som inte behövs först.`,
+      ok: false, error: "too_many", message: fullText,
     });
+    // Kortet säger samma sak (och visar då inte Ladda upp fil).
+    expect((await files(amira()))!).toMatchObject({ count: PARTICIPANT_FILE_MAX_FILES, fullText });
     // Beställningens bilagor har sin egen gräns: samordnaren kan fortfarande bifoga en bilaga till beställningen.
     expect((await run(attachmentStart, { caseId: NADIA, fileName: "kartlaggning.pdf", mimeType: "application/pdf", bytes: 10 }, sara())).ok).toBe(true);
     // Tar man bort en fil går det att ladda upp igen.
     const one = (await files(amira()))!.groups.find((g) => g.category === "ovrigt")!.files[0];
     expect(await run(participantFileRemove, { attachmentId: one.id }, amira())).toEqual({ ok: true });
     expect((await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "en-till.pdf", mimeType: "application/pdf", bytes: 10 }, amira())).ok).toBe(true);
+  });
+
+  it("en påbörjad uppladdning räknas likadant i kortet och i kontrollen – den som tas bort efter ett fel eller är äldre än 2 timmar räknas inte (granskningen 2026-10-29)", async () => {
+    const seeded = SEED_PARTICIPANT_FILES.filter((f) => f.caseId === NADIA).length;
+    for (let i = seeded; i < PARTICIPANT_FILE_MAX_FILES - 1; i++) await upload(amira(), NADIA, "ovrigt", `fil-${i}.pdf`);
+    expect((await files(amira()))!).toMatchObject({ count: PARTICIPANT_FILE_MAX_FILES - 1, fullText: null });
+    // En uppladdning som börjar men aldrig blir klar (t.ex. att lagringen svarade med fel eller att webbläsaren stängdes).
+    const s = await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "avbruten.pdf", mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!s.ok) throw new Error(s.error);
+    // Kortet och kontrollen är överens: knappen visas inte, och den som ändå försöker får samma förklaring.
+    const card = (await files(amira()))!;
+    expect(card.count).toBe(PARTICIPANT_FILE_MAX_FILES - 1);
+    expect(card.fullText).toMatch(/^Deltagaren har 29 filer och en uppladdning som inte är klar\./);
+    expect(await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "en-till.pdf", mimeType: "application/pdf", bytes: 10 }, erik())).toMatchObject({
+      ok: false, error: "too_many", message: card.fullText,
+    });
+    // Dialogen tar bort den påbörjade uppladdningen när ett steg misslyckas – då går det att ladda upp igen direkt.
+    expect(await run(participantFileRemove, { attachmentId: s.attachmentId }, amira())).toEqual({ ok: true });
+    expect(rt.raw().get("case_attachments", s.attachmentId)).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-amira" });
+    expect((await files(amira()))!.fullText).toBeNull();
+    // Stängdes webbläsaren i stället räknas den bara så länge uppladdningsadressen gäller (2 timmar).
+    const t = await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "stangd.pdf", mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!t.ok) throw new Error(t.error);
+    expect((await files(amira()))!.fullText).not.toBeNull();
+    rt.clock.set(addMinutes(rt.clock.now(), 120));
+    expect((await files(amira()))!.fullText).toBeNull();
+    expect((await run(participantFileStart, { caseId: NADIA, category: "cv", fileName: "ny.pdf", mimeType: "application/pdf", bytes: 10 }, amira())).ok).toBe(true);
   });
 
   it("vilande spärr för skyddade personuppgifter: en annan coach än den namngivna får inte filerna", async () => {
@@ -157,8 +193,8 @@ describe("ladda upp", () => {
   });
 });
 
-describe("öppna och ta bort", () => {
-  it("öppna (arenden.bilagaHamta): Miljonbemanning får filen, kommunen aldrig – inte heller handläggaren som beställde; varje öppning loggas utan filnamn", async () => {
+describe("hämta och ta bort", () => {
+  it("hämta (arenden.bilagaHamta): Miljonbemanning får filen, kommunen aldrig – inte heller handläggaren som beställde; varje öppning loggas utan filnamn", async () => {
     const id = await upload(amira());
     for (const a of [amira(), erik(), sara(), johan()]) {
       expect(await run(attachmentDownload, { attachmentId: id }, a), a.userId).toMatchObject({ ok: true, url: null, fileName: FILE_NAME, mimeType: "application/pdf", contentBase64: bytesToBase64(PDF) });
@@ -194,6 +230,24 @@ describe("öppna och ta bort", () => {
     for (const a of [as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin"), maria()]) {
       await expect(run(participantFileRemove, { attachmentId: "att-seed-nadia-cv" }, a), a.role).rejects.toBeInstanceOf(ApiError);
     }
+  });
+
+  it("två samtidiga borttagningar av samma fil: en tar bort och loggar, den andra får \"finns inte\" (granskningen 2026-10-29)", async () => {
+    const id = await upload(amira());
+    const [a, b] = await Promise.all([run(participantFileRemove, { attachmentId: id }, amira()), run(participantFileRemove, { attachmentId: id }, sara())]);
+    expect([a.ok, b.ok]).toEqual([true, false]);
+    expect(b).toMatchObject({ ok: false, error: "not_found" });
+    const removed = rt.raw().all("audit_log").filter((l) => l.action === "attachment.removed" && l.entityId === id);
+    expect(removed.map((l) => l.actorId)).toEqual(["u-amira"]);
+    expect(rt.raw().get("case_attachments", id)).toMatchObject({ status: "deleted", removedBy: "u-amira" });
+    // Samma för beställningens bilagor (avslutat ärende – samordnaren och avtalsansvarig samtidigt).
+    rt.store.updateRow("cases", NADIA, { status: "closed", endDate: "2027-02-01", closedAt: "2027-02-01T10:00" });
+    const s = await run(attachmentStart, { caseId: NADIA, fileName: "kartlaggning.pdf", mimeType: "application/pdf", bytes: PDF.byteLength }, sara());
+    if (!s.ok) throw new Error(s.error);
+    expect(await run(attachmentDone, { attachmentId: s.attachmentId, contentBase64: bytesToBase64(PDF) }, sara())).toMatchObject({ ok: true });
+    const [c, d] = await Promise.all([run(attachmentRemove, { attachmentId: s.attachmentId }, sara()), run(attachmentRemove, { attachmentId: s.attachmentId }, johan())]);
+    expect([c.ok, d.ok]).toEqual([true, false]);
+    expect(rt.raw().all("audit_log").filter((l) => l.action === "attachment.removed" && l.entityId === s.attachmentId)).toHaveLength(1);
   });
 
   it("beställningens kommandon och deltagarfilernas hålls isär: bilagaTaBort tar aldrig bort en deltagarfil, deltagarfilTaBort aldrig en bilaga", async () => {
@@ -301,9 +355,59 @@ describe("städningen (jobbet attachments_retention)", () => {
     rt.clock.set("2027-02-02T10:00");
     expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, unconfirmed: 1, orphans: 0 });
     expect(rt.raw().get("case_attachments", s.attachmentId)).toMatchObject({ status: "deleted", deleteReason: "invalid" });
-    expect(audits).toEqual([{ action: "attachment.deleted", details: { caseId: NADIA, reason: "unconfirmed_24h" } }]);
+    expect(audits).toEqual([{ action: "attachment.deleted", details: { caseId: NADIA, reason: "unconfirmed_24h", fileKind: "participant", fileCategory: "cv" } }]);
     expect(JSON.stringify(audits)).not.toMatch(/Samira|Testsson/);
     // Den raderade raden räknas inte längre mot högsta antalet.
     expect(rt.raw().all("case_attachments").filter((x) => x.caseId === NADIA && x.kind === "participant" && x.status !== "deleted")).toHaveLength(3);
+  });
+});
+
+describe("Historik på deltagarkortet (granskningen 2026-10-29)", () => {
+  const history = async (actor: Actor) => ((await q<CaseHistory | null>(caseHistory.key, { caseId: NADIA }, actor))!).log;
+  let seq = 0;
+  const sysCtx = (): Ctx => ({
+    actor: SYSTEM_ACTOR, now: () => rt.clock.now(), repo: new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo,
+    system: new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo, newId: (p) => `${p}-h`,
+    audit: async (e) => void rt.store.insertRow("audit_log", {
+      id: `log-h-${++seq}`, occurredAt: rt.clock.now(), actorId: SYSTEM_ACTOR.userId, action: e.action, entity: e.entity, entityId: e.entityId, contractId: e.contractId ?? null, details: e.details ?? {},
+    }),
+    notify: async () => undefined, crypto: TEST_PNR_CRYPTO, attachments: rt.attachments,
+  });
+
+  it("filhändelserna står på svenska – aldrig koder som attachment.uploaded eller unconfirmed_24h, och aldrig filnamnet", async () => {
+    const id = await upload(amira());
+    expect((await run(attachmentDownload, { attachmentId: id }, amira())).ok).toBe(true);
+    expect(await run(participantFileRemove, { attachmentId: id }, amira())).toEqual({ ok: true });
+    // En uppladdning som aldrig blev klar och som städningen raderar efter 24 timmar.
+    const s = await run(participantFileStart, { caseId: NADIA, category: "betyg_intyg", fileName: FILE_NAME, mimeType: "application/pdf", bytes: 10 }, amira());
+    if (!s.ok) throw new Error(s.error);
+    rt.clock.set("2027-02-03T10:00");
+    expect(await runAttachmentRetention(sysCtx())).toMatchObject({ unconfirmed: 1 });
+
+    // Revisionsloggens poster i Historik ser bara chef och admin (policy.ts audit_log).
+    for (const actor of [as("u-karin", "chef"), as("u-robin", "admin")]) {
+      const log = (await history(actor)).filter((l) => /fil/i.test(l.text));
+      const texts = log.map((l) => l.text);
+      expect(texts, actor.role).toEqual(expect.arrayContaining([
+        "Började ladda upp en fil på deltagarkortet", "Laddade upp en fil på deltagarkortet", "Hämtade en fil från deltagarkortet",
+        "Tog bort en fil från deltagarkortet", "En fil på deltagarkortet raderades automatiskt",
+      ]));
+      const all = JSON.stringify(await history(actor));
+      // Chef och admin ser inte filerna: att något hände står där, men aldrig filens namn eller typ.
+      expect(all, actor.role).not.toMatch(/attachment\.|unconfirmed_24h|fileKind|Samira|Testsson|"CV"|Betyg och intyg/);
+      expect(log.find((l) => l.text === "En fil på deltagarkortet raderades automatiskt")!.sub).toBe("uppladdningen blev aldrig klar inom 24 timmar");
+      expect(log.find((l) => l.text === "Laddade upp en fil på deltagarkortet")!.sub).toBe("");
+    }
+  });
+
+  it("beställningens bilagor har också svenska texter i Historik", async () => {
+    rt.store.updateRow("cases", NADIA, { status: "closed", endDate: "2027-02-01", closedAt: "2027-02-01T10:00" });
+    const s = await run(attachmentStart, { caseId: NADIA, fileName: "kartlaggning.pdf", mimeType: "application/pdf", bytes: PDF.byteLength }, sara());
+    if (!s.ok) throw new Error(s.error);
+    expect(await run(attachmentDone, { attachmentId: s.attachmentId, contentBase64: bytesToBase64(PDF) }, sara())).toMatchObject({ ok: true });
+    expect(await run(attachmentRemove, { attachmentId: s.attachmentId }, sara())).toEqual({ ok: true });
+    const texts = (await history(as("u-karin", "chef"))).map((l) => l.text);
+    expect(texts).toEqual(expect.arrayContaining(["Började ladda upp en bilaga", "Laddade upp en bilaga", "Tog bort en bilaga"]));
+    expect(texts.filter((t) => t.startsWith("attachment."))).toEqual([]);
   });
 });

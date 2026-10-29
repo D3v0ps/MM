@@ -44,7 +44,8 @@ const SAMPLES: Record<string, Sample[]> = {
   "admin.integrations": one("u-robin"), "admin.templates": one("u-robin"), "admin.auditLog": [...one("u-robin"), ...one("u-karin")],
   "admin.auditDetail": one("u-robin", { id: "__first_log__" }),
   "arenden.lista": [...one("u-sara"), ...one("u-amira"), ...one("u-petra")], "arenden.kort": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })],
-  "arenden.kortOversikt": one("u-amira", { caseId: NADIA }), "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
+  // Översikt med kortet Filer (Karims beslut 2026-10-29): Nadia har ett CV, ett personligt brev och ett intyg i testdatat.
+  "arenden.kortOversikt": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })], "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvstamningar": one("u-amira", { caseId: NADIA }), "arenden.kortNarvaro": one("u-amira", { caseId: NADIA }),
   "arenden.kortTidslinje": [...one("u-amira", { caseId: NADIA, visa: "alla" }), ...one("u-petra", { caseId: "case-260167", visa: "alla" })],
   "arenden.kortTidslinjeText": [...one("u-amira", { caseId: NADIA, id: "msg:msg-3" }), ...one("u-amira", { caseId: NADIA, id: "ci:ci-12498" })],
@@ -53,8 +54,6 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortRapporter": one("u-amira", { caseId: NADIA }), "arenden.kortMeddelanden": one("u-amira", { caseId: NADIA }),
   "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   "arenden.yrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
-  // Filer på deltagarkortet (Karims beslut 2026-10-29): Nadia har ett CV, ett personligt brev och ett intyg i testdatat.
-  "arenden.kortFiler": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })],
   "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],

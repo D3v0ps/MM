@@ -7,7 +7,8 @@
 //   link          kopplas till ärendet när beställningen skickas
 //   signedDownload  signerad adress som gäller i 60 sekunder – UTAN parametern download, så att filnamnet aldrig hamnar i en
 //                 URL. Webbläsaren hämtar filen och sparar den med filnamnet ur svaret (useDownload).
-//   remove        filen raderas ur bucketen, raden får status deleted (spåret finns kvar, utan innehåll)
+//   remove        filen raderas ur bucketen, raden får status deleted (spåret finns kvar, utan innehåll) – villkorat, så att bara
+//                 ett av två samtidiga anrop får true
 //   listStoredPaths / removeStoredFile  avstämningen i gallringen: filer i bucketen utan levande rad raderas. Den signerade
 //                 uppladdningsadressen gäller i 2 timmar och kan inte återkallas – efter "Ta bort" eller en avvisad fil kan
 //                 samma adress användas igen så länge filen inte finns (granskningen 2026-10-07).
@@ -100,10 +101,11 @@ export function createStorageAttachments(o: { system: AppRepo; storage: Attachme
     },
     async remove(id, reason, by) {
       const a = await table().get(id);
-      if (!a || a.status === "deleted") return;
+      if (!a || a.status === "deleted") return false;
       // Filen raderas först. Misslyckas det står raden kvar oraderad och gallringen försöker igen.
       await o.storage.remove(a.storagePath);
-      await table().update(id, deletedPatch(o.now(), reason, by));
+      // Villkorat (update … where status <> 'deleted' returning): hann någon annan före är svaret false och inget loggas två gånger.
+      return !!(await table().updateIf(id, { status: { neq: "deleted" } }, deletedPatch(o.now(), reason, by)));
     },
     listStoredPaths: () => o.storage.list(),
     removeStoredFile: (path) => o.storage.remove(path),

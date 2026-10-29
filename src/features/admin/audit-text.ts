@@ -180,6 +180,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   groupBy: DIMENSION_LABEL,
   measures: MEASURE_LABEL,
 };
+/** En orsakskod i loggen som läsbar svenska ("unconfirmed_24h" → "uppladdningen blev aldrig klar inom 24 timmar"). Okända visas som de är. */
+export const reasonWord = (code: string): string => VALUE_BY_KEY.reason[code] ?? code;
 const AI_KIND: Record<string, string> = {
   parse_email: "tolka mejl", transcribe_extract: "transkribering och utkast", extract_notes: "utkast från anteckningar", extract_teams: "utkast från Teams-transkript",
   report_summary: "sammanfattning till rapport", monthly_draft: "utkast till månadsbedömning",

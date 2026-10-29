@@ -42,7 +42,7 @@ import {
 } from "../_shared/context";
 import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
-import { fieldWord } from "../admin/audit-text";
+import { fieldWord, reasonWord } from "../admin/audit-text";
 import { templateLabel } from "../admin/templates";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
@@ -55,7 +55,7 @@ import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
 import "./attachment-handlers";
 import "./contact-handlers";
-import "./participant-file-handlers";
+import { participantFilesFor } from "./participant-file-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
@@ -1089,7 +1089,11 @@ handleQuery(caseOverview, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseOve
   const { c, team, today, env } = L;
   const now = env.now;
   const q = { caseId: c.id };
-  const db = await loadDb(ctx.repo, ["activities", "attendance", "check_ins", "placements", "employers"], { activities: q, attendance: q, check_ins: q, placements: q });
+  // Kortet Filer följer med Översikt (inget eget anrop) – bara för samordnare, avtalsansvarig och coach med full åtkomst.
+  const [db, files] = await Promise.all([
+    loadDb(ctx.repo, ["activities", "attendance", "check_ins", "placements", "employers"], { activities: q, attendance: q, check_ins: q, placements: q }),
+    participantFilesFor(ctx, c, L.access),
+  ]);
   const acts = activitiesOf(db, c.id);
   const nm = acts.find((a) => a.kind === "möte" && a.startsAt >= now);
   const nextMeeting = nm
@@ -1110,6 +1114,7 @@ handleQuery(caseOverview, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseOve
     attendance: summary(attendanceStats(db, c.id, w4.from, w4.to, env)),
     upcoming: acts.filter((a) => a.startsAt >= now && a.startsAt <= limit && (!team || a.kind !== "möte")).map(activityView),
     placement: pl ? { employerName: emp?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, supervisorName: pl.supervisorName, fourRights: pl.fourRights ?? null } : null,
+    files,
   };
 });
 
@@ -1529,6 +1534,16 @@ const AUDIT_TEXT: Record<string, string> = {
   "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
   // Karims beslut 2026-10-22: målgruppen (nivå eller yrkesområde) bjuder in och tar bort automatiskt; återkommande aktiviteter.
   "group_activity.audience_synced": "Inbjudan ändrades automatiskt (nivå eller yrkesområde)", "group_activity_series.updated": "Den återkommande aktiviteten ändrades",
+  // Bilagorna till beställningen (beslut 2026-10-07) – aldrig filnamnet.
+  "attachment.upload_started": "Började ladda upp en bilaga", "attachment.uploaded": "Laddade upp en bilaga", "attachment.rejected": "En bilaga togs inte emot",
+  "attachment.linked": "Bilagor kopplades till beställningen", "attachment.removed": "Tog bort en bilaga", "attachment.viewed": "Hämtade en bilaga",
+  "attachment.deleted": "En bilaga raderades",
+};
+/** Filerna på deltagarkortet (details.fileKind participant, Karims beslut 2026-10-29) – egna texter, aldrig filnamnet. */
+const PARTICIPANT_FILE_AUDIT_TEXT: Record<string, string> = {
+  "attachment.upload_started": "Började ladda upp en fil på deltagarkortet", "attachment.uploaded": "Laddade upp en fil på deltagarkortet",
+  "attachment.rejected": "En fil på deltagarkortet togs inte emot", "attachment.removed": "Tog bort en fil från deltagarkortet",
+  "attachment.viewed": "Hämtade en fil från deltagarkortet", "attachment.deleted": "En fil på deltagarkortet raderades automatiskt",
 };
 /** Fälten i en ändrad gruppaktivitet som ord (Historik). */
 const GROUP_FIELD_WORD: Record<string, string> = {
@@ -1558,9 +1573,15 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
   const auditOwn: LogEntry[] = ownOnly ? audit.filter((x) => x.actorId === me && !VIEW_ACTIONS.includes(x.action)) : audit;
   const log = (ownOnly ? [...auditOwn, ...ownActions(db, c, me, auditOwn, today)] : auditOwn).slice().sort(by<LogEntry>("occurredAt", -1));
 
+  // Revisionsloggens poster ser bara chef och admin (policy.ts audit_log) – för en deltagarfil står bara att något hände, aldrig
+  // filens typ eller namn (de ser inte filerna, Karims beslut 2026-10-29).
+  const actionText = (x: LogEntry): string =>
+    (x.details?.fileKind === "participant" ? PARTICIPANT_FILE_AUDIT_TEXT[x.action] : undefined) ?? AUDIT_TEXT[x.action] ?? x.action;
   const detailText = (x: LogEntry): string => {
     const dt = x.details ?? {};
     const s = (v: unknown) => (typeof v === "string" ? v : "");
+    // Bilagor och deltagarfiler: bara orsaken i klarspråk (städningen) – aldrig filnamnet eller deltagarfilens typ.
+    if (x.action.startsWith("attachment.")) return s(dt.reason) ? reasonWord(s(dt.reason)) : "";
     if (x.action === "case.coach_changed") return `${name(s(dt.from))} → ${name(s(dt.to))}. Orsak: ${s(dt.reason) || "–"}`;
     // Byt yrkesområde: koderna och från vilken månad fakturan räknas på det nya – motiveringen står i anteckningen.
     if (x.action === "case.area_changed") return `${s(dt.fromArea)} → ${s(dt.toArea)}${s(dt.effectiveMonth) ? `, fakturan från ${monthName(s(dt.effectiveMonth))}` : ""}`;
@@ -1615,7 +1636,7 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
         leadCoachName: !coachChange && h.toCoach && h.toStatus === "confirmed" ? name(h.toCoach) : null,
       };
     }),
-    log: log.map((x) => ({ id: x.id, occurredAt: x.occurredAt, actorName: name(x.actorId), text: AUDIT_TEXT[x.action] || x.action, sub: clip(x.text || detailText(x), 90) })),
+    log: log.map((x) => ({ id: x.id, occurredAt: x.occurredAt, actorName: name(x.actorId), text: actionText(x), sub: clip(x.text || detailText(x), 90) })),
   };
 });
 

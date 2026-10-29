@@ -17,7 +17,9 @@
 //      filen inte finns – en sådan fil fångas här (granskningen 2026-10-07). Lagringen listas FÖRE raderna läses: en fil som
 //      finns vid listningen har alltid sin rad (raden skrivs innan uppladdningsadressen skapas), så en uppladdning som pågår
 //      samtidigt raderas aldrig.
-// Varje radering loggas (attachment.deleted: id, ärende och orsak – aldrig filnamnet). Systemsteg: ctx.system (service role).
+// Varje radering loggas (attachment.deleted: id, ärende och orsak – för en deltagarfil också slag och typ, som i hanterarna –
+// aldrig filnamnet). Bara det som städningen själv raderade loggas (porten svarar false om någon annan hann före). Systemsteg:
+// ctx.system (service role).
 import { SYSTEM_ACTOR } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import type { CaseAttachment } from "@/data/schema";
@@ -48,24 +50,27 @@ export async function runAttachmentRetention(ctx: Ctx): Promise<AttachmentRetent
   let unconfirmed = 0;
   let orphans = 0;
   const removed = new Set<string>();
-  const log = async (id: string, contractId: string, caseId: string | null, reason: "unlinked_24h" | "unconfirmed_24h" | "orphan") =>
-    ctx.audit({ action: "attachment.deleted", entity: "case_attachment", entityId: id, contractId, details: { caseId, reason } });
+  const log = async (a: CaseAttachment, caseId: string | null, reason: "unlinked_24h" | "unconfirmed_24h") =>
+    ctx.audit({
+      action: "attachment.deleted", entity: "case_attachment", entityId: a.id, contractId: a.contractId,
+      details: { caseId, reason, ...(a.kind === "participant" ? { fileKind: "participant", fileCategory: a.category } : {}) },
+    });
 
   // Mejlets bilagor som väntar på registrering för hand behålls (se 1 ovan) – övriga okopplade raderas efter 24 timmar.
   const overdue = rows.filter((x) => attachmentUnlinkedOverdue(x, now));
   const awaiting = await awaitingRegistration(ctx, overdue);
   for (const a of overdue.filter((x) => !awaiting.has(x.id))) {
-    await port.remove(a.id, "unlinked_24h");
-    await log(a.id, a.contractId, null, "unlinked_24h");
     removed.add(a.id);
+    if (!(await port.remove(a.id, "unlinked_24h"))) continue;
+    await log(a, null, "unlinked_24h");
     unlinked++;
   }
 
   // 1b. Uppladdningar i ett ärende som aldrig blev klara (pending) – raderas som ogiltiga (filen kontrollerades aldrig).
   for (const a of rows.filter((x) => attachmentUnconfirmedOverdue(x, now))) {
-    await port.remove(a.id, "invalid");
-    await log(a.id, a.contractId, a.caseId, "unconfirmed_24h");
     removed.add(a.id);
+    if (!(await port.remove(a.id, "invalid"))) continue;
+    await log(a, a.caseId, "unconfirmed_24h");
     unconfirmed++;
   }
 

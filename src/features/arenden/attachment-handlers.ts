@@ -107,7 +107,8 @@ handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }
     allowed = !!c && caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c])) === "full";
   }
   if (!allowed) return fail("forbidden", "Du kan inte ta bort den här filen.");
-  await requireAttachments(ctx).remove(a.id, "removed", ctx.actor.userId);
+  // Villkorat: bara det anrop som faktiskt raderade raden loggar (två samtidiga borttagningar – den andra får "finns inte").
+  if (!(await requireAttachments(ctx).remove(a.id, "removed", ctx.actor.userId))) return fail("not_found", NOT_FOUND);
   await ctx.audit({ action: "attachment.removed", entity: "case_attachment", entityId: a.id, contractId: a.contractId, details: { caseId: a.caseId } });
   return ok({});
 });

@@ -2,8 +2,9 @@
 // filsignatur och gallringen av uppladdningar som aldrig kopplades.
 import { describe, expect, it } from "vitest";
 import {
-  ATTACHMENT_MAX_BYTES, attachmentMime, attachmentStoragePath, attachmentUnconfirmedOverdue, attachmentUnlinkedOverdue, cleanFileName, fileSizeText, groupParticipantFiles,
-  PARTICIPANT_FILE_CATEGORY_LABEL, PARTICIPANT_FILE_MAX_FILES, PARTICIPANT_FILE_ROLES, participantFileUploadBlocked, participantFileUploadOpen, signatureMatches,
+  ATTACHMENT_MAX_BYTES, ATTACHMENT_UPLOAD_URL_HOURS, attachmentMime, attachmentStoragePath, attachmentUnconfirmedOverdue, attachmentUnlinkedOverdue, attachmentUploadInProgress,
+  cleanFileName, fileSizeText, groupParticipantFiles, PARTICIPANT_FILE_CATEGORY_LABEL, PARTICIPANT_FILE_MAX_FILES, PARTICIPANT_FILE_ROLES, participantFileSlots,
+  participantFileUploadBlocked, participantFileUploadOpen, signatureMatches,
 } from "./attachments";
 import { CASE_STATUSES, PARTICIPANT_FILE_CATEGORIES } from "@/data/schema";
 
@@ -106,5 +107,30 @@ describe("filer på deltagarkortet (Karims beslut 2026-10-29)", () => {
     const f = (id: string, category: (typeof PARTICIPANT_FILE_CATEGORIES)[number], createdAt: string) => ({ id, category, createdAt });
     const g = groupParticipantFiles([f("a", "cv", "2027-01-10T10:00"), f("b", "ovrigt", "2027-01-11T10:00"), f("c", "cv", "2027-01-12T10:00"), f("d", "cv", "2027-01-12T10:00")]);
     expect(g.map((x) => [x.label, x.files.map((y) => y.id)])).toEqual([["CV", ["d", "c", "a"]], ["Personligt brev", []], ["Betyg och intyg", []], ["Övrigt", ["b"]]]);
+  });
+  it("det högsta antalet: uppladdade filer plus uppladdningar som pågår – en avbruten uppladdning räknas bara i 2 timmar (granskningen 2026-10-29)", () => {
+    expect(ATTACHMENT_UPLOAD_URL_HOURS).toBe(2);
+    const row = (status: string, createdAt = "2027-02-01T09:00") => ({ status, createdAt });
+    const now = "2027-02-01T10:00";
+    expect(attachmentUploadInProgress(row("pending"), "2027-02-01T10:59")).toBe(true);
+    expect(attachmentUploadInProgress(row("pending"), "2027-02-01T11:00")).toBe(false);
+    expect(attachmentUploadInProgress(row("uploaded"), now)).toBe(false);
+    expect(attachmentUploadInProgress(row("deleted"), now)).toBe(false);
+    const files = (n: number) => Array.from({ length: n }, () => row("uploaded"));
+    expect(participantFileSlots(files(29), now)).toEqual({ uploaded: 29, inProgress: 0, full: false, text: null });
+    // Raderade rader räknas aldrig.
+    expect(participantFileSlots([...files(29), row("deleted")], now).full).toBe(false);
+    expect(participantFileSlots(files(30), now)).toEqual({
+      uploaded: 30, inProgress: 0, full: true, text: "Deltagaren har 30 filer, vilket är det högsta antalet. Ta bort en fil som inte behövs för att ladda upp en ny.",
+    });
+    // 29 filer och en uppladdning som pågår: fullt – och texten säger varför, så att kortet och kontrollen säger samma sak.
+    expect(participantFileSlots([...files(29), row("pending", "2027-02-01T09:30")], now)).toEqual({
+      uploaded: 29, inProgress: 1, full: true,
+      text: "Deltagaren har 29 filer och en uppladdning som inte är klar. Högst 30 filer får finnas. En uppladdning som inte blev klar räknas inte efter 2 timmar. Ta bort en fil som inte behövs för att ladda upp en ny nu.",
+    });
+    expect(participantFileSlots([...files(28), row("pending"), row("pending")], now).text).toMatch(/^Deltagaren har 28 filer och 2 uppladdningar som inte är klara\./);
+    // Efter 2 timmar kan den påbörjade uppladdningen aldrig bli klar – den räknas inte (städningen raderar den efter 24 timmar).
+    expect(participantFileSlots([...files(29), row("pending", "2027-02-01T07:59")], now)).toEqual({ uploaded: 29, inProgress: 0, full: false, text: null });
+    expect(participantFileSlots([row("pending")], now, 1).full).toBe(true);
   });
 });

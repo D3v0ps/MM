@@ -19,7 +19,8 @@
 //   confirm       -> uploaded (storlek och filsignatur kontrolleras – annars raderas filen: deleted, reason invalid)
 //   link          -> kopplas till ärendet när beställningen skickas (caseId, linkedAt)
 //   signedDownload-> kort signerad adress (appen) eller innehållet (minnet)
-//   remove        -> filen raderas ur lagringen, raden får status deleted, deletedAt och orsak (spåret finns kvar)
+//   remove        -> filen raderas ur lagringen, raden får status deleted, deletedAt och orsak (spåret finns kvar). Villkorat
+//                    (updateIf status <> deleted): bara ett av två samtidiga anrop raderar raden och får true – bara det loggar.
 // Städningen (jobbet attachments_retention): uppladdningar som aldrig kopplades raderas efter 24 timmar, och filer i lagringen
 // utan levande rad raderas (avstämningen – en signerad uppladdningsadress gäller i 2 timmar och kan användas igen efter att
 // filen tagits bort eller avvisats, granskningen 2026-10-07). Bilagor i ett ärende gallras aldrig automatiskt: Miljonbemanning
@@ -93,8 +94,12 @@ export interface AttachmentPort {
   link(ids: readonly string[], caseId: string): Promise<void>;
   /** Adressen eller innehållet för nedladdning. Null om filen saknas eller är raderad. */
   signedDownload(id: string): Promise<AttachmentDownload | null>;
-  /** Radera filen ur lagringen (status deleted). Idempotent. by = den som tog bort (reason removed). */
-  remove(id: string, reason: AttachmentDeleteReason, by?: string | null): Promise<void>;
+  /**
+   * Radera filen ur lagringen (status deleted). Idempotent. by = den som tog bort (reason removed). true = just det här anropet
+   * raderade raden; false = raden fanns inte eller var redan raderad (t.ex. två samtidiga "Ta bort" – den andra får false och
+   * ska inte logga något).
+   */
+  remove(id: string, reason: AttachmentDeleteReason, by?: string | null): Promise<boolean>;
   /** Sökvägarna ("<avtal>/<id>.<ändelse>") till alla filer som finns i lagringen – för avstämningen i gallringen. */
   listStoredPaths(): Promise<string[]>;
   /** Radera en fil som saknar levande rad (avstämningen). Raden ändras inte. En fil som inte finns är inget fel. */
@@ -195,10 +200,10 @@ export function createMemoryAttachments(o: { system: AppRepo; now: () => LocalDa
     },
     async remove(id, reason, by) {
       const a = await table().get(id);
-      if (!a || a.status === "deleted") return;
+      if (!a || a.status === "deleted") return false;
       blobs.delete(id);
       pathOf.delete(id);
-      await table().update(id, deletedPatch(o.now(), reason, by));
+      return !!(await table().updateIf(id, { status: { neq: "deleted" } }, deletedPatch(o.now(), reason, by)));
     },
     async listStoredPaths() {
       return [...blobs.keys()].map((id) => pathOf.get(id)).filter((p): p is string => !!p).sort();

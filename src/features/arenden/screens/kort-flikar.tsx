@@ -185,7 +185,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
               </Card>
             )}
             {/* Filer på deltagarkortet (CV, personligt brev, betyg och intyg) – bara Miljonbemanning (Karims beslut 2026-10-29). */}
-            {card.files && <ParticipantFilesCard card={card} />}
+            {card.files && o.files && <ParticipantFilesCard card={card} files={o.files} />}
             {/* Beställningens bakgrund och bilagor – bara med full åtkomst (samordnare, avtalsansvarig, huvudcoach). */}
             {card.background && <CaseBackgroundCard bg={card.background} title="Bakgrund från beställningen" />}
           </Stack>

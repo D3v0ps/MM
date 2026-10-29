@@ -1,7 +1,8 @@
 // Filer på deltagarkortet (Karims beslut 2026-10-29): CV, personligt brev, betyg och intyg – bara Miljonbemanning. Samma steg
 // mot prototypen och appen (minnesläget – innehållet skickas med kommandot, ingen lagring att ladda upp till): coachen ser
-// testdatats filer under sina typer, laddar upp ett CV (typen krävs, fel filtyp stoppas), öppnar det och tar bort det efter en
-// fråga. Kommunens portal visar aldrig filerna, och chefen (läsläge) ser inte kortet. Bara påhittade filer.
+// testdatats filer under sina typer, laddar upp ett CV (typen krävs, fel filtyp stoppas), hämtar det och tar bort det efter en
+// fråga. Kommunens portal visar aldrig filerna, och chefen (läsläge) ser inte kortet. På en smal skärm (390 px) flyttas knapparna
+// ned under filnamnet i stället för att texten krymper. Bara påhittade filer.
 import fs from "node:fs";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { isDemo, open, switchPersona } from "./helpers";
@@ -45,7 +46,7 @@ async function goAs(page: Page, info: TestInfo, to: string, as: { userId: string
   await expect(main(page)).not.toContainText("Hämtar…", { timeout: 15_000 });
 }
 
-test("filer på deltagarkortet: ladda upp ett CV med typ, öppna det och ta bort det – kommunen ser aldrig filerna", async ({ page }, info) => {
+test("filer på deltagarkortet: ladda upp ett CV med typ, hämta det och ta bort det – kommunen ser aldrig filerna", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${NADIA}`, COACH);
   const card = filesCard(page);
   await expect(card.getByRole("heading", { level: 2, name: "Filer" })).toBeVisible();
@@ -81,8 +82,8 @@ test("filer på deltagarkortet: ladda upp ett CV med typ, öppna det och ta bort
   // Nyaste först.
   await expect(cvList.getByRole("listitem").first()).toContainText("CV-test.pdf");
 
-  // Öppna: filen sparas med sitt namn och sitt innehåll (minnesläget – appen hämtar med en signerad adress i 60 sekunder).
-  const [dl] = await Promise.all([page.waitForEvent("download"), btn(card, "Öppna CV-test.pdf").click()]);
+  // Hämta: filen sparas med sitt namn och sitt innehåll (minnesläget – appen hämtar med en signerad adress i 60 sekunder).
+  const [dl] = await Promise.all([page.waitForEvent("download"), btn(card, "Hämta CV-test.pdf").click()]);
   expect(dl.suggestedFilename()).toBe("CV-test.pdf");
   expect(fs.readFileSync((await dl.path())!).subarray(0, 5).toString("latin1")).toBe("%PDF-");
   // Adressen innehåller aldrig filnamnet.
@@ -139,5 +140,27 @@ test("filer på deltagarkortet: tomt läge, och ingen uppladdning innan beställ
   await go(page, info, `/arenden/${WAITING}`);
   await expect(filesCard(page)).toContainText("Filer kan laddas upp när beställningen är bekräftad.");
   await expect(btn(filesCard(page), "Ladda upp fil")).toHaveCount(0);
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("filer på deltagarkortet: 390 px – knapparna flyttas ned under filnamnet, texten krymper aldrig och sidan rullar inte i sidled", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await open(page, info, `/arenden/${NADIA}`, COACH);
+  const card = filesCard(page);
+  await expect(card.getByRole("list", { name: "CV", exact: true })).toContainText("CV truckförare januari 2027.pdf");
+  const items = card.getByRole("listitem");
+  await expect(items).toHaveCount(3);
+  for (const item of await items.all()) {
+    // Filnamnet och raden under (typ, storlek, datum, vem) – inte ett tecken per rad.
+    const text = await item.locator(":scope > span").first().boundingBox();
+    const fetchBtn = await item.getByRole("button", { name: /^Hämta / }).boundingBox();
+    expect(text!.width, "textens bredd").toBeGreaterThan(150);
+    expect(text!.height, "textens höjd").toBeLessThan(200);
+    // Knapparna står under texten och är minst 44 × 44 px.
+    expect(fetchBtn!.y).toBeGreaterThanOrEqual(text!.y + text!.height - 1);
+    expect(fetchBtn!.height).toBeGreaterThanOrEqual(43.5);
+  }
+  expect((await card.boundingBox())!.height, "kortets höjd").toBeLessThan(1400);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
   expect(relevant(errors)).toEqual([]);
 });

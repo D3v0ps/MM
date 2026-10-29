@@ -3,23 +3,24 @@
 // Miljonbemanning, aldrig kommunen. Visas på fliken Översikt för samordnare, avtalsansvarig och coach med full åtkomst
 // (card.files). Samma i appen och prototypen:
 //   ladda upp  arenden.deltagarfilStart (med typen) -> appen: PUT direkt till lagringen; minnesläget/prototypen: innehållet med
-//              arenden.deltagarfilKlar
-//   öppna      arenden.bilagaHamta (loggas attachment.viewed) – filnamnet hamnar aldrig i en URL
+//              arenden.deltagarfilKlar. Misslyckas ett steg efter start tas den påbörjade uppladdningen bort direkt
+//              (arenden.deltagarfilTaBort), så att den inte räknas mot det högsta antalet.
+//   hämta      arenden.bilagaHamta (loggas attachment.viewed) – filen sparas med sitt namn, som "Hämta" för bilagorna; filnamnet
+//              hamnar aldrig i en URL
 //   ta bort    arenden.deltagarfilTaBort efter en fråga – när som helst
+// Det högsta antalet räknas på servern (fullText – samma räkning som deltagarfilStart, med uppladdningar som pågår).
+// Datat kommer med fliken Översikt (arenden.kortOversikt, files) – kortet gör inget eget anrop.
 import { useState } from "react";
 import { fmtDate } from "@/core/time";
-import { useCommand, useQuery } from "@/shell/backend";
-import { Button, Card, Empty, ErrorNotice, Field, focusSoon, Icon, Loading, Modal, Select, Stack, useConfirm, useToast } from "@/ui";
-import { caseFiles, participantFileDone, participantFileRemove, participantFileStart, type CaseCard, type CaseFiles, type ParticipantFileRow } from "../api";
+import { useCommand } from "@/shell/backend";
+import { Button, Card, Empty, Field, focusSoon, Icon, Modal, Select, Stack, useConfirm, useToast } from "@/ui";
+import { participantFileDone, participantFileRemove, participantFileStart, type CaseCard, type CaseFiles, type ParticipantFileRow } from "../api";
 import { fileProblem, sendFile, typeText, useAttachmentDownload } from "./attachments";
 
-/** Kortet Filer. Rendera bara när card.files är sant. */
-export function ParticipantFilesCard({ card }: { card: CaseCard }) {
-  const q = useQuery(caseFiles, { caseId: card.caseId });
+/** Kortet Filer. files = CaseOverview.files (finns bara när card.files är sant). */
+export function ParticipantFilesCard({ card, files: f }: { card: CaseCard; files: CaseFiles }) {
   const [uploading, setUploading] = useState(false);
-  const f = q.data;
-  const full = !!f && f.count >= f.maxFiles;
-  const canUpload = !!f && !f.uploadBlocked && !full;
+  const canUpload = !f.uploadBlocked && !f.fullText;
   return (
     <Card
       title="Filer"
@@ -33,66 +34,57 @@ export function ParticipantFilesCard({ card }: { card: CaseCard }) {
         ) : null
       }
     >
-      {q.error ? (
-        <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
-      ) : !f ? (
-        q.isLoading ? <Loading /> : null
-      ) : (
-        <Stack>
-          {f.count === 0 ? (
-            <Empty icon="file" title="Inga filer ännu">
-              Här sparar ni deltagarens CV, personliga brev, betyg och intyg.
-            </Empty>
-          ) : (
-            f.groups
-              .filter((g) => g.files.length > 0)
-              .map((g) => (
-                <section key={g.category} aria-labelledby={`deltagarfiler-${g.category}`} className="flex flex-col gap-2">
-                  <h3 id={`deltagarfiler-${g.category}`} className="m-0 text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">
-                    {g.label} <span className="font-bold normal-case tracking-normal">({g.files.length})</span>
-                  </h3>
-                  <ul aria-label={g.label} className="m-0 flex list-none flex-col gap-2 p-0">
-                    {g.files.map((x) => (
-                      <FileRow key={x.id} file={x} />
-                    ))}
-                  </ul>
-                </section>
-              ))
-          )}
-          {f.uploadBlocked && <p className="m-0 text-text-muted">{f.uploadBlocked}</p>}
-          {!f.uploadBlocked && full && (
-            <p className="m-0 text-text-muted">
-              Deltagaren har {f.maxFiles} filer, vilket är det högsta antalet. Ta bort en fil som inte behövs för att ladda upp en ny.
-            </p>
-          )}
-          <p className="m-0 flex items-start gap-1.5 text-small text-text-muted">
-            <Icon name="lock" className="mt-0.5 flex-none" />
-            <span>Filerna syns bara för Miljonbemanning – aldrig för kommunen.</span>
-          </p>
-        </Stack>
-      )}
-      {uploading && f && <UploadModal caseId={card.caseId} caseNumber={card.caseNumber} files={f} onClose={() => setUploading(false)} />}
+      <Stack>
+        {f.count === 0 ? (
+          <Empty icon="file" title="Inga filer ännu">
+            Här sparar ni deltagarens CV, personliga brev, betyg och intyg.
+          </Empty>
+        ) : (
+          f.groups
+            .filter((g) => g.files.length > 0)
+            .map((g) => (
+              <section key={g.category} aria-labelledby={`deltagarfiler-${g.category}`} className="flex flex-col gap-2">
+                <h3 id={`deltagarfiler-${g.category}`} className="m-0 text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">
+                  {g.label} <span className="font-bold normal-case tracking-normal">({g.files.length})</span>
+                </h3>
+                <ul aria-label={g.label} className="m-0 flex list-none flex-col gap-2 p-0">
+                  {g.files.map((x) => (
+                    <FileRow key={x.id} file={x} />
+                  ))}
+                </ul>
+              </section>
+            ))
+        )}
+        {f.uploadBlocked && <p className="m-0 text-text-muted">{f.uploadBlocked}</p>}
+        {!f.uploadBlocked && f.fullText && <p className="m-0 text-text-muted">{f.fullText}</p>}
+        <p className="m-0 flex items-start gap-1.5 text-small text-text-muted">
+          <Icon name="lock" className="mt-0.5 flex-none" />
+          <span>Filerna syns bara för Miljonbemanning – aldrig för kommunen.</span>
+        </p>
+      </Stack>
+      {uploading && <UploadModal caseId={card.caseId} caseNumber={card.caseNumber} files={f} onClose={() => setUploading(false)} />}
     </Card>
   );
 }
 
-/** En fil: namn, typ och storlek, när och av vem – Öppna och Ta bort. */
+/** En fil: namn, typ och storlek, när och av vem – Hämta och Ta bort. */
 function FileRow({ file: x }: { file: ParticipantFileRow }) {
-  const open = useAttachmentDownload();
+  const fetchFile = useAttachmentDownload();
   const remove = useCommand(participantFileRemove);
   const toast = useToast();
   const confirm = useConfirm();
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-mb border-[1.5px] border-ljusgra px-3 py-2">
       <Icon name="file" className="flex-none" />
-      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+      {/* En egen grundbredd (200 px): på en smal skärm flyttas knapparna ned på en egen rad i stället för att texten krymper. */}
+      <span className="min-w-0 flex-[1_1_200px] [overflow-wrap:anywhere]">
         <span className="font-bold">{x.fileName}</span>
         <span className="block text-small text-text-muted">
           {typeText(x.mimeType)} · {x.sizeText} · uppladdad {fmtDate(x.createdAt)} av {x.uploadedByName}
         </span>
       </span>
-      <Button icon="download" onClick={() => void open(x)} ariaLabel={`Öppna ${x.fileName}`}>
-        Öppna
+      <Button icon="download" onClick={() => void fetchFile(x)} ariaLabel={`Hämta ${x.fileName}`}>
+        Hämta
       </Button>
       {x.canRemove && (
         <Button
@@ -132,6 +124,7 @@ function FileRow({ file: x }: { file: ParticipantFileRow }) {
 function UploadModal({ caseId, caseNumber, files: f, onClose }: { caseId: string; caseNumber: string; files: CaseFiles; onClose: () => void }) {
   const start = useCommand(participantFileStart);
   const done = useCommand(participantFileDone);
+  const discard = useCommand(participantFileRemove);
   const toast = useToast();
   const [category, setCategory] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -146,26 +139,35 @@ function UploadModal({ caseId, caseNumber, files: f, onClose }: { caseId: string
     setServerError(null);
     if (!chosen || !file || fileProblem(file)) return;
     setBusy(true);
+    // Den påbörjade uppladdningen (pending) när start har gått bra – tas bort om något steg efter det misslyckas.
+    let started: string | null = null;
+    const fail = async (message: string) => {
+      setServerError(message);
+      // Utan det skulle den räknas mot det högsta antalet tills uppladdningsadressen slutar gälla. En fil som redan
+      // avvisades är redan borttagen – svaret "finns inte" spelar då ingen roll.
+      if (started) await discard.run({ attachmentId: started }).catch(() => null);
+    };
     try {
       const s = await start.run({ caseId, category: chosen.value, fileName: file.name, mimeType: file.type || "", bytes: file.size });
       if (!s.ok) {
         setServerError(s.message || "Filen kunde inte laddas upp.");
         return;
       }
+      started = s.attachmentId;
       const sent = await sendFile(s.uploadUrl, file);
       if (!sent.ok) {
-        setServerError("Filen kunde inte laddas upp. Försök igen.");
+        await fail("Filen kunde inte laddas upp. Försök igen.");
         return;
       }
       const d = await done.run({ attachmentId: s.attachmentId, ...(sent.contentBase64 ? { contentBase64: sent.contentBase64 } : {}) });
       if (!d.ok) {
-        setServerError(d.message || "Filen kunde inte tas emot.");
+        await fail(d.message || "Filen kunde inte tas emot.");
         return;
       }
       toast(`${d.file.fileName} är uppladdad under ${d.file.categoryLabel}.`);
       onClose();
     } catch {
-      setServerError("Filen kunde inte laddas upp. Försök igen.");
+      await fail("Filen kunde inte laddas upp. Försök igen.");
     } finally {
       setBusy(false);
     }

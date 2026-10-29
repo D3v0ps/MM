@@ -669,6 +669,11 @@ export type CaseOverview = {
   /** Kommande 14 dagar (teamet: inga coachmöten). */
   upcoming: CaseActivity[];
   placement: { employerName: string | null; startsOn: string; endsOn: string | null; supervisorName: string; fourRights: FourRights | null } | null;
+  /**
+   * Kortet Filer (Karims beslut 2026-10-29) – med i Översikt så att kortet inte gör ett eget anrop. null för alla utom
+   * samordnare, avtalsansvarig och coach med full åtkomst (samma som CaseCard.files).
+   */
+  files: CaseFiles | null;
 };
 export const caseOverview = query("arenden.kortOversikt", CaseParams).returns<CaseOverview | null>();
 
@@ -682,12 +687,18 @@ export const caseOverview = query("arenden.kortOversikt", CaseParams).returns<Ca
 
 /** En fil på deltagarkortet. */
 export type ParticipantFileRow = AttachmentRow & { category: ParticipantFileCategory; categoryLabel: string };
-/** Kortet Filer. null = ingen åtkomst. */
+/** Kortet Filer – i CaseOverview.files (arenden.kortOversikt). */
 export type CaseFiles = {
   /** Alla fyra typer i ordning (CV, Personligt brev, Betyg och intyg, Övrigt), nyaste filen först i varje grupp. */
   groups: { category: ParticipantFileCategory; label: string; files: ParticipantFileRow[] }[];
+  /** Antalet uppladdade filer (det som visas). */
   count: number;
   maxFiles: number;
+  /**
+   * Null = det högsta antalet är inte nått; annars varför det inte går att ladda upp fler. Samma räkning som
+   * arenden.deltagarfilStart: uppladdade filer plus uppladdningar som pågår (participantFileSlots i src/core/attachments.ts).
+   */
+  fullText: string | null;
   /** Null = filer kan laddas upp; annars varför inte (beställningen är inte bekräftad eller är avböjd). */
   uploadBlocked: string | null;
   categories: { value: ParticipantFileCategory; label: string }[];
@@ -697,7 +708,6 @@ export type CaseFiles = {
   /** Hjälptexten vid filväljaren. */
   help: string;
 };
-export const caseFiles = query("arenden.kortFiler", CaseParams).returns<CaseFiles | null>();
 
 /**
  * Börja ladda upp en fil på deltagarkortet. Kontroller: rollen, full åtkomst till ärendet, ärendets status, typen (category),

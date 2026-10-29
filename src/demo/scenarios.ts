@@ -127,7 +127,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   // Karims beslut 2026-10-29: filer på deltagarkortet – bara Miljonbemanning.
   { id: "s17", title: "Filer på deltagarkortet", lead: "Deltagarens CV, personliga brev, betyg och intyg sparas på deltagarkortet. Filerna syns bara för Miljonbemanning – aldrig för kommunen.", steps: [
-    { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Kortet Filer på fliken Översikt: Nadias CV, personliga brev och intyg om truckkort, sorterade efter typ. Tryck Ladda upp fil, välj typ och en fil (PDF, Word eller bild, högst 10 MB). Öppna en fil och ta bort den du laddade upp – det går när som helst." },
+    { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Kortet Filer på fliken Översikt: Nadias CV, personliga brev och intyg om truckkort, sorterade efter typ. Tryck Ladda upp fil, välj typ och en fil (PDF, Word eller bild, högst 10 MB). Hämta en fil och ta bort den du laddade upp – det går när som helst." },
     { role: "kommun_handlaggare", view: "kom.deltagare", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Byt till kommunens handläggare: Nadias sida i portalen visar inga filer. Kommunen ser bara bilagorna till sin egen beställning." },
   ] },
 ];
