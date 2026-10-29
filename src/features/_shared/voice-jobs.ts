@@ -35,7 +35,7 @@ import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckIn
 import { UniqueError } from "@/data/repo";
 import {
   AI_OFF_TEXT,
-  aiRunRow, approvedCheckIns, areaChangeNoteIds, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
+  aiRunRow, approvedCheckIns, draftNotes, internalNoteIds, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
   type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftOptions, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
 import { SIMULATED_PROVIDER } from "./ai-sim";
@@ -547,9 +547,9 @@ export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKe
   const byActivity = new Map(att.map((x) => [x.activityId, x]));
   const attendance = monthActs.map((a) => byActivity.get(a.id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ status: x.status }));
   const person = c ? await ctx.system.table("persons").get(c.personId) : null;
-  // Motiveringen till ett byte av yrkesområde är en anteckning men aldrig underlag till AI (areaChangeNoteIds).
+  // Motiveringen till ett byte av yrkesområde eller ett ändrat startdatum är en anteckning men aldrig underlag till AI (internalNoteIds).
   const notes = aiAllowed(c, person)
-    ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month, { exclude: areaChangeNoteIds(await ctx.system.table("case_area_changes").list({ caseId })) })
+    ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month, { exclude: internalNoteIds(await ctx.system.table("case_area_changes").list({ caseId }), await ctx.system.table("case_start_changes").list({ caseId })) })
     : [];
   return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance, notes };
 }

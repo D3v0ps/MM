@@ -14,7 +14,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "case.view": "Visade deltagarkort", "pnr.revealed": "Visade personnummer", "report.view": "Visade rapport", "transcript.view": "Visade transkript",
   "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
-  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.area_changed": "Bytte yrkesområde", "case.closed": "Avslutade ärende",
+  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.area_changed": "Bytte yrkesområde", "case.start_date_changed": "Ändrade startdatum", "case.closed": "Avslutade ärende",
   "person.contact_changed": "Ändrade kontaktväg",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",

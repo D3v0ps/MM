@@ -144,6 +144,10 @@ export const COLUMNS = {
     id: "text", contractId: "text", caseId: "text", fromArea: "text", toArea: "text", effectiveMonth: "text", changedBy: "text", changedAt: "timestamptz", noteId: "text",
     seq: "integer", fromTrack: "text", toTrack: "text", fromSecondaryArea: "text | null",
   },
+  // Ändra startdatum (0038_andra_startdatum.sql)
+  case_start_changes: {
+    id: "text", contractId: "text", caseId: "text", fromDate: "date", toDate: "date", changedBy: "text", changedAt: "timestamptz", noteId: "text", seq: "integer",
+  },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

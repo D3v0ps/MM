@@ -18,6 +18,7 @@
 //   decisions-2026-10-22.ts  Karims beslut 2026-10-22: ett byte av yrkesområde (med motivering) och januaris månadsbedömningar
 //                    ifyllda automatiskt
 //   gen-group-activities.ts  återkommande nivåaktiviteter och månadens yrkesområdesträffar (Karims beslut 2026-10-22)
+//   decisions-2026-10-29.ts  Karims beslut 2026-10-29: en ändring av startdatum (med motivering)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -31,6 +32,7 @@ import { addGroupActivities } from "./gen-group-activities";
 import { addGroupings } from "./gen-groupings";
 import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
 import { applyDecisions20261022 } from "./decisions-2026-10-22";
+import { applyDecisions20261029 } from "./decisions-2026-10-29";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -73,6 +75,8 @@ export function createSeed(): MemoryData<Tables> {
   // Bytet av yrkesområde före gruppaktiviteterna: yrkesområdesträffarna bjuder in efter ärendets nuvarande yrkesområde.
   applyDecisions20261022(db);
   addGroupActivities(db);
+  // Efter januaris automatiska månadsbedömningar: motiveringen till ändringen är en anteckning i januari, men aldrig underlag.
+  applyDecisions20261029(db);
   return db;
 }
 

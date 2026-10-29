@@ -29,6 +29,7 @@ import { ActivityModal, StartModal, TeamModal } from "./kort-start";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 import { CaseGroupingRow } from "@/features/grupper/screens/grouping-card";
+import { CaseStartChange, CaseStartHistory } from "./kort-startdatum";
 import { CaseAreaChange, CaseAreaHistory } from "./kort-yrkesomrade";
 
 const TAB_LABEL: Record<CaseTab, string> = {
@@ -372,15 +373,20 @@ function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
           </span>
         </span>
       </div>
-      {/* Rad B: de viktigaste uppgifterna */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1">
+      {/* Rad B: de viktigaste uppgifterna – vid startdatumet Ändra startdatum (Karims beslut 2026-10-29) */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
         {fact("Huvudcoach", c.leadCoach ? c.leadCoach.name : "Inte tilldelad")}
-        {fact("Start", c.startDate ? fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${fmtDate(c.firstMeetingAt)}` : "Inte bestämd")}
+        <span className="inline-flex flex-wrap items-center gap-x-1.5" data-start-fact="">
+          {fact("Start", c.startDate ? fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${fmtDate(c.firstMeetingAt)}` : "Inte bestämd")}
+          <CaseStartChange caseId={c.caseId} />
+        </span>
         {c.endDate
           ? fact("Avslutad", `${fmtDate(c.endDate)} · ${c.endReasonLabel ?? "–"}`)
           : fact("Planerat slut", c.plannedEnd ? fmtDate(c.plannedEnd) : "Inte angivet")}
         {fact("Handläggare", k ? k.name : "–")}
       </div>
+      {/* Ändringarna av startdatum (bara när startdatumet har ändrats), med motiveringen */}
+      <CaseStartHistory caseId={c.caseId} />
       {warn.length > 0 && <div className="flex flex-wrap gap-1.5">{warn}</div>}
       {/* Rad B2: nivå, yrkesområde (deltagarens grupp) och taggar – internt, coachmötet 2026-10-09 och Karims beslut 2026-10-22 –
           med Höj nivå och Ändra (dialogen har Byt yrkesområde); under raden bytena av yrkesområde (bara när ärendet har bytt) */}

@@ -8,6 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { accessIndex, caseAccessIn } from "@/core/access";
 import { defaultGroupings } from "@/core/groupings";
 import { requireOperational } from "@/core/config";
+import { startChangeLock, startChangeMonths } from "@/core/start-date";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
 import { listPersonas, type Persona } from "../actors";
@@ -1136,8 +1137,11 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
 
   it("läsning per roll: coach och handledare alla anteckningar i avtalet (beslut 2026-10-09), ekonom och kommunen inget, skyddat ärende bara namngivna", async () => {
     const open = data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort();
-    // note-byte-linnea: motiveringen till testdatats byte av yrkesområde (Karims beslut 2026-10-22).
-    expect(open).toEqual(["note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
+    // note-byte-linnea: motiveringen till testdatats byte av yrkesområde (Karims beslut 2026-10-22); note-startdatum-0031:
+    // motiveringen till testdatats ändring av startdatum (Karims beslut 2026-10-29).
+    expect(open).toEqual([
+      "note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-startdatum-0031",
+    ]);
     const expected: Record<string, string[]> = {
       // Amira är huvudcoach för Nadia och Mehmet; Petra (coach, och i den vilande rollen handledare) och Leila läser samma
       // anteckningar – men inte det skyddade ärendets (vilande spärr: bara namngiven huvudcoach Erik och avtalsansvarig).
@@ -2911,6 +2915,311 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
       const policies = (await tx.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename = 'case_area_changes'")).rows[0].n;
       const triggers = (await tx.query<{ n: number }>(
         "select count(*)::int as n from pg_trigger where tgname in ('case_area_changes_check', 'case_area_changes_apply', 'case_notes_area_change_lock', 'cases_area_guard')",
+      )).rows[0].n;
+      res = { before, after, policies, triggers };
+      await tx.rollback();
+    });
+    expect(res).not.toBeNull();
+    expect(res!.after).toEqual(res!.before);
+    expect(res!.policies).toBe(2);
+    expect(res!.triggers).toBe(4);
+  });
+});
+
+describe("ändra startdatum (0038): läsning och skrivning – samma regler i RLS, triggrarna och policy.ts", () => {
+  // BOT-27-0041 startade 1 februari (första mötet samma dag), planerat slut 9 april, inga registrerade tillfällen. Tiden är
+  // testklockans (mm.app_now() står på 09.12 när blocket börjar – se beforeEach nedan).
+  const NEW = "case-270041";
+  const JAN = "case-270031";
+  const at = "2027-02-01T09:12";
+  const row = (id: string, changedBy: string, patch: Partial<Tables["case_start_changes"]> = {}): Tables["case_start_changes"] => ({
+    id, contractId: "c-bot", caseId: NEW, fromDate: "2027-02-01", toDate: "2027-02-03", changedBy, changedAt: at, noteId: `note-${id}`, seq: 1, ...patch,
+  });
+  const ins = (r: Tables["case_start_changes"]) => insertSql("case_start_changes", r as unknown as Record<string, unknown>);
+  /** Motiveringen: en ny anteckning av den som ändrar (eller det som patch säger), i ändringens ärende. */
+  const noteFor = (r: Tables["case_start_changes"], patch: Partial<Tables["case_notes"]> = {}): Tables["case_notes"] => ({
+    id: r.noteId, contractId: "c-bot", caseId: r.caseId, authorId: r.changedBy, occurredOn: "2027-02-01", kind: "other", audience: "team",
+    body: "Ändrat startdatum: motivering.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null, ...patch,
+  });
+  const insNote = (n: Tables["case_notes"]) => insertSql("case_notes", n as unknown as Record<string, unknown>);
+  type Extra = { [N in TableName]?: Tables[N][] };
+  /** Minnet med samma klocka som databasen och de extra raderna (anteckningar och det som before lägger in i databasen). */
+  const memWith = (extra: Extra = {}): RawAccess<Tables> => {
+    const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    for (const [t, rows] of Object.entries(extra)) for (const r of rows as never[]) s.insertRow(t as TableName, r);
+    s.clock = () => at;
+    return s.raw();
+  };
+  const memWrite = (r: Tables["case_start_changes"], key: string, notes: Tables["case_notes"][] = [noteFor(r)], extra: Extra = {}) =>
+    canWriteRow("case_start_changes", r, actorOf(findPersona(key)), memWith({ ...extra, case_notes: [...(extra.case_notes ?? []), ...notes] }));
+  /** Som testpersonen, med anteckningen (anteckningarna) och de extra raderna inlagda först som postgres i samma transaktion. */
+  const asPersonaWith = <T,>(key: string, notes: Tables["case_notes"][], fn: (tx: Tx) => Promise<T>, extra: Extra = {}): Promise<T> => {
+    const p = findPersona(key);
+    const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+    return asUser(db, authOf(p.actor.userId), fn, {
+      before: async (tx) => {
+        for (const [t, rows] of Object.entries(extra)) for (const r of rows as Record<string, unknown>[]) await tx.query(insertSql(t as TableName, r));
+        for (const n of notes) await tx.query(insNote(n));
+        if (roles.size > 1) await chooseRole(p.actor.userId, p.actor.role)(tx);
+      },
+    });
+  };
+  const pgChange = async (key: string, r: Tables["case_start_changes"], notes: Tables["case_notes"][] = [noteFor(r)], extra: Extra = {}) =>
+    allowed(await asPersonaWith(key, notes, (tx) => attempt(tx, ins(r)), extra));
+  const serviceChange = (r: Tables["case_start_changes"], notes: Tables["case_notes"][] = [noteFor(r)]) =>
+    asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role", before: async (tx) => { for (const n of notes) await tx.query(insNote(n)); } });
+  const pgWrite = async (key: string, sql: string) => allowed(await asPersona(findPersona(key), (tx) => attempt(tx, sql)));
+  const draft = (month: string, status: Tables["invoice_drafts"]["status"], groupingKey = "avtal"): Tables["invoice_drafts"] => ({
+    id: `inv-c-bot-${month}-${groupingKey}-x`, billingRunId: null, contractId: "c-bot", month, kind: "periodic", caseId: null, groupingKey, buyerReference: null,
+    purchaseOrderNumber: null, invoicedObject: "332026110", accruedOre: null, remainingOre: null, status, approvedBy: null, approvedAt: null, manualInvoiceNo: null,
+    fortnoxDocumentNumber: null, fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null,
+  });
+  const sqlFor = (template: string, id: string) => template.replace("{id}", id);
+  // Testklockan startar om på 09.12 (som när seeden lästes in), i Stockholms tid – som blocket för byt yrkesområde.
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
+
+  it("testdatat: BOT-27-0031 ändrades från 1 februari till 26 januari med motiveringen i en anteckning", () => {
+    expect(data.case_start_changes).toEqual([expect.objectContaining({ id: "csc-seed-0031", caseId: JAN, fromDate: "2027-02-01", toDate: "2027-01-26", noteId: "note-startdatum-0031", seq: 1 })]);
+    expect(raw.get("case_notes", "note-startdatum-0031")?.caseId).toBe(JAN);
+    expect(raw.get("cases", JAN)?.startDate).toBe("2027-01-26");
+  });
+
+  it("läsning per roll: Miljonbemanning i avtalet utom ekonomen – aldrig kommunen", async () => {
+    for (const p of personas) {
+      const pg = await asPersona(p, async (tx) => (await tx.query<{ id: string }>("select id from public.case_start_changes order by id")).rows.map((r) => r.id));
+      const mem = data.case_start_changes.filter((x) => canReadRow("case_start_changes", x, actorOf(p), raw)).map((x) => x.id).sort();
+      expect(pg, personaKey(p)).toEqual(mem);
+    }
+    const memOf = (key: string) => data.case_start_changes.filter((x) => canReadRow("case_start_changes", x, actorOf(findPersona(key)), raw)).map((x) => x.id);
+    for (const key of ["u-amira", "u-erik", "u-sara", "u-johan", "u-karin", "u-robin", SUPERVISOR]) expect(memOf(key), key).toEqual(["csc-seed-0031"]);
+    for (const key of ["u-lars", "k-maria", "k-omar", "deltagare"]) expect(memOf(key), key).toEqual([]);
+  });
+
+  it("ny ändring: coach, samordnare och avtalsansvarig i eget namn – aldrig chef, admin, ekonom, kommunen eller den vilande rollen handledare", async () => {
+    const cases: [string, Tables["case_start_changes"], boolean][] = [
+      ["u-amira", row("csc-t1", "u-amira"), true],
+      ["u-erik", row("csc-t2", "u-erik"), true],
+      ["u-sara", row("csc-t3", "u-sara"), true],
+      ["u-johan", row("csc-t4", "u-johan"), true],
+      ["u-amira", row("csc-t5", "u-sara"), false],
+      ["u-karin", row("csc-t6", "u-karin"), false],
+      ["u-robin", row("csc-t7", "u-robin"), false],
+      ["u-lars", row("csc-t8", "u-lars"), false],
+      ["k-maria", row("csc-t9", "k-maria"), false],
+      [SUPERVISOR, row("csc-t10", "u-petra"), false],
+    ];
+    for (const [key, r, want] of cases) {
+      expect({ pg: await pgChange(key, r), mem: memWrite(r, key) }, `${key} ${r.id}`).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("raden stämmer med ärendet: avtalet, anteckningen i ärendet, nästa nummer och två olika datum – för alla, också servern", async () => {
+    const bad: [string, Tables["case_start_changes"]][] = [
+      ["fel avtal", row("csc-b1", "u-amira", { contractId: "c-ny" })],
+      ["anteckning i ett annat ärende", row("csc-b2", "u-amira", { noteId: "note-nadia-samtal" })],
+      ["nummer 2 utan nummer 1", row("csc-b3", "u-amira", { seq: 2 })],
+      ["samma datum", row("csc-b4", "u-amira", { toDate: "2027-02-01" })],
+    ];
+    for (const [label, r] of bad) {
+      const notes = r.noteId === "note-nadia-samtal" ? [] : [noteFor(r)];
+      expect({ pg: await pgChange("u-amira", r, notes), mem: memWrite(r, "u-amira", notes) }, label).toEqual({ pg: false, mem: false });
+      expect((await serviceChange(r, notes)).ok, `${label} (service role)`).toBe(false);
+    }
+    // En motivering används bara till en ändring (unik) – också för servern.
+    const reused = row("csc-b5", "u-amira", { caseId: JAN, fromDate: "2027-01-26", toDate: "2027-01-27", seq: 2, noteId: "note-startdatum-0031" });
+    expect({ pg: await pgChange("u-amira", reused, []), mem: memWrite(reused, "u-amira", []) }).toEqual({ pg: false, mem: false });
+    expect(await serviceChange(reused, [])).toMatchObject({ ok: false, code: "23505" });
+  });
+
+  it("ärendet: det gamla startdatumet, pågår eller pausad, tidigast första mötet och senast planerat slut – annars nekas hela ändringen (23514)", async () => {
+    const bad: [string, Tables["case_start_changes"]][] = [
+      ["ett annat gammalt datum än ärendets", row("csc-c1", "u-amira", { fromDate: "2027-01-28" })],
+      ["före första mötet", row("csc-c2", "u-amira", { toDate: "2027-01-31" })],
+      ["efter planerat slut", row("csc-c3", "u-amira", { toDate: "2027-04-10" })],
+    ];
+    for (const [label, r] of bad) {
+      expect({ pg: await pgChange("u-amira", r), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      expect(await asPersonaWith("u-amira", [noteFor(r)], (tx) => attempt(tx, ins(r))), label).toMatchObject({ ok: false, code: "23514" });
+    }
+    const last = row("csc-c4", "u-amira", { toDate: "2027-04-09" });
+    expect({ pg: await pgChange("u-amira", last), mem: memWrite(last, "u-amira") }).toEqual({ pg: true, mem: true });
+    // Ett avslutat ärende: nekas.
+    const closed = row("csc-c5", "u-amira");
+    const pg = await asUser(db, authOf("u-amira"), (tx) => attempt(tx, ins(closed)), {
+      before: async (tx) => { await tx.query(insNote(noteFor(closed))); await tx.query(`update public.cases set status = 'closed' where id = '${NEW}'`); },
+    });
+    expect(pg).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("fakturerad eller godkänd månad och manuell närvaro före det nya datumet stoppar – underlag, kreditering och automatisk närvaro gör det inte", async () => {
+    const r = row("csc-f", "u-amira");
+    const first = data.activities.find((a) => a.caseId === NEW && a.startsAt === "2027-02-01T13:00")!;
+    const attendance = (source: "manual" | "auto"): Tables["attendance"] => ({
+      id: "att-csc", activityId: first.id, caseId: NEW, status: "present", reason: "", registeredBy: "u-amira", registeredAt: "2027-02-01T09:00", customerNotifiedAt: null, source,
+    });
+    const run = (status: "draft" | "closed"): Tables["billing_runs"] => ({ id: "br-csc", contractId: "c-bot", month: "2027-02", status, createdBy: "u-lars", createdAt: at, closedAt: null, closedBy: null });
+    const cases: [string, Extra, boolean][] = [
+      ["godkänd", { invoice_drafts: [draft("2027-02", "approved")] }, false],
+      ["manuellt fakturerad", { invoice_drafts: [draft("2027-02", "manual")] }, false],
+      ["skickad", { invoice_drafts: [draft("2027-02", "sent")] }, false],
+      ["returnerad", { invoice_drafts: [draft("2027-02", "returned")] }, false],
+      ["tilläggsfaktura skapad", { invoice_drafts: [draft("2027-02", "fortnox_created", "avtal-tillagg-2")] }, false],
+      ["stängd körning", { billing_runs: [run("closed")] }, false],
+      ["manuell närvaro", { attendance: [attendance("manual")] }, false],
+      ["underlag", { invoice_drafts: [draft("2027-02", "draft")] }, true],
+      ["krediterad", { invoice_drafts: [draft("2027-02", "credited")] }, true],
+      ["öppen körning", { billing_runs: [run("draft")] }, true],
+      ["ett annat ärendes faktura (en faktura per ärende)", { invoice_drafts: [draft("2027-02", "sent", "case-260143")] }, true],
+      ["automatisk närvaro", { attendance: [attendance("auto")] }, true],
+      ["en fakturerad månad som ändringen inte rör", { invoice_drafts: [draft("2027-03", "sent")] }, true],
+    ];
+    for (const [label, extra, want] of cases) {
+      expect({ pg: await pgChange("u-amira", r, [noteFor(r)], extra), mem: memWrite(r, "u-amira", [noteFor(r)], extra) }, label).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("månaderna och spärren: databasens mm.start_change_locked_month svarar som startChangeMonths och startChangeLock", async () => {
+    const extraDrafts = [draft("2027-03", "approved"), draft("2027-04", "draft")];
+    const ranges: [string, string, string[]][] = [
+      ["2026-12-01", "2026-12-08", []], ["2026-11-30", "2026-12-01", []], ["2026-11-25", "2026-11-30", []], ["2026-09-29", "2026-09-30", []],
+      ["2027-01-26", "2027-02-02", []], ["2027-02-24", "2027-03-03", []], ["2027-02-24", "2027-03-03", ["2027-W09"]], ["2027-03-29", "2027-03-30", []],
+      ["2026-12-29", "2027-01-05", []], ["2027-01-05", "2026-12-29", ["2026-W53"]],
+    ];
+    const c = { id: NEW, contractId: "c-bot" };
+    const billing = { drafts: [...data.invoice_drafts, ...extraDrafts], lines: data.invoice_lines, runs: data.billing_runs };
+    const want = ranges.map(([from, to, paused]) => startChangeLock(c, startChangeMonths(from, to, paused), billing)?.month ?? null);
+    const got: (string | null)[] = [];
+    await db.transaction(async (tx) => {
+      for (const d of extraDrafts) await tx.query(insertSql("invoice_drafts", d as unknown as Record<string, unknown>));
+      for (const [from, to, paused] of ranges) {
+        got.push((await tx.query<{ m: string | null }>("select mm.start_change_locked_month($1, 'c-bot', $2::date, $3::date, $4::text[]) as m", [NEW, from, to, paused])).rows[0].m);
+      }
+      await tx.rollback();
+    });
+    expect(got).toEqual(want);
+    // Facit: oktober–december är fakturerade i testdatat (två septemberdagar i vecka 40 hör till oktober), mars är godkänd här,
+    // januari och april är underlag.
+    expect(want).toEqual(["2026-12", "2026-12", "2026-11", "2026-10", null, "2027-03", null, null, "2026-12", null]);
+  });
+
+  it("ändringen och ärendet i samma transaktion: startdatumet och fasen ändras i samma sats – servern skriver bara raden", async () => {
+    const r = row("csc-t1", "u-amira");
+    const res = await asPersonaWith("u-amira", [noteFor(r)], async (tx) => {
+      const change = await attempt(tx, ins(r), [], { keep: true });
+      const after = (await tx.query<{ s: string; p: string | null }>(`select to_char(start_date, 'YYYY-MM-DD') as s, to_char(phase_since, 'YYYY-MM-DD') as p from public.cases_public where id = '${NEW}'`)).rows[0];
+      return { change, after };
+    });
+    expect(res).toEqual({ change: { ok: true, rows: 1 }, after: { s: "2027-02-03", p: null } });
+    // Fasen som var startdatumet följer med.
+    const withPhase = await asUser(db, authOf("u-amira"), async (tx) => {
+      const change = await attempt(tx, ins(r), [], { keep: true });
+      const after = (await tx.query<{ p: string }>(`select to_char(phase_since, 'YYYY-MM-DD') as p from public.cases_public where id = '${NEW}'`)).rows[0].p;
+      return { change, after };
+    }, { before: async (tx) => { await tx.query(insNote(noteFor(r))); await tx.query(`update public.cases set phase_since = '2027-02-01' where id = '${NEW}'`); } });
+    expect(withPhase).toEqual({ change: { ok: true, rows: 1 }, after: "2027-02-03" });
+    const sys = await asUser(db, null, async (tx) => {
+      await tx.query(insNote(noteFor(r)));
+      await tx.query(ins(r));
+      return (await tx.query<{ s: string }>(`select to_char(start_date, 'YYYY-MM-DD') as s from public.cases where id = '${NEW}'`)).rows[0].s;
+    }, { role: "service_role" });
+    expect(sys).toBe("2027-02-01");
+  });
+
+  it("ett satt startdatum ändras aldrig direkt, och bara coach, samordnare och avtalsansvarig sätter det – samma i triggern och policy.ts", async () => {
+    const cur = (id: string) => raw.get("cases", id)!;
+    const memCase = (key: string, id: string, patch: Partial<Case>) => canWriteRow("cases", { ...cur(id), ...patch }, actorOf(findPersona(key)), raw);
+    const confirmed = data.cases.find((c) => c.status === "confirmed" && c.contractId === "c-bot" && !c.startDate)!;
+    const cases: [string, string, string, Partial<Case>, boolean][] = [
+      ["u-amira", NEW, "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
+      ["u-sara", NEW, "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
+      ["u-johan", NEW, "update public.cases set start_date = null where id = '{id}'", { startDate: null }, false],
+      ["k-maria", NEW, "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
+      ["u-lars", NEW, "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
+      // Oförändrat startdatum och andra kolumner som förut.
+      ["u-sara", NEW, "update public.cases set start_date = '2027-02-01', location = 'Tumba' where id = '{id}'", { startDate: "2027-02-01", location: "Tumba" }, true],
+      ["k-maria", NEW, "update public.cases set referrer_phone = '08-000 00 00' where id = '{id}'", { referrerPhone: "08-000 00 00" }, true],
+      // Startdatumet sätts när insatsen startar – av Miljonbemanning, aldrig av ekonomen.
+      ["u-lars", confirmed.id, "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
+      ["u-amira", confirmed.id, "update public.cases set start_date = '2027-02-03', status = 'active' where id = '{id}'", { startDate: "2027-02-03", status: "active" }, true],
+    ];
+    for (const [key, id, sql, patch, want] of cases) {
+      expect({ pg: await pgWrite(key, sqlFor(sql, id)), mem: memCase(key, id, patch) }, `${key} ${sql}`).toEqual({ pg: want, mem: want });
+    }
+    expect(await asPersona(findPersona("u-amira"), (tx) => attempt(tx, `update public.cases set start_date = '2027-02-03' where id = '${NEW}'`))).toMatchObject({ ok: false, code: "42501" });
+    const ref = confirmed.referrerId ? personas.find((p) => p.actor.userId === confirmed.referrerId && p.actor.role === "kommun_handlaggare") : undefined;
+    if (ref) {
+      expect({ pg: await pgWrite(personaKey(ref), `update public.cases set start_date = '2027-02-03' where id = '${confirmed.id}'`), mem: memCase(personaKey(ref), confirmed.id, { startDate: "2027-02-03" }) })
+        .toEqual({ pg: false, mem: false });
+    }
+  });
+
+  it("motiveringen är en ny anteckning av den som ändrar – och låst: ingen inloggad ändrar eller döljer den, servern kan", async () => {
+    const r = (id: string) => row(id, "u-amira");
+    const bad: [string, Tables["case_start_changes"], Tables["case_notes"]][] = [
+      ["Saras anteckning", r("csc-n1"), noteFor(r("csc-n1"), { authorId: "u-sara" })],
+      ["en borttagen anteckning", r("csc-n2"), noteFor(r("csc-n2"), { removedAt: at, removedBy: "u-amira" })],
+      ["en gammal anteckning", r("csc-n3"), noteFor(r("csc-n3"), { createdAt: "2027-01-20T10:00" })],
+      ["en kundkontakt", r("csc-n4"), noteFor(r("csc-n4"), { kind: "customer_contact", audience: "full" })],
+    ];
+    for (const [label, change, note] of bad) {
+      expect({ pg: await pgChange("u-amira", change, [note]), mem: memWrite(change, "u-amira", [note]) }, label).toEqual({ pg: false, mem: false });
+    }
+    const cur = raw.get("case_notes", "note-startdatum-0031")!;
+    expect(cur.authorId).toBe("u-amira");
+    for (const key of ["u-amira", "u-sara", "u-johan"]) {
+      expect(await pgWrite(key, "update public.case_notes set body = 'Ny text i anteckningen.', updated_at = '2027-02-01T09:12' where id = 'note-startdatum-0031'"), key).toBe(false);
+      expect(await pgWrite(key, `update public.case_notes set removed_at = '2027-02-01T09:12', removed_by = '${key}' where id = 'note-startdatum-0031'`), key).toBe(false);
+      expect(canWriteRow("case_notes", { ...cur, body: "Ny text i anteckningen.", updatedAt: at }, actorOf(findPersona(key)), raw), key).toBe(false);
+      expect(canWriteRow("case_notes", { ...cur, removedAt: at, removedBy: key }, actorOf(findPersona(key)), raw), key).toBe(false);
+    }
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.case_notes set removed_at = '2027-02-01T09:12', removed_by = 'u-amira' where id = 'note-startdatum-0031'"), { role: "service_role" });
+    expect(service).toEqual({ ok: true, rows: 1 });
+  });
+
+  it("med aktuell tid; en ändring ändras och raderas aldrig; hela ändringen som SupabaseRepo skickar den", async () => {
+    for (const [label, changedAt] of [["bakåtdaterad", "2027-01-20T10:00"], ["framåtdaterad", "2027-02-01T10:00"]] as const) {
+      const r = row("csc-k", "u-amira", { changedAt });
+      const note = noteFor(r, { createdAt: changedAt });
+      expect({ pg: await pgChange("u-amira", r, [note]), mem: memWrite(r, "u-amira", [note]) }, label).toEqual({ pg: false, mem: false });
+    }
+    const cur = raw.get("case_start_changes", "csc-seed-0031")!;
+    for (const key of ["u-amira", "u-johan", "u-sara", "u-robin"]) {
+      expect(await pgWrite(key, "update public.case_start_changes set to_date = '2027-01-27' where id = 'csc-seed-0031'"), key).toBe(false);
+      expect(await pgWrite(key, "delete from public.case_start_changes where id = 'csc-seed-0031'"), key).toBe(false);
+      expect(canWriteRow("case_start_changes", { ...cur, toDate: "2027-01-27" }, actorOf(findPersona(key)), raw), key).toBe(false);
+    }
+    // Anteckningen och ändringen – två begäranden, ärendet följer med ändringen.
+    for (const key of ["u-amira", "u-sara", "u-johan"]) {
+      const r = row("csc-r1", key);
+      const res = await asPersona(findPersona(key), async (tx) => ({
+        note: await attempt(tx, insNote(noteFor(r)), [], { keep: true }),
+        change: await attempt(tx, ins(r), [], { keep: true }),
+        start: (await tx.query<{ s: string }>(`select to_char(start_date, 'YYYY-MM-DD') as s from public.cases_public where id = '${NEW}'`)).rows[0].s,
+      }));
+      expect(res, key).toEqual({ note: { ok: true, rows: 1 }, change: { ok: true, rows: 1 }, start: "2027-02-03" });
+    }
+  });
+
+  it("migrationen tål att köras igen och ändrar då ingenting", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0038_andra_startdatum.sql`, "utf8");
+    // Bara servern läser faktureringen: inloggade kör inte spärrens funktion själva (den anropas av mm.apply_case_start_change).
+    const priv = await db.query<{ locked: boolean; apply: boolean }>(
+      "select has_function_privilege('authenticated', 'mm.start_change_locked_month(text, text, date, date, text[])', 'execute') as locked, has_function_privilege('authenticated', 'mm.apply_case_start_change(text)', 'execute') as apply",
+    );
+    expect(priv.rows[0]).toEqual({ locked: false, apply: true });
+    let res: { before: number; after: number; policies: number; triggers: number } | null = null;
+    await db.transaction(async (tx) => {
+      const count = async () => (await tx.query<{ n: number }>("select count(*)::int as n from public.case_start_changes")).rows[0].n;
+      const before = await count();
+      await tx.exec(sql);
+      await tx.exec(sql);
+      const after = await count();
+      const policies = (await tx.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename = 'case_start_changes'")).rows[0].n;
+      const triggers = (await tx.query<{ n: number }>(
+        "select count(*)::int as n from pg_trigger where tgname in ('case_start_changes_check', 'case_start_changes_apply', 'case_notes_start_change_lock', 'cases_start_date_guard')",
       )).rows[0].n;
       res = { before, after, policies, triggers };
       await tx.rollback();

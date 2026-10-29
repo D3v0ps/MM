@@ -1,6 +1,6 @@
 // Testscenarierna – exakt port av den gamla prototypens MM.scenarios() (prototyp/src/90-feedback.js), plus scenario s14
-// "Röstinspelning" (nytt, beslut 2026-09-30) och sist s15 "Byt yrkesområde" och s16 "Fem nivåer och nivåaktiviteter" (Karims
-// beslut 2026-10-22).
+// "Röstinspelning" (nytt, beslut 2026-09-30), s15 "Byt yrkesområde" och s16 "Fem nivåer och nivåaktiviteter" (Karims beslut
+// 2026-10-22) och sist s17 "Ändra startdatum" (Karims beslut 2026-10-29).
 // Varje steg byter roll och öppnar en vy. Vyn anges som i den gamla prototypen (vy-id + parametrar) och översätts
 // till sökväg med pathForView (src/demo/paths.ts). Ärenden refereras med taggar i testdatat (demo_tags),
 // som slås upp med frågan demo.refs när steget öppnas – så att t.ex. Nadias januarirapport hittas även om den
@@ -124,6 +124,14 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "coach", view: "coach.kartlaggning", params: (r) => ({ caseId: sc(r, "amal") }), text: "Amal saknar nivå. Välj nivå i kortet Nivå och yrkesområde längst ned – nivån krävs innan kartläggningen kan godkännas. Hon bjuds in till nivåns kommande aktiviteter direkt." },
     { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "mehmet") }), text: "Mehmet är på nivå 3. Tryck Ändra i kortets huvud och sedan Höj nivå: han bjuds in till nivå 4:s kommande aktiviteter och tas bort ur nivå 3:s." },
     { role: "coach", view: "/aktiviteter/ny?niva=grp-c-bot-niva-2&upprepa=1", params: {}, text: "Ny nivåaktivitet med Upprepa varje vecka: välj veckodagar och tid. Tillfällena skapas två veckor framåt och nivåns deltagare bjuds in automatiskt – också den som får nivån senare. Planera på Grupper och nivåer gör samma sak för månadens yrkesområdesträff." },
+  ] },
+  // Karims beslut 2026-10-29: ändra startdatum. BOT-27-0031 har testdatats ändring, BOT-27-0041 startade 1 februari utan
+  // registrerade tillfällen och BOT-26-0126 startade i december (fakturerad).
+  { id: "s17", title: "Ändra startdatum", lead: "Huvudcoachen ändrar startdatumet med en kort motivering. Tillfällen före det nya datumet utan närvaro tas bort, inga skapas bakåt och planerat slut ändras inte. En fakturerad månad stoppar ändringen. Kommunen får inget meddelande.", steps: [
+    { role: "coach", view: "arende.kort", params: { caseId: "case-270031" }, text: "Öppna BOT-27-0031. Startdatumet ändrades från 1 februari till 26 januari den 28 januari – ändringen och motiveringen står under startdatumet i kortets huvud." },
+    { role: "coach", view: "arende.kort", params: { caseId: "case-270041" }, text: "BOT-27-0041 startade i dag. Tryck Ändra startdatum vid Start, välj 3 februari och skriv en motivering: dagens tillfälle tas bort och planerat slut står kvar." },
+    { role: "coach", view: "arende.kort", params: { caseId: "case-260126" }, text: "BOT-26-0126 startade 1 december. Prova att flytta starten till 8 december: december är redan fakturerad, så ändringen stoppas – ekonomen behöver kreditera fakturan först." },
+    { role: "kommun_handlaggare", view: "kom.deltagare", params: { caseId: "case-270041" }, text: "Byt till kommunens handläggare. Portalen visar det nya startdatumet – men aldrig motiveringen, och kommunen fick inget meddelande." },
   ] },
 ];
 

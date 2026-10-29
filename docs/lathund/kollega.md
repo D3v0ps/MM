@@ -90,6 +90,26 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 
 Hela vägen för en deltagare, från beställning till avslut, står i **Rutin för deltagarna från början till slutet** längst ner på den här sidan.
 
+### Ändra startdatum
+
+Började deltagaren en annan dag än den som registrerades? Huvudcoachen, de andra coacherna, samordnaren och avtalsansvarig kan ändra startdatumet i en pågående insats.
+
+1. Tryck på **Ändra startdatum** vid **Start** i deltagarkortets huvud.
+2. Välj **Nytt startdatum**. Det kan vara tidigast första mötets dag och senast planerat slut.
+3. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet och kan inte ändras eller tas bort efteråt. Kommunen ser den aldrig.
+4. Tryck på **Ändra startdatum**.
+
+Det här händer:
+
+- Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har närvaro. Automatiskt registrerad närvaro tas bort med tillfället.
+- Har ett tillfälle före det nya datumet närvaro som någon har registrerat, går det inte att ändra. Meddelandet säger vilket startdatum som går.
+- Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt.
+- Planerat slut ändras inte.
+- Är månaden redan fakturerad går det inte att ändra. Då behöver ekonomen kreditera fakturan först.
+- Kommunen får inget meddelande. Portalen visar det nya startdatumet.
+
+Ändringarna står under raden med startdatumet, med vem som ändrade och motiveringen.
+
 ### Ändra kontaktväg
 
 1. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet.

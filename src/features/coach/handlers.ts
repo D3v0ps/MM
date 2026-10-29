@@ -1,6 +1,6 @@
 // Hanterare för området coach (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import { AI_OFF_TEXT, aiOff, areaChangeNoteIds } from "@/features/_shared/ai-port";
+import { AI_OFF_TEXT, aiOff, internalNoteIds } from "@/features/_shared/ai-port";
 import type { Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
@@ -361,9 +361,12 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
   // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
-  // Motiveringen till ett byte av yrkesområde är intern och går aldrig in i sammanfattningen (kommunens månadsrapport).
+  // Motiveringen till ett byte av yrkesområde eller ett ändrat startdatum är intern och går aldrig in i sammanfattningen
+  // (kommunens månadsrapport).
   const usedNotes = [...new Set(p.usedNoteIds ?? [])];
-  const internal = usedNotes.length ? areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id })) : new Set<string>();
+  const internal = usedNotes.length
+    ? internalNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id }), await ctx.repo.table("case_start_changes").pick(["noteId"], { caseId: c.id }))
+    : new Set<string>();
   for (const id of usedNotes) {
     const n = await ctx.repo.table("case_notes").get(id);
     if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month || internal.has(n.id)) {
