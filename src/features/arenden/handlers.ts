@@ -30,6 +30,7 @@ import {
   WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
+import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
@@ -437,12 +438,27 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
   const rows = planActivities(plan, p.startDate, end, { pausedWeeks: c.pausedWeeks });
   const acts = ctx.repo.table("activities");
-  for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
+  // Tillfällena skrivs före ärendet (ingen transaktion). Kan ärendet inte startas (t.ex. behörigheten eller triggern
+  // cases_start_date_guard nekar) tas de som hann skrivas bort igen – annars blir de kvar och dubbleras vid nästa försök.
+  const inserted: string[] = [];
+  const undo = async () => {
+    for (const id of inserted) await acts.remove(id).catch(() => undefined);
+  };
   const meet = plan.find((r) => r.kind === "möte");
-  await ctx.repo.table("cases").update(c.id, {
-    status: "active", startDate: p.startDate, meetingDay: meet?.weekday ?? c.meetingDay, meetingTime: meet?.time ?? c.meetingTime,
-    phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate,
-  });
+  try {
+    for (const r of rows) {
+      const a = toActivity(ctx, c.id, r);
+      await acts.insert(a);
+      inserted.push(a.id);
+    }
+    await ctx.repo.table("cases").update(c.id, {
+      status: "active", startDate: p.startDate, meetingDay: meet?.weekday ?? c.meetingDay, meetingTime: meet?.time ?? c.meetingTime,
+      phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate,
+    });
+  } catch (e) {
+    await undo();
+    throw e;
+  }
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "active", toCoach: c.leadCoachId, reason: "Insatsen startad" });
   await ctx.audit({ action: "case.started", entity: "case", entityId: c.id, contractId: c.contractId, details: { startDate: p.startDate, plannedEnd: end, activities: rows.length, plan: planKeys(plan) } });
   // Insatsen pågår: deltagaren bjuds in till kommande aktiviteter för sin nivå och sitt yrkesområde (Karims beslut 2026-10-22).
@@ -1051,6 +1067,12 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       : null,
     weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
+    // Ändra startdatum (Karims beslut 2026-10-29): knappen och om raden med ändringarna ska hämtas (arenden.startdatum) – så att
+    // kortet inte gör en egen fråga för startdatumet när ärendet aldrig har ändrat det.
+    startChange: {
+      canChange: START_CHANGERS.includes(ctx.actor.role) && access === "full" && !startChangeBlockedText(c),
+      changes: await ctx.repo.table("case_start_changes").count({ caseId: c.id }),
+    },
   };
 });
 
@@ -1570,9 +1592,14 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     // Byt yrkesområde: koderna och från vilken månad fakturan räknas på det nya – motiveringen står i anteckningen.
     if (x.action === "case.area_changed") return `${s(dt.fromArea)} → ${s(dt.toArea)}${s(dt.effectiveMonth) ? `, fakturan från ${monthName(s(dt.effectiveMonth))}` : ""}`;
     // Ändra startdatum: datumen och hur många tillfällen före det nya datumet som togs bort – motiveringen står i anteckningen.
+    // En ändring som avbröts har en rad med failed och en rad när den gjordes klar (finishedBy, av en kollega eller systemet).
     if (x.action === "case.start_date_changed") {
       const removed = Array.isArray(dt.removedActivityIds) ? dt.removedActivityIds.length : 0;
-      return `${fmtDate(s(dt.from))} → ${fmtDate(s(dt.to))}${removed ? `, ${plural(removed, "tillfälle", "tillfällen")} före det nya datumet togs bort` : ""}`;
+      const months = Array.isArray(dt.droppedMonths) ? (dt.droppedMonths as string[]).map((m) => monthName(m)) : [];
+      const dates = `${dt.finishedBy ? "Gjordes klar: " : ""}${fmtDate(s(dt.from))} → ${fmtDate(s(dt.to))}`;
+      if (dt.failed === true) return `${dates}, avbröts – görs klart automatiskt`;
+      return [dates, removed ? `${plural(removed, "tillfälle", "tillfällen")} före det nya datumet togs bort` : "", months.length ? `utan månadsrapport: ${months.join(", ")}` : ""]
+        .filter(Boolean).join(", ");
     }
     // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
     if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";

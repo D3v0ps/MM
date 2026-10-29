@@ -5,10 +5,11 @@
 //                     deltagaren började vid första mötet den 26 januari. Amira ändrade startdatumet bakåt till 26 januari den
 //                     28 januari med en motivering i deltagarkortet (case_start_changes, 0038). Inga tillfällen skapades bakåt –
 //                     tillfällena från 26 januari är de som coachen lade till. Ärendets startdatum är redan 26 januari i
-//                     testdatat, så ändringen rör inga andra rader (paritetstestet mot den gamla prototypen påverkas inte).
+//                     testdatat, så ändringen rör inga andra rader. Revisionsloggen har ändringens rad (case.start_date_changed,
+//                     id:n och datum) – ändringen är klar, så ingen gör om den (src/features/arenden/start-finish.ts).
 //                     Prova Ändra startdatum på BOT-27-0041 (startade 1 februari, inga registrerade tillfällen än) – och på ett
 //                     ärende som startade i december (december är fakturerad – ändringen stoppas).
-import type { CaseNote, CaseStartChange, Db } from "../schema";
+import type { AuditLogEntry, CaseNote, CaseStartChange, Db } from "../schema";
 
 /** Ändringen av startdatum i testdatat. */
 export const SEED_START_CHANGES: readonly CaseStartChange[] = [
@@ -24,6 +25,12 @@ const motivation = (x: CaseStartChange): CaseNote => ({
   createdAt: x.changedAt, updatedAt: null, removedAt: null, removedBy: null,
 });
 
+/** Revisionsloggens rad för ändringen: id:n och datum – aldrig motiveringen. Inga tillfällen togs bort (starten flyttades bakåt). */
+const logged = (x: CaseStartChange): AuditLogEntry => ({
+  id: `log-${x.id}`, occurredAt: x.changedAt, actorId: x.changedBy, action: "case.start_date_changed", entity: "case", entityId: x.caseId, contractId: x.contractId,
+  details: { caseId: x.caseId, changeId: x.id, noteId: x.noteId, seq: x.seq, from: x.fromDate, to: x.toDate, removedActivityIds: [], removedAutoAttendanceIds: [] },
+});
+
 export function applyDecisions20261029(db: Db): void {
   for (const x of SEED_START_CHANGES) {
     const c = db.cases.find((k) => k.id === x.caseId);
@@ -31,5 +38,6 @@ export function applyDecisions20261029(db: Db): void {
     if (!c || c.startDate !== x.toDate) continue;
     db.case_notes.push(motivation(x));
     db.case_start_changes.push({ ...x });
+    db.audit_log.push(logged(x));
   }
 }

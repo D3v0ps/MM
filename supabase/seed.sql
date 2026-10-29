@@ -14250,7 +14250,7 @@ insert into public.ai_runs (id, case_id, kind, provider, model, input_ref, statu
 
 -- ai_field_decisions (0)
 
--- audit_log (19)
+-- audit_log (20)
 insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details) values
   ('log-17284', '2027-01-29T10:05', 'system', 'email.received', 'inbound_email', 'em-106', 'c-bot', '{"parseMethod":"template"}'::jsonb),
   ('log-17285', '2027-01-29T10:07', 'system', 'case.created', 'case', 'case-270048', 'c-bot', '{"number":"BOT-27-0048","source":"email"}'::jsonb),
@@ -14270,7 +14270,8 @@ insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_
   ('log-17300', '2027-02-01T08:43', 'system', 'case.created', 'case', 'case-270050', 'c-bot', '{"number":"BOT-27-0050","source":"email"}'::jsonb),
   ('log-17301', '2027-02-01T08:43', 'system', 'notify.email', 'case', 'case-270050', 'c-bot', '{"template":"ordererkannande","to":"handläggare"}'::jsonb),
   ('log-17302', '2027-02-01T08:50', 'u-sara', 'case.view', 'case', 'case-260143', 'c-bot', '{}'::jsonb),
-  ('log-17303', '2027-02-01T09:05', 'u-lars', 'billing.view', 'billing_run', 'br-2027-01', 'c-bot', '{}'::jsonb);
+  ('log-17303', '2027-02-01T09:05', 'u-lars', 'billing.view', 'billing_run', 'br-2027-01', 'c-bot', '{}'::jsonb),
+  ('log-csc-seed-0031', '2027-01-28T10:05', 'u-amira', 'case.start_date_changed', 'case', 'case-270031', 'c-bot', '{"caseId":"case-270031","changeId":"csc-seed-0031","noteId":"note-startdatum-0031","seq":1,"from":"2027-02-01","to":"2027-01-26","removedActivityIds":[],"removedAutoAttendanceIds":[]}'::jsonb);
 
 -- org_settings (1)
 insert into public.org_settings (id, organization_id, settings, updated_at, updated_by) values

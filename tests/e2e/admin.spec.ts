@@ -393,8 +393,9 @@ test("revisionslogg: läsbara värden, filter, export och markering", async ({ p
   await page.locator("#log-case").fill("BOT-26-0143");
   await expect(main(page)).toContainText("Poster (3)");
   await page.locator("#log-case").fill("");
-  // 22 poster: utskicket av den generiska bekräftelsen till em-104 finns inte sedan 2026-10-07.
-  await expect(main(page)).toContainText("Poster (22)");
+  // 23 poster: utskicket av den generiska bekräftelsen till em-104 finns inte sedan 2026-10-07, och testdatats ändring av
+  // startdatum (Karims beslut 2026-10-29) har sin loggrad.
+  await expect(main(page)).toContainText("Poster (23)");
 
   // Exporten loggas och innehåller åtgärdskoden
   let csv = "";

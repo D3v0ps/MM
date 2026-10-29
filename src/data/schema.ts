@@ -279,8 +279,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 /**
  * participant_contact = ring deltagaren: kallelsen eller inbjudan kunde inte skickas (ingen e-postadress och SMS inte kopplat,
  * src/features/_shared/participant-notify.ts). Går till samordnaren med ärendenumret – aldrig namnet.
+ * report_correction = rätta rapporter som redan är lämnade till kommunen efter ett ändrat startdatum (Karims beslut 2026-10-29,
+ * src/features/arenden/start-handlers.ts). Går till samordnaren med ärendenumret och perioderna – aldrig namnet. Kolumnen är
+ * text utan check – ingen migration behövs.
  */
-export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact"] as const;
+export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact", "report_correction"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation"] as const;

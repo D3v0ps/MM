@@ -474,7 +474,8 @@ describe("revisionslogg och loggkontroll", () => {
   it("loggen i klarspråk – inga kodvärden i detaljerna", async () => {
     const d = await rt.query(adminAuditLog, {}, robin());
     // 19: utskicket av den generiska mottagningsbekräftelsen till em-104 finns inte längre (beslut 2026-10-07).
-    expect(d.rows).toHaveLength(19);
+    // Plus testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20.
+    expect(d.rows).toHaveLength(20);
     expect([d.views, d.exports, d.byTester]).toEqual([2, 0, 0]);
     const details = d.rows.map((r) => r.detailText).join("\n");
     for (const s of ["Tolkning: Word-mall", "Tolkning: AI", "Period: rullande 6 månader", "Typ: tolka mejl", "Typ: transkribering och utkast"]) {
@@ -483,7 +484,11 @@ describe("revisionslogg och loggkontroll", () => {
     expect(details).not.toMatch(/Tolkning: template|Kanal: email|Typ: parse_email|rolling_6m|Mall: generisk_/);
     expect(d.rows[0]).toMatchObject({ at: "2027-02-01T09:05", actorName: "Lars Nyström", actionLabel: "Visade fakturaunderlag", entityLabel: "Fakturakörning", entityText: "Januari 2027" });
     expect(d.rows.find((r) => r.action === "email.linked")).toMatchObject({ entityLabel: "Mejl", caseNumber: "BOT-27-0049", caseId: "case-270049", detailText: "Via: ärendenummer i ämnesraden" });
-    expect(d.actors.map((a) => a.label)).toEqual(["Karin Wallin", "Lars Nyström", "Maria Ekdahl", "Miljonmatch (automatiskt)", "Sara Lindqvist"]);
+    // Testdatats ändring av startdatum: datumen i klarspråk, aldrig motiveringen.
+    expect(d.rows.find((r) => r.action === "case.start_date_changed")).toMatchObject({
+      actorName: "Amira Haddad", caseNumber: "BOT-27-0031", detailText: "Ändring: csc-seed-0031 · Anteckning med motivering: note-startdatum-0031 · Ändringens nummer: 1 · Från: 1 feb 2027 · Till: 26 jan 2027",
+    });
+    expect(d.actors.map((a) => a.label)).toEqual(["Amira Haddad", "Karin Wallin", "Lars Nyström", "Maria Ekdahl", "Miljonmatch (automatiskt)", "Sara Lindqvist"]);
     expect(d.logCheck).toMatchObject({ month: "2027-01", canSign: false, done: null });
     await forbidden(rt.query(adminAuditLog, {}, sara()));
   });
@@ -501,15 +506,17 @@ describe("revisionslogg och loggkontroll", () => {
     expect(detailText({ action: "feedback.replied", entity: "feedback", entityId: "fb-1", details: { replyId: "fbr-1" } }, l)).toBe("Svar: fbr-1");
   });
 
-  it("chefens stickprov är samma poster som i den gamla prototypen och kräver anteckning vid avvikelse", async () => {
+  it("chefens stickprov är samma poster som i den gamla prototypen – plus testdatats ändring av startdatum – och kräver anteckning vid avvikelse", async () => {
     const d = await rt.query(adminAuditLog, {}, karin());
     expect(d.logCheck.canSign).toBe(true);
+    // Testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) är januaris enda post som inte
+    // finns i den gamla prototypen – den kommer med i stickprovet i stället för prototypens sista post.
     expect(d.logCheck.sample.map((s) => [s.actionLabel, s.at, s.actorName, s.entityLabel, s.caseNumber])).toEqual([
       ["Visade rapport", "2027-01-29T16:10", "Karin Wallin", "Rapport", ""],
+      ["Ändrade startdatum", "2027-01-28T10:05", "Amira Haddad", "Ärende", "BOT-27-0031"],
       ["Tog emot mejl", "2027-01-29T10:05", "Miljonmatch (automatiskt)", "Mejl", ""],
       ["Skapade ärende", "2027-01-29T10:07", "Miljonmatch (automatiskt)", "Ärende", "BOT-27-0048"],
       ["Skickade e-post", "2027-01-29T10:07", "Miljonmatch (automatiskt)", "Ärende", "BOT-27-0048"],
-      ["Raderade ljudfil", "2027-01-29T14:01", "Miljonmatch (automatiskt)", "AI-körning", ""],
     ]);
     const items = d.logCheck.sample.map((s, i) => ({ logId: s.id, verdict: i === 0 ? "avvikelse" : "ok" }));
     expect(await rt.command(adminLogCheck, { month: "2027-01", items, note: " " }, karin())).toMatchObject({ ok: false, error: "note" });

@@ -337,10 +337,8 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
 export type CaseStartView = {
   caseId: string;
   startDate: LocalDate | null;
-  /** Coach, samordnare och avtalsansvarig med full åtkomst i en pågående eller pausad insats. */
+  /** Coach, samordnare och avtalsansvarig med full åtkomst i en pågående eller pausad insats (annars ingen knapp). */
   canChange: boolean;
-  /** Varför startdatumet inte kan ändras (avslutad insats, inte startad) – bara för den som annars får ändra. */
-  blockedText: string | null;
   /** Tidigast: första mötets dag (null = inget möte registrerat). */
   earliest: LocalDate | null;
   /** Senast: slutdatumet, annars planerat slut (null = inget angivet). */
@@ -354,13 +352,17 @@ export const caseStartView = query("arenden.startdatum", z.object({ caseId: IdSc
 /**
  * Ändra startdatumet i en pågående eller pausad insats med en kort motivering (10–300 tecken, inga personnummer). Kontrollen och
  * följderna i src/core/start-date.ts (planStartChange): inte före första mötets dag, inte efter planerat slut, ingen av månaderna
- * som ändringen rör får vara fakturerad eller godkänd (då behöver ekonomen kreditera först), och ett tillfälle före det nya
- * datumet med närvaro som en människa registrerat stoppar ändringen. I ordning: motiveringen sparas som en låst anteckning i
- * deltagarkortet (bara Miljonbemanning ser den), ändringen sparas (case_start_changes – ärendets startdatum ändras i samma steg),
- * tillfällena före det nya datumet utan närvaro eller med bara automatisk närvaro tas bort (den automatiska närvaron med dem),
- * revisionsloggen får case.start_date_changed (id:n och datum – aldrig motiveringen) och inbjudningarna till kommande
- * gruppaktiviteter med målgrupp följer det nya datumet. Inga tillfällen skapas bakåt i tiden. Planerat slut ändras inte.
- * Kommunen får inget meddelande.
+ * som ändringen rör får vara fakturerad eller godkänd (då behöver ekonomen kreditera först), ett tillfälle före det nya datumet
+ * med närvaro som en människa registrerat eller en godkänd mötesrapport före det stoppar ändringen, och en månad som blir utan
+ * månadsrapport får inte redan ha en lämnad eller godkänd rapport eller en godkänd bedömning (report). I ordning: motiveringen
+ * sparas som en låst anteckning i deltagarkortet (bara Miljonbemanning ser den), ändringen sparas (case_start_changes – ärendets
+ * startdatum ändras i samma steg), tillfällena före det nya datumet utan närvaro eller med bara automatisk närvaro tas bort (den
+ * automatiska närvaron med dem), utkasten för en månad som blir utan månadsrapport tas bort, samordnaren får en uppgift att rätta
+ * rapporter som redan är lämnade till kommunen, revisionsloggen får case.start_date_changed (id:n och datum – aldrig
+ * motiveringen) och inbjudningarna till kommande gruppaktiviteter med målgrupp följer det nya datumet (deltagaren får då
+ * aktivitetens vanliga meddelande med tid och plats). Inga tillfällen skapas bakåt i tiden. Planerat slut ändras inte. Kommunen
+ * får inget meddelande. Avbryts det som görs efter att ändringen sparats svarar kommandot ok med incomplete – resten görs klart av
+ * nästa ändring i ärendet eller rapportjobbet.
  */
 // Omräkning CASE_FACTS (brett med flit), grupperna och inkorgen: startdatumet styr fakturaunderlaget, närvaron, veckorapporterna,
 // flaggorna, listorna, kortet, portalen och aktiviteterna (tillfällen och inbjudningar tas bort eller läggs till).
@@ -380,8 +382,15 @@ export const caseChangeStart = command("arenden.andraStartdatum", z.object({
       autoAttendanceRemoved: number;
       /** Kommande gruppaktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
       groups: { invited: number; removed: number } | null;
+      /** Månaderna som blev utan månadsrapport och månadsbedömning (utkasten togs bort). */
+      droppedMonths: MonthKey[];
+      /** Rapporter som redan är lämnade till kommunen och ska rättas – samordnaren har fått en uppgift. */
+      corrections: number;
+      /** Allt hann inte göras – startdatumet är ändrat och resten görs klart automatiskt. */
+      incomplete: boolean;
     },
-    "not_found" | "forbidden" | "wrong_status" | "same" | "before_meeting" | "after_end" | "invoiced" | "attendance" | "motivation" | "pnr" | "conflict" | "unknown"
+    | "not_found" | "forbidden" | "wrong_status" | "same" | "before_meeting" | "after_end" | "invoiced" | "attendance" | "report" | "motivation" | "pnr" | "conflict"
+    | "unknown"
   >
 >();
 
@@ -697,6 +706,12 @@ export type CaseCard = {
    * Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09).
    */
   teamOptions: { staff: { id: string; name: string }[] } | null;
+  /**
+   * Ändra startdatum (Karims beslut 2026-10-29): canChange = coach, samordnare eller avtalsansvarig med full åtkomst i en pågående
+   * eller pausad insats (knappen bland åtgärderna i kortets huvud); changes = antal ändringar hittills (raden med ändringarna hämtas bara då,
+   * arenden.startdatum).
+   */
+  startChange: { canChange: boolean; changes: number };
 };
 export type CaseCardResult =
   | CaseCard

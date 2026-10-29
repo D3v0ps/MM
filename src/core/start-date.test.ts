@@ -1,16 +1,18 @@
 // Ändra startdatum (Karims beslut 2026-10-29): kontrollen och följderna i src/core/start-date.ts – månaderna ändringen rör
-// (torsdagsregeln och uppehåll), fakturerade och godkända månader, tillfällena före det nya datumet, fasen och varje fel.
+// (torsdagsregeln och uppehåll), fakturerade och godkända månader, tillfällena och de godkända mötesrapporterna före det nya
+// datumet, månaderna som blir utan månadsrapport, rapporterna att rätta, fasen och varje fel.
 import { describe, expect, it } from "vitest";
-import type { Activity, Attendance, BillingRun, CaseStartChange, InvoiceDraft, InvoiceLine, InvoiceStatus } from "@/data/schema";
+import type { Activity, Attendance, BillingRun, CaseStartChange, CheckIn, InvoiceDraft, InvoiceLine, InvoiceStatus, ReportStatus } from "@/data/schema";
 import {
-  activitiesBeforeStart, NO_BILLING, nextStartChangeSeq, phaseSinceAfter, planStartChange, startChangeBlockedText, startChangeLock, startChangeMonths, startChangeNoteBody,
-  startChangesInOrder, startMotivationOf, type StartChangeBilling, type StartChangeCase, type StartChangeInput,
+  activitiesBeforeStart, checkInsBeforeStart, latestStartKeeping, NO_BILLING, NO_REPORTS, nextStartChangeSeq, phaseSinceAfter, planStartChange, startChangeBlockedText,
+  startChangeCorrections, startChangeDrafts, startChangeDroppedMonths, startChangeLock, startChangeMinDays, startChangeMonths, startChangeNoteBody, startChangeReportLock,
+  startChangesInOrder, startCorrectionTaskText, startMotivationOf, type StartChangeBilling, type StartChangeCase, type StartChangeInput, type StartChangeReports,
 } from "./start-date";
 
 const WHY = "Deltagaren började en vecka senare än det som registrerades.";
 const CASE: StartChangeCase = {
   id: "case-1", contractId: "c-bot", status: "active", startDate: "2027-01-26", endDate: null, plannedEnd: "2027-07-25", firstMeetingAt: "2027-01-19T10:00",
-  pausedWeeks: [], phaseSince: "2027-01-26",
+  pausedWeeks: [], phaseSince: "2027-01-26", referrerId: "k-maria",
 };
 const act = (id: string, startsAt: string, patch: Partial<Activity> = {}): Activity => ({
   id, caseId: "case-1", kind: "yrkesmoment", startsAt, durationMin: 180, location: "Miljonbemanning", note: "", groupActivityId: null, inviteSource: "manual", ...patch,
@@ -24,7 +26,19 @@ const draft = (month: string, status: InvoiceStatus, groupingKey = "avtal", patc
 const billing = (drafts: StartChangeBilling["drafts"] = [], lines: Pick<InvoiceLine, "invoiceDraftId" | "caseId">[] = [], runs: Pick<BillingRun, "contractId" | "month" | "status">[] = []): StartChangeBilling =>
   ({ drafts, lines, runs });
 const plan = (to: string, patch: Partial<StartChangeInput> = {}) =>
-  planStartChange({ case: CASE, to, motivation: WHY, activities: [], attendance: [], billing: NO_BILLING, ...patch });
+  planStartChange({ case: CASE, to, motivation: WHY, activities: [], attendance: [], checkIns: [], billing: NO_BILLING, reports: NO_REPORTS, ...patch });
+/** Som plan, med ett annat ärende. */
+const planFor = (c: StartChangeCase, to: string, patch: Partial<StartChangeInput> = {}) => plan(to, { case: c, ...patch });
+const ci = (id: string, heldAt: string, status: CheckIn["status"] = "approved", caseId = "case-1"): Pick<CheckIn, "id" | "caseId" | "heldAt" | "status"> => ({ id, caseId, heldAt, status });
+type RepRow = StartChangeReports["reports"][number];
+const monthly = (id: string, month: string, status: ReportStatus, patch: Partial<RepRow> = {}): RepRow => ({
+  id, kind: "monthly", caseId: "case-1", recipientUserId: null, week: null, month, status, superseded: false, ...patch,
+});
+const weekly = (id: string, week: string, status: ReportStatus, patch: Partial<RepRow> = {}): RepRow => ({
+  id, kind: "weekly_attendance", caseId: null, recipientUserId: "k-maria", week, month: null, status, superseded: false, ...patch,
+});
+const reportsOf = (reports: RepRow[], assessments: StartChangeReports["assessments"] = [], minEnrolledDays: number | undefined = 11): StartChangeReports =>
+  ({ reports, assessments, minEnrolledDays });
 
 describe("startChangeMonths: månaderna ändringen rör (torsdagsregeln, utan uppehåll)", () => {
   it("varje ISO-vecka från det tidigare till det senare datumet, i månaden där veckans torsdag ligger", () => {
@@ -149,6 +163,8 @@ describe("planStartChange: kontrollen och följderna", () => {
       ok: true,
       plan: {
         from: "2027-01-26", to: "2027-02-02", later: true, months: ["2027-01", "2027-02"], phaseSince: "2027-02-02",
+        // Utan gräns för månadsrapporten räcker en inskriven dag – januari har ingen kvar.
+        droppedMonths: ["2027-01"],
         remove: [
           { activityId: "a1", groupActivityId: null, attendanceId: null, startsAt: "2027-01-26T09:00" },
           { activityId: "a2", groupActivityId: null, attendanceId: "t1", startsAt: "2027-01-28T09:00" },
@@ -159,13 +175,13 @@ describe("planStartChange: kontrollen och följderna", () => {
 
   it("bakåt: inga tillfällen tas bort och inga skapas", () => {
     const r = plan("2027-01-20", { activities: [act("a1", "2027-01-26T09:00")] });
-    expect(r).toMatchObject({ ok: true, plan: { from: "2027-01-26", to: "2027-01-20", later: false, months: ["2027-01"], remove: [], phaseSince: "2027-01-20" } });
+    expect(r).toMatchObject({ ok: true, plan: { from: "2027-01-26", to: "2027-01-20", later: false, months: ["2027-01"], remove: [], droppedMonths: [], phaseSince: "2027-01-20" } });
   });
 
   it("nekas: avslutad, inte startad, samma datum, före första mötet och efter planerat slut eller slutdatum", () => {
-    expect(planStartChange({ case: { ...CASE, status: "closed" }, to: "2027-02-02", motivation: WHY, activities: [], attendance: [], billing: NO_BILLING }))
+    expect(planFor({ ...CASE, status: "closed" }, "2027-02-02"))
       .toMatchObject({ ok: false, problem: { code: "wrong_status", field: "date" } });
-    expect(planStartChange({ case: { ...CASE, status: "confirmed", startDate: null }, to: "2027-02-02", motivation: WHY, activities: [], attendance: [], billing: NO_BILLING }))
+    expect(planFor({ ...CASE, status: "confirmed", startDate: null }, "2027-02-02"))
       .toMatchObject({ ok: false, problem: { code: "wrong_status", text: "Insatsen har inte startat än. Startdatumet väljs när insatsen startas." } });
     expect(plan("2027-01-26")).toMatchObject({ ok: false, problem: { code: "same", text: "Det är redan insatsens startdatum. Välj ett annat datum." } });
     expect(plan("2027-01-18")).toMatchObject({ ok: false, problem: { code: "before_meeting", text: "Startdatumet kan inte vara före första mötet 19 jan 2027." } });
@@ -173,19 +189,19 @@ describe("planStartChange: kontrollen och följderna", () => {
     expect(plan("2027-01-19")).toMatchObject({ ok: true });
     expect(plan("2027-07-26")).toMatchObject({ ok: false, problem: { code: "after_end", text: "Startdatumet kan inte vara efter planerat slut 25 juli 2027." } });
     expect(plan("2027-07-25")).toMatchObject({ ok: true });
-    expect(planStartChange({ case: { ...CASE, status: "paused", endDate: "2027-03-31" }, to: "2027-04-01", motivation: WHY, activities: [], attendance: [], billing: NO_BILLING }))
+    expect(planFor({ ...CASE, status: "paused", endDate: "2027-03-31" }, "2027-04-01"))
       .toMatchObject({ ok: false, problem: { code: "after_end", text: "Startdatumet kan inte vara efter slutdatumet 31 mars 2027." } });
   });
 
   it("nekas när en månad ändringen rör är fakturerad – meddelandet säger vilken och att ekonomen behöver kreditera", () => {
     const c: StartChangeCase = { ...CASE, startDate: "2026-11-03", firstMeetingAt: "2026-10-20T10:00", phaseSince: null };
-    const r = planStartChange({ case: c, to: "2026-10-27", motivation: WHY, activities: [], attendance: [], billing: billing([draft("2026-10", "sent"), draft("2026-11", "draft")]) });
+    const r = planFor(c, "2026-10-27", { billing: billing([draft("2026-10", "sent"), draft("2026-11", "draft")]) });
     expect(r).toEqual({
       ok: false,
       problem: { code: "invoiced", field: "date", month: "2026-10", text: "Oktober 2026 är redan fakturerad. Ekonomen behöver kreditera fakturan innan startdatumet kan ändras." },
     });
     // Det nya datumet i en fakturerad månad stoppar lika väl som det gamla.
-    const r2 = planStartChange({ case: c, to: "2026-11-10", motivation: WHY, activities: [], attendance: [], billing: billing([draft("2026-11", "manual")]) });
+    const r2 = planFor(c, "2026-11-10", { billing: billing([draft("2026-11", "manual")]) });
     expect(r2).toMatchObject({ ok: false, problem: { code: "invoiced", month: "2026-11" } });
   });
 
@@ -199,18 +215,18 @@ describe("planStartChange: kontrollen och följderna", () => {
 
   it("torsdagsregeln avgör: starten flyttas inom vecka 5 (februari) – en fakturerad januari stoppar inte", () => {
     const c: StartChangeCase = { ...CASE, startDate: "2027-02-01", firstMeetingAt: "2027-01-29T10:00", phaseSince: null };
-    expect(planStartChange({ case: c, to: "2027-02-03", motivation: WHY, activities: [], attendance: [], billing: billing([draft("2027-01", "sent")]) })).toMatchObject({
+    expect(planFor(c, "2027-02-03", { billing: billing([draft("2027-01", "sent")]) })).toMatchObject({
       ok: true, plan: { months: ["2027-02"] },
     });
     // Flyttas starten in i vecka 4 (torsdag 28 januari) rör den januari.
-    expect(planStartChange({ case: c, to: "2027-01-29", motivation: WHY, activities: [], attendance: [], billing: billing([draft("2027-01", "sent")]) })).toMatchObject({
+    expect(planFor(c, "2027-01-29", { billing: billing([draft("2027-01", "sent")]) })).toMatchObject({
       ok: false, problem: { code: "invoiced", month: "2027-01" },
     });
   });
 
   it("en uppehållsvecka i en fakturerad månad stoppar inte – den faktureras aldrig", () => {
     const c: StartChangeCase = { ...CASE, startDate: "2026-10-27", firstMeetingAt: "2026-10-20T10:00", pausedWeeks: ["2026-W44"], phaseSince: null };
-    expect(planStartChange({ case: c, to: "2026-11-03", motivation: WHY, activities: [], attendance: [], billing: billing([draft("2026-10", "paid")]) })).toMatchObject({
+    expect(planFor(c, "2026-11-03", { billing: billing([draft("2026-10", "paid")]) })).toMatchObject({
       ok: true, plan: { months: ["2026-11"] },
     });
   });
@@ -237,6 +253,146 @@ describe("planStartChange: kontrollen och följderna", () => {
     expect(plan("2027-02-02", { motivation: "x".repeat(301) })).toMatchObject({ ok: false, problem: { code: "motivation" } });
     expect(plan("2027-02-02", { motivation: `  ${"x".repeat(300)}  ` })).toMatchObject({ ok: true });
     expect(plan("2027-02-02", { motivation: "Enligt kommunen gäller 19730216-9545 numera." })).toMatchObject({ ok: false, problem: { code: "pnr", field: "motivation" } });
+  });
+});
+
+describe("godkända mötesrapporter före det nya datumet (checkInsBeforeStart)", () => {
+  it("bara godkända mötesrapporter i ärendet före dagen räknas, i tidsordning – utkast och mötesrapporten på dagen stoppar inte", () => {
+    const xs = [ci("k2", "2027-01-28T09:00"), ci("k1", "2027-01-27T09:00"), ci("k3", "2027-01-27T13:00", "draft"), ci("k4", "2027-01-27T09:00", "approved", "case-2"), ci("k5", "2027-02-02T09:00")];
+    expect(checkInsBeforeStart("case-1", "2027-02-02", xs)).toEqual([{ checkInId: "k1", day: "2027-01-27" }, { checkInId: "k2", day: "2027-01-28" }]);
+  });
+
+  it("planStartChange: en godkänd mötesrapport stoppar som registrerad närvaro och meddelandet säger senaste datum", () => {
+    expect(plan("2027-02-02", { checkIns: [ci("k1", "2027-01-28T09:00")] })).toEqual({
+      ok: false,
+      problem: {
+        code: "attendance", field: "date", latest: "2027-01-28",
+        text: "1 mötesrapport före det nya startdatumet är godkänd. En godkänd mötesrapport tas aldrig bort, så startdatumet kan vara senast 28 jan 2027.",
+      },
+    });
+    // Närvaro och mötesrapporter tillsammans: det tidigaste datumet gäller.
+    const acts = [act("a1", "2027-01-29T09:00")];
+    expect(plan("2027-02-02", { activities: acts, attendance: [att("t1", "a1")], checkIns: [ci("k1", "2027-01-27T09:00"), ci("k2", "2027-01-28T09:00")] })).toMatchObject({
+      ok: false,
+      problem: {
+        code: "attendance", latest: "2027-01-27",
+        text: "Före det nya startdatumet finns 1 tillfälle med registrerad närvaro och 2 godkända mötesrapporter. De tas aldrig bort, så startdatumet kan vara senast 27 jan 2027.",
+      },
+    });
+    // Ett utkast och en mötesrapport på det nya datumet stoppar inte; bakåt stoppar ingen mötesrapport.
+    expect(plan("2027-02-02", { checkIns: [ci("k1", "2027-01-28T09:00", "draft"), ci("k2", "2027-02-02T09:00")] })).toMatchObject({ ok: true });
+    expect(plan("2027-01-20", { checkIns: [ci("k1", "2027-01-28T09:00")] })).toMatchObject({ ok: true });
+  });
+});
+
+describe("månader som blir utan månadsrapport (startChangeDroppedMonths, startChangeReportLock, startChangeDrafts)", () => {
+  const JAN7: StartChangeCase = { ...CASE, startDate: "2027-01-07", firstMeetingAt: "2027-01-07T09:00", phaseSince: null };
+  it("en månad faller bort när den får färre än minEnrolledDays inskrivna dagar – men hade tillräckligt många förut", () => {
+    // 7 januari → 1 februari: januari har inga dagar kvar.
+    expect(startChangeDroppedMonths(JAN7, "2027-01-07", "2027-02-01", 11)).toEqual(["2027-01"]);
+    // 18 → 25 januari: 7 dagar kvar (< 11). 18 → 21 januari: 11 dagar kvar – rapporten finns kvar.
+    expect(startChangeDroppedMonths(JAN7, "2027-01-18", "2027-01-25", 11)).toEqual(["2027-01"]);
+    expect(startChangeDroppedMonths(JAN7, "2027-01-18", "2027-01-21", 11)).toEqual([]);
+    // En månad som redan hade för få dagar faller inte bort (den hade ingen rapport): 25 → 28 januari.
+    expect(startChangeDroppedMonths(JAN7, "2027-01-25", "2027-01-28", 11)).toEqual([]);
+    // Över flera månader: december och januari faller bort.
+    expect(startChangeDroppedMonths(JAN7, "2026-12-15", "2027-02-02", 11)).toEqual(["2026-12", "2027-01"]);
+    // Bakåt faller ingen månad bort; utan gräns räcker en dag.
+    expect(startChangeDroppedMonths(JAN7, "2027-02-01", "2027-01-07", 11)).toEqual([]);
+    expect(startChangeDroppedMonths(JAN7, "2027-01-18", "2027-01-25", undefined)).toEqual([]);
+    expect(startChangeDroppedMonths(JAN7, "2027-01-26", "2027-02-02", undefined)).toEqual(["2027-01"]);
+    // Ett slutdatum i månaden räknas: 4–20 januari har 17 dagar, 12–20 januari 9.
+    expect(startChangeDroppedMonths({ ...JAN7, endDate: "2027-01-20" }, "2027-01-04", "2027-01-12", 11)).toEqual(["2027-01"]);
+  });
+
+  it("senaste startdatum som behåller månadens rapport", () => {
+    expect(latestStartKeeping({ endDate: null }, "2027-01", 11)).toBe("2027-01-21");
+    expect(latestStartKeeping({ endDate: null }, "2027-02", 11)).toBe("2027-02-18");
+    expect(latestStartKeeping({ endDate: "2027-01-25" }, "2027-01", 11)).toBe("2027-01-15");
+    expect(latestStartKeeping({ endDate: null }, "2027-01", undefined)).toBe("2027-01-31");
+  });
+
+  it("stoppar när månadens rapport är lämnad, granskad eller godkänd eller bedömningen godkänd – utkast och ersatta versioner gör det inte", () => {
+    const lock = (r: StartChangeReports) => startChangeReportLock(JAN7, "2027-01-07", "2027-02-01", r);
+    expect(lock(reportsOf([monthly("r1", "2027-01", "delivered")]))).toEqual({ month: "2027-01", kind: "delivered", latest: "2027-01-21" });
+    expect(lock(reportsOf([monthly("r1", "2027-01", "opened")]))).toMatchObject({ kind: "delivered" });
+    expect(lock(reportsOf([monthly("r1", "2027-01", "approved")]))).toMatchObject({ kind: "approved_report" });
+    expect(lock(reportsOf([monthly("r1", "2027-01", "reviewed")]))).toMatchObject({ kind: "approved_report" });
+    expect(lock(reportsOf([], [{ id: "ma-1", caseId: "case-1", month: "2027-01", status: "approved" }]))).toMatchObject({ kind: "approved_assessment" });
+    expect(lock(reportsOf([monthly("r1", "2027-01", "draft")], [{ id: "ma-1", caseId: "case-1", month: "2027-01", status: "draft" }]))).toBeNull();
+    expect(lock(reportsOf([monthly("r1", "2027-01", "delivered", { superseded: true })]))).toBeNull();
+    // Ett annat ärendes rapport och en månad som inte faller bort stoppar inte.
+    expect(lock(reportsOf([monthly("r1", "2027-01", "delivered", { caseId: "case-2" })]))).toBeNull();
+    expect(startChangeReportLock(JAN7, "2027-01-07", "2027-01-14", reportsOf([monthly("r1", "2027-01", "delivered")]))).toBeNull();
+  });
+
+  it("planStartChange: report med meddelandet om senaste datum – utkasten ger droppedMonths", () => {
+    expect(planFor(JAN7, "2027-02-01", { reports: reportsOf([monthly("r1", "2027-01", "delivered")]) })).toEqual({
+      ok: false,
+      problem: {
+        code: "report", field: "date", month: "2027-01", latest: "2027-01-21",
+        text: "Månadsrapporten för januari 2027 är redan lämnad till kommunen. Med det nya startdatumet får januari för få inskrivna dagar för en månadsrapport, så startdatumet kan vara senast 21 jan 2027.",
+      },
+    });
+    expect(planFor(JAN7, "2027-02-01", { reports: reportsOf([monthly("r1", "2027-01", "approved")]) })).toMatchObject({
+      ok: false, problem: { code: "report", text: expect.stringMatching(/^Månadsrapporten för januari 2027 är redan godkänd\./) },
+    });
+    expect(planFor(JAN7, "2027-02-01", { reports: reportsOf([], [{ id: "ma-1", caseId: "case-1", month: "2027-01", status: "approved" }]) })).toMatchObject({
+      ok: false, problem: { code: "report", text: expect.stringContaining("Månadsbedömningen för januari 2027 är redan godkänd. Med det nya startdatumet får januari för få inskrivna dagar för en månadsbedömning") },
+    });
+    expect(planFor(JAN7, "2027-02-01", { reports: reportsOf([monthly("r1", "2027-01", "draft")]) })).toMatchObject({ ok: true, plan: { droppedMonths: ["2027-01"] } });
+    expect(planFor(JAN7, "2027-01-21", { reports: reportsOf([monthly("r1", "2027-01", "delivered")]) })).toMatchObject({ ok: true, plan: { droppedMonths: [] } });
+  });
+
+  it("utkasten som tas bort: månadsrapporter som är utkast, bedömningar och planer som inte är godkända – bara i månaderna", () => {
+    const data = {
+      reports: [monthly("r1", "2027-01", "draft"), monthly("r2", "2027-02", "draft"), monthly("r3", "2027-01", "draft", { caseId: "case-2" }), weekly("w1", "2027-W02", "draft")],
+      assessments: [{ id: "ma-1", caseId: "case-1", month: "2027-01", status: "draft" as const }, { id: "ma-2", caseId: "case-1", month: "2027-02", status: "draft" as const }],
+      plans: [{ id: "mp-1", caseId: "case-1", month: "2027-01", status: "draft" as const }, { id: "mp-0", caseId: "case-1", month: "2027-01", status: "approved" as const }],
+    };
+    expect(startChangeDrafts("case-1", ["2027-01"], data)).toEqual({ reportIds: ["r1"], assessmentIds: ["ma-1"], planIds: ["mp-1"] });
+    expect(startChangeDrafts("case-1", [], data)).toEqual({ reportIds: [], assessmentIds: [], planIds: [] });
+  });
+
+  it("avtalets gräns ur konfigurationen", () => {
+    expect(startChangeMinDays({ reportSchedule: { monthly: { minEnrolledDays: 11 } } })).toBe(11);
+    expect(startChangeMinDays({ reportSchedule: {} })).toBeUndefined();
+    expect(startChangeMinDays(null)).toBeUndefined();
+  });
+});
+
+describe("rapporter som redan är lämnade till kommunen (startChangeCorrections, startCorrectionTaskText)", () => {
+  const c = { id: "case-1", referrerId: "k-maria" };
+  it("veckorapporterna till handläggaren och ärendets månadsrapporter för dagarna som ändringen rör", () => {
+    const reports = [
+      weekly("w1", "2027-W01", "delivered"), weekly("w2", "2027-W02", "opened"), weekly("w3", "2027-W03", "delivered"), weekly("w4", "2027-W04", "waiting"),
+      weekly("w5", "2027-W02", "delivered", { recipientUserId: "k-omar" }), weekly("w6", "2027-W02", "delivered", { superseded: true }),
+      monthly("m1", "2027-01", "delivered"), monthly("m2", "2027-01", "draft"), monthly("m3", "2027-02", "delivered"),
+    ];
+    // 7 januari → 18 januari (måndag): vecka 1 och 2 rörs – inte vecka 3, som börjar på det nya datumet.
+    expect(startChangeCorrections(c, "2027-01-07", "2027-01-18", reports)).toEqual([
+      { reportId: "w1", kind: "weekly_attendance", period: "2027-W01" }, { reportId: "w2", kind: "weekly_attendance", period: "2027-W02" },
+      { reportId: "m1", kind: "monthly", period: "2027-01" },
+    ]);
+    // Bakåt rör samma dagar; inget ändrat datum rör inget.
+    expect(startChangeCorrections(c, "2027-01-18", "2027-01-07", reports).map((x) => x.reportId)).toEqual(["w1", "w2", "m1"]);
+    expect(startChangeCorrections(c, "2027-01-18", "2027-01-18", reports)).toEqual([]);
+    // Utan handläggare: bara månadsrapporterna.
+    expect(startChangeCorrections({ id: "case-1", referrerId: null }, "2027-01-07", "2027-01-18", reports).map((x) => x.reportId)).toEqual(["m1"]);
+  });
+
+  it("uppgiftens text: ärendenumret, datumen och perioderna – inga namn", () => {
+    const items = startChangeCorrections(c, "2027-01-07", "2027-01-18", [weekly("w1", "2027-W01", "delivered"), weekly("w2", "2027-W02", "delivered"), monthly("m1", "2027-01", "delivered")]);
+    expect(startCorrectionTaskText("BOT-27-0002", "2027-01-07", "2027-01-18", items)).toBe(
+      "BOT-27-0002: startdatumet är ändrat från 7 jan 2027 till 18 jan 2027. Rätta rapporterna som redan är lämnade till kommunen: veckorapporterna för vecka 1 och 2 2027 samt månadsrapporten för januari 2027.",
+    );
+    // Över årsskiftet: veckorna per år.
+    expect(startCorrectionTaskText("BOT-27-0002", "2026-12-29", "2027-01-11", [
+      { reportId: "w0", kind: "weekly_attendance", period: "2026-W53" }, { reportId: "w1", kind: "weekly_attendance", period: "2027-W01" },
+    ])).toContain("veckorapporterna för vecka 53 2026 och vecka 1 2027.");
+    expect(startCorrectionTaskText("BOT-27-0002", "2027-01-07", "2027-01-11", items.slice(0, 1))).toBe(
+      "BOT-27-0002: startdatumet är ändrat från 7 jan 2027 till 11 jan 2027. Rätta rapporten som redan är lämnad till kommunen: veckorapporten för vecka 1 2027.",
+    );
   });
 });
 

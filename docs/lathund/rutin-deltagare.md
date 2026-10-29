@@ -30,7 +30,7 @@ Vem: huvudcoachen eller den som kartlägger (i dag Adam).
 1. Kontrollera deltagarens telefonnummer och e-postadress. Fråga hur deltagaren vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och spara.
 2. Ska möten spelas in, eller ska AI få skriva utkast? Berätta vad det innebär och fråga deltagaren. Säger deltagaren ja: tryck på **Registrera samtycke**. Ett nej får inga följder.
 3. Tryck på **Starta insatsen** i deltagarkortet eller under **Insatser att starta** på Min vecka. Välj startdatum och veckoplan. Tillfällena skapas från startdatumet.
-4. Blev startdatumet fel? Tryck på **Ändra startdatum** vid **Start** i deltagarkortet och skriv en kort motivering. Tillfällen före det nya datumet utan närvaro tas bort. Inga tillfällen skapas bakåt – lägg till dem som hände och registrera närvaron. Planerat slut ändras inte. Är månaden redan fakturerad behöver ekonomen kreditera fakturan först.
+4. Blev startdatumet fel? Tryck på **Ändra startdatum** i deltagarkortets huvud och skriv en kort motivering. Det går i en pågående eller pausad insats. Tillfällen före det nya datumet tas bort om de saknar registrerad närvaro eller bara har automatisk närvaro. Inga tillfällen skapas bakåt – lägg till dem som hände och registrera närvaron. Planerat slut ändras inte. Är månaden redan fakturerad eller godkänd av ekonomen går det inte att ändra – kontakta ekonomen. Läs mer under **Ändra startdatum** i lathunden för kollegor.
 
 ### 4. Kartläggning med nivå
 

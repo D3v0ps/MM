@@ -15,9 +15,14 @@
 --        månadens körning är stängd, fakturan för ärendets grupp är skapad (fortnox_created, booked, sent, paid, manual eller
 --        returned) eller en skapad faktura har en fryst rad för ärendet; godkänd = fakturan för ärendets grupp är approved.
 --        Ekonomen behöver kreditera först. Ett underlag (draft) och en krediterad faktura (credited) stoppar inte.
---      * inget tillfälle före det nya startdatumet har närvaro som en människa registrerat (attendance.source = 'manual').
---        Tillfällen utan närvaro eller med bara automatisk närvaro tar servern bort efter ändringen (hanteraren
---        arenden.andraStartdatum) – inga tillfällen skapas bakåt i tiden.
+--      * inget tillfälle före det nya startdatumet har närvaro som en människa registrerat (attendance.source = 'manual') och
+--        ingen mötesrapport hållen före det är godkänd (check_ins.status = 'approved'). Tillfällen utan närvaro eller med bara
+--        automatisk närvaro tar servern bort efter ändringen (hanteraren arenden.andraStartdatum) – inga tillfällen skapas
+--        bakåt i tiden.
+--      * ingen månad som med det nya startdatumet får för få inskrivna dagar för en månadsrapport (färre än avtalets
+--        reportSchedule.monthly.minEnrolledDays, minst en – samma regel som rapportutkasten) har en månadsrapport som är
+--        granskad, godkänd eller lämnad till kommunen eller en godkänd månadsbedömning (mm.start_change_report_month). Utkasten
+--        för en sådan månad tar servern bort efter ändringen.
 --    Planerat slut, planerade veckor och beställningens veckor ändras inte (de räknas från första mötet, beslut 7, 2026-10-08).
 --    Behörighet (samma regler som src/data/policy.ts case_start_changes):
 --      * läsa: Miljonbemannings roller i avtalet utom ekonomen. Kommunen läser aldrig raden.
@@ -30,19 +35,22 @@
 --        ändringen) av den som ändrar, och villkoren för ärendet ovan.
 --      * motiveringen (anteckningen som note_id pekar på) är låst för inloggade: den ändras och tas aldrig bort (triggern
 --        case_notes_start_change_lock).
--- 2. Ärendets startdatum (triggern cases_start_date_guard på public.cases): ett satt startdatum ändrar ingen inloggad direkt –
---    bara Ändra startdatum (raden ovan, via mm.apply_case_start_change, security definer). Startdatumet sätts när insatsen startar
+-- 2. Ärendets startdatum (triggern cases_start_date_guard på public.cases): startdatumet i en startad insats (active, paused,
+--    closed) ändrar ingen inloggad direkt – bara Ändra startdatum (raden ovan, via mm.apply_case_start_change, security
+--    definer). Före start (också ett bekräftat ärende som redan har ett startdatum) sätts det när insatsen startar
 --    (arenden.caseStart) och bara av coach, samordnare och avtalsansvarig – aldrig av ekonomen eller kommunen, som annars får
---    ändra sina kolumner i ärendet (cases_update, 0003).
+--    ändra sina kolumner i ärendet (cases_update, 0003). Ett nytt ärende skapas aldrig med startdatum av en inloggad (kommunens
+--    beställning har inget), och spärren går inte runt via statusen: en startad insats blir aldrig ostartad igen.
 --
--- Speglas i src/data/policy.ts (case_start_changes, caseStartChangeWrite, caseStartChangeApply, caseStartGuard, caseNoteWrite),
--- src/core/start-date.ts (startChangeMonths, startChangeLock, phaseSinceAfter), src/data/schema.ts (TABLE_NAMES, UNIQUE_KEYS) och
--- scripts/db/columns.ts, och prövas i src/data/supabase/rls-parity.test.ts.
+-- Speglas i src/data/policy.ts (case_start_changes, caseStartChangeWrite, caseStartChangeApply, caseStartGuard, caseWrite,
+-- caseNoteWrite), src/core/start-date.ts (startChangeMonths, startChangeLock, startChangeReportLock, checkInsBeforeStart,
+-- phaseSinceAfter), src/data/schema.ts (TABLE_NAMES, UNIQUE_KEYS) och scripts/db/columns.ts, och prövas i
+-- src/data/supabase/rls-parity.test.ts.
 -- Inga destruktiva satser. Idempotent (if not exists, or replace, drop … if exists) – tål att köras igen i SQL Editor.
 -- Befintliga objekt i produktionen som ersätts: inga. Befintliga tabeller som får något nytt: public.cases (den nya triggern
--- cases_start_date_guard, bara before update of start_date) och public.case_notes (den nya triggern case_notes_start_change_lock,
--- before update). Båda ändrar inga rader. Inga befintliga funktioner, policyer, triggrar eller rättigheter ändras, och inga
--- befintliga rader ändras.
+-- cases_start_date_guard, before insert or update of start_date, status) och public.case_notes (den nya triggern
+-- case_notes_start_change_lock, before update). Båda ändrar inga rader. Inga befintliga funktioner, policyer, triggrar eller
+-- rättigheter ändras, och inga befintliga rader ändras.
 --
 -- Lås: nya triggrar tar starka lås på heta tabeller (cases, case_notes). Väntar en sats längre än 5 sekunder på ett lås avbryts
 -- körningen (felkod 55P03) i stället för att alla andra frågor köar bakom den – kör då filen igen, gärna utanför arbetstid.
@@ -170,6 +178,41 @@ $$;
 revoke all on function mm.start_change_locked_month(text, text, date, date, text[]) from public, anon, authenticated;
 grant execute on function mm.start_change_locked_month(text, text, date, date, text[]) to service_role;
 
+-- Den första månaden som med det nya startdatumet får för få inskrivna dagar för en månadsrapport (src/core/start-date.ts
+-- startChangeDroppedMonths och startChangeReportLock) men redan har en månadsrapport som är granskad, godkänd, lämnad eller
+-- öppnad (inte ersatt) eller en godkänd månadsbedömning, eller null. Bara när starten flyttas senare. Inskrivna dagar i månaden =
+-- från startdatumet (eller den 1:a) till slutdatumet (eller månadens sista dag), som src/core/report-schedule.ts enrolledDays;
+-- gränsen är avtalets reportSchedule.monthly.minEnrolledDays (minst 1). Bara servern kör den (inloggade läser inte alla
+-- rapporter): den anropas av mm.apply_case_start_change, som är security definer.
+create or replace function mm.start_change_report_month(p_case_id text, p_contract_id text, p_from date, p_to date, p_end date)
+returns text
+language sql stable set search_path = public, mm
+as $$
+  with cfg as (
+    select greatest(1, coalesce((k.config #>> '{reportSchedule,monthly,minEnrolledDays}')::int, 1)) as min_days
+      from public.contracts k where k.id = p_contract_id
+  ), months as (
+    select m::date as first_day, (m + interval '1 month' - interval '1 day')::date as last_day
+      from generate_series(date_trunc('month', p_from::timestamp), date_trunc('month', p_to::timestamp), interval '1 month') m
+     where p_to > p_from
+  ), days as (
+    select to_char(x.first_day, 'YYYY-MM') as m,
+           greatest(0, least(x.last_day, coalesce(p_end, x.last_day)) - greatest(p_from, x.first_day) + 1) as old_days,
+           greatest(0, least(x.last_day, coalesce(p_end, x.last_day)) - greatest(p_to, x.first_day) + 1) as new_days
+      from months x
+  )
+  select d.m from days d cross join cfg
+   where d.old_days >= cfg.min_days and d.new_days < cfg.min_days
+     and (exists (select 1 from public.reports r
+                   where r.case_id = p_case_id and r.kind = 'monthly' and r.month = d.m and not r.superseded
+                     and r.status in ('reviewed', 'approved', 'delivered', 'opened'))
+          or exists (select 1 from public.monthly_assessments a where a.case_id = p_case_id and a.month = d.m and a.status = 'approved'))
+   order by d.m
+   limit 1
+$$;
+revoke all on function mm.start_change_report_month(text, text, date, date, date) from public, anon, authenticated;
+grant execute on function mm.start_change_report_month(text, text, date, date, date) to service_role;
+
 -- Ärendet ändras i samma transaktion som ändringen skrivs (policy.ts caseStartChangeApply – MemoryRepo gör samma ändring i
 -- samma steg som raden): startdatumet blir det nya, och nuvarande fas sedan blir det nya startdatumet när den var det gamla eller
 -- hamnar före det nya (phaseSinceAfter). Bara när villkoren i punkt 1 överst är uppfyllda – annars nekas hela ändringen (23514)
@@ -202,7 +245,12 @@ begin
      and not exists (
        select 1 from public.activities a join public.attendance t on t.activity_id = a.id
         where a.case_id = c.id and t.source = 'manual' and (a.starts_at at time zone 'Europe/Stockholm')::date < x.to_date
-     );
+     )
+     and not exists (
+       select 1 from public.check_ins k
+        where k.case_id = c.id and k.status = 'approved' and (k.held_at at time zone 'Europe/Stockholm')::date < x.to_date
+     )
+     and mm.start_change_report_month(c.id, c.contract_id, x.from_date, x.to_date, c.end_date) is null;
   return found;
 end
 $$;
@@ -214,7 +262,7 @@ language plpgsql set search_path = public, mm
 as $$
 begin
   if current_user = 'authenticated' and not mm.apply_case_start_change(new.id) then
-    raise exception 'Startdatumet kan inte ändras: ärendet har ändrats, en månad är fakturerad eller ett tillfälle före det nya datumet har närvaro' using errcode = '23514';
+    raise exception 'Startdatumet kan inte ändras: ärendet har ändrats, en månad är fakturerad eller närvaro, en mötesrapport eller en månadsrapport stoppar' using errcode = '23514';
   end if;
   return null;
 end
@@ -247,9 +295,12 @@ create trigger case_notes_start_change_lock before update on public.case_notes
 for each row execute function mm.lock_start_change_note();
 
 -- ---------------------------------------------------------------- 2. Ärendets startdatum
--- policy.ts caseWrite, caseStartGuard: ett satt startdatum ändras bara med Ändra startdatum (mm.apply_case_start_change –
--- security definer, som den här triggern släpper igenom). Startdatumet sätts när insatsen startar och bara av coach, samordnare
--- och avtalsansvarig. Servern (service role) rörs inte.
+-- policy.ts caseWrite, caseStartGuard: startdatumet i en startad insats (active, paused, closed) ändras bara med Ändra
+-- startdatum (mm.apply_case_start_change – security definer, som den här triggern släpper igenom). Före start sätts det när
+-- insatsen startar och bara av coach, samordnare och avtalsansvarig – också i ett bekräftat ärende som redan har ett startdatum
+-- (Starta insatsen med ett annat datum än första mötets). Ett nytt ärende har inget startdatum, och en startad insats blir aldrig
+-- ostartad igen (annars kunde statusen ändras tillbaka, startdatumet ändras direkt och statusen återställas). Servern (service
+-- role) rörs inte.
 create or replace function mm.guard_case_start_date() returns trigger
 language plpgsql set search_path = public, mm
 as $$
@@ -257,8 +308,17 @@ begin
   if current_user not in ('authenticated', 'anon') then
     return new;
   end if;
+  if tg_op = 'INSERT' then
+    if new.start_date is not null then
+      raise exception 'Ett nytt ärende har inget startdatum – det sätts när insatsen startar' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  if old.status in ('active', 'paused', 'closed') and new.status not in ('active', 'paused', 'closed') then
+    raise exception 'En startad insats kan inte bli ostartad igen' using errcode = '42501';
+  end if;
   if new.start_date is distinct from old.start_date then
-    if old.start_date is not null then
+    if old.start_date is not null and old.status in ('active', 'paused', 'closed') then
       raise exception 'Startdatumet ändras med Ändra startdatum på deltagarkortet' using errcode = '42501';
     end if;
     if coalesce(mm.current_role(), '') not in ('coach', 'samordnare', 'avtalsansvarig') then
@@ -269,7 +329,7 @@ begin
 end
 $$;
 drop trigger if exists cases_start_date_guard on public.cases;
-create trigger cases_start_date_guard before update of start_date on public.cases
+create trigger cases_start_date_guard before insert or update of start_date, status on public.cases
 for each row execute function mm.guard_case_start_date();
 
 reset lock_timeout;

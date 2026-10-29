@@ -373,12 +373,12 @@ function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
           </span>
         </span>
       </div>
-      {/* Rad B: de viktigaste uppgifterna – vid startdatumet Ändra startdatum (Karims beslut 2026-10-29) */}
+      {/* Rad B: de viktigaste uppgifterna. Ändra startdatum (Karims beslut 2026-10-29) står bland åtgärderna – raden här ska
+          rymmas på en rad (det kompakta huvudet, tests/e2e/navigering.spec.ts) – och ändringarna under raden. */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
         {fact("Huvudcoach", c.leadCoach ? c.leadCoach.name : "Inte tilldelad")}
-        <span className="inline-flex flex-wrap items-center gap-x-1.5" data-start-fact="">
+        <span className="inline-flex" data-start-fact="">
           {fact("Start", c.startDate ? fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${fmtDate(c.firstMeetingAt)}` : "Inte bestämd")}
-          <CaseStartChange caseId={c.caseId} />
         </span>
         {c.endDate
           ? fact("Avslutad", `${fmtDate(c.endDate)} · ${c.endReasonLabel ?? "–"}`)
@@ -386,7 +386,7 @@ function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
         {fact("Handläggare", k ? k.name : "–")}
       </div>
       {/* Ändringarna av startdatum (bara när startdatumet har ändrats), med motiveringen */}
-      <CaseStartHistory caseId={c.caseId} />
+      <CaseStartHistory caseId={c.caseId} changes={c.startChange.changes} />
       {warn.length > 0 && <div className="flex flex-wrap gap-1.5">{warn}</div>}
       {/* Rad B2: nivå, yrkesområde (deltagarens grupp) och taggar – internt, coachmötet 2026-10-09 och Karims beslut 2026-10-22 –
           med Höj nivå och Ändra (dialogen har Byt yrkesområde); under raden bytena av yrkesområde (bara när ärendet har bytt) */}
@@ -750,6 +750,8 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   }
   if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
+  // Ändra startdatum (Karims beslut 2026-10-29): coach, samordnare och avtalsansvarig i en pågående eller pausad insats.
+  if (c.startChange.canChange) btns.push(<CaseStartChange key="startdate" card={c} className={btn} />);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
   if (c.manage && active && c.teamOptions) btns.push(<Button key="team" icon="users" className={btn} onClick={() => openModal("team")}>Ändra team</Button>);
   return (

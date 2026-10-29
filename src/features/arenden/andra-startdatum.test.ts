@@ -1,7 +1,7 @@
 // Ändra startdatum (Karims beslut 2026-10-29): kommandot arenden.andraStartdatum och raden på deltagarkortet mot testdatat i
 // minnet (MemoryRuntime, samma hanterare som appen). Ordningen: anteckningen, ändringen (som ändrar ärendets startdatum i samma
 // steg – triggern case_start_changes_apply), tillfällena före det nya datumet, revisionsloggen och inbjudningarna.
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { SYSTEM_ACTOR } from "@/api/roles";
@@ -9,14 +9,15 @@ import { ApiError } from "@/api/server";
 import { billingLines } from "@/core/billing";
 import { requireOperational } from "@/core/config";
 import { listPersonas } from "@/data/actors";
-import type { MemoryData } from "@/data/memory";
+import { MemoryStore, type MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
 import { assessmentPage } from "@/features/coach/api";
 import { kommunCase } from "@/features/kommun/api";
-import { activityAdd, caseChangeStart, caseHistory, caseNoteRemove, caseNoteSave, caseStartView, caseTimeline } from "./api";
+import { activityAdd, caseCard, caseChangeStart, caseHistory, caseNoteRemove, caseNoteSave, caseStart, caseStartView, caseTimeline } from "./api";
+import { finishStartChanges } from "./start-finish";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -49,6 +50,8 @@ const WHY = "Deltagaren kunde inte komma första veckan och började på onsdage
 const raw = () => rt.raw();
 const acts = (caseId: string) => raw().all("activities").filter((a) => a.caseId === caseId);
 const startCases = () => raw().all("case_start_changes");
+/** Revisionsloggens rader för ändringar av startdatum – utom testdatats (BOT-27-0031, csc-seed-0031). */
+const startLogs = () => raw().all("audit_log").filter((l) => l.action === "case.start_date_changed" && l.details.changeId !== "csc-seed-0031");
 /** Ärendets närvaro blir automatisk (som om jobbet auto_attendance registrerat den). */
 const makeAuto = (caseId: string) => {
   for (const a of raw().all("attendance").filter((x) => x.caseId === caseId)) rt.store.updateRow("attendance", a.id, { source: "auto", registeredBy: "system" });
@@ -75,7 +78,7 @@ describe("Ändra startdatum (arenden.andraStartdatum)", () => {
     expect(raw().get("case_start_changes", res.changeId)).toMatchObject({
       contractId: "c-bot", caseId: NEW, fromDate: "2027-02-01", toDate: "2027-02-03", changedBy: "u-amira", noteId: res.noteId, seq: 1,
     });
-    const log = raw().all("audit_log").filter((l) => l.action === "case.start_date_changed");
+    const log = startLogs();
     expect(log).toHaveLength(1);
     expect(log[0].details).toEqual({
       caseId: NEW, changeId: res.changeId, noteId: res.noteId, seq: 1, from: "2027-02-01", to: "2027-02-03", removedActivityIds: firstDay.map((a) => a.id), removedAutoAttendanceIds: [],
@@ -111,7 +114,7 @@ describe("Ändra startdatum (arenden.andraStartdatum)", () => {
     if (!first.ok || !again.ok) return;
     expect(again.changeId).toBe(first.changeId);
     expect(startCases().filter((x) => x.caseId === NEW)).toHaveLength(1);
-    expect(raw().all("audit_log").filter((l) => l.action === "case.start_date_changed")).toHaveLength(1);
+    expect(startLogs()).toHaveLength(1);
     // Någon annan med samma datum: konflikt (det är inte hens ändring).
     expect(await change(input, johan())).toMatchObject({ ok: false, error: "conflict" });
   });
@@ -129,7 +132,7 @@ describe("Ändra startdatum (arenden.andraStartdatum)", () => {
     const res = await change({ caseId: NEW, startDate: "2027-02-03", expectedStartDate: "2027-02-01", motivation: WHY }, sara());
     expect(res).toMatchObject({ ok: true, changeId: "csc-t-avbruten", removed: 1 });
     expect(acts(NEW).some((a) => a.startsAt < "2027-02-03")).toBe(false);
-    expect(raw().all("audit_log").filter((l) => l.action === "case.start_date_changed").map((l) => l.details.changeId)).toEqual(["csc-t-avbruten"]);
+    expect(startLogs().map((l) => l.details.changeId)).toEqual(["csc-t-avbruten"]);
   });
 
   it("stoppas när en månad ändringen rör är fakturerad – december – och inget skrivs", async () => {
@@ -176,7 +179,7 @@ describe("Ändra startdatum (arenden.andraStartdatum)", () => {
     expect(res).toMatchObject({ ok: true, removed: 3, autoAttendanceRemoved: 3 });
     expect(acts(JAN).filter((a) => a.startsAt < "2027-02-02")).toEqual([]);
     for (const x of auto) expect(raw().get("attendance", x.id)).toBeUndefined();
-    const log = raw().all("audit_log").find((l) => l.action === "case.start_date_changed")!;
+    const log = startLogs()[0];
     expect(log.details).toMatchObject({ removedActivityIds: before.map((a) => a.id).sort(), removedAutoAttendanceIds: expect.arrayContaining(auto.map((x) => x.id)) });
   });
 
@@ -191,7 +194,7 @@ describe("Ändra startdatum (arenden.andraStartdatum)", () => {
     expect(raw().get("activities", group.id)).toBeUndefined();
     const synced = raw().all("audit_log").filter((l) => l.action === "group_activity.audience_synced" && l.entityId === group.groupActivityId);
     expect(synced.map((l) => l.details.removedCaseIds)).toEqual([[id]]);
-    expect(raw().all("audit_log").find((l) => l.action === "case.start_date_changed")?.details.removedActivityIds).not.toContain(group.id);
+    expect(startLogs()[0]?.details.removedActivityIds).not.toContain(group.id);
 
     // Samma rad inbjuden för hand: tas bort av ändringen och loggas på aktiviteten (som Ta bort i aktivitetsvyn).
     rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
@@ -200,7 +203,7 @@ describe("Ändra startdatum (arenden.andraStartdatum)", () => {
     expect(raw().get("activities", group.id)).toBeUndefined();
     const logs = raw().all("audit_log").filter((l) => l.action === "group_activity.removed_participant" && l.entityId === group.groupActivityId);
     expect(logs.map((l) => l.details)).toEqual([{ caseIds: [id], activityIds: [group.id], via: "start_date_changed" }]);
-    expect(raw().all("audit_log").find((l) => l.action === "case.start_date_changed")?.details.removedActivityIds).toContain(group.id);
+    expect(startLogs()[0]?.details.removedActivityIds).toContain(group.id);
   });
 
   it("bakåt: inga tillfällen skapas; coachen lägger till det som hände – och januari faktureras nu för ärendet", async () => {
@@ -300,7 +303,7 @@ describe("Startdatumet på deltagarkortet (arenden.startdatum)", () => {
   it("testdatats ändring med motiveringen, nyast först – och gränserna för ett nytt datum", async () => {
     const v = (await q(caseStartView, { caseId: JAN }, amira()))!;
     expect(v).toEqual({
-      caseId: JAN, startDate: "2027-01-26", canChange: true, blockedText: null, earliest: "2027-01-26", latest: "2027-04-02",
+      caseId: JAN, startDate: "2027-01-26", canChange: true, earliest: "2027-01-26", latest: "2027-04-02",
       history: [{
         id: "csc-seed-0031", changedAt: "2027-01-28T10:05", fromDate: "2027-02-01", toDate: "2027-01-26", byName: "Amira Haddad",
         motivation: "Deltagaren började redan vid första mötet den 26 januari. Startdatumet var registrerat en vecka för sent.",
@@ -314,17 +317,37 @@ describe("Startdatumet på deltagarkortet (arenden.startdatum)", () => {
     ]);
   });
 
+  it("kortet säger om knappen visas och om det finns ändringar – raden med ändringarna hämtas bara då", async () => {
+    const card = async (caseId: string, a: Actor) => {
+      const r = await q(caseCard, { caseId }, a);
+      return r.kind === "ok" ? r.startChange : null;
+    };
+    expect(await card(NEW, sara())).toEqual({ canChange: true, changes: 0 });
+    expect(await card(JAN, amira())).toEqual({ canChange: true, changes: 1 });
+    expect(await card(JAN, karin())).toEqual({ canChange: false, changes: 1 });
+    const closed = raw().all("cases").find((c) => c.status === "closed" && c.contractId === "c-bot" && c.startDate)!;
+    expect(await card(closed.id, sara())).toMatchObject({ canChange: false });
+    await change({ caseId: NEW, startDate: "2027-02-03", expectedStartDate: "2027-02-01", motivation: WHY }, sara());
+    expect(await card(NEW, sara())).toEqual({ canChange: true, changes: 1 });
+  });
+
   it("chef och systemadministratör ser ändringarna i läsläge; kommunen och ekonomen får inget", async () => {
-    for (const a of [karin(), robin()]) expect(await q(caseStartView, { caseId: JAN }, a), a.role).toMatchObject({ canChange: false, blockedText: null, history: [{ id: "csc-seed-0031" }] });
+    for (const a of [karin(), robin()]) expect(await q(caseStartView, { caseId: JAN }, a), a.role).toMatchObject({ canChange: false, history: [{ id: "csc-seed-0031" }] });
     await expect(q(caseStartView, { caseId: JAN }, lars())).rejects.toBeInstanceOf(ApiError);
     await expect(q(caseStartView, { caseId: JAN }, maria())).rejects.toBeInstanceOf(ApiError);
   });
 
-  it("avslutat och inte startat ärende: kan inte ändras och raden säger varför", async () => {
-    const closed = raw().all("cases").find((c) => c.status === "closed" && c.contractId === "c-bot")!;
-    expect(await q(caseStartView, { caseId: closed.id }, amira())).toMatchObject({ canChange: false, blockedText: "Insatsen är avslutad. Startdatumet kan inte ändras." });
+  it("avslutat och inte startat ärende: ingen knapp – servern svarar wrong_status med orsaken", async () => {
+    const closed = raw().all("cases").find((c) => c.status === "closed" && c.contractId === "c-bot" && c.startDate)!;
+    expect(await q(caseStartView, { caseId: closed.id }, amira())).toMatchObject({ canChange: false });
+    expect(await change({ caseId: closed.id, startDate: "2026-12-08", expectedStartDate: closed.startDate!, motivation: WHY }, amira())).toEqual({
+      ok: false, error: "wrong_status", message: "Insatsen är avslutad. Startdatumet kan inte ändras.",
+    });
     const confirmed = raw().all("cases").find((c) => c.status === "confirmed" && c.contractId === "c-bot")!;
-    expect(await q(caseStartView, { caseId: confirmed.id }, sara())).toMatchObject({ canChange: false, blockedText: "Insatsen har inte startat än. Startdatumet väljs när insatsen startas." });
+    expect(await q(caseStartView, { caseId: confirmed.id }, sara())).toMatchObject({ canChange: false });
+    expect(await change({ caseId: confirmed.id, startDate: "2027-02-05", expectedStartDate: "2027-02-04", motivation: WHY }, sara())).toMatchObject({
+      ok: false, error: "wrong_status", message: "Insatsen har inte startat än. Startdatumet väljs när insatsen startas.",
+    });
   });
 
   it("kommunen ser det nya startdatumet i portalen – aldrig motiveringen eller ändringen", async () => {
@@ -341,5 +364,208 @@ describe("Startdatumet på deltagarkortet (arenden.startdatum)", () => {
     const repo = rt.ctxFor(maria()).repo;
     expect(await repo.table("case_start_changes").list({})).toEqual([]);
     expect(await repo.table("case_notes").list({ caseId: NEW })).toEqual([]);
+  });
+});
+
+describe("granskningen 2026-10-29: rapporter, mötesrapporter, avbrott, två flikar och Starta insatsen", () => {
+  /** BOT-27-0002 startade 7 januari (handläggare Linda, huvudcoach Leila): fyra godkända mötesrapporter och januarirapporten som utkast. */
+  const JAN7 = "case-270002";
+  /** BOT-27-0011 startade 18 januari (handläggare Maria): godkända mötesrapporter 18 och 25 januari, januarirapporten som utkast. */
+  const JAN18 = "case-270011";
+  const leila = () => as("u-leila", "coach");
+  /** Mötesrapporterna blir utkast (som om de inte var godkända än). */
+  const draftCheckIns = (caseId: string) => {
+    for (const x of raw().all("check_ins").filter((k) => k.caseId === caseId)) rt.store.updateRow("check_ins", x.id, { status: "draft", approvedBy: null, approvedAt: null });
+  };
+  const monthlyOf = (caseId: string) => raw().all("reports").filter((r) => r.caseId === caseId && r.kind === "monthly" && r.month === "2027-01");
+  const assessmentOf = (caseId: string) => raw().all("monthly_assessments").filter((m) => m.caseId === caseId && m.month === "2027-01");
+  const planOf = (caseId: string) => raw().all("monthly_plans").filter((m) => m.caseId === caseId && m.month === "2027-01");
+  const tasksOf = (caseId: string) => raw().all("tasks").filter((t) => t.kind === "report_correction" && t.caseIds.includes(caseId));
+
+  it("godkända mötesrapporter före det nya datumet stoppar en senare start – meddelandet säger senaste datum och inget ändras", async () => {
+    makeAuto(JAN7);
+    const res = await change({ caseId: JAN7, startDate: "2027-02-01", expectedStartDate: "2027-01-07", motivation: WHY }, leila());
+    expect(res).toEqual({
+      ok: false, error: "attendance",
+      message: "4 mötesrapporter före det nya startdatumet är godkända. En godkänd mötesrapport tas aldrig bort, så startdatumet kan vara senast 7 jan 2027.",
+    });
+    expect(raw().get("cases", JAN7)?.startDate).toBe("2027-01-07");
+    expect(acts(JAN7).filter((a) => a.startsAt < "2027-02-01")).toHaveLength(11);
+  });
+
+  it("en månad som blir utan månadsrapport: utkasten till rapport, bedömning och plan tas bort och loggas", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const [rep] = monthlyOf(JAN7);
+    const [ma] = assessmentOf(JAN7);
+    const [mp] = planOf(JAN7);
+    expect([rep.status, ma.status, mp.status]).toEqual(["draft", "draft", "draft"]);
+    const res = await change({ caseId: JAN7, startDate: "2027-02-01", expectedStartDate: "2027-01-07", motivation: WHY }, leila());
+    expect(res).toMatchObject({ ok: true, removed: 11, autoAttendanceRemoved: 11, droppedMonths: ["2027-01"], incomplete: false });
+    expect([monthlyOf(JAN7), assessmentOf(JAN7), planOf(JAN7)]).toEqual([[], [], []]);
+    expect(startLogs()[0].details).toMatchObject({ droppedMonths: ["2027-01"], removedReportIds: [rep.id], removedAssessmentIds: [ma.id], removedPlanIds: [mp.id] });
+    // Lindas veckorapporter för vecka 1–4 och januarirapporten var inte lämnade som rättelser – vecka 1–3 är lämnade: en uppgift.
+    expect(res.ok && res.corrections).toBe(3);
+  });
+
+  it("en lämnad eller godkänd januarirapport, eller en godkänd bedömning, stoppar – meddelandet säger vilket datum som behåller rapporten", async () => {
+    makeAuto(JAN7);
+    draftCheckIns(JAN7);
+    const [rep] = monthlyOf(JAN7);
+    rt.store.updateRow("reports", rep.id, { status: "delivered", deliveredAt: "2027-02-01T08:00" });
+    const later = { caseId: JAN7, startDate: "2027-02-01", expectedStartDate: "2027-01-07", motivation: WHY };
+    expect(await change(later, leila())).toEqual({
+      ok: false, error: "report",
+      message: "Månadsrapporten för januari 2027 är redan lämnad till kommunen. Med det nya startdatumet får januari för få inskrivna dagar för en månadsrapport, så startdatumet kan vara senast 21 jan 2027.",
+    });
+    rt.store.updateRow("reports", rep.id, { status: "approved", deliveredAt: null });
+    expect(await change(later, leila())).toMatchObject({ ok: false, error: "report", message: expect.stringMatching(/^Månadsrapporten för januari 2027 är redan godkänd\./) });
+    rt.store.updateRow("reports", rep.id, { status: "draft" });
+    rt.store.updateRow("monthly_assessments", assessmentOf(JAN7)[0].id, { status: "approved" });
+    expect(await change(later, leila())).toMatchObject({ ok: false, error: "report", message: expect.stringMatching(/^Månadsbedömningen för januari 2027 är redan godkänd\./) });
+    expect(raw().get("cases", JAN7)?.startDate).toBe("2027-01-07");
+    // Det senaste datumet som behåller januari går: rapporten och bedömningen ligger kvar.
+    expect(await change({ ...later, startDate: "2027-01-21" }, leila())).toMatchObject({ ok: true, droppedMonths: [] });
+    expect(monthlyOf(JAN7)).toHaveLength(1);
+    expect(assessmentOf(JAN7)[0].status).toBe("approved");
+  });
+
+  it("BOT-27-0011 18 → 25 januari: januari får 7 inskrivna dagar (färre än 11) – utkasten tas bort", async () => {
+    makeAuto(JAN18);
+    draftCheckIns(JAN18);
+    expect(await change({ caseId: JAN18, startDate: "2027-01-25", expectedStartDate: "2027-01-18", motivation: WHY }, leila())).toMatchObject({ ok: true, droppedMonths: ["2027-01"] });
+    expect([monthlyOf(JAN18), assessmentOf(JAN18), planOf(JAN18)]).toEqual([[], [], []]);
+  });
+
+  it("BOT-27-0011 18 → 21 januari: januari behåller sin rapport, bedömningens närvaro räknas om och samordnaren får en uppgift att rätta vecka 3", async () => {
+    makeAuto(JAN18);
+    draftCheckIns(JAN18);
+    // Sammanfattningen är ifylld automatiskt ur närvaron (inte AI-utkastet) – den följer de borttagna tillfällena.
+    const [ma] = assessmentOf(JAN18);
+    rt.store.updateRow("monthly_assessments", ma.id, { prefill: { summary: "rules" }, summary: "Gammal sammanfattning." });
+    const res = await change({ caseId: JAN18, startDate: "2027-01-21", expectedStartDate: "2027-01-18", motivation: WHY }, leila());
+    expect(res).toMatchObject({ ok: true, removed: 2, droppedMonths: [], corrections: 1 });
+    expect(monthlyOf(JAN18)).toHaveLength(1);
+    expect(raw().all("audit_log").filter((l) => l.action === "assessment.prefill_refreshed" && l.details.caseId === JAN18).map((l) => l.details.month)).toEqual(["2027-01"]);
+    expect(raw().get("monthly_assessments", ma.id)?.summary).not.toBe("Gammal sammanfattning.");
+    const weekly3 = raw().all("reports").find((r) => r.kind === "weekly_attendance" && r.recipientUserId === "k-maria" && r.week === "2027-W03")!;
+    const [task] = tasksOf(JAN18);
+    expect(task).toMatchObject({
+      toRole: "samordnare", status: "open", caseIds: [JAN18],
+      text: "BOT-27-0011: startdatumet är ändrat från 18 jan 2027 till 21 jan 2027. Rätta rapporten som redan är lämnad till kommunen: veckorapporten för vecka 3 2027.",
+    });
+    expect(startLogs()[0].details).toMatchObject({ correctionReportIds: [weekly3.id], taskId: task.id });
+    // Samordnaren ser uppgiften; kommunen gör det aldrig. Uppgiften och loggen har inga namn.
+    expect((await rt.ctxFor(sara()).repo.table("tasks").list({ kind: "report_correction" })).map((t) => t.id)).toEqual([task.id]);
+    expect(await rt.ctxFor(maria()).repo.table("tasks").list({ kind: "report_correction" })).toEqual([]);
+    const person = raw().get("persons", raw().get("cases", JAN18)!.personId)!;
+    for (const text of [task.text, JSON.stringify(startLogs())]) expect(text).not.toContain(person.lastName);
+  });
+
+  it("två flikar: samma person och datum men en annan motivering – conflict och den andra motiveringen sparas inte", async () => {
+    expect(await change({ caseId: NEW, startDate: "2027-02-03", expectedStartDate: "2027-02-01", motivation: WHY }, sara())).toMatchObject({ ok: true });
+    const other = "Kommunen bad oss flytta starten till onsdagen.";
+    expect(await change({ caseId: NEW, startDate: "2027-02-03", expectedStartDate: "2027-02-01", motivation: other }, sara())).toEqual({
+      ok: false, error: "conflict",
+      message: "Du har redan ändrat startdatumet till 3 feb 2027 med en annan motivering. Ladda om sidan – motiveringen som sparades står under startdatumet.",
+    });
+    // Utan kontroll av motiveringen skulle ett personnummer ha gett ok.
+    expect(await change({ caseId: NEW, startDate: "2027-02-03", expectedStartDate: "2027-02-01", motivation: "19730216-9545" }, sara())).toMatchObject({ ok: false, error: "conflict" });
+    expect(raw().all("case_notes").some((n) => n.body.includes("Kommunen bad oss") || n.body.includes("19730216"))).toBe(false);
+    expect(startCases().filter((x) => x.caseId === NEW)).toHaveLength(1);
+  });
+
+  /** Ett databasfel när det andra tillfället före det nya datumet tas bort (som granskningens prov). */
+  const breakSecondRemoval = () => {
+    const before = acts(JAN).filter((a) => a.startsAt < "2027-02-02").sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
+    const att = before.map((a) => raw().all("attendance").find((t) => t.activityId === a.id)!);
+    const orig = MemoryStore.prototype.removeRow;
+    const spy = vi.spyOn(MemoryStore.prototype, "removeRow").mockImplementation(function (this: MemoryStore<Tables>, name, id) {
+      if (name === "activities" && id === before[1].id) throw Object.assign(new Error("anslutningen bröts"), { code: "08006" });
+      return orig.call(this, name, id);
+    });
+    return { before, att, restore: () => spy.mockRestore() };
+  };
+
+  it("städningen avbryts: det som hann göras loggas (failed), svaret är ok med incomplete – nästa ändring i ärendet gör klart", async () => {
+    makeAuto(JAN);
+    const { before, att, restore } = breakSecondRemoval();
+    const res = await change({ caseId: JAN, startDate: "2027-02-02", expectedStartDate: "2027-01-26", motivation: WHY }, amira());
+    restore();
+    expect(res).toMatchObject({ ok: true, startDate: "2027-02-02", removed: 1, autoAttendanceRemoved: 2, incomplete: true });
+    expect(raw().get("cases", JAN)?.startDate).toBe("2027-02-02");
+    const [failed] = startLogs();
+    expect(failed.details).toMatchObject({ removedActivityIds: [before[0].id], removedAutoAttendanceIds: [att[0].id, att[1].id], failed: true, error: "08006" });
+    // En kollega gör en ny ändring senare: först görs Amiras ändring klar (loggas på den, av Johan), sedan Johans.
+    rt.clock.set("2027-02-01T12:00");
+    const next = await change({ caseId: JAN, startDate: "2027-02-03", expectedStartDate: "2027-02-02", motivation: WHY }, johan());
+    expect(next).toMatchObject({ ok: true, incomplete: false });
+    const logs = startLogs();
+    expect(logs.map((l) => [l.details.changeId, l.details.failed ?? false, l.details.finishedBy ?? null])).toEqual([
+      [failed.details.changeId, true, null], [failed.details.changeId, false, "u-johan"], [next.ok && next.changeId, false, null],
+    ]);
+    // Alla borttagna tillfällen och närvarorader står i loggen för Amiras ändring.
+    const amiras = logs.filter((l) => l.details.changeId === failed.details.changeId);
+    expect(amiras.flatMap((l) => l.details.removedActivityIds as string[]).sort()).toEqual(before.map((a) => a.id).sort());
+    expect(amiras.flatMap((l) => l.details.removedAutoAttendanceIds as string[]).sort()).toEqual(att.map((x) => x.id).sort());
+    expect(acts(JAN).filter((a) => a.startsAt < "2027-02-03")).toEqual([]);
+    // Historiken på kortet: avbrottet och att ändringen gjordes klar.
+    const subs = (await q(caseHistory, { caseId: JAN }, karin()))!.log.filter((l) => l.text === "Startdatumet ändrades").map((l) => l.sub);
+    expect(subs).toEqual(expect.arrayContaining([
+      "26 jan 2027 → 2 feb 2027, avbröts – görs klart automatiskt",
+      "Gjordes klar: 26 jan 2027 → 2 feb 2027, 2 tillfällen före det nya datumet togs bort",
+    ]));
+  });
+
+  it("samma ändring igen efter ett avbrott gör klart och svarar med allt som gjordes", async () => {
+    makeAuto(JAN);
+    const { restore } = breakSecondRemoval();
+    const input = { caseId: JAN, startDate: "2027-02-02", expectedStartDate: "2027-01-26", motivation: WHY };
+    expect(await change(input, amira())).toMatchObject({ ok: true, incomplete: true });
+    restore();
+    expect(await change(input, amira())).toMatchObject({ ok: true, removed: 3, autoAttendanceRemoved: 3, incomplete: false });
+    expect(startLogs()).toHaveLength(2);
+  });
+
+  it("rapportjobbet gör klart en ändring som inte blev klar – först efter tio minuter, och bara en gång", async () => {
+    makeAuto(JAN);
+    const { before, restore } = breakSecondRemoval();
+    expect(await change({ caseId: JAN, startDate: "2027-02-02", expectedStartDate: "2027-01-26", motivation: WHY }, amira())).toMatchObject({ ok: true, incomplete: true });
+    restore();
+    const sys = () => rt.ctxFor(SYSTEM_ACTOR);
+    expect(await finishStartChanges(sys(), { floor: null })).toBe(0);
+    rt.clock.set("2027-02-01T09:30");
+    expect(await finishStartChanges(sys(), { floor: null })).toBe(1);
+    // Det andra tillfället (där felet kom) och det tredje (som aldrig hann tas bort) – loggade på Amiras ändring, av systemet.
+    expect(startLogs().at(-1)?.details).toMatchObject({ removedActivityIds: [before[1].id, before[2].id], finishedBy: "system" });
+    expect(acts(JAN).filter((a) => a.startsAt < "2027-02-02")).toEqual([]);
+    expect(await finishStartChanges(sys(), { floor: null })).toBe(0);
+    // Testdatats ändring är loggad och rörs inte.
+    expect(raw().all("audit_log").filter((l) => l.details.changeId === "csc-seed-0031")).toHaveLength(1);
+  });
+});
+
+describe("Starta insatsen i ett bekräftat ärende som redan har ett startdatum (granskningen 2026-10-29)", () => {
+  const plan = [{ weekday: 1, kind: "möte" as const, time: "14:00", durationMin: 60, location: "Alby" }];
+  it("BOT-27-0042 (startdatum 2 februari från beställningen) startas med 3 februari", async () => {
+    expect(raw().get("cases", "case-270042")).toMatchObject({ status: "confirmed", startDate: "2027-02-02" });
+    const res = await rt.run("command", caseStart.key, { caseId: "case-270042", startDate: "2027-02-03", plan }, sara());
+    expect(res).toMatchObject({ ok: true });
+    expect(raw().get("cases", "case-270042")).toMatchObject({ status: "active", startDate: "2027-02-03" });
+  });
+
+  it("kan ärendet inte startas tas tillfällena som hann skrivas bort igen – inga dubbletter vid nästa försök", async () => {
+    const count = acts("case-270042").length;
+    const orig = MemoryStore.prototype.updateRow;
+    const spy = vi.spyOn(MemoryStore.prototype, "updateRow").mockImplementation(function (this: MemoryStore<Tables>, name, id, patch) {
+      if (name === "cases" && id === "case-270042") throw Object.assign(new Error("anslutningen bröts"), { code: "08006" });
+      return orig.call(this, name, id, patch);
+    });
+    await expect(rt.run("command", caseStart.key, { caseId: "case-270042", startDate: "2027-02-03", plan }, sara())).rejects.toThrow();
+    spy.mockRestore();
+    expect(acts("case-270042")).toHaveLength(count);
+    expect(await rt.run("command", caseStart.key, { caseId: "case-270042", startDate: "2027-02-03", plan }, sara())).toMatchObject({ ok: true });
+    const mondays = acts("case-270042").filter((a) => a.startsAt.endsWith("T14:00")).map((a) => a.startsAt);
+    expect(new Set(mondays).size).toBe(mondays.length);
   });
 });

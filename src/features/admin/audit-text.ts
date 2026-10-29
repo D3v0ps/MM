@@ -121,6 +121,11 @@ const DETAIL_KEY: Record<string, string> = {
   // Spår B (Karims beslut 2026-10-22): byt yrkesområde och automatisk månadsbedömning – koder, id:n och antal.
   fromArea: "Från yrkesområde", toArea: "Till yrkesområde", effectiveMonth: "Fakturan från", changeId: "Byte", noteId: "Anteckning med motivering",
   aiQueued: "AI-utkast beställda", reviewed: "Genomgången", autoAreas: "Automatiska områden", coachAreas: "Coachens val", aiAccepted: "Godtagna AI-förslag",
+  // Ändra startdatum (Karims beslut 2026-10-29): datum, id:n och antal – aldrig motiveringen.
+  seq: "Ändringens nummer", removedActivityIds: "Borttagna tillfällen", removedAutoAttendanceIds: "Borttagen automatisk närvaro",
+  keptActivityIds: "Tillfällen som låg kvar", droppedMonths: "Månader utan månadsrapport", removedReportIds: "Borttagna rapportutkast",
+  removedAssessmentIds: "Borttagna bedömningsutkast", removedPlanIds: "Borttagna planutkast", correctionReportIds: "Rapporter att rätta", taskId: "Uppgift",
+  finishedBy: "Gjordes klar av", failed: "Avbröts", error: "Felkod",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -235,7 +240,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return fmtDateTime(s);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
   if (/^\d{4}-W\d{2}$/.test(s)) return fmtWeekKey(s);
-  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || k === "effectiveMonth" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
+  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || k === "effectiveMonth" || k === "droppedMonths" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
   return s;
 }
 
@@ -245,11 +250,14 @@ const COUNTED: Record<string, [string, string]> = {
   activityIds: ["tillfälle", "tillfällen"], attendanceIds: ["närvaropost", "närvaroposter"], skippedActivityIds: ["tillfälle", "tillfällen"], caseIds: ["ärende", "ärenden"],
   skippedCaseIds: ["ärende", "ärenden"], groupingIds: ["nivå eller grupp", "nivåer eller grupper"],
   addedCaseIds: ["ärende", "ärenden"], removedCaseIds: ["ärende", "ärenden"], groupActivityIds: ["tillfälle", "tillfällen"],
+  removedActivityIds: ["tillfälle", "tillfällen"], removedAutoAttendanceIds: ["närvaropost", "närvaroposter"], keptActivityIds: ["tillfälle", "tillfällen"],
+  removedReportIds: ["rapport", "rapporter"], removedAssessmentIds: ["bedömning", "bedömningar"], removedPlanIds: ["plan", "planer"], correctionReportIds: ["rapport", "rapporter"],
 };
 /** Gruppaktiviteternas målgrupp (audience) – samma nyckel som rapportbyggarens visning, så ordet beror på objektet. */
 const GROUP_ENTITIES = new Set(["group_activity", "group_activity_series"]);
 const AUDIENCE_WORD: Record<string, string> = { level: "nivå", area: "yrkesområde", manual: "inbjudna för hand" };
-const keyLabel = (k: string, a: AuditEntryLike): string => (k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k));
+const keyLabel = (k: string, a: AuditEntryLike): string =>
+  k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : k === "changeId" && a.action === "case.start_date_changed" ? "Ändring" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k);
 
 /**
  * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället

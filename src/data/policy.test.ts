@@ -334,9 +334,10 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
     expect((await repoFor(AMIRA).table("notification_reads").list()).every((r) => r.userId === "u-amira")).toBe(true);
   });
   it("revisionsloggen: admin och chef", async () => {
-    // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07).
-    expect(await count(ROBIN, "audit_log")).toBe(19);
-    expect(await count(KARIN, "audit_log")).toBe(19);
+    // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07); plus
+    // testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20.
+    expect(await count(ROBIN, "audit_log")).toBe(20);
+    expect(await count(KARIN, "audit_log")).toBe(20);
     for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.role, await count(a, "audit_log")]).toEqual([a.role, 0]);
   });
   it("utskick: admin och samordnare", async () => {
@@ -807,11 +808,17 @@ describe("ändra startdatum (case_start_changes, 0038, Karims beslut 2026-10-29)
     });
     await refused((s) => s.insertRow("attendance", registered("manual")), "manuell närvaro");
     await refused((s) => s.updateRow("cases", NEW, { status: "closed" }), "avslutad");
+    // En godkänd mötesrapport före det nya datumet stoppar som manuell närvaro (checkInsBeforeStart); ett utkast gör det inte.
+    const checkIn = (status: "approved" | "draft"): Tables["check_ins"] => ({
+      ...all("check_ins")[0], id: "ci-csc", caseId: NEW, heldAt: "2027-02-01T13:00", status, approvedBy: status === "approved" ? "u-amira" : null, approvedAt: null,
+    });
+    await refused((s) => s.insertRow("check_ins", checkIn("approved")), "godkänd mötesrapport");
     // Ett underlag, en krediterad faktura och automatisk närvaro stoppar inte (hanteraren tar bort tillfället och raden efteråt).
     const allowed: ((s: MemoryStore<Tables>) => void)[] = [
       (s) => s.insertRow("invoice_drafts", draft("2027-02", "draft")),
       (s) => s.insertRow("invoice_drafts", draft("2027-02", "credited")),
       (s) => s.insertRow("attendance", registered("auto")),
+      (s) => s.insertRow("check_ins", checkIn("draft")),
     ];
     for (const prepare of allowed) {
       const s = fresh();
@@ -819,6 +826,28 @@ describe("ändra startdatum (case_start_changes, 0038, Karims beslut 2026-10-29)
       prepare(s);
       await expect(repoFor(AMIRA, s).table("case_start_changes").insert(change())).resolves.toBeTruthy();
     }
+  });
+
+  it("en månad som blir utan månadsrapport: en lämnad, granskad eller godkänd rapport eller en godkänd bedömning stoppar – utkast gör det inte", async () => {
+    // 1 → 25 februari: februari får 4 inskrivna dagar (Botkyrka: minst 11).
+    const later = change({ toDate: "2027-02-25" });
+    const report = (status: Tables["reports"]["status"], patch: Partial<Tables["reports"]> = {}): Tables["reports"] => ({
+      ...all("reports").find((r) => r.kind === "monthly")!, id: "rep-csc", caseId: NEW, month: "2027-02", periodStart: "2027-02-01", periodEnd: "2027-02-28", status, superseded: false, ...patch,
+    });
+    const assessment = (status: "approved" | "draft"): Tables["monthly_assessments"] => ({ ...all("monthly_assessments")[0], id: "ma-csc", caseId: NEW, month: "2027-02", status });
+    const attempt = async (prepare: (s: MemoryStore<Tables>) => void, x = later) => {
+      const s = fresh();
+      s.insertRow("case_notes", note("note-csc"));
+      prepare(s);
+      return repoFor(AMIRA, s).table("case_start_changes").insert(x).then(() => true, (e) => (e instanceof PolicyError ? false : Promise.reject(e)));
+    };
+    for (const status of ["delivered", "opened", "approved", "reviewed"] as const) expect(await attempt((s) => s.insertRow("reports", report(status))), status).toBe(false);
+    expect(await attempt((s) => s.insertRow("monthly_assessments", assessment("approved"))), "godkänd bedömning").toBe(false);
+    expect(await attempt((s) => s.insertRow("reports", report("draft"))), "utkast").toBe(true);
+    expect(await attempt((s) => s.insertRow("reports", report("delivered", { superseded: true }))), "ersatt").toBe(true);
+    expect(await attempt((s) => s.insertRow("monthly_assessments", assessment("draft"))), "bedömning som utkast").toBe(true);
+    // 1 → 18 februari behåller februari (11 dagar): en lämnad rapport stoppar inte.
+    expect(await attempt((s) => s.insertRow("reports", report("delivered")), change({ toDate: "2027-02-18" })), "februari behålls").toBe(true);
   });
 
   it("fasen följer med när den var startdatumet; en pausad insats kan ändras; servern ändrar inte ärendet", async () => {
@@ -862,6 +891,18 @@ describe("ändra startdatum (case_start_changes, 0038, Karims beslut 2026-10-29)
     const own = s.rows("cases").find((c) => c.referrerId === MARIA.userId && !c.startDate && c.contractId === "c-bot");
     if (own) await expect(cases(MARIA).update(own.id, { startDate: "2027-02-03" })).rejects.toBeInstanceOf(PolicyError);
     await expect(cases(AMIRA).update(confirmed.id, { startDate: "2027-02-03", status: "active" })).resolves.toBeTruthy();
+    // Ett bekräftat ärende som redan har ett startdatum (BOT-27-0042, 2 februari) startas med ett annat datum – av Miljonbemanning.
+    expect(s.getRow("cases", "case-270042")).toMatchObject({ status: "confirmed", startDate: "2027-02-02" });
+    await expect(cases(LARS).update("case-270042", { startDate: "2027-02-03", status: "active" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).update("case-270042", { startDate: "2027-02-03", status: "active" })).resolves.toBeTruthy();
+    // Spärren går inte runt via statusen: en startad insats blir aldrig ostartad igen.
+    await expect(cases(SARA).update(NEW, { status: "confirmed" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).update(NEW, { status: "paused" })).resolves.toBeTruthy();
+    // Ett nytt ärende har inget startdatum – inte heller kommunens beställning.
+    const order = s.rows("cases").find((c) => c.referrerId === MARIA.userId && c.status === "received")!;
+    const fresh2 = { ...order, id: "case-ny", caseNumber: "BOT-27-9999" };
+    await expect(cases(MARIA).insert({ ...fresh2, startDate: "2027-01-05" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).insert({ ...fresh2, id: "case-ny2", startDate: "2027-01-05" })).rejects.toBeInstanceOf(PolicyError);
   });
 
   it("kedjan: med klocka registreras ändringen med aktuell tid; en ändring ändras och raderas aldrig", async () => {

@@ -176,8 +176,11 @@ const WRITES: Record<string, string[]> = {
   // Grupp och inbjudningar följer direkt (syncAudienceInvites): deltagarens rader i kommande aktiviteter med målgrupp.
   "arenden.bytYrkesomrade": ["case_notes", "case_area_changes", "cases", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   // Ändra startdatum (Karims beslut 2026-10-29): anteckningen, ändringen och ärendet, tillfällena och den automatiska närvaron före det
-  // nya datumet, uppgifterna om inbjudan och inbjudningarna (syncAudienceInvites).
-  "arenden.andraStartdatum": ["case_notes", "case_start_changes", "cases", "activities", "attendance", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  // nya datumet, utkasten till månadsrapport, månadsbedömning och plan för en månad som blir utan månadsrapport (och den förifyllda
+  // bedömningens närvaro), uppgiften att rätta lämnade rapporter, uppgifterna om inbjudan och inbjudningarna (syncAudienceInvites).
+  "arenden.andraStartdatum": [
+    "case_notes", "case_start_changes", "cases", "activities", "attendance", "reports", "monthly_assessments", "monthly_plans", "outbound_messages", "tasks", AUDIT_CASE, AUDIT,
+  ],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */

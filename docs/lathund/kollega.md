@@ -92,21 +92,25 @@ Hela vägen för en deltagare, från beställning till avslut, står i **Rutin f
 
 ### Ändra startdatum
 
-Började deltagaren en annan dag än den som registrerades? Huvudcoachen, de andra coacherna, samordnaren och avtalsansvarig kan ändra startdatumet i en pågående insats.
+Började deltagaren en annan dag än den som registrerades? Huvudcoachen, de andra coacherna, samordnaren och avtalsansvarig kan ändra startdatumet i en pågående eller pausad insats.
 
-1. Tryck på **Ändra startdatum** vid **Start** i deltagarkortets huvud.
+1. Tryck på **Ändra startdatum** bland knapparna i deltagarkortets huvud.
 2. Välj **Nytt startdatum**. Det kan vara tidigast första mötets dag och senast planerat slut.
-3. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet och kan inte ändras eller tas bort efteråt. Kommunen ser den aldrig.
+3. Skriv en kort **Motivering**, 10–300 tecken. Räknaren under fältet visar hur många tecken du har skrivit. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet och kan inte ändras eller tas bort efteråt. Kommunen ser den aldrig.
 4. Tryck på **Ändra startdatum**.
 
 Det här händer:
 
-- Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har närvaro. Automatiskt registrerad närvaro tas bort med tillfället.
-- Har ett tillfälle före det nya datumet närvaro som någon har registrerat, går det inte att ändra. Meddelandet säger vilket startdatum som går.
+- Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har registrerad närvaro eller bara har automatisk närvaro. Den automatiska närvaron tas bort med tillfället.
+- Har ett tillfälle före det nya datumet närvaro som någon har registrerat, eller finns en godkänd mötesrapport före det nya datumet, går det inte att ändra. Meddelandet säger vilket startdatum som går.
+- Får en månad för få dagar för en månadsrapport med det nya startdatumet tas utkasten till månadsrapport och månadsbedömning för den månaden bort. Är månadsrapporten redan godkänd eller lämnad till kommunen, eller månadsbedömningen godkänd, går det inte att ändra. Meddelandet säger vilket startdatum som går.
+- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i Min vecka att rätta dem.
 - Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt.
 - Planerat slut ändras inte.
-- Är månaden redan fakturerad går det inte att ändra. Då behöver ekonomen kreditera fakturan först.
+- Är månaden redan fakturerad, eller har ekonomen godkänt månadens faktura, går det inte att ändra. Kontakta ekonomen. En fakturerad månad behöver krediteras först.
+- Läggs deltagaren till i eller tas bort ur en kommande gruppaktivitet får deltagaren aktivitetens vanliga meddelande med tid och plats.
 - Kommunen får inget meddelande. Portalen visar det nya startdatumet.
+- Hann allt inte göras klart, till exempel vid ett tillfälligt fel, säger meddelandet det. Startdatumet är ändå ändrat, och resten görs klart automatiskt.
 
 Ändringarna står under raden med startdatumet, med vem som ändrade och motiveringen.
 

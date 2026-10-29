@@ -8,7 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { accessIndex, caseAccessIn } from "@/core/access";
 import { defaultGroupings } from "@/core/groupings";
 import { requireOperational } from "@/core/config";
-import { startChangeLock, startChangeMonths } from "@/core/start-date";
+import { startChangeLock, startChangeMonths, startChangeReportLock } from "@/core/start-date";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
 import { listPersonas, type Persona } from "../actors";
@@ -3081,6 +3081,67 @@ describe("ändra startdatum (0038): läsning och skrivning – samma regler i RL
     }
   });
 
+  // Granskningen 2026-10-29: en godkänd mötesrapport före det nya datumet och en lämnad eller godkänd rapport för en månad som blir
+  // utan månadsrapport stoppar (checkInsBeforeStart, startChangeReportLock – mm.start_change_report_month).
+  const checkIn = (status: "approved" | "draft"): Tables["check_ins"] => ({
+    ...data.check_ins[0], id: "ci-csc", caseId: NEW, heldAt: "2027-02-01T13:00", status, approvedBy: status === "approved" ? "u-amira" : null, approvedAt: null, aiRunId: null,
+  });
+  const monthlyReport = (status: Tables["reports"]["status"], patch: Partial<Tables["reports"]> = {}): Tables["reports"] => ({
+    ...data.reports.find((x) => x.kind === "monthly")!, id: "rep-csc", caseId: NEW, month: "2027-02", periodStart: "2027-02-01", periodEnd: "2027-02-28", status,
+    superseded: false, previousId: null, correctionPending: null, supersededBy: null, supersededAt: null, snapshot: null, ...patch,
+  });
+  const assessment = (status: "approved" | "draft", patch: Partial<Tables["monthly_assessments"]> = {}): Tables["monthly_assessments"] => ({
+    ...data.monthly_assessments[0], id: "ma-csc", caseId: NEW, month: "2027-02", status, ...patch,
+  });
+
+  it("godkänd mötesrapport före det nya datumet och en lämnad, granskad eller godkänd rapport eller bedömning för en månad som blir utan rapport stoppar – utkast gör det inte", async () => {
+    // 1 → 25 februari: februari får 4 inskrivna dagar (Botkyrka: minst 11).
+    const r = row("csc-g", "u-amira", { toDate: "2027-02-25" });
+    const cases: [string, Extra, boolean][] = [
+      ["godkänd mötesrapport", { check_ins: [checkIn("approved")] }, false],
+      ["mötesrapport som utkast", { check_ins: [checkIn("draft")] }, true],
+      ["lämnad februarirapport", { reports: [monthlyReport("delivered")] }, false],
+      ["öppnad februarirapport", { reports: [monthlyReport("opened")] }, false],
+      ["godkänd februarirapport", { reports: [monthlyReport("approved")] }, false],
+      ["granskad februarirapport", { reports: [monthlyReport("reviewed")] }, false],
+      ["ersatt lämnad rapport", { reports: [monthlyReport("delivered", { superseded: true })] }, true],
+      ["februarirapport som utkast", { reports: [monthlyReport("draft")] }, true],
+      ["godkänd bedömning", { monthly_assessments: [assessment("approved")] }, false],
+      ["bedömning som utkast", { monthly_assessments: [assessment("draft")] }, true],
+    ];
+    for (const [label, extra, want] of cases) {
+      expect({ pg: await pgChange("u-amira", r, [noteFor(r)], extra), mem: memWrite(r, "u-amira", [noteFor(r)], extra) }, label).toEqual({ pg: want, mem: want });
+    }
+    // 1 → 18 februari behåller februari (11 dagar): en lämnad rapport stoppar inte.
+    const keep = row("csc-h", "u-amira", { toDate: "2027-02-18" });
+    const extra = { reports: [monthlyReport("delivered")] };
+    expect({ pg: await pgChange("u-amira", keep, [noteFor(keep)], extra), mem: memWrite(keep, "u-amira", [noteFor(keep)], extra) }).toEqual({ pg: true, mem: true });
+  });
+
+  it("månaderna utan månadsrapport: databasens mm.start_change_report_month svarar som startChangeReportLock", async () => {
+    const reports = [monthlyReport("delivered", { id: "rep-csc-feb" }), monthlyReport("approved", { id: "rep-csc-mar", month: "2027-03" })];
+    const assessments = [assessment("approved", { id: "ma-csc-apr", month: "2027-04" })];
+    const ranges: [string, string, string | null][] = [
+      ["2027-02-01", "2027-02-25", null], ["2027-02-01", "2027-02-18", null], ["2027-02-01", "2027-03-25", null], ["2027-02-25", "2027-02-01", null],
+      ["2027-03-01", "2027-04-25", null], ["2027-04-01", "2027-04-25", null], ["2027-02-01", "2027-02-12", "2027-02-20"], ["2027-02-01", "2027-02-12", null],
+    ];
+    const lockData = { reports: [...data.reports, ...reports], assessments: [...data.monthly_assessments, ...assessments], minEnrolledDays: 11 };
+    const want = ranges.map(([from, to, end]) => startChangeReportLock({ id: NEW, status: "active", startDate: from, endDate: end }, from, to, lockData)?.month ?? null);
+    const got: (string | null)[] = [];
+    await db.transaction(async (tx) => {
+      for (const x of reports) await tx.query(insertSql("reports", x as unknown as Record<string, unknown>));
+      for (const x of assessments) await tx.query(insertSql("monthly_assessments", x as unknown as Record<string, unknown>));
+      for (const [from, to, end] of ranges) {
+        got.push((await tx.query<{ m: string | null }>("select mm.start_change_report_month($1, 'c-bot', $2::date, $3::date, $4::date) as m", [NEW, from, to, end])).rows[0].m);
+      }
+      await tx.rollback();
+    });
+    expect(got).toEqual(want);
+    // Facit: februari faller bort och är lämnad, mars faller bort och är godkänd, aprils bedömning är godkänd; ett slutdatum 20
+    // februari ger 1–12 februari 9 dagar kvar.
+    expect(want).toEqual(["2027-02", null, "2027-02", null, "2027-03", "2027-04", "2027-02", null]);
+  });
+
   it("månaderna och spärren: databasens mm.start_change_locked_month svarar som startChangeMonths och startChangeLock", async () => {
     const extraDrafts = [draft("2027-03", "approved"), draft("2027-04", "draft")];
     const ranges: [string, string, string[]][] = [
@@ -3144,11 +3205,35 @@ describe("ändra startdatum (0038): läsning och skrivning – samma regler i RL
       // Startdatumet sätts när insatsen startar – av Miljonbemanning, aldrig av ekonomen.
       ["u-lars", confirmed.id, "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
       ["u-amira", confirmed.id, "update public.cases set start_date = '2027-02-03', status = 'active' where id = '{id}'", { startDate: "2027-02-03", status: "active" }, true],
+      // Ett bekräftat ärende som redan har ett startdatum (BOT-27-0042, 2 februari) startas med ett annat datum (granskningen
+      // 2026-10-29) – av Miljonbemanning, aldrig av ekonomen.
+      ["u-sara", "case-270042", "update public.cases set start_date = '2027-02-03', status = 'active' where id = '{id}'", { startDate: "2027-02-03", status: "active" }, true],
+      ["u-lars", "case-270042", "update public.cases set start_date = '2027-02-03' where id = '{id}'", { startDate: "2027-02-03" }, false],
+      // Spärren går inte runt via statusen: en startad insats blir aldrig ostartad igen.
+      ["u-sara", NEW, "update public.cases set status = 'confirmed' where id = '{id}'", { status: "confirmed" }, false],
+      ["u-sara", NEW, "update public.cases set status = 'paused' where id = '{id}'", { status: "paused" }, true],
     ];
     for (const [key, id, sql, patch, want] of cases) {
       expect({ pg: await pgWrite(key, sqlFor(sql, id)), mem: memCase(key, id, patch) }, `${key} ${sql}`).toEqual({ pg: want, mem: want });
     }
     expect(await asPersona(findPersona("u-amira"), (tx) => attempt(tx, `update public.cases set start_date = '2027-02-03' where id = '${NEW}'`))).toMatchObject({ ok: false, code: "42501" });
+    // Ett nytt ärende har inget startdatum: kommunens beställning (eller samordnarens) med startdatum nekas – utan går den som förut.
+    const tpl = data.cases.find((c) => c.referrerId === "k-maria" && c.status === "received") ?? data.cases.find((c) => c.referrerId === "k-maria")!;
+    const person = { ...data.persons.find((x) => x.id === tpl.personId)!, id: "p-csc" };
+    const order = (startDate: string | null): Case => ({
+      ...tpl, id: "case-csc", caseNumber: "BOT-27-9999", personId: person.id, status: "received", leadCoachId: null, confirmedAt: null, firstMeetingAt: null, startDate,
+      endDate: null, closedAt: null, endReason: null, phase: 0, phaseSince: null,
+    });
+    const insertCase = async (key: string, c: Case) => {
+      const p = findPersona(key);
+      const pg = allowed(await asUser(db, authOf(p.actor.userId), (tx) => attempt(tx, insertSql("cases", c as unknown as Record<string, unknown>)), {
+        before: async (tx) => { await tx.query(insertSql("persons", person as unknown as Record<string, unknown>)); },
+      }));
+      return { pg, mem: canWriteRow("cases", c, actorOf(p), memWith({ persons: [person] })) };
+    };
+    expect(await insertCase("k-maria", order("2027-01-05")), "kommunen med startdatum").toEqual({ pg: false, mem: false });
+    expect(await insertCase("u-sara", order("2027-01-05")), "samordnaren med startdatum").toEqual({ pg: false, mem: false });
+    expect(await insertCase("k-maria", order(null)), "kommunen utan startdatum").toEqual({ pg: true, mem: true });
     const ref = confirmed.referrerId ? personas.find((p) => p.actor.userId === confirmed.referrerId && p.actor.role === "kommun_handlaggare") : undefined;
     if (ref) {
       expect({ pg: await pgWrite(personaKey(ref), `update public.cases set start_date = '2027-02-03' where id = '${confirmed.id}'`), mem: memCase(personaKey(ref), confirmed.id, { startDate: "2027-02-03" }) })

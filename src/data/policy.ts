@@ -69,10 +69,12 @@
 //   datum         utom ekonomen (raden har bara datum och id:n) · skapas av coach, samordnare och avtalsansvarig med full
 //                 åtkomst, i eget namn, med en ny egen anteckning som motivering och aktuell tid · en ny rad ändrar ärendets
 //                 startdatum i samma steg (afterInsert) och bara när ärendet har det gamla startdatumet, pågår eller är pausat,
-//                 det nya ligger mellan första mötet och planerat slut, ingen av månaderna emellan är fakturerad eller godkänd och
-//                 inget tillfälle före det nya datumet har manuell närvaro · ändras och raderas aldrig · aldrig kommunen. Ett
-//                 satt startdatum ändras aldrig direkt i ärendet (bara via en ändring), och bara coach, samordnare och
-//                 avtalsansvarig sätter det när insatsen startar
+//                 det nya ligger mellan första mötet och planerat slut, ingen av månaderna emellan är fakturerad eller godkänd,
+//                 inget tillfälle före det nya datumet har manuell närvaro, ingen mötesrapport före det är godkänd och ingen
+//                 månad som blir utan månadsrapport har en lämnad eller godkänd rapport eller en godkänd bedömning · ändras och
+//                 raderas aldrig · aldrig kommunen. Startdatumet i en startad insats (pågår, pausad, avslutad) ändras aldrig
+//                 direkt i ärendet (bara via en ändring); bara coach, samordnare och avtalsansvarig sätter det när insatsen
+//                 startar, och ett nytt ärende skapas aldrig med startdatum
 //   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -87,7 +89,9 @@ import type { Cascade, Policies, RawAccess, RowPolicy } from "./memory";
 import { PolicyError } from "./repo";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
 import { AREA_CHANGE_READERS, AREA_CHANGE_STATUSES, AREA_CHANGERS, effectiveMonthOf } from "@/core/area-changes";
-import { phaseSinceAfter, START_CHANGE_READERS, START_CHANGE_STATUSES, START_CHANGERS, startChangeLock, startChangeMonths } from "@/core/start-date";
+import {
+  phaseSinceAfter, START_CHANGE_READERS, START_CHANGE_STATUSES, START_CHANGERS, startChangeLock, startChangeMinDays, startChangeMonths, startChangeReportLock,
+} from "@/core/start-date";
 import type { Case, Report, TableName, Tables } from "./schema";
 import { dayOf, diffMinutes } from "@/core/time";
 
@@ -183,6 +187,8 @@ const workOn = (caseId: string, a: Actor, raw: Raw) => {
 function caseWrite(c: Case, a: Actor, raw: Raw): boolean {
   const cur = raw.get("cases", c.id);
   if (cur && (!caseAreaGuard(cur, c, a) || !caseStartGuard(cur, c, a))) return false;
+  // Ett nytt ärende har inget startdatum – det sätts när insatsen startar (triggern cases_start_date_guard, 0038).
+  if (!cur && c.startDate != null) return false;
   const acc = accessOfCase(raw, a, c);
   if (a.role === "samordnare" || a.role === "avtalsansvarig") return acc === "full";
   if (a.role === "coach") return acc === "full" && exists(raw, "cases", c.id); // coachen skapar inga ärenden
@@ -701,11 +707,16 @@ function manualAttendanceBefore(raw: Raw, caseId: string, day: string): boolean 
   const before = new Set(raw.all("activities").filter((a) => a.caseId === caseId && dayOf(a.startsAt) < day).map((a) => a.id));
   return before.size > 0 && raw.all("attendance").some((t) => t.source === "manual" && before.has(t.activityId));
 }
+/** En godkänd mötesrapport i ärendet hölls före dagen (checkInsBeforeStart). */
+const approvedCheckInBefore = (raw: Raw, caseId: string, day: string): boolean =>
+  raw.all("check_ins").some((x) => x.caseId === caseId && x.status === "approved" && dayOf(x.heldAt) < day);
+
 /**
  * Ärendet kan få det nya startdatumet (mm.apply_case_start_change, 0038): ärendet har fortfarande det gamla, pågår eller är
  * pausat, det nya ligger tidigast första mötets dag och senast slutdatumet (eller planerat slut), ingen av månaderna emellan är
- * fakturerad eller godkänd (startChangeLock – mm.start_change_locked_month) och inget tillfälle före det nya datumet har manuell
- * närvaro.
+ * fakturerad eller godkänd (startChangeLock – mm.start_change_locked_month), inget tillfälle före det nya datumet har manuell
+ * närvaro, ingen mötesrapport före det är godkänd och ingen månad som blir utan månadsrapport har en lämnad eller godkänd
+ * rapport eller en godkänd bedömning (startChangeReportLock – mm.start_change_report_month).
  */
 function caseStartChangeApplies(x: CaseStartChangeRow, raw: Raw): boolean {
   const c = raw.get("cases", x.caseId);
@@ -715,7 +726,9 @@ function caseStartChangeApplies(x: CaseStartChangeRow, raw: Raw): boolean {
   if (end && x.toDate > end) return false;
   const billing = { drafts: raw.all("invoice_drafts"), lines: raw.all("invoice_lines"), runs: raw.all("billing_runs") };
   if (startChangeLock(c, startChangeMonths(x.fromDate, x.toDate, c.pausedWeeks), billing)) return false;
-  return !manualAttendanceBefore(raw, c.id, x.toDate);
+  if (manualAttendanceBefore(raw, c.id, x.toDate) || approvedCheckInBefore(raw, c.id, x.toDate)) return false;
+  const reports = { reports: raw.all("reports"), assessments: raw.all("monthly_assessments"), minEnrolledDays: startChangeMinDays(raw.get("contracts", c.contractId)?.config) };
+  return !startChangeReportLock(c, x.fromDate, x.toDate, reports);
 }
 /** Högsta skillnaden i minuter mellan ändringens tid och klockan, och mellan ändringen och anteckningen (triggern: 600 sekunder). */
 const START_CHANGE_CLOCK_MINUTES = 10;
@@ -751,14 +764,20 @@ function caseStartChangeApply(x: CaseStartChangeRow, _a: Actor, raw: Raw): reado
   if (!c || !caseStartChangeApplies(x, raw)) throw new PolicyError("case_start_changes");
   return [{ table: "cases", id: c.id, patch: { startDate: x.toDate, phaseSince: phaseSinceAfter(c.phaseSince, x.fromDate, x.toDate) } }];
 }
+/** Insatsen har startat: startdatumet ändras då bara med Ändra startdatum (cases_start_date_guard, 0038). */
+const STARTED: readonly Case["status"][] = ["active", "paused", "closed"];
 /**
- * Ärendets startdatum (triggern cases_start_date_guard, 0038): ett satt startdatum ändras aldrig direkt – bara via en ändring
- * (caseStartChangeApply). Startdatumet sätts när insatsen startar, och bara av coach, samordnare och avtalsansvarig – aldrig av
- * ekonomen eller kommunen.
+ * Ärendets startdatum (triggern cases_start_date_guard, 0038): startdatumet i en startad insats (pågår, pausad eller avslutad)
+ * ändras aldrig direkt – bara via en ändring (caseStartChangeApply). Före start (t.ex. ett bekräftat ärende med ett startdatum
+ * från beställningen) sätts det när insatsen startar, och bara av coach, samordnare och avtalsansvarig – aldrig av ekonomen eller
+ * kommunen. Spärren går inte runt via statusen: en startad insats blir aldrig ostartad igen. Ett nytt ärende har inget startdatum
+ * (caseWrite).
  */
 function caseStartGuard(cur: Case, next: Case, a: Actor): boolean {
+  if (STARTED.includes(cur.status) && !STARTED.includes(next.status)) return false;
   if ((next.startDate ?? null) === (cur.startDate ?? null)) return true;
-  return cur.startDate == null && has(START_CHANGERS, a);
+  if (cur.startDate != null && STARTED.includes(cur.status)) return false;
+  return has(START_CHANGERS, a);
 }
 
 // ---------------------------------------------------------------- Tabellerna
