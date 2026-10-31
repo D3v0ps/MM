@@ -58,13 +58,15 @@ export function InkorgScreen({ params, query }: ScreenProps) {
 }
 
 /** Posten som visas först (prototypens initial): mejlet i adressen, ärendets avrop, senaste avropet eller det mest brådskande. */
-function initialPick(d: InboxList, emailId: string | null, caseId: string | null, latest: boolean): string | null {
+export function initialPick(d: Pick<InboxList, "rows" | "pending">, emailId: string | null, caseId: string | null, latest: boolean): string | null {
   const rows = d.rows;
   if (emailId && rows.some((x) => x.id === emailId)) return emailId;
   if (caseId) {
     const byCase = rows.filter((x) => x.caseId === caseId);
     const pick = byCase.find((x) => x.cls === "order") ?? byCase[0];
-    if (pick) return pick.id;
+    // Ärendet har inget i inkorgen (t.ex. en beställning i portalen som redan startat): ingen annan post väljs i stället – det
+    // skulle visa en annan deltagares avrop.
+    return pick ? pick.id : null;
   }
   if (latest) {
     const pending = new Set(d.pending);

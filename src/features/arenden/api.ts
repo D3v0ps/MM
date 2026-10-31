@@ -3,7 +3,8 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER, GRUPPER, CASE_FACTS } from "@/api/invalidation";
 import {
-  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
+  type ParticipantFileCategory,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
@@ -328,6 +329,79 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
   >
 >();
 
+// ---------------------------------------------------------------- Ändra startdatum (Karims beslut 2026-10-29)
+/**
+ * Startdatumet på deltagarkortet (bara Miljonbemanning): nuvarande startdatum, om det får ändras och inom vilka datum, och
+ * ändringarna hittills (nyast först) med motiveringen. null = ingen åtkomst till ärendet (kommunen ser startdatumet i portalen –
+ * aldrig ändringarna eller motiveringen).
+ */
+export type CaseStartView = {
+  caseId: string;
+  startDate: LocalDate | null;
+  /** Coach, samordnare och avtalsansvarig med full åtkomst i en pågående eller pausad insats (annars ingen knapp). */
+  canChange: boolean;
+  /** Tidigast: första mötets dag (null = inget möte registrerat). */
+  earliest: LocalDate | null;
+  /** Senast: slutdatumet, annars planerat slut (null = inget angivet). */
+  latest: LocalDate | null;
+  /** Ändringarna, nyast först. motivation = den låsta anteckningen (null om läsaren inte ser den). */
+  history: { id: string; changedAt: LocalDateTime; fromDate: LocalDate; toDate: LocalDate; byName: string; motivation: string | null }[];
+};
+// Nyckeln ligger utanför CARD ("arenden.kort…") som yrkesområdets rad: den ändras bara när ärendet ändras (CASES räknar om den).
+export const caseStartView = query("arenden.startdatum", z.object({ caseId: IdSchema })).returns<CaseStartView | null>();
+
+/**
+ * Ändra startdatumet i en pågående eller pausad insats med en kort motivering (10–300 tecken, inga personnummer). Kontrollen och
+ * följderna i src/core/start-date.ts (planStartChange): inte före första mötets dag, inte efter planerat slut, ingen av månaderna
+ * som ändringen rör får vara fakturerad eller godkänd (då behöver ekonomen kreditera först), ett tillfälle före det nya datumet
+ * med närvaro som en människa registrerat eller en godkänd mötesrapport före det stoppar ändringen, och en månad som blir utan
+ * månadsrapport får inte redan ha en lämnad eller godkänd rapport, en godkänd bedömning eller en bedömning som coachen sparat
+ * (report). I ordning: motiveringen
+ * sparas som en låst anteckning i deltagarkortet (bara Miljonbemanning ser den), ändringen sparas (case_start_changes – ärendets
+ * startdatum ändras i samma steg), tillfällena före det nya datumet utan närvaro eller med bara automatisk närvaro tas bort (den
+ * automatiska närvaron med dem), systemets utkast för en månad som blir utan månadsrapport tas bort (planen ligger kvar när nästa
+ * månad får en rapport), samordnaren får en uppgift att rätta rapporter som redan är lämnade till kommunen och räknade med ett annat
+ * startdatum (ärendets tidigare uppgift stängs), revisionsloggen får case.start_date_changed (id:n och datum – aldrig
+ * motiveringen) och inbjudningarna till kommande gruppaktiviteter med målgrupp följer det nya datumet (deltagaren får då
+ * aktivitetens vanliga meddelande med tid och plats). Inga tillfällen skapas bakåt i tiden. Planerat slut ändras inte. Kommunen
+ * får inget meddelande. Avbryts det som görs efter att ändringen sparats svarar kommandot ok med incomplete – resten görs klart av
+ * nästa ändring i ärendet eller rapportjobbet.
+ */
+// Omräkning CASE_FACTS (brett med flit), grupperna och inkorgen: startdatumet styr fakturaunderlaget, närvaron, veckorapporterna,
+// flaggorna, listorna, kortet, portalen och aktiviteterna (tillfällen och inbjudningar tas bort eller läggs till).
+export const caseChangeStart = command("arenden.andraStartdatum", z.object({
+  caseId: IdSchema,
+  startDate: LocalDateSchema,
+  /** Startdatumet som dialogen visade – har ärendet ett annat nu blir det conflict (någon annan har ändrat under tiden). */
+  expectedStartDate: LocalDateSchema,
+  motivation: z.string().max(2000),
+}), { invalidates: [...CASE_FACTS, GRUPPER, INBOX] }).returns<
+  Result<
+    {
+      changeId: string; noteId: string; startDate: LocalDate;
+      /** Tillfällen före det nya startdatumet som togs bort (också rader i gruppaktiviteter). */
+      removed: number;
+      /** Automatiska närvarorader som togs bort med tillfällena. */
+      autoAttendanceRemoved: number;
+      /** Kommande gruppaktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
+      groups: { invited: number; removed: number } | null;
+      /** Månaderna som blev utan månadsrapport och månadsbedömning. */
+      droppedMonths: MonthKey[];
+      /** Månaderna där systemets utkast (rapport, bedömning eller plan) togs bort – tomt när månaden inte hade några utkast än. */
+      draftMonths: MonthKey[];
+      /**
+       * Rapporter som redan är lämnade till kommunen och räknade med ett annat startdatum – samordnaren har fått en uppgift (en
+       * tidigare uppgift i ärendet stängs). 0 = inget behöver rättas, också när starten flyttats tillbaka.
+       */
+      corrections: number;
+      /** Allt hann inte göras – startdatumet är ändrat och resten görs klart automatiskt. */
+      incomplete: boolean;
+    },
+    | "not_found" | "forbidden" | "wrong_status" | "same" | "before_meeting" | "after_end" | "invoiced" | "attendance" | "report" | "motivation" | "pnr" | "conflict"
+    | "unknown"
+  >
+>();
+
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
  * och exit-pulsmätning (inte vid skyddade personuppgifter). verified = arbete/studier är verifierat.
@@ -381,7 +455,10 @@ export type AttachmentRow = {
   sizeText: string;
   uploadedByName: string;
   createdAt: string;
-  /** Den inloggade får ta bort filen: egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig när ärendet är avslutat eller avböjt (beslut 5, 2026-10-08). */
+  /**
+   * Den inloggade får ta bort filen: egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig när ärendet
+   * är avslutat eller avböjt (beslut 5, 2026-10-08). Deltagarfilerna: samordnare, avtalsansvarig och coach – när som helst.
+   */
   canRemove: boolean;
 };
 
@@ -549,6 +626,8 @@ export type CaseCard = {
   manage: boolean;
   /** Chef och systemadmin ser ärendet i läsläge. */
   readOnly: boolean;
+  /** Kortet Filer (CV, personligt brev, betyg och intyg) visas: samordnare, avtalsansvarig och coach med full åtkomst (0037). */
+  files: boolean;
   status: CaseStatus;
   phase: number;
   phaseName: string;
@@ -640,6 +719,12 @@ export type CaseCard = {
    * Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09).
    */
   teamOptions: { staff: { id: string; name: string }[] } | null;
+  /**
+   * Ändra startdatum (Karims beslut 2026-10-29): canChange = coach, samordnare eller avtalsansvarig med full åtkomst i en pågående
+   * eller pausad insats (knappen bland åtgärderna i kortets huvud); changes = antal ändringar hittills (raden med ändringarna hämtas bara då,
+   * arenden.startdatum).
+   */
+  startChange: { canChange: boolean; changes: number };
 };
 export type CaseCardResult =
   | CaseCard
@@ -663,8 +748,70 @@ export type CaseOverview = {
   /** Kommande 14 dagar (teamet: inga coachmöten). */
   upcoming: CaseActivity[];
   placement: { employerName: string | null; startsOn: string; endsOn: string | null; supervisorName: string; fourRights: FourRights | null } | null;
+  /**
+   * Kortet Filer (Karims beslut 2026-10-29) – med i Översikt så att kortet inte gör ett eget anrop. null för alla utom
+   * samordnare, avtalsansvarig och coach med full åtkomst (samma som CaseCard.files).
+   */
+  files: CaseFiles | null;
 };
 export const caseOverview = query("arenden.kortOversikt", CaseParams).returns<CaseOverview | null>();
+
+// ---- Filer på deltagarkortet (Karims beslut 2026-10-29, 0037): CV, personligt brev, betyg och intyg – bara Miljonbemanning.
+// "Vi vill kunna ladda upp filer på deltagares profiler. Typ CVn o så." Kommunen ser dem aldrig ("Nej, bara MB"). Samma lagring,
+// filtyper (PDF, Word, bild), storlek (10 MB) och filsignaturkontroll som bilagorna till beställningen (case_attachments,
+// kind participant). Läses, laddas upp och tas bort av samordnare, avtalsansvarig och coach med full åtkomst – aldrig ekonom,
+// chef, admin eller kommunen. Öppnas med arenden.bilagaHamta (signerad adress i 60 sekunder, loggas attachment.viewed).
+// Högst PARTICIPANT_FILE_MAX_FILES (30) filer per ärende. Uppladdning i bekräftade, pågående, pausade och avslutade ärenden;
+// ta bort när som helst. Aldrig i AI-underlag, rapporter, resultatfil, exporter, fakturor eller kommunens portal.
+
+/** En fil på deltagarkortet. */
+export type ParticipantFileRow = AttachmentRow & { category: ParticipantFileCategory; categoryLabel: string };
+/** Kortet Filer – i CaseOverview.files (arenden.kortOversikt). */
+export type CaseFiles = {
+  /** Alla fyra typer i ordning (CV, Personligt brev, Betyg och intyg, Övrigt), nyaste filen först i varje grupp. */
+  groups: { category: ParticipantFileCategory; label: string; files: ParticipantFileRow[] }[];
+  /** Antalet uppladdade filer (det som visas). */
+  count: number;
+  maxFiles: number;
+  /**
+   * Null = det högsta antalet är inte nått; annars varför det inte går att ladda upp fler. Samma räkning som
+   * arenden.deltagarfilStart: uppladdade filer plus uppladdningar som pågår (participantFileSlots i src/core/attachments.ts).
+   */
+  fullText: string | null;
+  /** Null = filer kan laddas upp; annars varför inte (beställningen är inte bekräftad eller är avböjd). */
+  uploadBlocked: string | null;
+  categories: { value: ParticipantFileCategory; label: string }[];
+  accept: string;
+  typesText: string;
+  maxBytes: number;
+  /** Hjälptexten vid filväljaren. */
+  help: string;
+};
+
+/**
+ * Börja ladda upp en fil på deltagarkortet. Kontroller: rollen, full åtkomst till ärendet, ärendets status, typen (category),
+ * filtyp, storlek och antal (högst 30 per ärende). Loggas attachment.upload_started med id, slag, typ och storlek – aldrig
+ * filnamnet. Svaret som arenden.bilagaStart (uploadUrl null i minnesläget).
+ */
+export const participantFileStart = command("arenden.deltagarfilStart", z.object({
+  caseId: IdSchema,
+  category: z.enum(PARTICIPANT_FILE_CATEGORIES),
+  fileName: z.string().max(400),
+  mimeType: z.string().max(200),
+  bytes: z.number().int().min(0).max(1_000_000_000),
+  // Raden är pending och visas inte förrän deltagarfilKlar – bara loggen (kortets Historik och revisionsloggen) räknas om.
+}), { invalidates: ["arenden.kortHistorik", ...LOG] }).returns<Result<{ attachmentId: string; uploadUrl: string | null; token: string | null; maxBytes: number }, "not_found" | "forbidden" | "wrong_status" | "invalid" | "too_many">>();
+
+/** Filen på deltagarkortet är uppladdad: storleken och filsignaturen kontrolleras (som arenden.bilagaKlar). Loggas attachment.uploaded. */
+export const participantFileDone = command("arenden.deltagarfilKlar", z.object({
+  attachmentId: IdSchema,
+  contentBase64: z.string().max(14_500_000).optional(),
+}), { invalidates: [CARD, ...LOG] }).returns<Result<{ file: ParticipantFileRow }, "not_found" | "invalid">>();
+
+/** Ta bort en fil på deltagarkortet – när som helst (inte bara efter avslutet, som beställningens bilagor). Loggas attachment.removed. */
+export const participantFileRemove = command("arenden.deltagarfilTaBort", z.object({ attachmentId: IdSchema }), { invalidates: [CARD, ...LOG] }).returns<
+  Result<object, "not_found" | "forbidden">
+>();
 
 export type CaseIntake = {
   intake: {
@@ -825,11 +972,20 @@ export type CaseMonthBasis = {
   beforeStart: boolean;
   /** Progression över tid: områdena (obligatoriska + valfria som någon gång bedömts) × månader med godkänd bedömning. */
   matrix: { months: MonthKey[]; rows: { key: string; label: string; optional: boolean; levels: (number | null)[] }[]; scale: Record<string, string> };
-  /** Förra månaden saknar bedömning (pågående ärende som startade före månadens slut). */
+  /**
+   * Förra månaden saknar bedömning (pågående ärende där förra månaden behöver en månadsbedömning – minst avtalets
+   * reportSchedule.monthly.minEnrolledDays inskrivna dagar, samma regel som rapportjobbet och coachens sparning).
+   */
   missingMonth: MonthKey | null;
-  /** Det som saknas (null när månaden är levererad eller före start). */
+  /**
+   * Den valda månaden får ingen månadsrapport och ingen månadsbedömning (färre inskrivna dagar än avtalets gräns, needsAssessment)
+   * och har ingen rapportrad: talen visas i stället för underlaget (gaps och doc är null). assessment = en bedömning finns ändå
+   * (sparad innan regeln gällde på kortet) – coachen kan öppna den. null = månaden behöver en rapport, är levererad eller före start.
+   */
+  noReport: { enrolledDays: number; minDays: number; assessment: boolean } | null;
+  /** Det som saknas (null när månaden är levererad, före start eller utan månadsrapport). */
   gaps: MonthlyGaps | null;
-  /** Samma dokument som månadsrapporten (monthlyPreview) – null när månaden är levererad eller före start. */
+  /** Samma dokument som månadsrapporten (monthlyPreview) – null när månaden är levererad, före start eller utan månadsrapport. */
   doc: Extract<ReportDocView, { kind: "monthly" }> | null;
   /** Den levererade versionen, och en rättelse som är ett utkast. */
   delivered: { reportId: string; deliveredAt: LocalDateTime; version: number; correctionDraft: number | null } | null;

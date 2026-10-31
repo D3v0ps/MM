@@ -227,7 +227,7 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
   reviewed: z.boolean().optional(),
   ...AutosaveFields,
 }), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, ...START, "admin.contract", NAV, ...LOG] }).returns<
-  | Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict" | "not_reviewed">
+  | Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict" | "not_reviewed" | "not_needed">
   | (Fail<"incomplete"> & { missing: string[] })
 >();
 
@@ -339,10 +339,11 @@ export const recordingState = query("coach.recordingState", z.object({ aiRunId: 
 
 /**
  * AI-utkast till månadsbedömningen: observation per progressionsområde, sammanfattning och plan – BARA från månadens
- * godkända avstämningar och registrerad närvaro (jobbet draft_monthly). Nivåer och samlad status sätts aldrig.
+ * godkända avstämningar och registrerad närvaro (jobbet draft_monthly). Nivåer och samlad status sätts aldrig. En månad som inte
+ * behöver någon månadsbedömning (needsAssessment) och inte har någon: not_needed – ingen AI-körning och inget jobb.
  */
 export const monthlyDraft = command("coach.monthlyDraft", z.object({ caseId: IdSchema, month: MonthKeySchema }), { invalidates: ["coach.assessmentPage", "coach.minVecka", "arenden.kortHistorik", "admin.integrations", ...LOG] }).returns<
-  Result<{ aiRunId: string; status: "running" | "succeeded" | "failed"; error: string | null }, "not_found" | "forbidden" | "ai_not_allowed" | "approved">
+  Result<{ aiRunId: string; status: "running" | "succeeded" | "failed"; error: string | null }, "not_found" | "forbidden" | "ai_not_allowed" | "approved" | "not_needed">
 >();
 
 // ================================================================ Frågor för coachens skärmar
@@ -627,6 +628,12 @@ export type AssessmentArea = {
 export type AssessmentPage = Gated<{
   now: LocalDateTime;
   month: MonthKey;
+  /**
+   * Månaden behöver ingen månadsbedömning (färre inskrivna dagar än avtalets reportSchedule.monthly.minEnrolledDays – samma regel
+   * som rapportjobbet, coachens sparning och AI-utkastet) och har ingen: sidan visar talen i stället för formuläret och AI-knappen
+   * (sparningen skulle svara not_needed). null = månaden behöver en bedömning, eller en bedömning finns redan.
+   */
+  notNeeded: { enrolledDays: number; minDays: number } | null;
   head: CaseHead;
   referrer: ReferrerView;
   aiOk: boolean;

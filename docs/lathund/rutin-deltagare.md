@@ -30,6 +30,7 @@ Vem: huvudcoachen eller den som kartlägger (i dag Adam).
 1. Kontrollera deltagarens telefonnummer och e-postadress. Fråga hur deltagaren vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och spara.
 2. Ska möten spelas in, eller ska AI få skriva utkast? Berätta vad det innebär och fråga deltagaren. Säger deltagaren ja: tryck på **Registrera samtycke**. Ett nej får inga följder.
 3. Tryck på **Starta insatsen** i deltagarkortet eller under **Insatser att starta** på Min vecka. Välj startdatum och veckoplan. Tillfällena skapas från startdatumet.
+4. Blev startdatumet fel? Tryck på **Ändra startdatum** i deltagarkortets huvud och skriv en kort motivering. Det går i en pågående eller pausad insats. Tillfällen före det nya datumet tas bort om de saknar registrerad närvaro eller bara har automatisk närvaro. Inga tillfällen skapas bakåt – lägg till dem som hände och registrera närvaron. Planerat slut ändras inte. Är månaden redan fakturerad eller godkänd av ekonomen går det inte att ändra – kontakta ekonomen. Läs mer under **Ändra startdatum** i lathunden för kollegor.
 
 ### 4. Kartläggning med nivå
 
@@ -90,12 +91,13 @@ Vem: alla som arbetar i ärendet.
 - Röd samlad status blir en avvikelse automatiskt. Fyll i åtgärd, ansvarig och datum för uppföljning. Behöver kommunen besluta något: tryck på **Kalla kommunen till uppföljning**.
 - Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Händelser och utfall**. En praktik läggs in med **Ny praktik** under fliken **Praktik**.
 - Vill deltagaren bli kontaktad på ett annat sätt? Tryck på **Ändra** vid **Kontaktväg**.
+- Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på deltagarkortets **Översikt**. Tryck på **Ladda upp fil** och välj typ och fil. Filerna syns bara för Miljonbemanning, aldrig för kommunen.
 
 ### 9. Varje månad: månadsbedömning och månadsrapport
 
 Vem: huvudcoachen.
 
-1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Den är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
+1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden, och då behövs ingen månadsbedömning. Bedömningen är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
 2. Underlaget är godkända mötesrapporter, närvaro och händelser. Har deltagaren registrerat samtycke till AI kan AI skriva ett utkast och föreslå progressionsnivå 1–3 – bara med ett citat ur underlaget. Utkastet kan också bygga på månadens anteckningar, utan personnummer och med källan utskriven. Nivå, taggar och gruppmål skickas aldrig till AI.
 3. Gå igenom varje område. Tryck på **Godta** för de AI-förslag som stämmer och välj själv där det inte stämmer. Skriv en konkret observation.
 4. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**.

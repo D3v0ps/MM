@@ -16,6 +16,7 @@ import {
 } from "@/core/labels";
 import { hasPrefill, levelSourceOf, withAutoAreas } from "@/core/monthly-prefill";
 import { notificationsFor, progressionWatch } from "@/core/progression";
+import { monthReportNeed } from "@/core/report-schedule";
 import { scopeToContract } from "@/core/scope";
 import { finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, weekMonday, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
@@ -26,7 +27,7 @@ import type { Case, CheckIn, Contract, MonthlyPrefill, Person, Report } from "@/
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
-import { aiOff, areaChangeNoteIds, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
+import { aiOff, internalNoteIds, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { recordingOffered } from "../_shared/ai-types";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
 import { loadPrefill } from "../_shared/monthly-prefill";
@@ -559,6 +560,10 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
   });
   const ma = assessmentFor(db, c.id, month);
   const plan = planOf(db, c.id, month);
+  // En månad som inte behöver någon månadsbedömning (för få inskrivna dagar – samma regel som rapportjobbet, coachens sparning
+  // och AI-utkastet, needsAssessment) och inte har någon: sidan visar talen i stället för formuläret och AI-knappen.
+  const need = monthReportNeed(c, month, env.cfg.reportSchedule?.monthly?.minEnrolledDays);
+  const notNeeded = !ma && !need.needed ? { enrolledDays: need.enrolledDays, minDays: need.minDays } : null;
   // Automatisk månadsbedömning (Karims beslut 2026-10-22): finns ingen rad (eller ingen plan) visas samma förifyllnad som
   // jobbet skapar. Ett utkast utan nivå i ett område visas med progressionsnivå 0 "Automatiskt – inget belägg".
   const approvedMa = ma?.status === "approved";
@@ -576,6 +581,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     kind: "ok" as const,
     now: env.now,
     month,
+    notNeeded,
     head,
     referrer,
     aiOk,
@@ -629,10 +635,10 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
 /**
  * Fria anteckningar från månaden (inte borttagna), lästa via ctx.repo – coachen ser bara det RLS släpper igenom. Motiveringen
  * till ett byte av yrkesområde är intern för Miljonbemanning och visas inte här – sammanfattningen blir kommunens månadsrapport
- * (samma undantag som AI-underlaget, areaChangeNoteIds).
+ * (samma undantag som AI-underlaget, internalNoteIds). Detsamma gäller motiveringen till ett ändrat startdatum.
  */
 async function monthNotes(ctx: Ctx, caseId: string, month: MonthKey): Promise<{ id: string; occurredOn: LocalDate; kindLabel: string; authorName: string; body: string }[]> {
-  const internal = areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId }));
+  const internal = internalNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId }), await ctx.repo.table("case_start_changes").pick(["noteId"], { caseId }));
   const notes = (await ctx.repo.table("case_notes").list({ caseId, occurredOn: { gte: `${month}-01`, lte: monthEnd(month) } })).filter((n) => !n.removedAt && !internal.has(n.id));
   if (!notes.length) return [];
   const profiles = await ctx.repo.table("profiles").list({ id: { in: uniq(notes.map((n) => n.authorId)) } });

@@ -33,7 +33,7 @@ export async function rowsFor(ctx: Ctx, rows: readonly CaseAttachment[], c: Pick
   const name = new Map(profiles.map((p) => [p.id, p.fullName]));
   const mbEditor = MB_EDITORS.includes(ctx.actor.role) && !!c && attachmentsRemovable(c);
   return rows
-    .filter((a) => a.status === "uploaded")
+    .filter((a) => a.status === "uploaded" && a.kind === "order")
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1))
     .map((a) => ({
       // "system" = bilagan kom med ett mejl till avrop@ och sparades av inläsningen (beslut 4c).
@@ -42,9 +42,13 @@ export async function rowsFor(ctx: Ctx, rows: readonly CaseAttachment[], c: Pick
     }));
 }
 
-/** Bakgrundsinformationen från beställningen med bilagorna (läses via behörigheten). */
+/**
+ * Bakgrundsinformationen från beställningen med bilagorna (läses via behörigheten). Bara beställningens bilagor (kind order) –
+ * filerna på deltagarkortet (CV m.m., 0037) visas i kortet Filer och aldrig här (inkorgen och acceptdialogen använder också
+ * den här funktionen).
+ */
 export async function caseBackground(ctx: Ctx, c: Case): Promise<CaseBackground> {
-  const rows = await ctx.repo.table("case_attachments").list({ caseId: c.id });
+  const rows = await ctx.repo.table("case_attachments").list({ caseId: c.id, kind: "order" });
   return {
     orderPeriodText: orderPeriodText(c), orderPeriodReason: c.orderPeriodReason, priorAssessment: c.priorAssessment, text: c.backgroundInfo,
     attachments: await rowsFor(ctx, rows, c),

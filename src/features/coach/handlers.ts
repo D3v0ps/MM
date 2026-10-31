@@ -1,12 +1,13 @@
 // Hanterare för området coach (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import { AI_OFF_TEXT, aiOff, areaChangeNoteIds } from "@/features/_shared/ai-port";
+import { AI_OFF_TEXT, aiOff, internalNoteIds } from "@/features/_shared/ai-port";
 import type { Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
 import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
+import { needsAssessment } from "@/core/report-schedule";
 import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
@@ -15,7 +16,7 @@ import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDr
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
 import { blankArea, newAssessment, newCheckIn, newIntake, newPlan } from "../_shared/rows";
-import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill, refreshPrefillAfterAttendance } from "../_shared/monthly-prefill";
+import { assessmentNotNeededText, loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill, refreshPrefillAfterAttendance } from "../_shared/monthly-prefill";
 import { approvalCounts, keptPrefill, levelSourceOf, missingAreas, nextLevelSource, withAutoAreas } from "@/core/monthly-prefill";
 import {
   aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, NOT_REVIEWED_TEXT, resultVerify,
@@ -361,9 +362,12 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
   // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
-  // Motiveringen till ett byte av yrkesområde är intern och går aldrig in i sammanfattningen (kommunens månadsrapport).
+  // Motiveringen till ett byte av yrkesområde eller ett ändrat startdatum är intern och går aldrig in i sammanfattningen
+  // (kommunens månadsrapport).
   const usedNotes = [...new Set(p.usedNoteIds ?? [])];
-  const internal = usedNotes.length ? areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id })) : new Set<string>();
+  const internal = usedNotes.length
+    ? internalNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id }), await ctx.repo.table("case_start_changes").pick(["noteId"], { caseId: c.id }))
+    : new Set<string>();
   for (const id of usedNotes) {
     const n = await ctx.repo.table("case_notes").get(id);
     if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month || internal.has(n.id)) {
@@ -375,6 +379,14 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   // En godkänd bedömning ändras inte (rapporten byggs av den) – inte heller av en autosparning från en annan flik.
   if (existing && existing.status === "approved") return fail("approved", ASSESSMENT_APPROVED);
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
+  if (!existing) {
+    // En bedömning skapas bara för en månad som behöver den (samma regel som rapportjobbet, needsAssessment). Deltagarkortet och
+    // sidan ber aldrig om en sådan bedömning ("Ingen månadsrapport") – här stoppas en flik som öppnades innan startdatumet
+    // ändrades och månaden blev utan månadsrapport (Karims beslut 2026-10-29).
+    if (!needsAssessment(c, p.month, cfg.reportSchedule?.monthly?.minEnrolledDays)) return fail("not_needed", await assessmentNotNeededText(ctx.repo, c.id, p.month, "save"));
+    // Raden som skärmen såg (expectedVersion 1 eller mer) finns inte längre: skapas inte på nytt av en autosparning.
+    if ((p.expectedVersion ?? 0) > 0) return fail("conflict", CONFLICT);
+  }
   // Godkännandet kräver att coachen gått igenom den förifyllda bedömningen (Karims beslut 2026-10-22).
   if (p.approve && p.reviewed !== true) return fail("not_reviewed", NOT_REVIEWED_TEXT);
   // Raden ändras på plats nedan – versionen den hade när den lästes behövs för den villkorade skrivningen.

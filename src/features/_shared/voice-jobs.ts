@@ -30,12 +30,13 @@ import type { Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { aiLanguages, isOperational, progressionAreas, recordingEnabled, requireOperational, type ContractConfig } from "@/core/config";
 import { applyAiDraft, type AiAreaDraft } from "@/core/monthly-prefill";
+import { needsAssessment } from "@/core/report-schedule";
 import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
 import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, MonthlyPlan, ParticipantVoiceNote, Person } from "@/data/schema";
 import { UniqueError } from "@/data/repo";
 import {
   AI_OFF_TEXT,
-  aiRunRow, approvedCheckIns, areaChangeNoteIds, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
+  aiRunRow, approvedCheckIns, draftNotes, internalNoteIds, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
   type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftOptions, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
 import { SIMULATED_PROVIDER } from "./ai-sim";
@@ -76,7 +77,7 @@ const RUN_KIND: Partial<Record<VoiceJobKind, AiRunKind>> = {
 // ---------------------------------------------------------------- Fel (fasta texter, inga personuppgifter)
 export const VOICE_JOB_ERRORS = [
   "not_found", "audio_missing", "blocked_disabled", "blocked_protected", "blocked_no_consent", "language", "invalid_response", "provider_blocked",
-  "provider_unavailable", "provider_config", "audio_too_large", "audio_unsupported", "audio_expired", "unexpected", "ai_off",
+  "provider_unavailable", "provider_config", "audio_too_large", "audio_unsupported", "audio_expired", "unexpected", "ai_off", "not_needed",
 ] as const;
 export type VoiceJobErrorCode = (typeof VOICE_JOB_ERRORS)[number];
 /** Texten till användaren (och jobs.last_error). */
@@ -97,6 +98,8 @@ export const VOICE_JOB_ERROR_TEXT: Record<VoiceJobErrorCode, string> = {
   unexpected: "Något gick fel i AI-körningen. Fyll i formuläret själv eller försök igen.",
   // AI av (produktion utan leverantör, beslut 2026-10-08).
   ai_off: AI_OFF_TEXT,
+  // Månadsutkastet för en månad som inte behöver någon månadsbedömning (needsAssessment) – t.ex. efter ett ändrat startdatum.
+  not_needed: "Månaden har för få inskrivna dagar för en månadsbedömning och får ingen månadsrapport. Inget AI-utkast har gjorts.",
 };
 const BLOCK_CODE: Record<RecordingBlock, VoiceJobErrorCode> = { ai_off: "ai_off", disabled: "blocked_disabled", protected: "blocked_protected", no_consent: "blocked_no_consent" };
 
@@ -547,9 +550,9 @@ export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKe
   const byActivity = new Map(att.map((x) => [x.activityId, x]));
   const attendance = monthActs.map((a) => byActivity.get(a.id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ status: x.status }));
   const person = c ? await ctx.system.table("persons").get(c.personId) : null;
-  // Motiveringen till ett byte av yrkesområde är en anteckning men aldrig underlag till AI (areaChangeNoteIds).
+  // Motiveringen till ett byte av yrkesområde eller ett ändrat startdatum är en anteckning men aldrig underlag till AI (internalNoteIds).
   const notes = aiAllowed(c, person)
-    ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month, { exclude: areaChangeNoteIds(await ctx.system.table("case_area_changes").list({ caseId })) })
+    ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month, { exclude: internalNoteIds(await ctx.system.table("case_area_changes").list({ caseId }), await ctx.system.table("case_start_changes").list({ caseId })) })
     : [];
   return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance, notes };
 }
@@ -593,8 +596,17 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   if (!cc.person || cc.person.protectedIdentity) throw new VoiceJobError("blocked_protected");
   if (!aiAllowed(cc.c, cc.person)) throw new VoiceJobError("blocked_no_consent");
   if (!cc.config || !isOperational(cc.config)) throw new VoiceJobError("not_found");
-  const input = await monthlyDraftInput(ctx, cc.c.id, p.month);
   const cfg = requireOperational(cc.config);
+  // En månad som inte behöver någon månadsbedömning (för få inskrivna dagar – t.ex. ett utkast som låg i kön när startdatumet
+  // ändrades, Karims beslut 2026-10-29) får ingen ny rad: finns ingen bedömning görs inga AI-anrop. Inget fel i jobbet (det är
+  // klart, inget nytt försök) – körningen får orsaken not_needed i klartext i stället för "Underlaget … finns inte längre".
+  // coach.monthlyDraft lägger aldrig ett sådant jobb.
+  const needed = needsAssessment(cc.c, p.month, cfg.reportSchedule?.monthly?.minEnrolledDays);
+  if (!needed && !(await ctx.system.table("monthly_assessments").first({ caseId: cc.c.id, month: p.month }))) {
+    await failVoiceJob(ctx, "draft_monthly", p, new VoiceJobError("not_needed"));
+    return "not_needed";
+  }
+  const input = await monthlyDraftInput(ctx, cc.c.id, p.month);
   const ai = requireAi(ctx);
   // Alla anrop som skickades, också de som misslyckades (felets run) – kostnaden i körningen (ai_runs) även när jobbet ger upp.
   const spent: AiRunMeta[] = [];
@@ -639,7 +651,7 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   // Utkasten in i månadsbedömningen (om den inte redan är godkänd). Nivån, observationen, nästa steg och den samlade statusen
   // rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5). Nivåförslaget med belägg sparas bara som förslag. Sammanfattningen
   // och planens aktiviteter fylls i bara där de fortfarande är förifyllda eller tomma (applyAiDraft). Saknas raden skapas den
-  // förifylld (Karims beslut 2026-10-22), med fasta id:n.
+  // förifylld (Karims beslut 2026-10-22), med fasta id:n – utom i en månad som inte behöver någon bedömning (needed).
   // Villkorat (version och status): coachen kan spara eller godkänna medan AI arbetar. Missar villkoret läses raden om och utkastet
   // läggs in i den nya versionen – en godkänd bedömning ändras aldrig, och coachens sparade ändringar skrivs aldrig över. Skapas
   // raden samtidigt av jobbet eller coachen (samma fasta id) läses den om på samma sätt.
@@ -650,10 +662,16 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   const aiSummaryDraft = summary.noEvidence ? null : summary.text;
   let assessmentId: string | null = null;
   let approved = false;
+  let gone = false;
   for (let attempt = 0; attempt < DRAFT_WRITE_ATTEMPTS && !assessmentId && !approved; attempt++) {
     const cur = await table.first({ caseId: cc.c.id, month: p.month });
     if (cur?.status === "approved") {
       approved = true;
+      break;
+    }
+    // Raden togs bort medan AI arbetade (startdatumet ändrades och månaden blev utan rapport): skapas inte på nytt.
+    if (!cur && !needed) {
+      gone = true;
       break;
     }
     const pre = cur ? null : await loadPrefill(ctx.system, cc.c, p.month, cfg, ctx.now());
@@ -696,7 +714,7 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   const output: MonthlyDraftOutput = { month: p.month, areas, summary, plan, assessmentId };
   await finishRun(ctx, run, spent, { output, evidence: { sourceIds: [...new Set([...Object.values(areas), summary, plan].flatMap((d) => d.sourceIds))] } });
   // Redan godkänd månadsbedömning (eller ändrad hela tiden medan utkastet skrevs): utkasten finns bara i körningen.
-  return assessmentId ? "succeeded" : approved ? "succeeded_approved" : "succeeded_conflict";
+  return assessmentId ? "succeeded" : approved ? "succeeded_approved" : gone ? "succeeded_not_needed" : "succeeded_conflict";
 }
 
 // ---------------------------------------------------------------- Gallring

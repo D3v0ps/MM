@@ -14,7 +14,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "case.view": "Visade deltagarkort", "pnr.revealed": "Visade personnummer", "report.view": "Visade rapport", "transcript.view": "Visade transkript",
   "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
-  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.area_changed": "Bytte yrkesområde", "case.closed": "Avslutade ärende",
+  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.area_changed": "Bytte yrkesområde", "case.start_date_changed": "Ändrade startdatum", "case.closed": "Avslutade ärende",
   "person.contact_changed": "Ändrade kontaktväg",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
@@ -106,6 +106,9 @@ const DETAIL_KEY: Record<string, string> = {
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
   day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
+  // Filer på deltagarkortet (Karims beslut 2026-10-29): bara slaget – aldrig filnamnet eller vilken typ av fil det är (loggens
+  // läsare, chef och admin, ser inte filerna – samma som Historik på deltagarkortet).
+  fileKind: "Slag av fil",
   // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
   rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
   // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
@@ -121,6 +124,12 @@ const DETAIL_KEY: Record<string, string> = {
   // Spår B (Karims beslut 2026-10-22): byt yrkesområde och automatisk månadsbedömning – koder, id:n och antal.
   fromArea: "Från yrkesområde", toArea: "Till yrkesområde", effectiveMonth: "Fakturan från", changeId: "Byte", noteId: "Anteckning med motivering",
   aiQueued: "AI-utkast beställda", reviewed: "Genomgången", autoAreas: "Automatiska områden", coachAreas: "Coachens val", aiAccepted: "Godtagna AI-förslag",
+  // Ändra startdatum (Karims beslut 2026-10-29): datum, id:n och antal – aldrig motiveringen.
+  seq: "Ändringens nummer", removedActivityIds: "Borttagna tillfällen", removedAutoAttendanceIds: "Borttagen automatisk närvaro",
+  keptActivityIds: "Tillfällen som låg kvar", droppedMonths: "Månader utan månadsrapport", removedReportIds: "Borttagna rapportutkast",
+  removedAssessmentIds: "Borttagna bedömningsutkast", removedPlanIds: "Borttagna planutkast", correctionReportIds: "Rapporter att rätta", taskId: "Uppgift",
+  draftMonths: "Månader där utkasten togs bort", keptAssessmentIds: "Bedömningar som coachen sparat (låg kvar)", closedTaskIds: "Stängda uppgifter",
+  finishedBy: "Gjordes klar av", failed: "Avbröts", error: "Felkod",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -148,6 +157,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
   via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare" },
   weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
+  fileKind: { order: "bilaga till beställningen", participant: "fil på deltagarkortet" },
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
@@ -162,6 +172,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   reason: {
     columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
+    unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
   },
   // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).
@@ -175,6 +186,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   groupBy: DIMENSION_LABEL,
   measures: MEASURE_LABEL,
 };
+/** En orsakskod i loggen som läsbar svenska ("unconfirmed_24h" → "uppladdningen blev aldrig klar inom 24 timmar"). Okända visas som de är. */
+export const reasonWord = (code: string): string => VALUE_BY_KEY.reason[code] ?? code;
 const AI_KIND: Record<string, string> = {
   parse_email: "tolka mejl", transcribe_extract: "transkribering och utkast", extract_notes: "utkast från anteckningar", extract_teams: "utkast från Teams-transkript",
   report_summary: "sammanfattning till rapport", monthly_draft: "utkast till månadsbedömning",
@@ -235,7 +248,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return fmtDateTime(s);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
   if (/^\d{4}-W\d{2}$/.test(s)) return fmtWeekKey(s);
-  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || k === "effectiveMonth" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
+  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || k === "effectiveMonth" || k === "droppedMonths" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
   return s;
 }
 
@@ -245,11 +258,14 @@ const COUNTED: Record<string, [string, string]> = {
   activityIds: ["tillfälle", "tillfällen"], attendanceIds: ["närvaropost", "närvaroposter"], skippedActivityIds: ["tillfälle", "tillfällen"], caseIds: ["ärende", "ärenden"],
   skippedCaseIds: ["ärende", "ärenden"], groupingIds: ["nivå eller grupp", "nivåer eller grupper"],
   addedCaseIds: ["ärende", "ärenden"], removedCaseIds: ["ärende", "ärenden"], groupActivityIds: ["tillfälle", "tillfällen"],
+  removedActivityIds: ["tillfälle", "tillfällen"], removedAutoAttendanceIds: ["närvaropost", "närvaroposter"], keptActivityIds: ["tillfälle", "tillfällen"],
+  removedReportIds: ["rapport", "rapporter"], removedAssessmentIds: ["bedömning", "bedömningar"], removedPlanIds: ["plan", "planer"], correctionReportIds: ["rapport", "rapporter"],
 };
 /** Gruppaktiviteternas målgrupp (audience) – samma nyckel som rapportbyggarens visning, så ordet beror på objektet. */
 const GROUP_ENTITIES = new Set(["group_activity", "group_activity_series"]);
 const AUDIENCE_WORD: Record<string, string> = { level: "nivå", area: "yrkesområde", manual: "inbjudna för hand" };
-const keyLabel = (k: string, a: AuditEntryLike): string => (k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k));
+const keyLabel = (k: string, a: AuditEntryLike): string =>
+  k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : k === "changeId" && a.action === "case.start_date_changed" ? "Ändring" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k);
 
 /**
  * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället

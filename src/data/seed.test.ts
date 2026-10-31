@@ -99,7 +99,8 @@ describe("antal rader per tabell", () => {
       ["placements", "placements", 158], ["reports", "reports", 794], ["pulse_invites", "pulseInvites", 341], ["pulse_responses", "pulseResponses", 217],
       // Beslut 2026-10-07 (seed/decisions-2026-10-07.ts): em-104 är en vanlig fråga – utskicket av den generiska
       // mottagningsbekräftelsen, dess loggrad och uppgiften till avtalsansvarig finns inte (prototypen: 20, 8 och 2).
-      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 19],
+      // Karims beslut 2026-10-29 (seed/decisions-2026-10-29.ts): revisionsloggens rad för testdatats ändring av startdatum (prototypen: 19).
+      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 20],
       ["outbound_messages", "notifications", 7], ["tasks", "tasks", 1],
     ];
     for (const [table, , count] of rows) expect([table, n(table)]).toEqual([table, count]);

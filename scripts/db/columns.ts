@@ -124,9 +124,9 @@ export const COLUMNS = {
     id: "text", contractId: "text", ownerId: "text", title: "text", templateKey: "text | null", definition: "jsonb", visibility: "text", createdAt: "timestamptz",
     updatedAt: "timestamptz | null", updatedBy: "text | null", sharedAt: "timestamptz | null", sharedBy: "text | null", archivedAt: "timestamptz | null", archivedBy: "text | null",
   },
-  // Bilagor till beställningen (0024_bilagor.sql)
+  // Bilagor till beställningen (0024_bilagor.sql) och deltagarfiler (kind, category – 0037_deltagarfiler.sql)
   case_attachments: {
-    id: "text", contractId: "text", caseId: "text | null", uploadedBy: "text", fileName: "text", mimeType: "text", bytes: "integer", storagePath: "text",
+    id: "text", contractId: "text", kind: "text", category: "text | null", caseId: "text | null", uploadedBy: "text", fileName: "text", mimeType: "text", bytes: "integer", storagePath: "text",
     status: "text", createdAt: "timestamptz", linkedAt: "timestamptz | null", removedAt: "timestamptz | null", removedBy: "text | null",
     deletedAt: "timestamptz | null", deleteReason: "text | null",
   },
@@ -143,6 +143,10 @@ export const COLUMNS = {
   case_area_changes: {
     id: "text", contractId: "text", caseId: "text", fromArea: "text", toArea: "text", effectiveMonth: "text", changedBy: "text", changedAt: "timestamptz", noteId: "text",
     seq: "integer", fromTrack: "text", toTrack: "text", fromSecondaryArea: "text | null",
+  },
+  // Ändra startdatum (0038_andra_startdatum.sql)
+  case_start_changes: {
+    id: "text", contractId: "text", caseId: "text", fromDate: "date", toDate: "date", changedBy: "text", changedAt: "timestamptz", noteId: "text", seq: "integer",
   },
 } as const satisfies ColumnManifest;
 

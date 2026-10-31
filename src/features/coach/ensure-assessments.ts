@@ -26,10 +26,9 @@
 import type { Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { isOperational, requireOperational } from "@/core/config";
-import { enrolledDays, monthEndsAt } from "@/core/report-schedule";
-import { addMinutes, addMonths, dayOf, monthEnd, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
+import { monthEndsAt, needsAssessment } from "@/core/report-schedule";
+import { addMinutes, addMonths, dayOf, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
 import { UniqueError } from "@/data/repo";
-import type { Case } from "@/data/schema";
 import { aiOff } from "../_shared/ai-port";
 import { loadPrefill, prefillAssessmentId, prefilledAssessment, prefilledPlan, prefillPlanId } from "../_shared/monthly-prefill";
 import { enqueueVoiceJob } from "../_shared/voice-jobs";
@@ -38,9 +37,7 @@ import { enqueueVoiceJob } from "../_shared/voice-jobs";
 export const assessMonthOf = (now: LocalDateTime): MonthKey => addMonths(monthKey(dayOf(now)), -1);
 
 /** Behöver ärendet en månadsbedömning för månaden? Samma regel som månadsrapporten (minEnrolledDays), annars någon inskriven dag. */
-export function needsAssessment(c: Pick<Case, "id" | "status" | "referrerId" | "startDate" | "endDate" | "closedAt">, month: MonthKey, minDays: number | undefined): boolean {
-  return enrolledDays(c, `${month}-01`, monthEnd(month)) >= Math.max(1, minDays ?? 1);
-}
+export { needsAssessment };
 
 export type EnsureAssessmentsResult = {
   month: MonthKey;

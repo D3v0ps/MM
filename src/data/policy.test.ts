@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor, Role } from "@/api/roles";
 import { actorFor, listPersonas, personaFor } from "./actors";
 import { MemoryRepo, MemoryStore, PolicyError } from "./memory";
-import { POLICIES } from "./policy";
+import { canReadRow, POLICIES } from "./policy";
 import { createSeed } from "./seed";
 import { TABLE_NAMES, type AppRepo, type Tables } from "./schema";
 
@@ -334,9 +334,10 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
     expect((await repoFor(AMIRA).table("notification_reads").list()).every((r) => r.userId === "u-amira")).toBe(true);
   });
   it("revisionsloggen: admin och chef", async () => {
-    // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07).
-    expect(await count(ROBIN, "audit_log")).toBe(19);
-    expect(await count(KARIN, "audit_log")).toBe(19);
+    // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07); plus
+    // testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20.
+    expect(await count(ROBIN, "audit_log")).toBe(20);
+    expect(await count(KARIN, "audit_log")).toBe(20);
     for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.role, await count(a, "audit_log")]).toEqual([a.role, 0]);
   });
   it("utskick: admin och samordnare", async () => {
@@ -552,8 +553,11 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
 
   it("läsning: alla på Miljonbemanning som arbetar i ärenden (beslut 2026-10-09), aldrig ekonom eller kommunen; skyddat ärende bara namngivna", async () => {
     const ALL = all("case_notes").map((n) => n.id).sort();
-    // note-byte-linnea: motiveringen till bytet av yrkesområde (Karims beslut 2026-10-22).
-    expect(ALL).toEqual(["note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad"]);
+    // note-byte-linnea: motiveringen till bytet av yrkesområde (Karims beslut 2026-10-22); note-startdatum-0031: motiveringen
+    // till ändringen av startdatum (Karims beslut 2026-10-29).
+    expect(ALL).toEqual([
+      "note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad", "note-startdatum-0031",
+    ]);
     // Coach, handledare och en coach utanför teamet läser alla anteckningar i avtalet – också dem som är skrivna för "full".
     for (const a of [AMIRA, PETRA, ERIK, who("u-leila")]) expect(await ids(a), a.userId).toEqual(ALL);
     for (const a of [LARS, MARIA, OMAR]) expect(await ids(a), a.userId).toEqual([]);
@@ -731,6 +735,191 @@ describe("byt yrkesområde (case_area_changes, 0036, Karims beslut 2026-10-22)",
   });
 });
 
+describe("ändra startdatum (case_start_changes, 0038, Karims beslut 2026-10-29)", () => {
+  // BOT-27-0041: startade 1 februari (första mötet samma dag), planerat slut 9 april, inga registrerade tillfällen.
+  const NEW = "case-270041";
+  const fresh = () => new MemoryStore<Tables>(createSeed());
+  const note = (id: string, authorId = "u-amira", caseId = NEW, createdAt = "2027-02-01T09:30"): Tables["case_notes"] => ({
+    id, contractId: "c-bot", caseId, authorId, occurredOn: "2027-02-01", kind: "other", audience: "team", body: "Ändrat startdatum: motivering.",
+    createdAt, updatedAt: null, removedAt: null, removedBy: null,
+  });
+  const change = (patch: Partial<Tables["case_start_changes"]> = {}): Tables["case_start_changes"] => ({
+    id: "csc-x", contractId: "c-bot", caseId: NEW, fromDate: "2027-02-01", toDate: "2027-02-03", changedBy: "u-amira", changedAt: "2027-02-01T09:31", noteId: "note-csc", seq: 1,
+    ...patch,
+  });
+  const draft = (month: string, status: Tables["invoice_drafts"]["status"]): Tables["invoice_drafts"] => ({
+    id: `inv-c-bot-${month}-avtal`, billingRunId: null, contractId: "c-bot", month, kind: "periodic", caseId: null, groupingKey: "avtal", buyerReference: null,
+    purchaseOrderNumber: null, invoicedObject: "332026110", accruedOre: null, remainingOre: null, status, approvedBy: null, approvedAt: null, manualInvoiceNo: null,
+    fortnoxDocumentNumber: null, fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null,
+  });
+
+  it("läsning: Miljonbemanning i avtalet utom ekonomen – aldrig kommunen", async () => {
+    for (const a of [AMIRA, ERIK, SARA, JOHAN, KARIN, ROBIN, PETRA]) expect(await count(a, "case_start_changes"), a.userId).toBe(1);
+    for (const a of [LARS, MARIA, OMAR, DELTAGARE]) expect(await count(a, "case_start_changes"), a.userId).toBe(0);
+  });
+
+  it("skriva: coach, samordnare och avtalsansvarig i eget namn – ärendets startdatum ändras i samma steg; läsläge, ekonom, handledare och kommunen nekas", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-csc"));
+    s.insertRow("case_notes", note("note-sara", "u-sara"));
+    s.insertRow("case_notes", note("note-johan", "u-johan"));
+    const t = (a: Actor) => repoFor(a, s).table("case_start_changes");
+    await expect(t(AMIRA).insert(change())).resolves.toBeTruthy();
+    expect(s.getRow("cases", NEW)?.startDate).toBe("2027-02-03");
+    // Nästa ändring utgår från det nya startdatumet och får nästa nummer – också bakåt.
+    await expect(t(SARA).insert(change({ id: "csc-sara", changedBy: "u-sara", noteId: "note-sara", fromDate: "2027-02-03", toDate: "2027-02-02", seq: 2 }))).resolves.toBeTruthy();
+    await expect(t(JOHAN).insert(change({ id: "csc-johan", changedBy: "u-johan", noteId: "note-johan", fromDate: "2027-02-02", toDate: "2027-02-04", seq: 3 }))).resolves.toBeTruthy();
+    expect(s.getRow("cases", NEW)?.startDate).toBe("2027-02-04");
+    const s2 = fresh();
+    s2.insertRow("case_notes", note("note-csc"));
+    for (const a of [KARIN, ROBIN, LARS, PETRA, MARIA]) {
+      await expect(repoFor(a, s2).table("case_start_changes").insert(change({ id: `csc-${a.userId}`, changedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+    expect(s2.getRow("cases", NEW)?.startDate).toBe("2027-02-01");
+  });
+
+  it("nekas: i någon annans namn, fel avtal, anteckning i ett annat ärende, fel nummer, fel gammalt datum, samma datum, före första mötet och efter planerat slut", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-csc"));
+    const t = repoFor(AMIRA, s).table("case_start_changes");
+    const bad: Partial<Tables["case_start_changes"]>[] = [
+      { id: "csc-1", changedBy: "u-sara" }, { id: "csc-2", contractId: "c-ny" }, { id: "csc-3", noteId: "note-mehmet-handledare" }, { id: "csc-4", seq: 2 },
+      { id: "csc-5", fromDate: "2027-01-28" }, { id: "csc-6", toDate: "2027-02-01" }, { id: "csc-7", toDate: "2027-01-31" }, { id: "csc-8", toDate: "2027-04-10" },
+    ];
+    for (const patch of bad) await expect(t.insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
+    expect(s.getRow("cases", NEW)?.startDate).toBe("2027-02-01");
+    // Planerat slut går.
+    await expect(t.insert(change({ id: "csc-ok", toDate: "2027-04-09" }))).resolves.toBeTruthy();
+  });
+
+  it("nekas när månaden är fakturerad eller godkänd, när ett tillfälle före det nya datumet har manuell närvaro och när insatsen är avslutad", async () => {
+    const refused = async (prepare: (s: MemoryStore<Tables>) => void, label: string) => {
+      const s = fresh();
+      s.insertRow("case_notes", note("note-csc"));
+      prepare(s);
+      await expect(repoFor(AMIRA, s).table("case_start_changes").insert(change()), label).rejects.toBeInstanceOf(PolicyError);
+      expect(s.getRow("cases", NEW)?.startDate, label).toBe("2027-02-01");
+    };
+    for (const status of ["approved", "manual", "sent", "returned"] as const) await refused((s) => s.insertRow("invoice_drafts", draft("2027-02", status)), status);
+    await refused((s) => s.insertRow("billing_runs", { id: "br-x", contractId: "c-bot", month: "2027-02", status: "closed", createdBy: "u-lars", createdAt: "2027-03-01T08:00", closedAt: null, closedBy: null }), "stängd körning");
+    const first = all("activities").find((a) => a.caseId === NEW && a.startsAt === "2027-02-01T13:00")!;
+    const registered = (source: "manual" | "auto"): Tables["attendance"] => ({
+      id: "att-x", activityId: first.id, caseId: NEW, status: "present", reason: "", registeredBy: "u-amira", registeredAt: "2027-02-01T15:00", customerNotifiedAt: null, source,
+    });
+    await refused((s) => s.insertRow("attendance", registered("manual")), "manuell närvaro");
+    await refused((s) => s.updateRow("cases", NEW, { status: "closed" }), "avslutad");
+    // En godkänd mötesrapport före det nya datumet stoppar som manuell närvaro (checkInsBeforeStart); ett utkast gör det inte.
+    const checkIn = (status: "approved" | "draft"): Tables["check_ins"] => ({
+      ...all("check_ins")[0], id: "ci-csc", caseId: NEW, heldAt: "2027-02-01T13:00", status, approvedBy: status === "approved" ? "u-amira" : null, approvedAt: null,
+    });
+    await refused((s) => s.insertRow("check_ins", checkIn("approved")), "godkänd mötesrapport");
+    // Ett underlag, en krediterad faktura och automatisk närvaro stoppar inte (hanteraren tar bort tillfället och raden efteråt).
+    const allowed: ((s: MemoryStore<Tables>) => void)[] = [
+      (s) => s.insertRow("invoice_drafts", draft("2027-02", "draft")),
+      (s) => s.insertRow("invoice_drafts", draft("2027-02", "credited")),
+      (s) => s.insertRow("attendance", registered("auto")),
+      (s) => s.insertRow("check_ins", checkIn("draft")),
+    ];
+    for (const prepare of allowed) {
+      const s = fresh();
+      s.insertRow("case_notes", note("note-csc"));
+      prepare(s);
+      await expect(repoFor(AMIRA, s).table("case_start_changes").insert(change())).resolves.toBeTruthy();
+    }
+  });
+
+  it("en månad som blir utan månadsrapport: en lämnad, granskad eller godkänd rapport eller en godkänd bedömning stoppar – utkast gör det inte", async () => {
+    // 1 → 25 februari: februari får 4 inskrivna dagar (Botkyrka: minst 11).
+    const later = change({ toDate: "2027-02-25" });
+    const report = (status: Tables["reports"]["status"], patch: Partial<Tables["reports"]> = {}): Tables["reports"] => ({
+      ...all("reports").find((r) => r.kind === "monthly")!, id: "rep-csc", caseId: NEW, month: "2027-02", periodStart: "2027-02-01", periodEnd: "2027-02-28", status, superseded: false, ...patch,
+    });
+    const assessment = (status: "approved" | "draft"): Tables["monthly_assessments"] => ({ ...all("monthly_assessments")[0], id: "ma-csc", caseId: NEW, month: "2027-02", status });
+    const attempt = async (prepare: (s: MemoryStore<Tables>) => void, x = later) => {
+      const s = fresh();
+      s.insertRow("case_notes", note("note-csc"));
+      prepare(s);
+      return repoFor(AMIRA, s).table("case_start_changes").insert(x).then(() => true, (e) => (e instanceof PolicyError ? false : Promise.reject(e)));
+    };
+    for (const status of ["delivered", "opened", "approved", "reviewed"] as const) expect(await attempt((s) => s.insertRow("reports", report(status))), status).toBe(false);
+    expect(await attempt((s) => s.insertRow("monthly_assessments", assessment("approved"))), "godkänd bedömning").toBe(false);
+    expect(await attempt((s) => s.insertRow("reports", report("draft"))), "utkast").toBe(true);
+    expect(await attempt((s) => s.insertRow("reports", report("delivered", { superseded: true }))), "ersatt").toBe(true);
+    expect(await attempt((s) => s.insertRow("monthly_assessments", assessment("draft"))), "bedömning som utkast").toBe(true);
+    // 1 → 18 februari behåller februari (11 dagar): en lämnad rapport stoppar inte.
+    expect(await attempt((s) => s.insertRow("reports", report("delivered")), change({ toDate: "2027-02-18" })), "februari behålls").toBe(true);
+  });
+
+  it("fasen följer med när den var startdatumet; en pausad insats kan ändras; servern ändrar inte ärendet", async () => {
+    const s = fresh();
+    s.updateRow("cases", NEW, { phaseSince: "2027-02-01", status: "paused" });
+    s.insertRow("case_notes", note("note-csc"));
+    await expect(repoFor(AMIRA, s).table("case_start_changes").insert(change())).resolves.toBeTruthy();
+    expect(s.getRow("cases", NEW)).toMatchObject({ startDate: "2027-02-03", phaseSince: "2027-02-03", status: "paused" });
+    const sys = fresh();
+    sys.insertRow("case_notes", note("note-csc"));
+    await new MemoryRepo(sys, AMIRA, POLICIES, { bypass: true }).table("case_start_changes").insert(change());
+    expect(sys.getRow("cases", NEW)?.startDate).toBe("2027-02-01");
+  });
+
+  it("motiveringen: en ny anteckning av den som ändrar, typ other, inte borttagen, skriven nyss – och låst efteråt", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-sara", "u-sara"));
+    s.insertRow("case_notes", { ...note("note-kontakt"), kind: "customer_contact", audience: "full" });
+    s.insertRow("case_notes", { ...note("note-borta"), removedAt: "2027-02-01T09:30", removedBy: "u-amira" });
+    s.insertRow("case_notes", note("note-gammal", "u-amira", NEW, "2027-01-20T10:00"));
+    const t = repoFor(AMIRA, s).table("case_start_changes");
+    for (const noteId of ["note-sara", "note-kontakt", "note-borta", "note-gammal"]) await expect(t.insert(change({ id: `csc-${noteId}`, noteId })), noteId).rejects.toBeInstanceOf(PolicyError);
+    s.insertRow("case_notes", note("note-csc"));
+    await expect(t.insert(change())).resolves.toBeTruthy();
+    // Låst: varken författaren, samordnaren eller avtalsansvarig ändrar eller döljer den – servern kan.
+    await expect(repoFor(AMIRA, s).table("case_notes").update("note-csc", { body: "Ny text." })).rejects.toBeInstanceOf(PolicyError);
+    for (const a of [AMIRA, SARA, JOHAN]) {
+      await expect(repoFor(a, s).table("case_notes").update("note-csc", { removedAt: "2027-02-01T09:40", removedBy: a.userId }), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+    await expect(new MemoryRepo(s, AMIRA, POLICIES, { bypass: true }).table("case_notes").update("note-csc", { removedAt: "2027-02-01T09:40", removedBy: "u-amira" })).resolves.toBeTruthy();
+  });
+
+  it("ett satt startdatum ändras aldrig direkt – startdatumet sätts när insatsen startar och bara av coach, samordnare och avtalsansvarig", async () => {
+    const s = fresh();
+    const cases = (a: Actor) => repoFor(a, s).table("cases");
+    for (const a of [AMIRA, SARA, JOHAN, LARS, MARIA]) await expect(cases(a).update(NEW, { startDate: "2027-02-03" }), a.userId).rejects.toBeInstanceOf(PolicyError);
+    // Andra fält i ärendet ändras som förut.
+    await expect(cases(SARA).update(NEW, { location: "Tumba" })).resolves.toBeTruthy();
+    const confirmed = s.rows("cases").find((c) => c.status === "confirmed" && c.contractId === "c-bot" && !c.startDate)!;
+    await expect(cases(LARS).update(confirmed.id, { startDate: "2027-02-03" })).rejects.toBeInstanceOf(PolicyError);
+    const own = s.rows("cases").find((c) => c.referrerId === MARIA.userId && !c.startDate && c.contractId === "c-bot");
+    if (own) await expect(cases(MARIA).update(own.id, { startDate: "2027-02-03" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(AMIRA).update(confirmed.id, { startDate: "2027-02-03", status: "active" })).resolves.toBeTruthy();
+    // Ett bekräftat ärende som redan har ett startdatum (BOT-27-0042, 2 februari) startas med ett annat datum – av Miljonbemanning.
+    expect(s.getRow("cases", "case-270042")).toMatchObject({ status: "confirmed", startDate: "2027-02-02" });
+    await expect(cases(LARS).update("case-270042", { startDate: "2027-02-03", status: "active" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).update("case-270042", { startDate: "2027-02-03", status: "active" })).resolves.toBeTruthy();
+    // Spärren går inte runt via statusen: en startad insats blir aldrig ostartad igen.
+    await expect(cases(SARA).update(NEW, { status: "confirmed" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).update(NEW, { status: "paused" })).resolves.toBeTruthy();
+    // Ett nytt ärende har inget startdatum – inte heller kommunens beställning.
+    const order = s.rows("cases").find((c) => c.referrerId === MARIA.userId && c.status === "received")!;
+    const fresh2 = { ...order, id: "case-ny", caseNumber: "BOT-27-9999" };
+    await expect(cases(MARIA).insert({ ...fresh2, startDate: "2027-01-05" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(cases(SARA).insert({ ...fresh2, id: "case-ny2", startDate: "2027-01-05" })).rejects.toBeInstanceOf(PolicyError);
+  });
+
+  it("kedjan: med klocka registreras ändringen med aktuell tid; en ändring ändras och raderas aldrig", async () => {
+    const c = fresh();
+    c.insertRow("case_notes", note("note-csc", "u-amira", NEW, "2027-02-01T09:12"));
+    c.clock = () => "2027-02-01T09:12";
+    const tc = repoFor(AMIRA, c).table("case_start_changes");
+    await expect(tc.insert(change({ id: "csc-gammal", changedAt: "2027-01-20T10:00" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(tc.insert(change({ id: "csc-sen", changedAt: "2027-02-01T09:31" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(tc.insert(change({ id: "csc-nu", changedAt: "2027-02-01T09:14" }))).resolves.toBeTruthy();
+    const s = fresh();
+    const t = (a: Actor) => repoFor(a, s).table("case_start_changes");
+    await expect(t(AMIRA).update("csc-seed-0031", { toDate: "2027-01-27" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN).remove("csc-seed-0031")).rejects.toBeInstanceOf(PolicyError);
+  });
+});
+
 describe("sparade rapporter (saved_reports, rapporter steg 4)", () => {
   const fresh = () => new MemoryStore<Tables>(createSeed());
   const at = "2027-02-01T09:30";
@@ -805,8 +994,8 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
   const NADIA = tagged("nadia");
   const at = "2027-02-01T09:13";
   const att = (id: string, patch: Partial<Tables["case_attachments"]> = {}): Tables["case_attachments"] => ({
-    id, contractId: "c-bot", caseId: NADIA, uploadedBy: "k-maria", fileName: "Bakgrund.pdf", mimeType: "application/pdf", bytes: 1200, storagePath: `c-bot/${id}.pdf`,
-    status: "uploaded", createdAt: at, linkedAt: at, removedAt: null, removedBy: null, deletedAt: null, deleteReason: null, ...patch,
+    id, contractId: "c-bot", kind: "order", category: null, caseId: NADIA, uploadedBy: "k-maria", fileName: "Bakgrund.pdf", mimeType: "application/pdf", bytes: 1200,
+    storagePath: `c-bot/${id}.pdf`, status: "uploaded", createdAt: at, linkedAt: at, removedAt: null, removedBy: null, deletedAt: null, deleteReason: null, ...patch,
   });
   const withFiles = (s = new MemoryStore<Tables>(createSeed())) => {
     s.insertRow("case_attachments", att("att-nadia"));
@@ -815,7 +1004,8 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
     return s;
   };
   const files = withFiles();
-  const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list()).map((r) => r.id).sort();
+  // Testdatats egna deltagarfiler (att-seed-…) prövas i blocket nedan.
+  const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list()).map((r) => r.id).filter((id) => !id.startsWith("att-seed-")).sort();
 
   it("läsning: samordnare, avtalsansvarig, coach med full åtkomst och beställande handläggare – aldrig handledare, ekonom, chef eller admin", async () => {
     // Nadias ärende: Maria beställde, Amira är huvudcoach. Erik (coach) ser den sedan 2026-10-09. Den vilande rollen handledare aldrig.
@@ -840,6 +1030,62 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
       await expect(repoFor(a, s).table("case_attachments").insert(att(`att-${a.userId}`, { uploadedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
       await expect(repoFor(a, s).table("case_attachments").update("att-nadia", { status: "deleted" }), a.userId).rejects.toBeInstanceOf(PolicyError);
       await expect(repoFor(a, s).table("case_attachments").remove("att-nadia"), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+  });
+});
+
+describe("filer på deltagarkortet (case_attachments kind participant, 0037 – Karims beslut 2026-10-29)", () => {
+  const NADIA = tagged("nadia");
+  const at = "2027-02-01T09:13";
+  const file = (id: string, patch: Partial<Tables["case_attachments"]> = {}): Tables["case_attachments"] => ({
+    id, contractId: "c-bot", kind: "participant", category: "cv", caseId: NADIA, uploadedBy: "u-amira", fileName: "CV.pdf", mimeType: "application/pdf", bytes: 1200,
+    storagePath: `c-bot/${id}.pdf`, status: "uploaded", createdAt: at, linkedAt: at, removedAt: null, removedBy: null, deletedAt: null, deleteReason: null, ...patch,
+  });
+  const withFiles = (s = new MemoryStore<Tables>(createSeed())) => {
+    s.insertRow("case_attachments", file("att-cv"));
+    s.insertRow("case_attachments", file("att-brev", { category: "personligt_brev", uploadedBy: "u-sara" }));
+    // Uppladdad av kommunens handläggare (kan inte hända – prövar att uppladdaren inte avgör läsrätten för en deltagarfil).
+    s.insertRow("case_attachments", file("att-fran-kommunen", { category: "ovrigt", uploadedBy: "k-maria" }));
+    s.insertRow("case_attachments", file("att-cv-borttagen", { status: "deleted", removedAt: at, removedBy: "u-amira", deletedAt: at, deleteReason: "removed" }));
+    return s;
+  };
+  const files = withFiles();
+  const mine = ["att-brev", "att-cv", "att-fran-kommunen"];
+  const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list({ kind: "participant", caseId: NADIA })).map((r) => r.id).filter((id) => !id.startsWith("att-seed-")).sort();
+
+  it("läsning: samordnare, avtalsansvarig och coach med full åtkomst – aldrig kommunen (inte heller handläggaren som beställde), ekonom, chef, admin eller handledare", async () => {
+    for (const a of [SARA, JOHAN, AMIRA, ERIK]) expect(await ids(a), a.userId).toEqual(mine);
+    for (const a of [MARIA, OMAR, who("k-ahmed"), PETRA, LARS, KARIN, ROBIN, DELTAGARE]) expect(await ids(a), a.userId).toEqual([]);
+    // Också get(id) – kommunens handläggare får inte ens filen hon själv skulle ha laddat upp.
+    expect(await repoFor(MARIA, files).table("case_attachments").get("att-fran-kommunen")).toBeFalsy();
+    expect(canReadRow("case_attachments", file("x"), MARIA, files.raw())).toBe(false);
+    // Testdatats deltagarfiler: samma regel.
+    const seeded = files.raw().all("case_attachments").filter((x) => x.kind === "participant" && x.id.startsWith("att-seed-"));
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const x of seeded) {
+      expect(canReadRow("case_attachments", x, SARA, files.raw()), x.id).toBe(true);
+      for (const a of [MARIA, OMAR, LARS, KARIN, ROBIN]) expect(canReadRow("case_attachments", x, a, files.raw()), `${x.id} ${a.userId}`).toBe(false);
+    }
+  });
+  it("en raderad fil läses av ingen; en deltagarfil utan ärende (finns inte – kontrollen i 0037) läses inte heller av den som laddade upp", async () => {
+    for (const a of [SARA, JOHAN, AMIRA]) expect(await ids(a), a.userId).not.toContain("att-cv-borttagen");
+    const orphan = file("att-utan-arende", { caseId: null, linkedAt: null, uploadedBy: "u-sara" });
+    expect(canReadRow("case_attachments", orphan, SARA, files.raw())).toBe(false);
+  });
+  it("skyddade personuppgifter (vilande spärr): bara namngiven huvudcoach och avtalsansvarig – kommunen aldrig", async () => {
+    const s = withFiles(withProtected());
+    const sk = s.getRow("cases", tagged("skyddad"))!;
+    s.insertRow("case_attachments", file("att-skyddad-cv", { caseId: sk.id }));
+    const read = async (a: Actor) => (await repoFor(a, s).table("case_attachments").list({ caseId: sk.id, kind: "participant" })).map((r) => r.id);
+    for (const a of [ERIK, JOHAN]) expect(await read(a), a.userId).toEqual(["att-skyddad-cv"]);
+    for (const a of [SARA, AMIRA, OMAR, KARIN, ROBIN, MARIA]) expect(await read(a), a.userId).toEqual([]);
+  });
+  it("raderna skrivs bara av systemet (ctx.attachments)", async () => {
+    const s = withFiles();
+    for (const a of [SARA, JOHAN, AMIRA, MARIA, ROBIN]) {
+      await expect(repoFor(a, s).table("case_attachments").insert(file(`att-${a.userId}`, { uploadedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+      await expect(repoFor(a, s).table("case_attachments").update("att-cv", { category: "ovrigt" }), a.userId).rejects.toBeInstanceOf(PolicyError);
+      await expect(repoFor(a, s).table("case_attachments").remove("att-cv"), a.userId).rejects.toBeInstanceOf(PolicyError);
     }
   });
 });

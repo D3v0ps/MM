@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import { useSession } from "@/shell/session";
+import { plural } from "@/core/format";
 import { fmtDateFull, MONTHS } from "@/core/time";
 import { Button, Card, cn, ErrorNotice, Field, Icon, Loading, Notice, Refreshing, Section, Select, Stack, type IconName } from "@/ui";
 import { ReportDocument } from "@/features/rapporter/components/report-document";
@@ -62,6 +63,8 @@ function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTa
         <Notice tone="info" title={`Insatsen hade inte startat i ${monthWord(b.month)}`}>
           Insatsen hade inte startat i {monthWord(b.month)}. Välj en annan månad.
         </Notice>
+      ) : b.noReport ? (
+        <NoMonthlyReport b={b} n={b.noReport} caseId={card.caseId} />
       ) : b.delivered ? (
         <Card>
           <Stack gap="sm">
@@ -93,6 +96,28 @@ function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTa
         </>
       )}
     </Section>
+  );
+}
+
+/**
+ * Månaden får ingen månadsrapport (färre inskrivna dagar än avtalets gräns – samma regel som rapportjobbet och coachens sparning):
+ * talen i stället för underlaget, och ingen uppmaning att göra en månadsbedömning. En bedömning som ändå finns går att öppna.
+ */
+function NoMonthlyReport({ b, n, caseId }: { b: CaseMonthBasis; n: NonNullable<CaseMonthBasis["noReport"]>; caseId: string }) {
+  return (
+    <Notice tone="info" title={`Ingen månadsrapport för ${monthText(b.month)}`}>
+      <Stack gap="sm">
+        <div>
+          Insatsen har {plural(n.enrolledDays, "inskriven dag", "inskrivna dagar")} i {monthWord(b.month)}. Månadsrapport och månadsbedömning görs för en månad med
+          minst {n.minDays} inskrivna dagar. Dagarna kommer med i veckorapporterna och i slutrapporten.
+        </div>
+        {n.assessment && b.canAssess && (
+          <div>
+            <Button icon="edit" to={caseLink("/manadsbedomning", caseId, { manad: b.month })}>Öppna månadsbedömningen</Button>
+          </div>
+        )}
+      </Stack>
+    </Notice>
   );
 }
 

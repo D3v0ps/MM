@@ -5,10 +5,11 @@ import { withoutAreaChanges } from "@/data/seed/decisions-2026-10-22";
 import type { Db, InvoiceDraft, InvoiceLine } from "@/data/schema";
 import {
   billableWeeks, billingLines, billingRunIdOf, buyerRefProblem, CONTRACT_GROUP, groupingKeyOf, invoiceIdOf, invoiceLookup, invoiceRefProblem, invoiceStatus, missingBillingRuns,
-  monthEnded, monthInvoices, parseGroupingKey, priceProblemOf, priceStopCheck, unbilledOld, vatBreakdown, weekText,
+  monthEnded, monthInvoices, parseGroupingKey, planCouldMeet, priceProblemOf, priceStopCheck, unbilledOld, vatBreakdown, weekText,
 } from "./billing";
 import { DEFAULT_ORG_SETTINGS } from "./config";
 import { domainEnv } from "./env";
+import { planActivities } from "./schedule";
 import { cfgWith, mkActivity, mkAttendance, mkBillingRun, mkCase, mkInvoiceDraft, mkPriceItem, testDb, testEnv } from "./test-data";
 
 const env = testEnv();
@@ -52,6 +53,57 @@ describe("debiterbara veckor", () => {
     expect(w[1]).toMatchObject({ planned: 2, attended: 2, registered: 2, zeroAttendance: false, missingRegistration: false });
     expect(w[2]).toMatchObject({ planned: 1, registered: 0, zeroAttendance: false, missingRegistration: true });
     expect(w[3]).toMatchObject({ planned: 1, attended: 0, registered: 1, zeroAttendance: true });
+  });
+  it("en hel vecka som är slut utan ett enda tillfälle flaggas som vecka utan närvaro (startdatum som flyttats bakåt)", () => {
+    // Start onsdag 6 jan (v. 1 delvis), tillfällen bara i v. 4 (25 jan), v. 3 pausad. Klockan måndag 1 feb 09.12 – v. 5 pågår.
+    const c = mkCase({ id: "c5", caseNumber: "BOT-27-0005", startDate: "2027-01-06", pausedWeeks: ["2027-W03"], orderValueWeeks: 8 });
+    const db = testDb({ cases: [c], activities: [mkActivity({ id: "a5", caseId: "c5", startsAt: "2027-01-25T10:00" })], attendance: [], price_items: price });
+    const w = billableWeeks(c, db, env);
+    expect(w.map((x) => [x.key, x.planned, x.partial, x.paused, x.zeroAttendance, x.missingRegistration])).toEqual([
+      ["2027-W01", 0, true, false, false, false], // delvis startvecka utan tillfällen: ingen kontroll
+      ["2027-W02", 0, false, false, true, false], // hel vecka, slut, inga tillfällen: Ingen närvaro
+      ["2027-W03", 0, false, true, false, false], // pausad: debiteras inte
+      ["2027-W04", 1, false, false, false, true], // ett tillfälle utan registrering: Närvaro saknas
+      ["2027-W05", 0, false, false, false, false], // innevarande vecka: tillfällena har inte varit än
+    ]);
+    const [l] = billingLines(db, "2027-01", env);
+    expect(l.needsApproval).toBe(true);
+    expect(l.checks.filter((x) => x.kind === "zero_week").map((x) => [x.label, x.severity, x.text])).toEqual([
+      ["Ingen närvaro v. 2 2027", "needs_approval", "Veckan är debiterbar men har inga tillfällen, till exempel efter ett startdatum som flyttats bakåt. Kontrollera med coachen och godkänn innan fakturering."],
+    ]);
+  });
+  it("en helgvecka där alla veckoplanens dagar är helgdagar flaggas inte – julveckan och nyårsveckan med bara torsdag", () => {
+    // Veckoplanen har bara torsdag (möte) – tillfällena skapade som Starta insatsen gör (planActivities hoppar över helgdagar),
+    // all närvaro registrerad. Julafton (tors 24/12, v. 52) och nyårsafton (tors 31/12, v. 53) ger inga tillfällen.
+    const env11 = testEnv({ now: "2027-01-11T09:00" });
+    const c = mkCase({ id: "c7", caseNumber: "BOT-26-0077", startDate: "2026-11-02", plannedEnd: "2027-04-30", plannedWeeks: 26, orderValueWeeks: 26 });
+    const plan = [{ weekday: 3, kind: "möte" as const, time: "10:00", durationMin: 60, location: "Miljonbemanning" }];
+    const acts = planActivities(plan, c.startDate!, c.plannedEnd!, { pausedWeeks: [] }).map((r, i) => mkActivity({ id: `a7-${i}`, caseId: c.id, startsAt: r.startsAt, kind: r.kind }));
+    const att = acts.filter((x) => x.startsAt < env11.now).map((x) => mkAttendance({ activityId: x.id, caseId: c.id, status: "present" }));
+    const db = testDb({ cases: [c], activities: acts, attendance: att, price_items: price });
+    const [l] = billingLines(db, "2026-12", env11);
+    expect(l.weeks.map((w) => [w.key, w.planned, w.zeroAttendance])).toEqual([
+      ["2026-W49", 1, false], ["2026-W50", 1, false], ["2026-W51", 1, false], ["2026-W52", 0, false], ["2026-W53", 0, false],
+    ]);
+    expect(l.checks.filter((x) => x.kind === "zero_week")).toEqual([]);
+    expect(l.needsApproval).toBe(false);
+    // Samma plan, men torsdagens tillfälle i en vanlig vecka saknas (v. 50, 10 december): veckan flaggas som förut.
+    const gap = testDb({ cases: [c], activities: acts.filter((x) => !x.startsAt.startsWith("2026-12-10")), attendance: att, price_items: price });
+    const [g] = billingLines(gap, "2026-12", env11);
+    expect(g.checks.filter((x) => x.kind === "zero_week").map((x) => [x.label, x.severity])).toEqual([["Ingen närvaro v. 50 2026", "needs_approval"]]);
+  });
+  it("planCouldMeet: veckoplanens dagar från närmaste vecka efter (annars före) med egna tillfällen – gruppaktiviteter räknas inte", () => {
+    const thu = [mkActivity({ id: "t1", caseId: "c", startsAt: "2027-01-07T10:00" }), mkActivity({ id: "t2", caseId: "c", startsAt: "2027-01-14T10:00" })];
+    expect(planCouldMeet(thu, "2026-12-21")).toBe(false); // julafton torsdag
+    expect(planCouldMeet(thu, "2026-12-14")).toBe(true);
+    // Ingen vecka efter: veckan före (torsdag 14 januari) – Kristi himmelsfärd torsdag 6 maj 2027.
+    expect(planCouldMeet(thu, "2027-05-03")).toBe(false);
+    expect(planCouldMeet(thu, "2027-05-10")).toBe(true);
+    // En gruppaktivitet på tisdag gör inte tisdag till en plandag.
+    const withGroup = [...thu, mkActivity({ id: "g1", caseId: "c", startsAt: "2027-01-05T13:00", kind: "yrkesmoment", groupActivityId: "ga-1" })];
+    expect(planCouldMeet(withGroup, "2026-12-21")).toBe(false);
+    // Inga egna tillfällen alls: ingen plan att gå efter – veckan räknas.
+    expect(planCouldMeet([], "2026-12-21")).toBe(true);
   });
   it("pågående ärende: till och med innevarande vecka", () => {
     const c = mkCase({ id: "c9", startDate: "2027-01-20" });

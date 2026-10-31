@@ -9,7 +9,7 @@ import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { AppRepo, Tables } from "@/data/schema";
 import type { Ctx } from "@/api/server";
-import { ATTACHMENT_MAX_BYTES } from "@/features/_shared/attachment-port";
+import { ATTACHMENT_MAX_BYTES, DELETED_FILE_NAME } from "@/features/_shared/attachment-port";
 import { runAttachmentRetention } from "@/features/_shared/attachment-retention";
 import { AttachmentStorageError, createStorageAttachments, emptyAttachmentBucket, supabaseAttachmentStorage, type AttachmentBucketLike, type AttachmentStorage } from "./storage";
 
@@ -80,10 +80,10 @@ describe("createStorageAttachments", () => {
     t.files.set("c-bot/att-2.pdf", new TextEncoder().encode("<html>x</html>"));
     expect(await t.port.confirm(b.attachmentId)).toBeNull();
     expect(t.removed).toEqual(["c-bot/att-2.pdf"]);
-    expect(t.store.getRow("case_attachments", "att-2")).toMatchObject({ status: "deleted", deleteReason: "invalid" });
+    expect(t.store.getRow("case_attachments", "att-2")).toMatchObject({ status: "deleted", deleteReason: "invalid", fileName: DELETED_FILE_NAME });
   });
 
-  it("signedDownload: en adress som gäller i 60 sekunder, utan filnamn; remove raderar filen och behåller spåret", async () => {
+  it("signedDownload: en adress som gäller i 60 sekunder, utan filnamn; remove raderar filen och behåller spåret – utan filnamnet", async () => {
     const t = setup();
     const a = await t.port.createUpload(META);
     t.files.set("c-bot/att-1.pdf", PDF);
@@ -94,13 +94,45 @@ describe("createStorageAttachments", () => {
     expect(d).toEqual({ url: "https://ref.supabase.co/storage/v1/object/sign/bilagor/c-bot/att-1.pdf?token=d1", content: null });
     expect(t.signedFor).toEqual([["c-bot/att-1.pdf", 60]]);
     expect(d!.url).not.toMatch(/download|Kartl/);
-    await t.port.remove(a.attachmentId, "removed", "u-sara");
+    expect(await t.port.remove(a.attachmentId, "removed", "u-sara")).toBe(true);
     expect(t.removed).toEqual(["c-bot/att-1.pdf"]);
-    expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-sara", deletedAt: DEMO_START });
+    expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-sara", deletedAt: DEMO_START, fileName: DELETED_FILE_NAME });
+    expect(JSON.stringify(t.store.getRow("case_attachments", "att-1"))).not.toMatch(/Kartl|Samira/);
     expect(await t.port.signedDownload(a.attachmentId)).toBeNull();
-    // Idempotent: en andra radering gör inget.
-    await t.port.remove(a.attachmentId, "retention");
+    // Idempotent: en andra radering gör inget – och svarar false (inget att logga).
+    expect(await t.port.remove(a.attachmentId, "retention")).toBe(false);
     expect(t.removed).toHaveLength(1);
+    expect(await t.port.remove("att-finns-inte", "removed", "u-sara")).toBe(false);
+  });
+
+  it("remove är villkorat: av två samtidiga anrop raderar bara det ena raden och får true (granskningen 2026-10-29)", async () => {
+    const t = setup();
+    const a = await t.port.createUpload({ ...META, caseId: "case-260143", ownerId: "u-amira", kind: "participant", category: "cv" });
+    t.files.set(`c-bot/${a.attachmentId}.pdf`, PDF);
+    await t.port.confirm(a.attachmentId);
+    // Båda läser raden (uploaded) innan någon av dem hunnit skriva – som två förfrågningar mot Supabase samtidigt.
+    const results = await Promise.all([t.port.remove(a.attachmentId, "removed", "u-amira"), t.port.remove(a.attachmentId, "removed", "u-sara")]);
+    expect(results).toEqual([true, false]);
+    expect(t.store.getRow("case_attachments", a.attachmentId)).toMatchObject({ status: "deleted", removedBy: "u-amira" });
+  });
+
+  it("deltagarfiler (0037): slag och typ på raden, samma sökväg och kontroller; en fil som saknas i lagringen ger ingen adress", async () => {
+    const t = setup();
+    const meta = { ...META, caseId: "case-260143", ownerId: "u-amira", fileName: "CV Samira Testsson.pdf", kind: "participant" as const, category: "cv" as const };
+    const a = await t.port.createUpload(meta);
+    expect(t.store.getRow("case_attachments", a.attachmentId)).toMatchObject({ kind: "participant", category: "cv", caseId: "case-260143", storagePath: `c-bot/${a.attachmentId}.pdf`, linkedAt: DEMO_START });
+    expect(a.uploadUrl).not.toMatch(/CV|Samira/);
+    // En deltagarfil har alltid en typ och ett ärende; en bilaga till beställningen har ingen typ.
+    await expect(t.port.createUpload({ ...meta, category: null })).rejects.toMatchObject({ code: "attachment_category" });
+    await expect(t.port.createUpload({ ...meta, caseId: null })).rejects.toMatchObject({ code: "attachment_case" });
+    await expect(t.port.createUpload({ ...META, category: "cv" })).rejects.toMatchObject({ code: "attachment_category" });
+    expect(t.store.getRow("case_attachments", (await t.port.createUpload(META)).attachmentId)).toMatchObject({ kind: "order", category: null });
+    // Uppladdad och kontrollerad – men filen har försvunnit ur lagringen: ingen adress.
+    t.files.set(`c-bot/${a.attachmentId}.pdf`, PDF);
+    expect(await t.port.confirm(a.attachmentId)).toMatchObject({ status: "uploaded", kind: "participant" });
+    const gone: AttachmentStorage = { ...t.storage, createSignedUrl: async () => null };
+    const system = new MemoryRepo<Tables>(t.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
+    expect(await createStorageAttachments({ system, storage: gone, now: () => DEMO_START, newId: (p) => `${p}-x` }).signedDownload(a.attachmentId)).toBeNull();
   });
 
   it("avstämningen i gallringen: en fil som laddas upp igen med samma signerade adress efter Ta bort raderas", async () => {
@@ -118,7 +150,7 @@ describe("createStorageAttachments", () => {
     const audits: unknown[] = [];
     const system = new MemoryRepo<Tables>(t.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
     const ctx = { now: () => DEMO_START, system, attachments: t.port, audit: async (e: unknown) => void audits.push(e) } as unknown as Ctx;
-    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, orphans: 1 });
+    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, unconfirmed: 0, orphans: 1 });
     expect([...t.files.keys()]).toEqual(["c-bot/att-2.pdf"]);
     expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted" });
     expect(audits).toEqual([{ action: "attachment.deleted", entity: "case_attachment", entityId: "att-1", contractId: "c-bot", details: { caseId: null, reason: "orphan" } }]);
@@ -162,6 +194,11 @@ describe("supabaseAttachmentStorage", () => {
     expect(err).toBeInstanceOf(AttachmentStorageError);
     expect((err as Error).message).toBe("Bilagorna: sign misslyckades (500)");
     expect((err as Error).message).not.toContain("att-1");
+    // Nedladdningsadressen till en fil som inte finns i lagringen (Supabase: 400 eller 404 "Object not found") är null.
+    for (const statusCode of ["400", "404"]) {
+      const gone = supabaseAttachmentStorage({ storage: { from: bucket({ createSignedUrl: async () => ({ data: null, error: { statusCode } }) }).from } });
+      expect(await gone.createSignedUrl("c-bot/att-1.pdf", 60), statusCode).toBeNull();
+    }
   });
 
   it("list: filerna i avtalsmapparna, sida för sida (1 000 per anrop)", async () => {

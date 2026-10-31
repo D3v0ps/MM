@@ -26,7 +26,9 @@ export type TimelineDb = Pick<
   Db,
   | "cases" | "persons" | "activities" | "attendance" | "check_ins" | "intake_assessments" | "monthly_assessments" | "outcome_events" | "placements" | "employers"
   | "case_status_history" | "deviations" | "consents" | "reports" | "messages" | "case_notes" | "profiles" | "organizations" | "case_area_changes"
->;
+> &
+  // Ändringarna av startdatum (0038): bara för att visa motiveringen som låst – saknas tabellen är ingen anteckning låst av den.
+  Partial<Pick<Db, "case_start_changes">>;
 export type TimelineViewer = { access: "full" | "team"; role: Role; userId: string };
 export type TimelineOpts = {
   caseId: string;
@@ -213,8 +215,8 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
 
   // ---- Anteckningar: alla med åtkomst – teamet bara audience team (RLS). Borttagna visas bara för författaren, när
   //      någon annan tog bort dem ("Borttagen av …").
-  // Motiveringen till ett byte av yrkesområde är låst (0036): den ändras och tas aldrig bort.
-  const areaNotes = new Set(db.case_area_changes.filter((x) => x.caseId === c.id).map((x) => x.noteId));
+  // Motiveringen till ett byte av yrkesområde (0036) och till ett ändrat startdatum (0038) är låst: den ändras och tas aldrig bort.
+  const areaNotes = new Set([...db.case_area_changes, ...(db.case_start_changes ?? [])].filter((x) => x.caseId === c.id).map((x) => x.noteId));
   for (const n of db.case_notes.filter((x) => x.caseId === c.id && (x.audience === "team" || full))) {
     const mine = n.authorId === viewer.userId;
     const locked = areaNotes.has(n.id);

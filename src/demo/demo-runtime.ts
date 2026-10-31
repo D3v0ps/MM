@@ -4,9 +4,12 @@
 // och ingen mikrofon krävs – en inspelning kan simuleras. Riktigt ljud som läggs i minnet (rt.audio.put) sparas inte i
 // loggen; vid omladdning spelas kommandona upp utan ljudet, och den simulerade AI:n ger samma svar ändå.
 // Bilagor (beslut 2026-10-07): filens innehåll (contentBase64) sparas inte heller i loggen – efter omladdning finns filen
-// kvar med namn och storlek, och "Hämta" ger en textfil som säger att innehållet bara fanns i webbläsarens minne.
+// kvar med namn och storlek, och "Hämta" ger en textfil som säger att innehållet bara fanns i webbläsarens minne. En fil som
+// avvisades (fel filsignatur eller storlek – kommandot svarade ok: false) loggas med en ersättning som avvisas på samma sätt
+// (REJECTED_CONTENT), så att den inte kommer tillbaka som en godkänd fil efter omladdning (granskningen 2026-10-29).
 // Självregistreringen (en ny adress på kommunens domän) loggas som en egen rad (SELF_REGISTER) och spelas upp på samma sätt.
 import type { Actor } from "@/api/roles";
+import { base64ToBytes } from "@/core/export/base64";
 import type { Backend } from "@/shell/backend";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
@@ -33,11 +36,34 @@ function writeLog(log: LogEntry[]) {
   }
 }
 
-/** Kommandots indata i loggen: utan filinnehåll (bilagor) – det kan vara flera megabyte och sparas bara i minnet. */
-function forLog(payload: unknown): unknown {
+/**
+ * Ersättningen för innehållet i en avvisad fil: en enda nollbyte (base64). Den stämmer aldrig med någon filsignatur
+ * (signatureMatches), så uppspelningen avvisar filen igen – raden blir raderad och loggen får attachment.rejected, som när det hände.
+ */
+export const REJECTED_CONTENT = "AA==";
+/** Ersättningen när innehållet inte ens var giltig base64: inte heller ersättningen går att läsa, så utfallet blir detsamma. */
+export const UNREADABLE_CONTENT = "!";
+
+/**
+ * Kommandots indata i loggen: utan filinnehåll (bilagor och deltagarfiler) – det kan vara flera megabyte och sparas bara i
+ * minnet. Utan innehåll godtar minnesporten filen vid uppspelningen. Svarade kommandot ok: false (filen avvisades) loggas i
+ * stället REJECTED_CONTENT, så att uppspelningen ger samma utfall.
+ */
+export function forLog(payload: unknown, result?: unknown): unknown {
   if (!payload || typeof payload !== "object" || !("contentBase64" in payload)) return payload;
   const rest = { ...(payload as Record<string, unknown>) };
   delete rest.contentBase64;
+  const failed = !!result && typeof result === "object" && (result as { ok?: unknown }).ok === false;
+  const content = (payload as { contentBase64?: unknown }).contentBase64;
+  if (failed && typeof content === "string" && content) {
+    let readable = true;
+    try {
+      base64ToBytes(content);
+    } catch {
+      readable = false;
+    }
+    rest.contentBase64 = readable ? REJECTED_CONTENT : UNREADABLE_CONTENT;
+  }
   return rest;
 }
 
@@ -73,7 +99,7 @@ export async function bootDemo(): Promise<DemoRuntime> {
       command: async (key, payload) => {
         const a = actor();
         const res = await rt.run("command", key, payload, a);
-        kept.push({ key, input: forLog(payload), actor: a });
+        kept.push({ key, input: forLog(payload, res), actor: a });
         writeLog(kept);
         return res;
       },

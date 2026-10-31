@@ -90,6 +90,30 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 
 Hela vägen för en deltagare, från beställning till avslut, står i **Rutin för deltagarna från början till slutet** längst ner på den här sidan.
 
+### Ändra startdatum
+
+Började deltagaren en annan dag än den som registrerades? Huvudcoachen, de andra coacherna, samordnaren och avtalsansvarig kan ändra startdatumet i en pågående eller pausad insats.
+
+1. Tryck på **Ändra startdatum** bland knapparna i deltagarkortets huvud.
+2. Välj **Nytt startdatum**. Det kan vara tidigast första mötets dag och senast planerat slut.
+3. Skriv en kort **Motivering**, 10–300 tecken. Räknaren under fältet visar hur många tecken du har skrivit. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet och kan inte ändras eller tas bort efteråt. Kommunen ser den aldrig.
+4. Tryck på **Ändra startdatum**.
+
+Det här händer:
+
+- Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har registrerad närvaro eller bara har automatisk närvaro. Den automatiska närvaron tas bort med tillfället.
+- Har ett tillfälle före det nya datumet närvaro som någon har registrerat, eller finns en godkänd mötesrapport före det nya datumet, går det inte att ändra. Meddelandet säger vilket startdatum som går.
+- Får en månad för få dagar för en månadsrapport med det nya startdatumet tas de automatiska utkasten till månadsrapport och månadsbedömning för den månaden bort. Planen för nästa månad ligger kvar. Är månadsrapporten redan godkänd eller lämnad till kommunen, är månadsbedömningen godkänd eller har coachen sparat månadsbedömningen, går det inte att ändra. Det coachen skrivit tas aldrig bort. Meddelandet säger vilket startdatum som går.
+- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i Min vecka att rätta dem. Uppgiften leder till ärendets rapporter. Ändras startdatumet igen stängs den gamla uppgiften av sig själv, och en ny skapas bara om något fortfarande behöver rättas.
+- Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt. En hel vecka utan tillfällen måste ekonomen godkänna innan den faktureras.
+- Planerat slut ändras inte.
+- Är månaden redan fakturerad, eller har ekonomen godkänt månadens faktura, går det inte att ändra. Kontakta ekonomen. En fakturerad månad behöver krediteras först.
+- Läggs deltagaren till i eller tas bort ur en kommande gruppaktivitet får deltagaren aktivitetens vanliga meddelande med tid och plats.
+- Kommunen får inget meddelande. Portalen visar det nya startdatumet.
+- Hann allt inte göras klart, till exempel vid ett tillfälligt fel, säger meddelandet det. Startdatumet är ändå ändrat, och resten görs klart automatiskt.
+
+Ändringarna står under raden med startdatumet, med vem som ändrade och motiveringen.
+
 ### Ändra kontaktväg
 
 1. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet.
@@ -98,6 +122,19 @@ Hela vägen för en deltagare, från beställning till avslut, står i **Rutin f
 4. Tryck på **Spara kontaktvägen**. Kallelser och inbjudningar skickas den vägen först.
 
 Samordnaren, avtalsansvarig, coachen och systemadministratören kan ändra kontaktvägen. Systemadministratören kan inte ändra något annat i ärendet. Revisionsloggen visar vilka fält som ändrades, aldrig vad som står i dem.
+
+### Filer på deltagarkortet
+
+Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på deltagarkortets **Översikt**. Filerna syns bara för Miljonbemanning. Kommunen ser dem aldrig.
+
+1. Tryck på **Ladda upp fil** i kortet **Filer**.
+2. Välj **Typ av fil**: **CV**, **Personligt brev**, **Betyg och intyg** eller **Övrigt**.
+3. Välj filen. Den ska vara en PDF, ett Word-dokument eller en bild och högst 10 MB.
+4. Tryck på **Ladda upp**. Filen hamnar under sin typ, med den senaste filen först.
+
+Tryck på **Hämta** för att ladda ned en fil till datorn och läsa den. Tryck på **Ta bort** för att ta bort en fil som inte behövs längre. Det går när som helst, och filen går inte att få tillbaka.
+
+Samordnaren, avtalsansvarig och coacherna kan ladda upp, hämta och ta bort filerna. En deltagare kan ha högst 30 filer. Du kan ladda upp filer när beställningen är bekräftad, och också efter att insatsen är avslutad. Bilagorna som kommunen skickade med beställningen ligger kvar i kortet **Bakgrund från beställningen**.
 
 ### Mina ärenden och Alla ärenden
 
@@ -214,7 +251,7 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och rättar det som inte stämmer.
 
-1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**.
+1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden (till exempel startmånaden när insatsen startade sent i månaden). Då behövs ingen månadsbedömning – dagarna kommer med i veckorapporterna och i slutrapporten.
 2. Varje progressionsområde står på progressionsnivå 0 med märket **Automatiskt – inget belägg**, tills du väljer något annat. **Samlad status** kommer från din senaste godkända mötesrapport. Sammanfattningen och planen är ifyllda och märkta **Ifyllt automatiskt – kontrollera** tills du ändrar dem.
 3. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 4. AI kan föreslå progressionsnivå 1–3, men bara med ett citat ur underlaget. Tryck på **Godta** vid ett förslag, eller **Godta alla AI-förslag**. Ett förslag gäller först när du godtar det.

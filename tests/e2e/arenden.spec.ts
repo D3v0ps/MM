@@ -576,6 +576,28 @@ test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas in
   expect(errors).toEqual([]);
 });
 
+test("21b. en månad utan månadsrapport (start 25 januari, 7 dagar): ingen uppmaning – Ingen månadsrapport på kortet och på sidan Månadsbedömning", async ({ page }, info) => {
+  // BOT-27-0027 startade måndag 25 januari 2027. Kortet ber aldrig om en bedömning som servern nekar (needsAssessment).
+  const errors = await open(page, info, "/arenden/case-270027?flik=manad", AMIRA);
+  await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#manad-val")).toHaveValue("2027-02");
+  await expect(main(page)).toContainText("Underlaget till månadsrapporten.");
+  await expect(main(page)).not.toContainText("är inte påbörjad");
+  await page.locator("#manad-val").selectOption("2027-01");
+  await expect(main(page)).toContainText("Ingen månadsrapport för januari 2027");
+  await expect(main(page)).toContainText("Insatsen har 7 inskrivna dagar i januari. Månadsrapport och månadsbedömning görs för en månad med minst 11 inskrivna dagar.");
+  await expect(main(page)).not.toContainText("Innan rapporten kan godkännas");
+  await expect(page.getByRole("link", { name: "Gör månadsbedömningen" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Påbörja bedömningen" })).toHaveCount(0);
+  // Sidan Månadsbedömning för januari: samma besked i stället för formuläret och AI-knappen.
+  await switchTo(page, info, "/manadsbedomning/case-270027?manad=2027-01", AMIRA);
+  await expect(main(page)).toContainText("Ingen månadsbedömning för januari 2027");
+  await expect(page.getByTestId("progressionsomraden")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /AI-utkast/ })).toHaveCount(0);
+  await expect(action(page, "Till deltagarkortet")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("23. 400 px: tidslinjen, dialogen och månadsunderlaget – inget utanför korten, klickytor minst 44 px, ingen sidledsscroll", async ({ page }, info) => {
   await page.setViewportSize({ width: 400, height: 860 });
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);

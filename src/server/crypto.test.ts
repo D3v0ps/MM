@@ -52,7 +52,11 @@ describe("servern: AES-256-GCM och HMAC-SHA256", () => {
     const other = pnrCryptoFromKeys(key("annan"), MAC);
     expect(() => other.decryptPnr(enc)).toThrow(PnrKeyError);
     const [v, n, t, ct] = enc.split(":");
-    const flipped = `${v}:${n}:${t}:${ct.slice(0, -2)}${ct.endsWith("A") ? "B" : "A"}${ct.slice(-1)}`;
+    // Byt näst sista tecknet (sex hela databitar i base64url) mot ett ANNAT tecken. Tidigare valdes ersättningen efter det
+    // sista tecknet, och var det näst sista redan "A" blev värdet oförändrat – testet föll då slumpvis (nonce är slumpad, ca 1,5 %).
+    const i = ct.length - 2;
+    const flipped = `${v}:${n}:${t}:${ct.slice(0, i)}${ct[i] === "A" ? "B" : "A"}${ct.slice(i + 1)}`;
+    expect(flipped).not.toBe(enc);
     expect(() => c.decryptPnr(flipped)).toThrow(PnrKeyError);
     expect(() => c.decryptPnr(`test:${PNR}`)).toThrow(PnrKeyError);
     expect(() => c.decryptPnr("v1:x:y")).toThrow(PnrKeyError);
