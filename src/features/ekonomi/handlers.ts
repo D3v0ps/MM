@@ -11,7 +11,7 @@ import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import {
-  BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceOfCase, isCreated, monthEnded, monthInvoices, reissueLines, reissueRound, unbilledOld,
+  BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceLookup, invoiceOfCase, isCreated, monthEnded, monthInvoices, reissueLines, reissueRound, unbilledOld,
   type BillingMonth, type InvoiceLineView, type MonthInvoice,
 } from "@/core/billing";
 import { areaForMonth, inOrder } from "@/core/area-changes";
@@ -801,11 +801,12 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
       inv.lines.flatMap((l) =>
         l.checks.filter((ch) => ch.kind === "zero_week").map((ch) => ({
           id: `${r.month}:${l.caseId}:${ch.weekKey}`, month: r.month, caseId: l.caseId, caseNumber: l.caseNumber, weekKey: ch.weekKey ?? "",
-          planned: l.weeks.find((w) => w.key === ch.weekKey)?.planned ?? null, approved: ch.severity === "approved",
+          planned: l.weeks.find((w) => w.key === ch.weekKey)?.planned ?? null, approved: ch.severity === "approved", invoiceId: inv.id,
         })))));
 
   // Ofakturerade veckor äldre än varningsgränsen, per ärende
   const ub = unbilledOld(db, b.env);
+  const lookup = invoiceLookup(db);
   const ubRows: UnbilledRow[] = Object.values(groupBy(ub, (x) => x.case.id)).map((xs) => {
     const sorted = [...xs].sort((a, x) => (a.week.key < x.week.key ? -1 : 1));
     const oldest = sorted[0];
@@ -813,6 +814,8 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
     return {
       caseId: oldest.case.id, caseNumber: oldest.case.caseNumber, status: oldest.status, weeks: sorted.map((x) => x.week), age: Math.max(...xs.map((x) => x.age)),
       amountOre: sum(xs, (x) => x.amountOre), presc, left: diffDays(today, presc),
+      // Bara visning (Min vecka grupperar per faktura): fakturan som har den äldsta veckan – samma uppslag som statusen.
+      invoiceId: lookup.holderOf(oldest.case, oldest.week.monthKey, oldest.week.key)?.id ?? null,
     };
   }).sort(by<UnbilledRow>("presc"));
 
@@ -869,6 +872,7 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
     current = {
       month: cur.month, status: cur.status, totalOre: bm.totalOre, invoices: bm.invoices.length, count: bm.count, weeks: bm.weeks, blocked: bm.blocked, due,
       dueRelative: cap(relative(due, ctx.now())), fortnoxDays: days, stepNow, perContract: b.perContract,
+      invoiceRows: bm.invoices.map((inv, i) => ({ invoiceId: inv.id, title: titleOf(inv), bucket: buckets[i], lines: inv.lines.length, weeks: inv.quantity, amountOre: inv.amountOre })),
       counts: {
         blocked: buckets.filter((x) => x === "blocked").length,
         priceBlocked: bm.invoices.filter((x) => x.blocked && x.checks.some((ch) => ch.kind === "price")).length,

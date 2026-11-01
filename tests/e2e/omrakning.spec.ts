@@ -94,10 +94,11 @@ test("skicka meddelande: bara kortet och tråden hämtas om – inte räknarna o
 test("kvittera flagga: Min vecka och sidopanelens räknare hämtas om (chefens deadlines läser kvitteringarna) – inte rösten; flaggan borta, och ärendelistan (grunt byte) visar Amal utan flaggan", async ({ page }, info) => {
   onlyApp(info);
   const errors = await open(page, info, "/min-vecka", AMIRA);
-  const flag = page.locator("#flagga-stuck-case-270012-1");
+  // Paket 2: flaggan står i Följ upp (påminnelser, flaggor och notiser – samma ärende en gång).
+  const flag = page.getByRole("list", { name: "Följ upp", exact: true }).locator(":scope > li").filter({ hasText: "Fastnat i fas 1" });
   await expect(flag).toBeVisible();
   const rpc = watchRpc(page);
-  await flag.getByRole("button", { name: "Kvittera" }).click();
+  await flag.getByRole("button", { name: /^Kvittera flaggan/ }).click();
   await page.locator("#ack-stuck-case-270012-1").fill("Bokar kartläggningen i veckan.");
   await page.getByRole("button", { name: "Spara kvittering" }).click();
   await expect(page.getByText("Flaggan är kvitterad.")).toBeVisible();

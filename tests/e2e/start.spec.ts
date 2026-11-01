@@ -56,13 +56,13 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   await expect(d.getByText("Amira Haddad har fått en notis om tilldelningen")).toBeVisible();
   await d.getByRole("button", { name: "Klart" }).click();
 
-  // 2. Coachens Min vecka: Insatser att starta med knappen.
+  // 2. Coachens Min vecka: insatsen att starta är en rad i Att göra i dag (paket 2) med knappen.
   await switchTo(page, info, "/min-vecka", AMIRA);
-  const starta = page.locator("#mv-starta");
-  await expect(starta).toContainText("Insatser att starta");
+  const todo = main(page).getByRole("list", { name: "Att göra i dag", exact: true }).locator(":scope > li");
+  const starta = todo.filter({ hasText: "Insats att starta" });
   await expect(starta).toContainText("Diego Morales");
   await expect(starta).toContainText(CASE_NO);
-  await starta.getByRole("link", { name: "Starta insatsen" }).click();
+  await starta.getByRole("link", { name: /^Starta insatsen/ }).click();
 
   // 3. Dialogen öppnas på deltagarkortet med avtalets standardplan: coachträff måndag (första mötets dag), yrkesmoment tisdag och torsdag.
   const sd = dialog(page, "Starta insatsen");
@@ -102,11 +102,12 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   await page.getByRole("group", { name: "Dag" }).getByRole("button", { name: /^Hela veckan/ }).click();
   await expect(page.locator("[data-testid=narvaro-rad]").filter({ hasText: "Diego Morales" }).filter({ hasText: "Planerat" }).first().getByRole("button", { name: "Ta bort" })).toBeVisible();
 
-  // 6. Min vecka: dagens tillfälle med närvaron, och veckan i kalendern.
+  // 6. Min vecka: dagens tillfälle med närvaron (mötesrapporten är inte skriven än), och veckan i kalendern.
   await go(page, info, "/min-vecka");
-  await expect(page.locator("#mv-starta")).toHaveCount(0);
-  await expect(page.locator("#mv-idag")).toContainText("Diego Morales");
-  await expect(page.locator("#mv-idag")).toContainText("Närvarande");
+  await expect(todo.filter({ hasText: "Insats att starta" })).toHaveCount(0);
+  const today = todo.filter({ hasText: "Diego Morales" });
+  await expect(today).toContainText("Närvarande");
+  await expect(today).toContainText("09.00");
 
   // 7. Ny praktik från deltagarkortet: placering, praktikdagar och händelsen Praktik startad.
   await go(page, info, `/arenden/${CASE}?flik=praktik`);

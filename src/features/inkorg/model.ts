@@ -18,7 +18,7 @@ import { orgSettingsFor } from "../_shared/context";
 import { revealPnr } from "../_shared/pnr";
 import type { InboxRow, SlaInfo } from "./api";
 import { looksLikeCancellation } from "./parse";
-import { CHAIN, DL_KIND, FIELD_LABEL, whenText, type ChainKey, type DeadlineKindKey, type DeadlineRow, type InboxMethod } from "./texts";
+import { CHAIN, CHAIN_LABEL_OF, DL_KIND, FIELD_LABEL, whenText, type ChainKey, type DeadlineKindKey, type DeadlineRow, type InboxMethod } from "./texts";
 
 // ---------------------------------------------------------------- Avtalet och klockan
 /**
@@ -258,24 +258,43 @@ export function deadlineItems(ops: OpsDb, e: InboxEnv, visible: Set<string>, day
 // ---------------------------------------------------------------- Förfallorader (ansvarig och eskalering)
 const OWNER_LABEL: Partial<Record<Role, string>> = { samordnare: "Samordnare", avtalsansvarig: "Avtalsansvarig", ekonom: "Ekonom", chef: "Chef och controller", coach: "Huvudcoach" };
 
-/** Ansvarig och eskaleringsväg (prototypens ownerOf). */
-function ownerOf(x: DeadlineItem, ops: OpsDb, e: InboxEnv): { name: string; chain: ChainKey } {
+/**
+ * Ansvarig och eskaleringsväg (prototypens ownerOf). ownerId = personen som äger förfallotiden (den namngivna ägaren eller
+ * rollens person i avtalet), ownerRole = rollen som äger den när ingen person är namngiven (null när en person äger den).
+ */
+function ownerOf(x: DeadlineItem, ops: OpsDb, e: InboxEnv): { name: string; chain: ChainKey; ownerId: string | null; ownerRole: string | null } {
   const roleOf = (userId: string): Role | null => ops.memberships.find((m) => m.userId === userId)?.role ?? null;
   if (x.ownerId) {
     const r = roleOf(x.ownerId);
-    return { name: personName(ops.profiles, x.ownerId), chain: r && r in CHAIN ? (r as ChainKey) : "coach" };
+    return { name: personName(ops.profiles, x.ownerId), chain: r && r in CHAIN ? (r as ChainKey) : "coach", ownerId: x.ownerId, ownerRole: null };
   }
   if (x.caseId && (x.kind === "manadsrapport" || x.kind === "slutrapport")) {
     const c = ops.cases.find((y) => y.id === x.caseId);
-    if (c?.leadCoachId) return { name: personName(ops.profiles, c.leadCoachId), chain: "coach" };
+    if (c?.leadCoachId) return { name: personName(ops.profiles, c.leadCoachId), chain: "coach", ownerId: c.leadCoachId, ownerRole: null };
   }
   if (x.owner) {
     // Rollens person i avtalet: avtalsansvarig från avtalet, annars den första med rollen.
     const pid = x.owner === "avtalsansvarig" ? e.contract.contractManagerId : ops.memberships.find((m) => m.role === x.owner)?.userId ?? null;
     const label = OWNER_LABEL[x.owner] ?? x.owner;
-    return { name: `${label}${pid ? ` · ${personName(ops.profiles, pid)}` : ""}`, chain: x.owner in CHAIN ? (x.owner as ChainKey) : "samordnare" };
+    return {
+      name: `${label}${pid ? ` · ${personName(ops.profiles, pid)}` : ""}`, chain: x.owner in CHAIN ? (x.owner as ChainKey) : "samordnare",
+      // Avtalsansvarig: den som är avtalsansvarig för avtalet. Övriga roller: alla med rollen (rollens förfallotid).
+      ownerId: x.owner === "avtalsansvarig" ? pid : null, ownerRole: x.owner,
+    };
   }
-  return { name: "–", chain: DL_KIND[x.kind as DeadlineKindKey]?.chain ?? "samordnare" };
+  const chain = DL_KIND[x.kind as DeadlineKindKey]?.chain ?? "samordnare";
+  return { name: "–", chain, ownerId: null, ownerRole: chain };
+}
+
+/**
+ * Mitt ansvar (Förfaller och Min vecka, paket 2): användaren äger förfallotiden, rollen äger den (utan namngiven person), eller
+ * den har eskalerats till användarens roll – rollen finns i eskaleringsvägen efter ägaren, till och med det nuvarande steget
+ * (step). En försenad slutrapport hos coachen är alltså samordnarens när den passerat sista dag, och chefens efter ett dygn.
+ */
+export function isMine(o: { ownerId: string | null; ownerRole: string | null }, chain: readonly string[], step: number, actor: { role: Role; userId: string }): boolean {
+  if (o.ownerId ? o.ownerId === actor.userId : o.ownerRole === actor.role) return true;
+  const label = CHAIN_LABEL_OF[actor.role];
+  return !!label && chain.slice(1, step + 1).includes(label);
 }
 
 /** Eskaleringssteg: i tid = ägaren; passerad = nästa steg; mer än ett dygn = sista steget. */
@@ -285,14 +304,17 @@ function escalationStep(x: DeadlineItem, chain: readonly string[], now: string):
   return Math.min(chain.length - 1, hours > 24 ? 2 : 1);
 }
 
-export function deadlineRow(x: DeadlineItem, ops: OpsDb, e: InboxEnv, role: Role): DeadlineRow {
+export function deadlineRow(x: DeadlineItem, ops: OpsDb, e: InboxEnv, actor: { role: Role; userId: string }): DeadlineRow {
+  const role = actor.role;
   const o = ownerOf(x, ops, e);
   const chain = CHAIN[o.chain] ?? CHAIN.samordnare;
   const c = x.caseId ? ops.cases.find((y) => y.id === x.caseId) ?? null : null;
+  const step = escalationStep(x, chain, e.now);
   return {
+    mine: isMine(o, chain, step, actor),
     id: x.id, kind: x.kind as DeadlineKindKey, label: x.label, dueAt: x.dueAt, dueWhen: whenText(x.dueAt, e.now), dueLong: fmtDateTimeLong(x.dueAt),
     sla: { label: x.sla.label, tone: x.sla.tone }, bucket: x.bucket, caseId: x.caseId ?? null, caseNumber: c?.caseNumber ?? null, provisional: !!x.provisional,
-    ownerName: o.name, chain, step: escalationStep(x, chain, e.now), href: hrefFor(x.link, role),
+    ownerName: o.name, chain, step, href: hrefFor(x.link, role),
     coachName: x.kind === "manadsrapport" ? (c?.leadCoachId ? personName(ops.profiles, c.leadCoachId) : "Utan coach") : null,
   };
 }

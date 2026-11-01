@@ -14,7 +14,7 @@ export type NavItem = {
   to: string;
   label: string;
   icon: IconName;
-  /** Räknare till höger. "inbox" visas neutral, övriga med röd ring (kräver åtgärd). */
+  /** Räknare till höger. "inbox" och "tasks" visas neutrala, övriga med röd ring (kräver åtgärd). */
   count?: NavCountKey;
 };
 export type NavGroup = { label: string; items: NavItem[] };
@@ -57,7 +57,8 @@ const fakturakorning = ({ now }: NavContext): NavItem | null => {
  * visar aldrig något som rollen inte når. Behörigheterna ändras inte här.
  */
 export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: SupplierRole) => NavItem }[] = [
-  { roles: STAFF_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar" }) },
+  // Räknaren (paket 2, S2): öppna uppgifter till rollen – de står i att göra-listan på Min vecka (samordnare, avtalsansvarig, ekonom).
+  { roles: STAFF_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar", count: "tasks" }) },
   // Räknaren (oregistrerade tillfällen) gäller coachens egna ärenden.
   { roles: ["coach"], item: () => ({ to: "/narvaro", label: "Närvaro", icon: "check-square", count: "unregistered" }) },
   // Gruppaktiviteterna (coachmötet 2026-10-09): alla på Miljonbemanning utom ekonomen ("alla ser alla").

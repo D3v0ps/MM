@@ -275,7 +275,7 @@ export const kommunProfileSave = command("kommun.profilSpara", z.object({
 export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: [PORTAL, NAV] }).returns<Result<object, "not_found">>();
 
 /** Handläggaren markerar en uppgift från Miljonbemanning som klar. */
-export const kommunTaskDone = command("kommun.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["kommun.start", "kommun.deltagare", "inkorg.start", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
+export const kommunTaskDone = command("kommun.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["kommun.start", "kommun.deltagare", "inkorg.start", "ekonomi.start", "arenden.kortManad", NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
 
 /** Visa hela personnumret (tyst). Bara beställande handläggare (kommunens åtkomst till ärendet). Visningen loggas (pnr.revealed). */
 export const kommunRevealPnr = command("kommun.visaPersonnummer", z.object({ caseId: IdSchema }), { invalidates: "none" }).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
