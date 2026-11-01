@@ -14,6 +14,7 @@ import {
 } from "./common";
 import { CaseBackgroundCard } from "./attachments";
 import { ParticipantFilesCard } from "./participant-files";
+import { NoteDialog } from "./kort-tidslinje";
 import { recordingOffered } from "@/features/coach/api";
 import type { TabProps } from "./kort";
 
@@ -21,6 +22,8 @@ import type { TabProps } from "./kort";
 // ---------------------------------------------------------------- Översikt
 export function TabOversikt({ card, setTab, openModal }: TabProps) {
   const q = useQuery(caseOverview, { caseId: card.caseId });
+  // "Skriv anteckning" (UX-genomgången, paket 1, C15): samma dialog som Tidslinje, förvald Samtal med deltagaren och dagens datum.
+  const [writing, setWriting] = useState(false);
   const role = useSession().actor.role;
   const team = card.access === "team";
   const now = card.now;
@@ -36,6 +39,15 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
         const pl = o.placement;
         return (
           <Stack>
+            {o.canWriteNotes && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <Button kind="secondary" icon="edit" onClick={() => setWriting(true)}>
+                  Skriv anteckning
+                </Button>
+                <span className="text-body text-text-muted">Anteckningen hamnar i Tidslinje.</span>
+              </div>
+            )}
+            {writing && <NoteDialog card={card} note={null} presetKind="conversation" onClose={() => setWriting(false)} />}
             {needsMeeting && (
               <Notice tone="critical" title="Första mötet är inte bokat">
                 <Stack gap="sm">

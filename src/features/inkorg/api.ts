@@ -84,10 +84,11 @@ export const inboxList = query("inkorg.list", z.object({})).returns<InboxList>()
 
 /** Maskerat personnummer för ett ärende. hidden = rollen får inte se numret. caseId = för "Visa" (inkorgRevealPnr). */
 export type PnrView = { caseId: string | null; masked: string | null; hidden: boolean };
+/** Procenten visas bara när tolkningen är osäker (low, under 80 %) – UX-genomgången, paket 1, S13. */
 export type FieldNote =
   | { kind: "missing" }
   | { kind: "corrected" | "checked" | "supplement"; title: string }
-  | { kind: "low" | "pct"; pct: string };
+  | { kind: "low"; pct: string };
 export type FormField = { key: string; label: string; value: string | null; pnr?: PnrView; state: "ok" | "low" | "missing"; note: FieldNote | null };
 export type FieldGroup = { title: string; fields: FormField[] };
 
@@ -104,7 +105,8 @@ export type OriginalView = {
   mayReveal: boolean;
   attachments: string[];
 };
-export type ParsedView = { method: ParseMethod; help: string; nMissing: number; nLow: number; aiRun: string | null; groups: FieldGroup[] };
+/** endWarning: handläggarens slutdatum stämmer inte med omfattningen i månader och används inte (plannedEndWarning, bara visning). */
+export type ParsedView = { method: ParseMethod; help: string; nMissing: number; nLow: number; aiRun: string | null; groups: FieldGroup[]; endWarning: string | null };
 /** Beställningens uppgifter när de inte kommer ur en tolkning: portalen, telefon eller registrerad av Miljonbemanning (beslut 4a). */
 export type CaseFieldsView = { title: string; method: "portal" | "phone" | "registered"; groups: FieldGroup[] };
 export type AckView =

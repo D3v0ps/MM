@@ -16,9 +16,13 @@ const NOTICE_ICON: Record<keyof typeof NOTICE_TONE, IconName> = { info: "info", 
 export type NoticeTone = keyof typeof NOTICE_TONE;
 
 /** Meddelanderuta. tone: info (blå, standard) | warn (grå, antracit kant) | critical (röd, läses upp direkt) | ok. */
-export function Notice({ tone = "info", title, icon, children, className }: { tone?: NoticeTone; title?: ReactNode; icon?: IconName; children?: ReactNode; className?: string }) {
+export function Notice({
+  tone = "info", title, icon, children, className, id, tabIndex,
+}: { tone?: NoticeTone; title?: ReactNode; icon?: IconName; children?: ReactNode; className?: string; id?: string; tabIndex?: number }) {
   return (
     <div
+      id={id}
+      tabIndex={tabIndex}
       role={tone === "critical" ? "alert" : undefined}
       className={cn("flex items-start gap-3 rounded-mb border-[1.5px] border-ljusgra bg-vit px-3.5 py-3 portal:text-portal", NOTICE_TONE[tone], className)}
     >

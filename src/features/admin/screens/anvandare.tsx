@@ -20,6 +20,7 @@ import {
 import { emailDomain } from "@/core/staff";
 import { emailValid } from "@/core/validation";
 import { escWord } from "../audit-text";
+import { MATRIX_ROLE_LABEL, MATRIX_ROLES, ROLE_DESCRIPTIONS, roleMatrix, type MatrixCell, type MatrixRow } from "../role-matrix";
 import {
   adminInviteCustomer, adminInviteStaff, adminSetCustomerActive, adminSetStaffActive, adminSetStaffRoles, adminUsers, type CustomerUserRow, type MbUserRow, type UsersView,
 } from "../api";
@@ -259,7 +260,8 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
               flush
               foot={
                 <span className="text-text-muted">
-                  Behörighet = avtal + roll + tilldelning. Den upprätthålls i databasen med radnivåsäkerhet (RLS), inte bara i gränssnittet.
+                  Behörighet = avtal + roll. Tilldelningen styr notiser, påminnelser och Mina ärenden – inte vad man ser. Bara ekonomen ser belopp. Behörigheten
+                  upprätthålls i databasen med radnivåsäkerhet (RLS), inte bara i gränssnittet.
                   <DemoOnly> Byt roll i prototypfältet för att testa.</DemoOnly>
                 </span>
               }
@@ -269,7 +271,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
             <Card title="Roller enligt kravspecifikationen (§4)" icon="users" flush>
               <Table
                 caption="Roller och behörigheter"
-                rows={ROLE_TABLE.map((r) => ({ id: r[0], role: r[0], org: r[1], sees: r[2], does: r[3], login: r[4] }))}
+                rows={ROLE_DESCRIPTIONS.map((r) => ({ id: r.key, role: r.role, org: r.org, sees: r.sees, does: r.does, login: r.login }))}
                 columns={[
                   { key: "role", label: "Roll", render: (r) => (<><span className="font-bold">{r.role}</span><CellSub>{r.org}</CellSub></>) },
                   { key: "sees", label: "Ser" },
@@ -525,51 +527,12 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
 }
 
 // ================================================================ Behörighetsmatris
-const ROLE_TABLE: [string, string, string, string, string][] = [
-  ["Systemadmin", "Miljonbemanning", "Allt inklusive konfiguration och logg", "Användare, avtal, integrationer", "E-post och engångskod"],
-  ["Avtalsansvarig och kundansvarig", "Miljonbemanning", "Allt inom sina avtal", "Accepterar och avböjer avrop, godkänner beställarrapport, hanterar avtalsavvikelser, bjuder in kommunanvändare", "E-post och engångskod"],
-  ["Operativ samordnare", "Miljonbemanning", "Alla ärenden i avtalet", "Avropsinkorg, tilldelar coach, bokar start", "E-post och engångskod"],
-  ["Huvudcoach", "Miljonbemanning", "Alla ärenden i avtalet", "Kartläggning, möten, närvaro, bedömningar, utfall, rapporter", "E-post och engångskod"],
-  ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "E-post och engångskod"],
-  ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "E-post och engångskod"],
-  ["Kommunens handläggare", "Botkyrka kommun", "Egna beställda ärenden", "Beställer, läser rapporter, skickar meddelanden, kvitterar. Skapar sitt konto själv med en adress på kommunens domän", "E-post och engångskod"],
-  ["Deltagare", "Utan inloggning i piloten", "Egen plan och bokningar (utvecklingsfas 4)", "Svarar på pulsmätningen via engångslänk", "Ingen – BankID senare"],
-];
-const MX_ROLES: [string, string][] = [
-  ["admin", "Admin"], ["avtalsansvarig", "Avtals­ansvarig"], ["samordnare", "Sam­ordnare"], ["coach", "Coach"],
-  ["chef", "Chef och con­troller"], ["ekonom", "Ekonom"], ["kommun_handlaggare", "Kommunens hand­läggare"],
-];
-const MX_CELL: Record<string, [IconName, string]> = {
-  ja: ["check", "Ja"], alla: ["check", "Alla"], nej: ["minus", "Nej"], las: ["eye", "Läsa"], egna: ["user", "Egna"], tilldelade: ["user", "Tilldelade"], namngiven: ["user", "Om namngiven"],
-  nummer: ["hash", "Bara nummer"], enheten: ["users", "Enhetens"], mottagare: ["bell", "Mottagare"], dold: ["eye-off", "Syns inte"], ser: ["eye", "Ser att de skickats"],
+// Raderna och rollbeskrivningarna ligger i ../role-matrix.ts och är låsta mot hanterarnas roller, rutterna och policyn av
+// role-matrix.test.ts (UX-genomgången, paket 1, A1).
+const MX_CELL: Record<MatrixCell, [IconName, string]> = {
+  ja: ["check", "Ja"], alla: ["check", "Alla"], nej: ["minus", "Nej"], las: ["eye", "Läsa"], egna: ["user", "Egna"], nummer: ["hash", "Bara nummer"],
+  mottagare: ["bell", "Mottagare"], dold: ["eye-off", "Syns inte"], ser: ["eye", "Ser att de skickats"],
 };
-function matrixGroups(escalateTo: readonly EscalationRole[]): [string, [string, string[]][]][] {
-  const roles = MX_ROLES.map((r) => r[0]);
-  const esc = escalateTo as readonly string[];
-  return [
-    ["Ser", [
-      ["Ärenden i avtalet", ["alla", "alla", "alla", "alla", "las", "nummer", "egna"]],
-      ["Coachanteckningar", ["ja", "ja", "ja", "ja", "las", "nej", "nej"]],
-      ["Rapporter", ["ja", "ja", "ja", "ja", "las", "nej", "egna"]],
-      ["Fakturaunderlag", ["ja", "ja", "nej", "nej", "las", "ja", "nej"]],
-      ["Avtalskonfiguration", ["ja", "las", "nej", "nej", "las", "nej", "nej"]],
-      ["Revisionslogg", ["ja", "nej", "nej", "nej", "ja", "nej", "nej"]],
-    ]],
-    ["Gör", [
-      ["Acceptera och avböja avrop", ["nej", "ja", "ja", "nej", "nej", "nej", "nej"]],
-      ["Bjuda in kommunanvändare", ["ja", "ja", "nej", "nej", "nej", "nej", "nej"]],
-      ["Ändra avtal, användare och integrationer", ["ja", "nej", "nej", "nej", "nej", "nej", "nej"]],
-      ["Kvittera flaggor och godkänna åtgärdsplaner", ["nej", "ja", "nej", "nej", "ja", "nej", "nej"]],
-      ["Fakturakörning och Fortnox", ["nej", "nej", "nej", "nej", "nej", "ja", "nej"]],
-      ["Månatlig loggkontroll", ["nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
-    ]],
-    ["Notiser", [
-      ["Notis vid tilldelning: huvudcoach och team", roles.map((r) => (r === "coach" ? "mottagare" : "nej"))],
-      ["Påminnelser om utebliven progression: coach", roles.map((r) => (r === "coach" ? "mottagare" : r === "chef" ? "ser" : "nej"))],
-      [`Eskaleringar: ${escalateTo.map(escWord).join(", ")} – syns inte för coachen`, roles.map((r) => (esc.includes(r) ? "mottagare" : r === "coach" ? "dold" : "nej"))],
-    ]],
-  ];
-}
 
 function Matrix({ escalateTo }: { escalateTo: EscalationRole[] }) {
   return (
@@ -581,16 +544,16 @@ function Matrix({ escalateTo }: { escalateTo: EscalationRole[] }) {
             <th scope="col" className="sticky left-0 z-[1] min-w-[150px] border-b-2 border-antracit bg-vit px-3 py-2.5 text-left align-bottom text-label font-extrabold tracking-[0.08em] text-text-muted uppercase">
               Behörighet
             </th>
-            {MX_ROLES.map(([k, l]) => (
+            {MATRIX_ROLES.map((k) => (
               <th key={k} scope="col" className="border-b-2 border-antracit bg-vit px-1.5 py-2 text-left align-bottom text-label font-extrabold tracking-[0.05em] whitespace-normal text-text-muted uppercase [hyphens:manual]">
-                {l}
+                {MATRIX_ROLE_LABEL[k]}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {matrixGroups(escalateTo).map(([g, rows]) => (
-            <MatrixGroup key={g} title={g} rows={rows} />
+          {roleMatrix(escalateTo, escWord).map((g) => (
+            <MatrixGroupRows key={g.title} title={g.title} rows={g.rows} />
           ))}
         </tbody>
       </table>
@@ -598,23 +561,24 @@ function Matrix({ escalateTo }: { escalateTo: EscalationRole[] }) {
   );
 }
 
-function MatrixGroup({ title, rows }: { title: string; rows: [string, string[]][] }) {
+function MatrixGroupRows({ title, rows }: { title: string; rows: MatrixRow[] }) {
   return (
     <>
       <tr>
-        <th scope="rowgroup" colSpan={MX_ROLES.length + 1} className="border-b border-ljusgra bg-ljusgra-ton px-3 py-2 text-left text-label font-extrabold tracking-[0.08em] text-text-muted uppercase">
+        <th scope="rowgroup" colSpan={MATRIX_ROLES.length + 1} className="border-b border-ljusgra bg-ljusgra-ton px-3 py-2 text-left text-label font-extrabold tracking-[0.08em] text-text-muted uppercase">
           {title}
         </th>
       </tr>
-      {rows.map(([label, cells]) => (
-        <tr key={label}>
+      {rows.map((r) => (
+        <tr key={r.key} data-matrix-row={r.key}>
           <th scope="row" className="sticky left-0 z-[1] border-b border-ljusgra bg-vit px-3 py-2 text-left align-top text-small font-bold whitespace-normal text-antracit">
-            {label}
+            {r.label}
           </th>
-          {cells.map((c, i) => {
+          {MATRIX_ROLES.map((role) => {
+            const c = r.cells[role];
             const [icon, txt] = MX_CELL[c];
             return (
-              <td key={i} className={`border-b border-ljusgra px-1.5 py-2 align-top text-small ${c === "nej" ? "text-text-muted" : ""}`}>
+              <td key={role} className={`border-b border-ljusgra px-1.5 py-2 align-top text-small ${c === "nej" ? "text-text-muted" : ""}`}>
                 <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5">
                   <Icon name={icon} size="sm" />
                   <span>{txt}</span>

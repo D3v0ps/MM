@@ -1,6 +1,6 @@
 "use client";
 // Anteckningar (/anteckningar) – massanteckningar i Workbuster-stil (coachmötet 2026-10-09, Karims beslut 4): välj Mina
-// ärenden, en nivå, ett yrkesområde (gruppen, Karims beslut 2026-10-22) eller en tagg och skriv en rad per deltagare. Datumet är i dag (går att ändra), ingen tid,
+// ärenden (förvalt för coachen – samordnaren och avtalsansvarig börjar med Ett yrkesområde, paket 1 S18), en nivå, ett yrkesområde (gruppen, Karims beslut 2026-10-22) eller en tagg och skriv en rad per deltagare. Datumet är i dag (går att ändra), ingen tid,
 // typen är förvald. "Spara N anteckningar" sparar en vanlig anteckning i deltagarkortet per ifylld rad – tomma rader hoppas
 // över. Allt eller inget: ett personnummer eller ett fel på någon rad stoppar sparningen, och felet visas vid raden.
 // Urvalet ligger i adressen (bara id:n), texterna bara i minnet (useDraft) – aldrig i adressen eller webblagring.
@@ -12,20 +12,26 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { pick, useQueryPatch } from "@/shell/url-state";
+import { useSession } from "@/shell/session";
 import { Badge, Button, Card, CaseStatusBadge, DateInput, Empty, ErrorNotice, Field, FormGrid, Loading, Notice, Page, Row, Select, Spacer, Stack, TextArea, toast } from "@/ui";
 import { CASE_NOTE_KINDS, type CaseNoteKind } from "@/data/schema";
-import { massNotePage, massNoteSave, MASS_NOTE_SCOPES, type GroupingCatalog, type MassNotePage, type MassNoteScope } from "../api";
+import { defaultMassNoteScope, massNotePage, massNoteSave, MASS_NOTE_SCOPES, type GroupingCatalog, type MassNotePage, type MassNoteScope } from "../api";
 
 const SCOPE_LABEL: Record<MassNoteScope, string> = { mina: "Mina ärenden", niva: "En nivå", omrade: "Ett yrkesområde", tagg: "En tagg" };
-const CHOICE_LABEL: Record<Exclude<MassNoteScope, "mina">, { field: string; placeholder: string; empty: string }> = {
-  niva: { field: "Nivå", placeholder: "Välj nivå", empty: "Välj en nivå" },
-  omrade: { field: "Yrkesområde", placeholder: "Välj yrkesområde", empty: "Välj ett yrkesområde" },
-  tagg: { field: "Tagg", placeholder: "Välj tagg", empty: "Välj en tagg" },
+const CHOICE_LABEL: Record<Exclude<MassNoteScope, "mina">, { field: string; placeholder: string; empty: string; help: string }> = {
+  niva: { field: "Nivå", placeholder: "Välj nivå", empty: "Välj en nivå", help: "Välj nivå i rutan Nivå ovanför. Då visas nivåns deltagare med en rad var." },
+  omrade: {
+    field: "Yrkesområde", placeholder: "Välj yrkesområde", empty: "Välj ett yrkesområde",
+    help: "Välj yrkesområde i rutan Yrkesområde ovanför, till exempel efter en yrkesområdesträff. Då visas yrkesområdets deltagare med en rad var.",
+  },
+  tagg: { field: "Tagg", placeholder: "Välj tagg", empty: "Välj en tagg", help: "Välj tagg i rutan Tagg ovanför. Då visas deltagarna med taggen med en rad var." },
 };
 
 export function AnteckningarScreen({ query }: ScreenProps) {
   const patch = useQueryPatch();
-  const urval = pick(query, "urval", MASS_NOTE_SCOPES, "mina");
+  // Förvalt urval efter rollen (S18): coachen Mina ärenden, samordnaren och avtalsansvarig Ett yrkesområde.
+  const def = defaultMassNoteScope(useSession().actor.role);
+  const urval = pick(query, "urval", MASS_NOTE_SCOPES, def);
   const id = query.get("id") ?? undefined;
   const avtal = query.get("avtal") ?? undefined;
   const q = useQuery(massNotePage, { urval, id: urval === "mina" ? undefined : id, contractId: avtal }, { keepPrevious: true });
@@ -54,7 +60,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
             </Field>
           )}
           <Field label="Visa" id="mn-urval">
-            <Select value={urval} onValueChange={(v) => patch({ urval: v === "mina" ? null : v, id: null })} options={MASS_NOTE_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))} />
+            <Select value={urval} onValueChange={(v) => patch({ urval: v === def ? null : v, id: null })} options={MASS_NOTE_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))} />
           </Field>
           {urval !== "mina" && (
             <Field label={CHOICE_LABEL[urval].field} id="mn-id" help="Antalet är deltagarna som får anteckningen: insatsen pågår, är pausad eller väntar på start.">
@@ -66,7 +72,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
       {urval !== "mina" && !chosenId ? (
         <Card>
           <Empty icon="users" title={CHOICE_LABEL[urval].empty}>
-            Deltagarna visas när du har valt.
+            {CHOICE_LABEL[urval].help}
           </Empty>
         </Card>
       ) : q.isPlaceholderData ? (
@@ -76,7 +82,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
           <Loading />
         </Card>
       ) : (
-        <Rows key={`${contractId}|${urval}|${chosenId}`} draftKey={`anteckningar|${contractId}|${urval}|${chosenId}`} data={q.data} />
+        <Rows key={`${contractId}|${urval}|${chosenId}`} draftKey={`anteckningar|${contractId}|${urval}|${chosenId}`} data={q.data} mine={urval === "mina"} />
       )}
     </Page>
   );
@@ -100,7 +106,7 @@ function newSaveKey(): string {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-function Rows({ data, draftKey }: { data: MassNotePage; draftKey: string }) {
+function Rows({ data, draftKey, mine }: { data: MassNotePage; draftKey: string; mine?: boolean }) {
   const save = useCommand(massNoteSave);
   const d = useDraft<Draft>(draftKey, () => ({ kind: "conversation", date: data.today, texts: {}, saveKey: newSaveKey() }));
   const { kind, date, texts, saveKey } = d.value;
@@ -155,7 +161,9 @@ function Rows({ data, draftKey }: { data: MassNotePage; draftKey: string }) {
     return (
       <Card>
         <Empty icon="users" title="Inga deltagare">
-          Det finns inga pågående ärenden i urvalet.
+          {mine
+            ? "Du har inga pågående ärenden där du är huvudcoach eller ingår i teamet. Välj Ett yrkesområde, En nivå eller En tagg under Visa."
+            : "Det finns inga pågående ärenden i urvalet."}
         </Empty>
       </Card>
     );

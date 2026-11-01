@@ -307,8 +307,8 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
     expect(d.integrations[0]).toMatchObject({ id: "graph", status: "test" });
     expect(d.jobs.map((j) => [j.key, j.last, j.status, j.result])).toEqual([
       ["inbox", "2027-02-01T09:10", "ok", "Senaste mejl kom 1 feb kl. 08.41"],
-      // Automatisk närvaro (beslut 2026-10-09): inte körd än i testdatat.
-      ["auto_attendance", null, "ok", "Inte körd än"],
+      // Automatisk närvaro (beslut 2026-10-09): inte körd än i testdatat – läget not_run, inte Klar (paket 1, A2).
+      ["auto_attendance", null, "not_run", "Körs första gången kl. 18.00"],
       ["weekly", "2027-02-01T07:00", "waiting", "2 publicerade, 2 väntar på närvaro (v. 4 2027)"],
       ["att_remind", "2027-02-01T08:00", "ok", "1 coach påmind om förra veckan"],
       ["progress", "2027-02-01T08:00", "ok", "17 påminnelser till coacher, 3 eskaleringar till chef"],

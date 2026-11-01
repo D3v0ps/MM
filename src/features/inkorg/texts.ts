@@ -1,7 +1,7 @@
 // Texter, etiketter och små rena hjälpare för området inkorg – samma som den gamla prototypens views/inkorg.js.
 // Isomorf och utan dataåtkomst: används både av hanterarna (vy-modellerna) och av skärmarna.
 import type { EmailClassification, OrderField } from "@/data/schema";
-import { addDays, dayOf, fmtDateShort, fmtTime, weekday, WEEKDAYS_SHORT } from "@/core/time";
+import { addDays, dayOf, fmtDate, fmtDateShort, fmtTime, orderPeriodEnd, weekday, WEEKDAYS_SHORT } from "@/core/time";
 import type { IconName } from "@/ui/icons";
 
 export const NUMWORD: Record<number, string> = { 1: "en", 2: "två", 3: "tre", 4: "fyra", 5: "fem", 6: "sex", 7: "sju" };
@@ -30,8 +30,27 @@ export const listJoin = (xs: readonly string[]): string => (xs.length <= 1 ? xs.
 /** Liten begynnelsebokstav utom för förkortningar (SYV). */
 export const lc = (x: string): string => (/^[A-ZÅÄÖ]{2}/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1));
 
-/** Konfidens under detta markeras som osäker. */
+/** Konfidens under detta markeras som osäker – och bara då visas procenten (UX-genomgången, paket 1, S13). */
 export const LOW = 0.8;
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * Handläggarens slutdatum när omfattningen är ett antal månader (S13, bara visning): slutdatumet används inte – det räknas fram ur
+ * omfattningen från första mötets dag vid accept (orderPeriodFrom). Varningen visas när datumet inte stämmer med omfattningen
+ * räknat från det önskade startdatumet, eller när startdatumet saknas. Annan tidsperiod (ex.orderPeriod "annan"): ingen varning –
+ * då är slutdatumet kommunens. Tolkningen och acceptlogiken ändras inte.
+ */
+export function plannedEndWarning(ex: { orderPeriod?: unknown; desiredStart?: unknown; plannedEnd?: unknown }): string | null {
+  const end = typeof ex.plannedEnd === "string" && ISO_DAY.test(ex.plannedEnd) ? ex.plannedEnd : null;
+  const period = String(ex.orderPeriod ?? "").trim();
+  if (!end || !/^\d+$/.test(period) || Number(period) <= 0) return null;
+  const months = Number(period);
+  const start = typeof ex.desiredStart === "string" && ISO_DAY.test(ex.desiredStart) ? ex.desiredStart : null;
+  if (start && orderPeriodEnd(start, months) === end) return null;
+  return start
+    ? `Slutdatumet ${fmtDate(end)} stämmer inte med ${months} månader och används inte. Slutdatumet räknas fram ur omfattningen från första mötets dag.`
+    : `Slutdatumet ${fmtDate(end)} används inte. Med ${months} månader räknas slutdatumet fram ur omfattningen från första mötets dag.`;
+}
 
 /**
  * Feltext om beställarreferensen, skriven till Miljonbemanning (kärnans text i src/core/validation är skriven till kommunen).

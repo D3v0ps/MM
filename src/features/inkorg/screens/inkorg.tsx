@@ -2,6 +2,9 @@
 // Avropsinkorgen (/inkorg/:emailId?) – port av prototypens vy sam.inkorg (prototyp/src/views/inkorg.js):
 // originalet bredvid det tolkade formuläret, ordererkännande, dubblettkontroll, acceptera/avböj, kompletteringar och
 // mejl som klassats som Övrigt.
+// Smal skärm (under 1100 px, UX-genomgången paket 1, S9): listan eller posten – aldrig båda. Pekar adressen på en post
+// (/inkorg/<id>, ?arende=, ?senaste=1) eller trycker man på en rad visas bara posten, med "Till listan". Nyckeltalsrutorna
+// överst visas bara på bred skärm (fliken Att hantera har samma antal).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ORDER_EMAIL } from "@/features/_shared/contact";
 import { messageSend } from "@/features/arenden/api";
@@ -86,6 +89,8 @@ function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; email
   // adressen väljs det mest brådskande (eller ärendets avrop / det senaste, ?arende= och ?senaste=1).
   const [auto] = useState<string | null>(() => initialPick(data, emailId, caseId, latest));
   const selId = emailId && data.rows.some((x) => x.id === emailId) ? emailId : auto;
+  // Smal skärm: bara posten (adressen pekar på en post, eller en rad har tryckts) eller bara listan.
+  const [detailOnly, setDetailOnly] = useState(() => !!auto && !!(emailId || caseId || latest));
   // Fliken i adressen (?visa=hanterade|alla).
   const [initialTab] = useState<Tab>(() => {
     const init = data.rows.find((x) => x.id === selId);
@@ -119,7 +124,13 @@ function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; email
   const pick: Pick_ = (id) => {
     userPick.current = true;
     setPickSeq((n) => n + 1);
+    setDetailOnly(true);
     nav.replace(path(`/inkorg/${encodeURIComponent(id)}`, { visa }));
+  };
+  /** Till listan (smal skärm): listan visas och raden som visades får fokus. */
+  const backToList = () => {
+    setDetailOnly(false);
+    requestAnimationFrame(toList);
   };
   const byId = useMemo(() => new Map(data.rows.map((r) => [r.id, r])), [data]);
   const pending = data.pending.map((id) => byId.get(id)).filter((x): x is InboxRow => !!x);
@@ -152,8 +163,8 @@ function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; email
   return (
     <>
       <Summary pending={pending} selId={selId} onPick={pick} />
-      <div className="grid grid-cols-1 items-start gap-5 min-[1100px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-2">
+      <div className="grid grid-cols-1 items-start gap-5 min-[1100px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]" data-inkorg-mode={detailOnly ? "post" : "lista"}>
+        <div className={cn("flex min-w-0 flex-col gap-2", detailOnly && item && "max-[1099px]:hidden")} data-inkorg-list="">
           <Tabs<Tab>
             ariaLabel="Filtrera inkorgen"
             active={tab}
@@ -188,6 +199,8 @@ function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; email
           className={cn(
             // Skrollmålet på smal skärm: 16 px marginal (den fasta toppraden räknas redan in i html:s scroll-padding-top).
             "@container min-w-0 scroll-mt-4",
+            // Smal skärm i listläget: bara listan.
+            !(detailOnly && item) && "max-[1099px]:hidden",
             item && "max-[1099px]:min-h-[calc(100dvh-var(--mm-sticky-top))]",
             // Bred skärm: detaljen följer med när listan skrollas och skrollar själv inuti. Höjden ryms ovanför sidans
             // nedre marginal (pb-24), så att kolumnen inte trycks upp – och rubriken ut ur bild – längst ned på sidan.
@@ -196,7 +209,7 @@ function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; email
           data-inkorg-detail=""
         >
           {item ? (
-            <Detail key={item.id} id={item.id} onPick={pick} next={nextAfter(item)} />
+            <Detail key={item.id} id={item.id} onPick={pick} next={nextAfter(item)} onToList={backToList} />
           ) : (
             <Card>
               <Empty icon="inbox" title={pending.length ? "Välj ett mejl" : "Inget väntar på svar"}>
@@ -218,7 +231,8 @@ function Summary({ pending, selId, onPick }: { pending: InboxRow[]; selId: strin
   const cell = "flex min-w-0 flex-col gap-0.5 border-r border-ljusgra px-[18px] py-3 max-[620px]:flex-[1_1_45%] max-[620px]:border-r-0 max-[620px]:border-b";
   const num = "text-[1.5rem] leading-[1.1] font-extrabold tabular-nums";
   return (
-    <div role="group" aria-label="Sammanfattning av inkorgen" className="flex flex-wrap items-stretch rounded-card border border-ljusgra bg-vit" data-inkorg-summary="">
+    // Bara på bred skärm: på smal skärm visar fliken Att hantera samma antal och listan står först (S9).
+    <div role="group" aria-label="Sammanfattning av inkorgen" className="flex flex-wrap items-stretch rounded-card border border-ljusgra bg-vit max-[1099px]:hidden" data-inkorg-summary="">
       <div className={cell}>
         <Caps>Att hantera</Caps>
         <span className={num} data-summary-total="">{pending.length}</span>
@@ -302,7 +316,7 @@ function toList() {
   row.focus({ preventScroll: true });
 }
 
-function Detail({ id, onPick, next }: { id: string; onPick: Pick_; next: InboxRow | null }) {
+function Detail({ id, onPick, next, onToList }: { id: string; onPick: Pick_; next: InboxRow | null; onToList: () => void }) {
   const q = useQuery(inboxItem, { id });
   const [modal, setModal] = useState<ModalKind>(null);
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
@@ -326,7 +340,7 @@ function Detail({ id, onPick, next }: { id: string; onPick: Pick_; next: InboxRo
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3 min-[1100px]:hidden">
-        <Button kind="ghost" icon="arrow-left" onClick={toList}>
+        <Button kind="ghost" icon="arrow-left" onClick={onToList}>
           Till listan
         </Button>
       </div>

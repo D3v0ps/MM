@@ -39,8 +39,8 @@ Vem: den som kartlägger. Kartläggningen kräver rollen coach.
 1. Öppna deltagarkortet, välj fliken **Kartläggning** och tryck på **Påbörja kartläggningen**.
 2. Fyll i erfarenhet, utbildning, mål och yrkesspår. Beskriv behov av anpassning med vad deltagaren behöver – aldrig med diagnoser.
 3. Längst ned finns kortet **Nivå och yrkesområde**. Välj en nivå och **Vill arbeta**. Vill arbeta är deltagarens eget svar. Valen sparas direkt. Yrkesområdet står redan där – det kommer från beställningen.
-4. Vill du skriva något till coacherna? Skriv i **En rad till coacherna** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet.
-5. Tryck på **Godkänn kartläggningen**. Det går bara när nivån är vald. Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter och yrkesområdets träffar.
+4. Tryck på **Godkänn kartläggningen**. Det går bara när nivån är vald. Saknas något står det överst på sidan, med en länk till varje fält. Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter och yrkesområdets träffar.
+5. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. Anteckningen hamnar i deltagarkortet.
 
 ### 5. Aktiviteter och inbjudan
 

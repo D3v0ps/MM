@@ -16,6 +16,11 @@ const main = (page: Page) => page.locator("#main");
 const card = (page: Page, title: string | RegExp) => main(page).locator("section").filter({ has: page.getByRole("heading", { level: 2, name: title }) });
 const btn = (scope: Page | Locator, name: string | RegExp) => scope.getByRole("button", { name, exact: typeof name === "string" });
 const toasts = (page: Page) => page.locator("div[role=status][data-print=hide]");
+/** Närvaron: filtren (vecka, visa, dag, yrkesområde, nivå, tagg) ligger bakom knappen Filtrera (paket 1, C5). */
+async function showFilters(page: Page) {
+  const b = page.getByRole("button", { name: /^(Filtrera|Dölj filtren)$/ });
+  if ((await b.getAttribute("aria-expanded")) !== "true") await b.click();
+}
 async function noBadText(page: Page) {
   expect(await main(page).innerText()).not.toMatch(/undefined|NaN|\[object Object\]/);
 }
@@ -170,6 +175,9 @@ test("Automatisk närvaro: Kör nu registrerar förra veckans oregistrerade till
   const reports = card(page, "Veckorapporter – vecka 4");
   await expect(reports).toContainText(/Maria Ekdahl[\s\S]*?Publicerad 1 feb/);
   await expect(reports).toContainText(/Linda Karlsson[\s\S]*?Publicerad 1 feb/);
+  // Antalet automatiskt registrerade står i räknaren (paket 1, C4).
+  await expect(page.getByTestId("narvaro-raknare")).toContainText("6 automatiskt registrerade");
+  await showFilters(page);
   await page.getByRole("button", { name: /^Alla \(\d+\)$/ }).click();
   const rows = page.getByTestId("narvaro-rad");
   await expect(rows.filter({ hasText: AUTO })).toHaveCount(6);
@@ -178,11 +186,12 @@ test("Automatisk närvaro: Kör nu registrerar förra veckans oregistrerade till
   const changed = rows.nth(i);
   await btn(changed, "Giltig frånvaro").click();
   await btn(page.getByRole("group", { name: "Orsak till giltig frånvaro" }), "Sjukdom").click();
-  await expect(changed).toContainText("Giltig frånvaro · Sjukdom");
+  await expect(changed).toContainText("Orsak: Sjukdom");
   await expect(changed).not.toContainText(AUTO);
   await expect(rows.filter({ hasText: AUTO })).toHaveCount(5);
   await page.reload();
   await loaded(page);
+  await showFilters(page);
   await page.getByRole("button", { name: /^Alla \(\d+\)$/ }).click();
   await expect(page.getByTestId("narvaro-rad").filter({ hasText: AUTO })).toHaveCount(5);
   await noBadText(page);
@@ -218,6 +227,7 @@ test("Samma tid: Ny aktivitet frågar om deltagarens eget tillfälle ska ersätt
 
   // Närvaro denna vecka: gruppraden har ingen Ta bort-knapp utan en länk till aktivitetsvyn.
   await go(page, info, `/narvaro?vecka=denna&arende=${SC.nadia}`);
+  await showFilters(page);
   await page.getByRole("button", { name: /^Alla \(\d+\)$/ }).click();
   await page.getByRole("group", { name: "Dag" }).getByRole("button", { name: /^Hela veckan/ }).click();
   const groupLink = main(page).getByRole("link", { name: "Öppna gruppaktiviteten" });
@@ -295,24 +305,40 @@ test("Upprepa varje vecka: en nivåaktivitet tisdag och torsdag – tillfällena
   await expect(toasts(page)).toContainText("Den återkommande aktiviteten är skapad. 4 tillfällen de närmaste två veckorna");
   await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
   await expect(main(page)).toContainText("Del av återkommande aktivitet: tisdag och torsdag 15.00");
+  // Överst två knappar – resten under Fler val (paket 1, C11).
+  await expect(btn(page, "Bjud in deltagare")).toBeVisible();
+  await expect(btn(page, "Ändra det här tillfället")).toBeVisible();
+  await expect(btn(page, "Ställ in bara det här tillfället")).toBeHidden();
+  const more = btn(page, "Fler val");
+  await more.click();
+  await expect(more).toHaveAttribute("aria-expanded", "true");
+  await expect(btn(page, "Ändra alla kommande tillfällen")).toBeFocused();
   await expect(btn(page, "Ställ in bara det här tillfället")).toBeVisible();
   await expect(btn(page, "Avsluta hela serien")).toBeVisible();
+  // Esc stänger och lämnar fokus på Fler val.
+  await page.keyboard.press("Escape");
+  await expect(btn(page, "Avsluta hela serien")).toBeHidden();
+  await expect(more).toBeFocused();
   // Ändra i ett tillfälle gäller bara tillfället – hela serien ändras med Ändra alla kommande tillfällen.
   await btn(page, "Ändra det här tillfället").click();
   const edit = page.getByRole("dialog", { name: "Ändra det här tillfället" });
   await expect(edit).toContainText("Ändringen gäller bara det här tillfället");
   await btn(edit, "Avbryt").click();
+  await more.click();
   await btn(page, "Ändra alla kommande tillfällen").click();
   await expect(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" })).toBeVisible();
   await btn(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" }), "Avbryt").click();
   // Serien har inte börjat (första dagen 2 februari): avslutet gäller den första dagen – dialogen säger det, inte "i dag".
+  await more.click();
   await btn(page, "Avsluta hela serien").click();
   const end = page.getByRole("dialog", { name: "Avsluta den återkommande aktiviteten?" });
   await expect(end).toContainText("Studiebesök (tisdag och torsdag 15.00) avslutas 2 feb 2027, den första dagen – den har inte börjat.");
   await btn(end, "Avbryt").click();
   await expect(end).toHaveCount(0);
   // De som nivån bjöd in kan inte tas bort här – raden säger varför och vad man gör i stället.
-  await expect(page.getByTestId("automatisk-hjalp").first()).toContainText("Inbjuden automatiskt via nivån");
+  // Förklaringen står en gång ovanför listan (paket 1, C11).
+  await expect(page.getByTestId("automatisk-hjalp")).toHaveCount(1);
+  await expect(page.getByTestId("automatisk-hjalp")).toContainText("Inbjudna automatiskt via nivån");
   // Listan: Återkommande med dagarna och tiden.
   await go(page, info, "/aktiviteter");
   const rec = card(page, "Återkommande");

@@ -31,7 +31,7 @@ export {
 } from "./badge";
 export { Table, CellSub, rowNavigate, type Column, type RowTone, type TableProps } from "./table";
 export {
-  Field, Input, Select, TextArea, Check, Seg, DateInput, TimeInput, DateTimeInput, ErrorSummary, focusFirstError, type ErrorSummaryItem, type FieldProps, type SelectOption,
+  Field, Input, Select, TextArea, Check, Seg, DateInput, TimeInput, DateTimeInput, ErrorSummary, focusErrorSummary, focusFirstError, type ErrorSummaryItem, type FieldProps, type SelectOption,
   type SegOption,
 } from "./form";
 export { Tabs, TabPanel, anchorTabs, stickyTop, type TabDef } from "./tabs";
@@ -42,6 +42,7 @@ export {
 export { Notice, DemoNote, Empty, Loading, ErrorNotice, QueryView, Refreshing, type NoticeTone, type QueryLike } from "./feedback";
 export { AutosaveStatus, AUTOSAVE_TEXT, type AutosaveStatusState } from "./autosave-status";
 export { ProcessSteps } from "./process-steps";
+export { Disclosure, MoreActions, type DisclosureProps, type MoreActionsProps } from "./disclosure";
 export { Toaster, toast, useToast, type ToastTone } from "./toast";
 export { DownloadProvider, useDownload, useCopy, blobDownload, type DownloadImpl, type DownloadFile, type DownloadResult } from "./download";
 export { Kpi, Meter, Kv, Timeline, Stepper, Avatar, UserName, Chart, type MeterMarker, type TimelineItem } from "./data";

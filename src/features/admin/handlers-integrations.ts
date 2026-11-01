@@ -222,9 +222,11 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
   const auto = autoAttendanceOf(settings);
   const lastAuto = autoRuns[0] ?? null;
   const lastAutoCount = Number((lastAuto?.details as { count?: unknown } | undefined)?.count ?? 0);
+  // Inte kört än: läget "Inte körd än" (not_run) – aldrig Klar och "Inte körd än" samtidigt (UX-genomgången, paket 1, A2).
   const autoRow = (): JobRow => auto.autoPresent
-    ? J("auto_attendance", `Dagligen ${auto.autoPresentAt.replace(":", ".")} – passerade tillfällen utan närvaro registreras som Närvarande. Frånvaro registrerar coachen.`, lastAuto?.occurredAt ?? null, "ok",
-      lastAuto ? `${plural(lastAutoCount, "tillfälle", "tillfällen")} registrerade automatiskt vid senaste körningen` : "Inte körd än")
+    ? J("auto_attendance", `Dagligen ${auto.autoPresentAt.replace(":", ".")} – passerade tillfällen utan närvaro registreras som Närvarande. Frånvaro registrerar coachen.`, lastAuto?.occurredAt ?? null,
+      lastAuto ? "ok" : "not_run",
+      lastAuto ? `${plural(lastAutoCount, "tillfälle", "tillfällen")} registrerade automatiskt vid senaste körningen` : `Körs första gången kl. ${auto.autoPresentAt.replace(":", ".")}`)
     : J("auto_attendance", "Avstängd i organisationens inställningar", lastAuto?.occurredAt ?? null, "disabled", "Närvaron registreras bara för hand", { disabled: true });
   const jobs: JobRow[] = [
     inboxRow(),

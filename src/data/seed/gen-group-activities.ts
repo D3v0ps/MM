@@ -9,7 +9,7 @@
 //   Månadens yrkesområdesträffar: vanliga gruppaktiviteter med målgruppen ett yrkesområde – Lager och logistik (G) och Lokalvård (F)
 //   i februari, Kök, restaurang och måltidsservice (D) i mars.
 // Samma funktioner som i appen gör att den första synkningen efter inläsningen inte ändrar något.
-import { audienceColumns, planAudienceSync, type Audience, type AudienceCase, type AudienceSlot } from "@/core/audience";
+import { AREA_MEETING_KIND, audienceColumns, planAudienceSync, type Audience, type AudienceCase, type AudienceSlot } from "@/core/audience";
 import { defaultLevelId } from "@/core/groupings";
 import { seriesOccurrenceStarts } from "@/core/group-series";
 import { dayOf } from "@/core/time";
@@ -69,7 +69,7 @@ export function addGroupActivities(db: Db): void {
   }
   for (const m of MEETINGS) {
     occurrences.push({
-      ...base("u-sara"), id: m.id, name: m.name, kind: "annat", startsAt: m.startsAt, durationMin: m.durationMin, location: LOCATION, responsibleId: null, goal: null,
+      ...base("u-sara"), id: m.id, name: m.name, kind: AREA_MEETING_KIND, startsAt: m.startsAt, durationMin: m.durationMin, location: LOCATION, responsibleId: null, goal: null,
       ...audienceColumns({ kind: "area", areaCode: m.areaCode }), seriesId: null, notify: false,
     });
   }

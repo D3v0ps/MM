@@ -1,7 +1,7 @@
 // Målgruppen (Karims beslut 2026-10-22): vem som hör till en nivå eller ett yrkesområde en viss dag, och vad den automatiska
 // synkningen gör – lägger till och tar bort, rör aldrig manuellt inbjudna eller rader med närvaro, och hoppar över krockar.
 import { describe, expect, it } from "vitest";
-import { areaLabel, audienceColumns, audienceLabel, audienceMembersOn, audienceOf, belongsOn, planAudienceSync, planMeetingDay, type Audience, type AudienceCase, type AudienceRow } from "./audience";
+import { AREA_MEETING_KIND, areaLabel, areaMeetingName, areaNameOfLabel, audienceColumns, audienceLabel, audienceMembersOn, audienceOf, belongsOn, planAudienceSync, planMeetingDay, type Audience, type AudienceCase, type AudienceRow } from "./audience";
 
 const DAY = "2027-02-09";
 const at = `${DAY}T13:30`;
@@ -83,6 +83,19 @@ describe("skyddade personuppgifter (vilande spärr): aldrig automatiskt inbjuden
       rows: [{ id: "a-1", caseId: shielded.id, inviteSource: "audience", registered: false }], others: [],
     });
     expect(plan).toEqual({ add: [], remove: [{ id: "a-1", caseId: shielded.id, inviteSource: "audience", registered: false }], skipped: [] });
+  });
+});
+
+describe("Planera: namnet och typen på månadens yrkesområdesträff (paket 1, C12)", () => {
+  it("namnet följer testdatats träffar – liten begynnelsebokstav utom förkortningar", () => {
+    expect(areaMeetingName("Lager och logistik")).toBe("Yrkesområdesträff: lager och logistik");
+    expect(areaMeetingName("Lokalvård")).toBe("Yrkesområdesträff: lokalvård");
+    expect(areaMeetingName("IT och teknik")).toBe("Yrkesområdesträff: IT och teknik");
+    expect(areaNameOfLabel("G", areaLabel("G", "Lager och logistik"))).toBe("Lager och logistik");
+    expect(areaNameOfLabel("G", "Lager")).toBe("Lager");
+  });
+  it("typen är testdatats träffars (annat)", () => {
+    expect(AREA_MEETING_KIND).toBe("annat");
   });
 });
 

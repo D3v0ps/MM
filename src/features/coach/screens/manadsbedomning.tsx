@@ -4,7 +4,8 @@
 // ifyllt när sidan öppnas – varje område har progressionsnivå 0 "Automatiskt – inget belägg" tills coachen väljer eller godtar
 // ett AI-förslag (progressionsnivå 1–3 med citat, källa och dag – "Godta", "Godta alla AI-förslag"), samlad status kommer från coachens
 // senaste godkända mötesrapport, sammanfattningen och planen är ifyllda och märkta "Ifyllt automatiskt – kontrollera" tills
-// coachen ändrar dem. Godkänn kräver kryssrutan "Jag har gått igenom bedömningen". Port av prototypens coach.manad. Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter
+// coachen ändrar dem. Godkänn kräver kryssrutan "Jag har gått igenom bedömningen" (kryssrutan och Godkänn i en knapprad som följer
+// med längst ned; Godkänn utan kryss ger felet vid kryssrutan – UX-genomgången, paket 1, C10). Port av prototypens coach.manad. Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter
 // senaste ändringen, när sidan lämnas och när den döljs – samma kommando som "Spara utkast" (autosave: true, en loggrad per
 // besök). Godkända bedömningar sparas aldrig automatiskt.
 import { useEffect, useRef, useState } from "react";
@@ -196,8 +197,14 @@ function ManadForm({ v }: { v: Ok }) {
   const forgetDraft = () => [areasDraft, overallDraft, summaryDraft, planDraft, baselineDraft, savedAtDraft, versionDraft].forEach((d) => d.clear());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [approvedNow, setApprovedNow] = useState(false);
-  // "Jag har gått igenom bedömningen" – Godkänn kräver den (servern kontrollerar också).
-  const [reviewed, setReviewed] = useState(false);
+  // "Jag har gått igenom bedömningen" – Godkänn kräver den (servern kontrollerar också). Godkänn är inte avstängd (UX-genomgången,
+  // paket 1, C10): ett klick utan kryss ger felet vid kryssrutan och fokus dit.
+  const [reviewed, setReviewedRaw] = useState(false);
+  const [reviewError, setReviewError] = useState(false);
+  const setReviewed = (x: boolean) => {
+    setReviewedRaw(x);
+    if (x) setReviewError(false);
+  };
   const marks = ma0?.prefill ?? {};
   const start = { overall: ma0?.overallStatus ?? null, summary: ma0?.summary ?? "", plan: initialPlan() };
   // Anteckningar som lagts in i sammanfattningen: added = visas som "Tillagd" tills sidan laddas om; used = skickas med
@@ -320,9 +327,10 @@ function ManadForm({ v }: { v: Ok }) {
   };
 
   const doSave = async (approve: boolean) => {
-    // Godkänn kräver att coachen kryssat "Jag har gått igenom bedömningen" (knappen är avstängd tills dess).
+    // Godkänn kräver att coachen kryssat "Jag har gått igenom bedömningen": felet står vid kryssrutan och den får fokus.
     if (approve && !reviewed) {
-      document.getElementById("cm-reviewed")?.focus();
+      setReviewError(true);
+      requestAnimationFrame(() => document.getElementById("cm-reviewed")?.focus());
       return;
     }
     // Sammanfattningen stoppas på skärmen innan anropet – coachen ska aldrig få det allmänna felet "Ogiltiga uppgifter.".
@@ -829,31 +837,42 @@ function ManadForm({ v }: { v: Ok }) {
           {errors.overall ? " och samlad status saknas" : ""}. Mallen kräver alltid belägg eller exempel från progressionsnivå {reqFrom}.
         </Notice>
       )}
-      <Stack gap="sm">
-        <Check id="cm-reviewed" checked={reviewed} onCheckedChange={setReviewed} aria-describedby="cm-reviewed-help">
-          <b>Jag har gått igenom bedömningen</b>
-        </Check>
-        <span id="cm-reviewed-help" className="text-body text-text-muted">
-          Kontrollera varje område, den samlade statusen, sammanfattningen och planen. Godkänn går att trycka på när rutan är ikryssad.
-        </span>
-      </Stack>
-      <Row>
-        <Button
-          kind="primary"
-          size="lg"
-          icon="check"
-          pending={save.pending}
-          aria-disabled={reviewed ? undefined : "true"}
-          aria-describedby={reviewed ? undefined : "cm-reviewed-help"}
-          onClick={() => void doSave(true)}
-        >
-          Godkänn bedömningen
-        </Button>
-        <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
-          Spara utkast
-        </Button>
-        <AutosaveStatus state={autosave.state} savedAt={autosave.savedAt} invalidText={autosave.invalidText} />
-      </Row>
+      <p id="cm-reviewed-help" className="m-0 text-body text-text-muted">
+        Kontrollera varje område, den samlade statusen, sammanfattningen och planen. Kryssa sedan i att du har gått igenom bedömningen och godkänn.
+      </p>
+      {/* Kryssrutan och knapparna ligger kvar längst ned på skärmen medan man skrollar – som i mötet. */}
+      <div data-print="hide" data-testid="manad-knapprad" className="sticky bottom-0 z-10 -mx-1 border-t border-ljusgra bg-vit px-1 py-2 shadow-[0_-6px_12px_-8px_rgb(30_37_43/0.25)]">
+        <div className="flex flex-col gap-1">
+          <Check
+            id="cm-reviewed"
+            checked={reviewed}
+            onCheckedChange={setReviewed}
+            invalid={reviewError}
+            aria-describedby={reviewError ? "cm-reviewed-fel cm-reviewed-help" : "cm-reviewed-help"}
+            className="self-start pr-2"
+          >
+            <b>Jag har gått igenom bedömningen</b>
+          </Check>
+          {reviewError && (
+            <p id="cm-reviewed-fel" className="m-0 flex items-start gap-1.5 text-body font-bold">
+              <Icon name="alert-circle" className="mt-0.5 flex-none text-rod" />
+              Kryssa i att du har gått igenom bedömningen innan du godkänner.
+            </p>
+          )}
+          {/* Smal skärm: knapparna staplas i full bredd så att Godkänn bedömningen aldrig klipps. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex flex-wrap gap-2 max-[560px]:w-full max-[560px]:flex-col max-[560px]:[&>button]:w-full">
+              <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
+                Godkänn bedömningen
+              </Button>
+              <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
+                Spara utkast
+              </Button>
+            </div>
+            <AutosaveStatus state={autosave.state} savedAt={autosave.savedAt} invalidText={autosave.invalidText} />
+          </div>
+        </div>
+      </div>
     </Page>
   );
 }

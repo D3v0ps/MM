@@ -96,7 +96,8 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   await expect(row).toContainText("Coachträff");
   await row.getByRole("button", { name: "Närvarande", exact: true }).click();
   await expect(row.getByText("Närvarande", { exact: true }).first()).toBeVisible();
-  // Planerade tillfällen senare i veckan kan tas bort tills närvaro registrerats.
+  // Planerade tillfällen senare i veckan kan tas bort tills närvaro registrerats (filtren ligger bakom Filtrera).
+  await page.getByRole("button", { name: "Filtrera" }).click();
   await page.getByRole("button", { name: /^Alla \(/ }).click();
   await page.getByRole("group", { name: "Dag" }).getByRole("button", { name: /^Hela veckan/ }).click();
   await expect(page.locator("[data-testid=narvaro-rad]").filter({ hasText: "Diego Morales" }).filter({ hasText: "Planerat" }).first().getByRole("button", { name: "Ta bort" })).toBeVisible();
