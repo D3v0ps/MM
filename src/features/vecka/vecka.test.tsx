@@ -126,6 +126,36 @@ describe("Min vecka per roll", () => {
     for (const k of keys) expect(ALLOWED.samordnare, k).toContain(k);
   });
 
+  it("samordnaren: Ring deltagaren visar numret som markerbar text med Kopiera numret – ingen tel:-länk (CLAUDE.md punkt 2)", async () => {
+    const c = rt.store.rows("cases").find((x) => x.status === "confirmed" && !!x.firstMeetingAt);
+    if (!c) throw new Error("Inget bekräftat ärende med första möte i testdatat");
+    rt.store.updateRow("persons", c.personId, { phone: "070-000 00 00" });
+    rt.store.insertRow("tasks", {
+      id: "task-ring-test", toRole: "samordnare", toId: null, fromId: "system", createdAt: "2027-02-01T08:00", status: "open", kind: "participant_contact",
+      caseIds: [c.id], text: `Ring deltagaren och kalla till första mötet – ärende ${c.caseNumber}, Alby. Kallelsen kunde inte skickas.`,
+      deviationId: null, emailId: null, responseId: null, month: null, doneAt: null, doneBy: null, doneNote: null,
+    });
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      setup("samordnare");
+      const btn = await screen.findByRole("button", { name: `Kopiera numret till deltagaren i ${c.caseNumber}` }, { timeout: 8000 });
+      const row = btn.closest("li") as HTMLElement;
+      expect(row.textContent).toContain("Ring deltagaren och kalla till första mötet");
+      expect(row.querySelector("[data-phone]")?.textContent).toBe("070-000 00 00");
+      // Inga personuppgifter i URL:er: ingen tel:-, sms:- eller mailto:-länk någonstans på sidan.
+      expect(document.querySelectorAll('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"]')).toHaveLength(0);
+      btn.click();
+      expect(writeText).toHaveBeenCalledWith("070-000 00 00");
+      // Utan urklipp (osäker sida, ingen behörighet): numret markeras så att det kan kopieras med tangentbordet.
+      writeText.mockRejectedValueOnce(new Error("NotAllowedError"));
+      btn.click();
+      await vi.waitFor(() => expect(window.getSelection()?.toString()).toBe("070-000 00 00"));
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("avtalsansvarig: hans egna saker först – beställarrapporten, åtgärdsplanerna, varningarna och målen; inkorgen är en rad (S5)", async () => {
     const { keys } = setup("avtalsansvarig");
     const h = await headings("Att göra");

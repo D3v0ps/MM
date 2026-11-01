@@ -60,7 +60,7 @@ test("kallelsen går med e-post när deltagaren har e-post – SMS och utringnin
   expect(errors).toEqual([]);
 });
 
-test("uppgiften att ringa deltagaren i att göra-listan (paket 2, S2): sista tid, ringlänken, Systemet, Boka om och Ringt – kallad", async ({ page }, info) => {
+test("uppgiften att ringa deltagaren i att göra-listan (paket 2, S2): sista tid, numret att kopiera (ingen tel:-länk), Systemet, Boka om och Ringt – kallad", async ({ page }, info) => {
   test.setTimeout(120_000);
   const errors = await open(page, info, "/inkorg/registrera", SARA);
   const m = main(page);
@@ -86,14 +86,28 @@ test("uppgiften att ringa deltagaren i att göra-listan (paket 2, S2): sista tid
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
   await dialog(page).getByRole("button", { name: "Klart" }).click();
 
-  // Min vecka: uppgiften med första mötets tid som sista tid, numret som ringlänk och avsändaren Systemet.
+  // Min vecka: uppgiften med första mötets tid som sista tid, numret som markerbar text med Kopiera numret och avsändaren Systemet.
   await switchTo(page, info, "/min-vecka", SARA);
   const row = main(page).getByRole("list", { name: "Att göra", exact: true }).locator(":scope > li").filter({ hasText: "Ring deltagaren och kalla till första mötet" });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("BOT-27-0051");
   await expect(row).toContainText("Senast ons 3 feb kl. 10.00");
   await expect(row).toContainText("Från Systemet");
-  await expect(row.getByRole("link", { name: /^Ring 070-000 00 00/ })).toHaveAttribute("href", "tel:0700000000");
+  // Numret är markerbar text – ingen tel:-länk (inga personuppgifter i URL:er). Kopiera numret lägger det i urklippet;
+  // går det inte markeras numret i stället.
+  await expect(row.locator("[data-phone]")).toHaveText("070-000 00 00");
+  await expect(main(page).locator('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"]')).toHaveCount(0);
+  if (isDemo(info)) {
+    // Prototypen körs här på http://proto.test (ingen säker sida – urklippet finns inte): reservläget markerar numret.
+    await row.getByRole("button", { name: "Kopiera numret till deltagaren i BOT-27-0051" }).click();
+    await expect(toastWith(page, "Numret kunde inte kopieras automatiskt. Det är markerat")).toBeVisible();
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("070-000 00 00");
+  } else {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+    await row.getByRole("button", { name: "Kopiera numret till deltagaren i BOT-27-0051" }).click();
+    await expect(toastWith(page, "Numret är kopierat.")).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("070-000 00 00");
+  }
   await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Min vecka/ })).toContainText("1");
   // Boka om: samma bokning som första mötet.
   await row.getByRole("button", { name: "Boka om första mötet för BOT-27-0051" }).click();

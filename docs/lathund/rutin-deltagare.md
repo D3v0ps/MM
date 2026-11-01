@@ -21,7 +21,7 @@ Vem: samordnaren eller avtalsansvarig, inom den tid som står i avtalet.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare** och **SYV/metodstöd** om de ska vara med i teamet.
 4. Boka första mötet med datum och tid. Mötet ska ligga inom den tid som står i avtalet.
 5. Tryck på **Acceptera**. Orderbekräftelsen går till handläggaren. Deltagaren får en kallelse med e-post eller SMS. Kallelsen innehåller bara tid, plats och vårt telefonnummer.
-6. Gick kallelsen inte att skicka? Då får samordnaren uppgiften **Ring deltagaren och kalla till första mötet** på Min vecka. Ring deltagaren – numret står i raden – och tryck sedan på **Ringt – kallad**.
+6. Gick kallelsen inte att skicka? Då får samordnaren uppgiften **Ring deltagaren och kalla till första mötet** på Min vecka. Numret står i raden – tryck på **Kopiera numret** och ring deltagaren. Tryck sedan på **Ringt – kallad**.
 
 ### 3. Första mötet
 

@@ -5,7 +5,7 @@
 // och är användarens eget ansvar. Ordningen och sammanslagningen räknas med todoRows (src/core/todo.ts).
 // Avtalsansvarig (S5) börjar med det som är hans: beställarrapporten, åtgärdsplanerna, varningarna och målen. Inkorgen är en
 // rad ("N i inkorgen – samordnaren hanterar") och flaggorna står under hans egna saker. /start leder hit.
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { caseBookFirstMeeting } from "@/features/arenden/api";
 import { alertAck } from "@/features/ledning/api";
 import { UnreadNotices } from "@/features/notiser/screens/olasta";
@@ -301,7 +301,42 @@ function inboxPart(x: InboxRow, setDialog: (d: Dialog) => void): Part {
   };
 }
 
-/** En uppgift. Ring deltagaren (S2): numret som ringlänk, "Ringt – kallad" stänger uppgiften och "Boka om" öppnar bokningen. */
+/**
+ * Deltagarens telefonnummer i uppgiften att ringa (S2). Numret är markerbar text med knappen Kopiera numret – aldrig en
+ * tel:-länk (CLAUDE.md punkt 2: inga personuppgifter i URL:er). navigator.clipboard.writeText anropas direkt i klickhändelsen;
+ * går det inte (ingen behörighet, osäker sida eller ramen i prototypen) markeras numret så att det kan kopieras med tangentbordet.
+ * Numret kommer bara med i vy-modellen när rollen redan får läsa personen (StartTask.call.phone).
+ */
+function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: string | null }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const selectNumber = () => {
+    const el = ref.current;
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    if (el && sel) sel.selectAllChildren(el);
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(phone);
+      toast("Numret är kopierat.");
+    } catch {
+      selectNumber();
+      toast("Numret kunde inte kopieras automatiskt. Det är markerat – kopiera det med Ctrl+C (Cmd+C på Mac).", "error");
+    }
+  };
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-x-3">
+      <span className="inline-flex min-h-11 items-center gap-1.5">
+        <Icon name="phone" className="flex-none" />
+        Telefon: <span ref={ref} data-phone="" className="font-bold text-antracit tabular-nums select-all">{phone}</span>
+      </span>
+      <Button kind="ghost" icon="copy" className="-ml-1.5 px-1.5" onClick={() => void copy()}>
+        Kopiera numret <span className="sr-only">till deltagaren i {caseNumber ?? "ärendet"}</span>
+      </Button>
+    </span>
+  );
+}
+
+/** En uppgift. Ring deltagaren (S2): numret att kopiera, "Ringt – kallad" stänger uppgiften och "Boka om" öppnar bokningen. */
 function taskPart(
   t: StartTask,
   h: { done: (t: StartTask, text: string) => Promise<void>; pending: boolean; rebook: (c: Booking) => void },
@@ -314,10 +349,7 @@ function taskPart(
     notes.push(rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : t.text);
     notes.push(
       call.phone ? (
-        <a key="tel" href={`tel:${call.phone.replace(/[^\d+]/g, "")}`} className="-ml-1.5 inline-flex min-h-11 items-center gap-1.5 rounded-mb px-1.5 font-bold text-antracit underline underline-offset-3 hover:bg-antracit-ton">
-          <Icon name="phone" />
-          Ring {call.phone} <span className="sr-only">– deltagaren i {t.caseNumber}</span>
-        </a>
+        <PhoneToCopy key="tel" phone={call.phone} caseNumber={t.caseNumber} />
       ) : (
         "Telefonnummer saknas i deltagarkortet – fråga beställande handläggare."
       ),

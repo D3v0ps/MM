@@ -71,7 +71,7 @@ Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du d
 
 ### Ring deltagaren
 
-Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift i listan **Att göra** på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Sista tiden är första mötets tid. Tryck på telefonnumret i raden för att ringa. När du har ringt trycker du på **Ringt – kallad**. Ska mötet ha en annan tid trycker du på **Boka om**.
+Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift i listan **Att göra** på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Sista tiden är första mötets tid. Telefonnumret står i raden. Tryck på **Kopiera numret** och ring från din telefon. När du har ringt trycker du på **Ringt – kallad**. Ska mötet ha en annan tid trycker du på **Boka om**.
 
 ### Avbrott via mejl
 
