@@ -15,6 +15,7 @@ import {
 } from "./api";
 import { messageRead, messageSend } from "@/features/arenden/api";
 import { notifRead } from "@/features/notiser/api";
+import { groupingOverview } from "@/features/grupper/api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -76,6 +77,24 @@ describe("Min vecka", () => {
 
   it("är bara för coachen", async () => {
     await expect(q(minVecka, {}, dormantSupervisor())).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("Att kartlägga (paket 2): samma urval som Grupper och nivåer-sidans Utan nivå – för coachens egna ärenden", async () => {
+    const v = await q(minVecka, {}, amira());
+    const overview = await q(groupingOverview, {}, amira());
+    const mine = new Set(rt.store.rows("cases").filter((c) => c.leadCoachId === "u-amira").map((c) => c.id));
+    const expected = (overview?.unplaced ?? []).filter((m) => mine.has(m.caseId));
+    expect(v.toMap.map((m) => [m.caseId, m.intake])).toEqual(expected.map((m) => [m.caseId, m.intake]));
+    expect(v.toMap.map((m) => m.caseNumber)).toContain("BOT-27-0012");
+  });
+
+  it("Följ upp (paket 2): notiserna och flaggorna har ärendet, så att samma ärende står en gång", async () => {
+    const v = await q(minVecka, {}, amira());
+    expect(v.unread.items).toHaveLength(v.unread.count);
+    expect(v.unread.items.filter((n) => n.kind === "progress_reminder").map((n) => n.caseNumber).sort()).toEqual(v.reminders.map((r) => r.caseNumber).sort());
+    expect(v.flags.find((f) => f.kind === "stuck")).toMatchObject({ caseId: SC.amal, caseNumber: "BOT-27-0012", name: "Amal Hassan" });
+    // Automatisk närvaro: klockslaget i regeln (organisationens inställning, standard 18.00).
+    expect(v.autoPresentAt).toBe("18:00");
   });
 });
 

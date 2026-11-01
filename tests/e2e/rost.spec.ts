@@ -140,7 +140,8 @@ test("deltagaren spelar in via länken: språk, samtycke, inspelning och kvitto 
 
   // Coachen: nytt röstmeddelande på Min vecka och i deltagarkortet
   await switchUser(page, info, COACH, "/min-vecka");
-  const inbox = card(page, "Deltagarnas röstmeddelanden");
+  // Paket 2: röstmeddelandena står i coachens lista Att göra i dag (inget eget kort).
+  const inbox = main(page).getByRole("list", { name: "Att göra i dag", exact: true });
   await expect(inbox).toContainText("Amal Hassan");
   await expect(inbox).toContainText("Nadia Warsame");
   await expect(inbox).toContainText("talat på somaliska, AI-översättning");
@@ -288,7 +289,7 @@ test("visningen av röstmeddelanden loggas när texten fälls ut – inte när k
 
   // Min vecka → "Läs röstmeddelandet" (?visa=rost): utfälld från början = en visning.
   await switchUser(page, info, COACH, "/min-vecka");
-  await card(page, "Deltagarnas röstmeddelanden").getByRole("link", { name: "Läs röstmeddelandet" }).first().click();
+  await main(page).getByRole("list", { name: "Att göra i dag", exact: true }).getByRole("link", { name: /^Läs röstmeddelandet/ }).first().click();
   await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");
   // Nytt sidbesök på kortet: Min vecka och tillbaka → öppningen loggas igen (en gång per besök, inte per session), och
   // eftersom Tillbaka leder till ?visa=rost fälls texten ut igen = en ny visning av transkriptet (loggas).

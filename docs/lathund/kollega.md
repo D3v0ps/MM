@@ -24,7 +24,11 @@ Har du flera roller väljer du roll i rullistan **Roll** i sidopanelens huvud, u
 
 ## Min vecka – startsidan
 
-Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver göra den här veckan, mest brådskande först, och till höger påminnelser, flaggor och notiser. Varje roll har en egen Min vecka med sina egna uppgifter.
+Alla på Miljonbemanning börjar på **Min vecka**. Varje roll har en egen Min vecka med sina egna uppgifter.
+
+Överst står listan **Att göra** (coachen: **Att göra i dag**). Den är sorterad på sista tid – det som är försenat och det som ska göras snart står först. Varje sak står en gång med sin knapp, och knappen säger vad den gäller, till exempel **Acceptera BOT-27-0048**. Har ett ärende flera saker står de på samma rad. Siffran vid **Min vecka** i menyn är dina öppna uppgifter.
+
+Coachen har under listan **Följ upp** (påminnelser, egna flaggor och olästa notiser – ett ärende en gång) och **Att kartlägga** när någon av dina deltagare saknar nivå. Veckokalendern visas när du trycker på **Visa hela veckan**.
 
 Sidopanelen har alltid:
 
@@ -61,13 +65,13 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 2. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde i beställningen är det redan ifyllt. Välj eventuellt **Alternativt område (valfritt)**.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare (valfritt)** och **SYV/metodstöd (valfritt)** om de ska vara med i teamet.
 4. Fyll i **Första möte – datum** och **Första möte – tid**. Första mötet ska bokas inom den tid som står i avtalet.
-5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren och ärendet dyker upp hos coachen under **Insatser att starta**. Deltagaren får en kallelse med e-post eller SMS.
+5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren. När första mötet har varit står ärendet i coachens lista **Att göra i dag** med knappen **Starta insatsen**. Deltagaren får en kallelse med e-post eller SMS.
 
-Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du vad som förfaller i dag och den här veckan.
+Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du det som är ditt ansvar och förfaller i dag och den här veckan. Tryck på **Alla** för att se allt i avtalet.
 
 ### Ring deltagaren
 
-Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Ring deltagaren och tryck på **Markera som klar**.
+Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift i listan **Att göra** på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Sista tiden är första mötets tid. Tryck på telefonnumret i raden för att ringa. När du har ringt trycker du på **Ringt – kallad**. Ska mötet ha en annan tid trycker du på **Boka om**.
 
 ### Avbrott via mejl
 
@@ -84,7 +88,7 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 
 ### Starta insatsen
 
-1. Öppna ärendet från **Insatser att starta** på Min vecka, eller från **Mina ärenden**.
+1. Tryck på **Starta insatsen** i listan **Att göra i dag** på Min vecka, eller öppna ärendet från **Mina ärenden**.
 2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
@@ -104,7 +108,7 @@ Det här händer:
 - Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har registrerad närvaro eller bara har automatisk närvaro. Den automatiska närvaron tas bort med tillfället.
 - Har ett tillfälle före det nya datumet närvaro som någon har registrerat, eller finns en godkänd mötesrapport före det nya datumet, går det inte att ändra. Meddelandet säger vilket startdatum som går.
 - Får en månad för få dagar för en månadsrapport med det nya startdatumet tas de automatiska utkasten till månadsrapport och månadsbedömning för den månaden bort. Planen för nästa månad ligger kvar. Är månadsrapporten redan godkänd eller lämnad till kommunen, är månadsbedömningen godkänd eller har coachen sparat månadsbedömningen, går det inte att ändra. Det coachen skrivit tas aldrig bort. Meddelandet säger vilket startdatum som går.
-- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i Min vecka att rätta dem. Uppgiften leder till ärendets rapporter. Ändras startdatumet igen stängs den gamla uppgiften av sig själv, och en ny skapas bara om något fortfarande behöver rättas.
+- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i listan **Att göra** på Min vecka att rätta dem. Uppgiften leder till ärendets rapporter. Ändras startdatumet igen stängs den gamla uppgiften av sig själv, och en ny skapas bara om något fortfarande behöver rättas.
 - Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt. En hel vecka utan tillfällen måste ekonomen godkänna innan den faktureras.
 - Planerat slut ändras inte.
 - Är månaden redan fakturerad, eller har ekonomen godkänt månadens faktura, går det inte att ändra. Kontakta ekonomen. En fakturerad månad behöver krediteras först.
@@ -222,7 +226,7 @@ Yrkesområdena träffas en gång i månaden. Träffen är en vanlig aktivitet f�
 
 ### Ta närvaro i aktiviteten
 
-1. Öppna aktiviteten under **Aktiviteter** eller från **Dagens aktiviteter** på Min vecka. Alla inbjudna står i en lista.
+1. Öppna aktiviteten under **Aktiviteter** eller från listan **Att göra i dag** på Min vecka. Alla inbjudna står i en lista.
 2. Markera de som kom sent eller var frånvarande med knapparna på deras rad.
 3. Tryck på **Markera övriga som närvarande** och bekräfta namnen. Närvaro eller frånvaro som redan är registrerad ändras aldrig.
 4. Har aktiviteten ett gruppmål står alla som **Klarade** med märket **Automatiskt**. Tryck på **Klarade inte** för den som inte klarade målet. Du kan ändra tillbaka.
@@ -240,7 +244,7 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 ### Möte med inspelning och AI-förslag
 
-1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens aktiviteter** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**. Datumet är ifyllt, och du behöver inte fylla i någon tid.
+1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från listan **Att göra i dag** på Min vecka – nästa möte har en svart knapp. Vill du skriva själv väljer du **Nytt möte utan inspelning**. Datumet är ifyllt, och du behöver inte fylla i någon tid.
 2. Inspelning kräver ett registrerat samtycke. Saknas det visas **Samtycke saknas** – tryck på **Registrera samtycke** innan du spelar in.
 3. Spela in medan ni pratar. När du stoppar laddas ljudet upp, texten skrivs ut och ett utkast till mötesrapport fylls i. Det tar vanligtvis en till två minuter.
 4. Varje förslag visas med citat och tidpunkt ur samtalet. Tryck på **Acceptera**, **Ändra** eller **Avvisa** för varje förslag. Det som inte framgår av samtalet står som **Framgår inte** – fyll i det själv.
@@ -273,6 +277,8 @@ SYV/metodstöd ingår i teamet för ett ärende och stöttar coachen med metod o
 
 Fliken **Ekonomi** har **Fakturering**, **Fakturakörning** för förra månaden och **Prislista**. Ekonomen är den enda rollen som ser belopp.
 
+På Min vecka står en rad per faktura med allt som behöver göras – till exempel att beställarreferensen saknas, att veckor utan närvaro ska godkännas eller att veckor snart preskriberas – och en knapp. Dina uppgifter står på egna rader.
+
 1. Öppna **Fakturering**. Där ser du fakturakörningar per månad, stoppade fakturor och öppna uppgifter.
 2. Öppna månadens fakturakörning. Det blir en faktura per avtal och månad, med ett ärende per rad.
 3. Fyll i beställarreferensen under **Fyll i beställarreferensen** (8–10 siffror). Utan referens kan fakturan inte skapas.
@@ -299,7 +305,7 @@ Fliken **Ledning** har **Ledningsvy**, **Avtalsavvikelser**, **Förfaller**, **B
 
 ## Avtalsansvarig
 
-Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, **Kommunanvändare** och **Bygg rapport**. Avtalsansvarig godkänner sammanfattningen i rapporter till kommunen (**Sammanfattning – avtalsansvarig godkänner**) och bjuder in kommunens handläggare under **Bjud in kommunens handläggare**.
+Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, **Kommunanvändare** och **Bygg rapport**. Min vecka börjar med det som är ditt: beställarrapporten att godkänna, åtgärdsplanerna, varningarna och målen. Inkorgen är samordnarens och står som en rad. Flaggorna står under dina egna saker. Avtalsansvarig godkänner sammanfattningen i rapporter till kommunen (**Sammanfattning – avtalsansvarig godkänner**) och bjuder in kommunens handläggare under **Bjud in kommunens handläggare**.
 
 ## Systemadministratör
 

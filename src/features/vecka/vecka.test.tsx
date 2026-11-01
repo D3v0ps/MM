@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Min vecka för alla MB-roller (beslut 2026-10-06): rätt skärm per roll, samma sidhuvud (MIN VECKA, "Namn · Titel",
-// veckoingressen) och fyra rutor – och varje roll anropar bara frågor den redan har (inga nya vägar till data). Hela vägen
+// veckoingressen) – coach, samordnare, avtalsansvarig och ekonom med att göra-listan överst (paket 2), chef och
+// systemadministratör med fyra rutor – och varje roll anropar bara frågor den redan har (inga nya vägar till data). Hela vägen
 // genom hanterarna i minnesläget med testdatat (demoklockan 1 februari 2027 kl. 09.12).
 import { cleanup, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -99,49 +100,70 @@ const KPI_LABELS = () => KPI_TILES().map((t) => t.querySelector(":scope > div:fi
 const KPI_LINKS = () => Object.fromEntries(KPI_TILES().filter((t) => t.tagName === "A").map((t) => [t.querySelector(":scope > div:first-child")?.textContent ?? "", t.getAttribute("href")]));
 
 describe("Min vecka per roll", () => {
-  it("samordnaren: dagens startsida i Min veckas stil – inkorgen, flaggor, första möten och uppgifter", async () => {
+  it("samordnaren: att göra-listan överst – sorterad på sista tid, varje ärende en gång med sin knapp (paket 2, S1)", async () => {
     const { keys, user } = setup("samordnare");
-    const h = await headings("Avropsinkorg");
+    const h = await headings("Att göra");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Min vecka");
     expect(screen.getByText(`${user.name} · ${user.title}`)).toBeTruthy();
     expect(screen.getByText(/^Måndag 1 februari · vecka 5\. Det här behöver du göra/)).toBeTruthy();
-    expect(KPI_LABELS()).toEqual(["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"]);
-    // Rutor som leder till en annan sida är länkar; rutor som leder till ett avsnitt på sidan är knappar.
-    const links = KPI_LINKS();
-    expect(Object.keys(links)).toEqual(["Att hantera i inkorgen", "Förfaller i dag"]);
-    expect(links["Att hantera i inkorgen"]).toMatch(/^#\/inkorg(\/[\w-]+)?$/);
-    expect(links["Förfaller i dag"]).toBe("#/forfaller");
-    // Den röda rutan har undertexten som vanlig text (som coachens) – inget rött märke i rutan.
-    const inbox = KPI_TILES()[0];
-    expect(inbox.textContent).toContain("Närmast: 53 min kvar");
-    expect(inbox.querySelectorAll(".rounded-full")).toHaveLength(0);
-    // 11 flaggor: flaggan för skyddat avrop (em-104) finns inte sedan 2026-10-07.
-    for (const t of ["Avropsinkorg", "Flaggor (11)", "Första möten som inte är bokade", "Förfaller snart", "Avtalsavvikelser", "Tilldelning ger notis", "Olästa notiser"]) {
-      expect(h, t).toContain(t);
-    }
-    expect(h.some((x) => x.startsWith("Öppna uppgifter ("))).toBe(true);
-    // Ingen "Öppna"-knapp i listraderna – rubriken är länken.
-    expect(screen.queryAllByRole("link", { name: "Öppna" })).toHaveLength(0);
+    // Inga rutor – listan står överst. Borttaget: Ärenden utan coach (samma som inkorgen), Tilldelning ger notis och tomma block.
+    expect(KPI_TILES()).toHaveLength(0);
+    expect(h[0]).toBe("Att göra");
+    for (const t of ["Ärenden utan coach", "Tilldelning ger notis", "Förfaller snart", "Olästa notiser"]) expect(h, t).not.toContain(t);
+    expect(h.some((x) => x.startsWith("Öppna uppgifter ("))).toBe(false);
+    expect(h).toContain("Avtalsavvikelser");
+    // Varje ärende en gång: BOT-27-0039 (första mötet, flaggan och förfallotiden) och BOT-27-0049 (avropet och kompletteringen).
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')];
+    const titled = (n: string) => rows.filter((r) => (r.querySelector("a")?.textContent ?? "").includes(n));
+    expect(titled("BOT-27-0039")).toHaveLength(1);
+    expect(titled("BOT-27-0049")).toHaveLength(1);
+    // Knapparna säger vad de gäller.
+    expect(screen.getByRole("button", { name: "Acceptera BOT-27-0048" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Boka första mötet för BOT-27-0039" })).toBeTruthy();
+    // Sorterat på sista tid: den försenade slutrapporten först, sedan avropet som brådskar.
+    expect(rows[0].textContent).toContain("Försenad");
+    expect(rows[1].textContent).toContain("BOT-27-0048");
     for (const k of keys) expect(ALLOWED.samordnare, k).toContain(k);
   });
 
-  it("avtalsansvarig: Avtalet: avvikelser och frågor – inget kort för skyddade avrop (borttaget 2026-10-07)", async () => {
+  it("avtalsansvarig: hans egna saker först – beställarrapporten, åtgärdsplanerna, varningarna och målen; inkorgen är en rad (S5)", async () => {
     const { keys } = setup("avtalsansvarig");
-    const h = await headings("Avropsinkorg");
+    const h = await headings("Att göra");
     expect(h).not.toContain("Skyddade avrop");
-    expect(h).toContain("Avtalet: avvikelser och frågor");
+    expect(h.slice(0, 3)).toEqual(["Att göra", "Varningar och mål", "Flaggor (11)"]);
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')].map((r) => r.textContent ?? "");
+    expect(rows.some((r) => r.includes("Beställarrapport januari 2027 att godkänna"))).toBe(true);
+    expect(rows.filter((r) => r.includes("Åtgärdsplan"))).toHaveLength(2);
+    expect(rows.some((r) => /BOT-27-0048/.test(r))).toBe(false);
+    expect(screen.getByRole("link", { name: "6 i inkorgen" }).getAttribute("href")).toBe("#/inkorg");
+    expect(screen.getByText(/Skriftliga varningar: 0 av 3/)).toBeTruthy();
     expect(screen.queryByText(/väntar på telefonsamtal/)).toBeNull();
     for (const k of keys) expect(ALLOWED.avtalsansvarig, k).toContain(k);
   });
 
-  it("coachen: förebilden är oförändrad (samma rubriker och rutor)", async () => {
+  it("coachen: Att göra i dag överst, Följ upp (samma ärende en gång), Att kartlägga och veckan bakom en knapp (C1, C17)", async () => {
     const { keys } = setup("coach");
-    const h = await headings("Dagens aktiviteter");
-    expect(KPI_LABELS()).toEqual(["Närvaro att registrera", "Aktiviteter i dag", "Mötesrapporter att granska", "Månads­bedömningar januari"]);
-    expect(KPI_LINKS()).toEqual({});
-    for (const t of ["Påminnelser", "Olästa notiser"]) expect(h, t).toContain(t);
-    expect(h.some((x) => x.startsWith("Närvaro att registrera – vecka 4"))).toBe(true);
-    expect(h.some((x) => x.startsWith("Veckokalender – vecka 5"))).toBe(true);
+    const h = await headings("Att göra i dag");
+    expect(KPI_TILES()).toHaveLength(0);
+    expect(h[0]).toBe("Att göra i dag");
+    for (const t of ["Följ upp", "Att kartlägga (1)"]) expect(h, t).toContain(t);
+    // Borttaget för coachen: Rapporter som förfaller (de står i listan) och de tre korten i högerkolumnen.
+    for (const t of ["Rapporter som förfaller", "Påminnelser", "Egna flaggor", "Olästa notiser", "Meddelanden från kommunen"]) expect(h, t).not.toContain(t);
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra i dag"] > li')];
+    // Närvaron först (sista tid i dag 10.00) med regeln om automatisk närvaro i en rad.
+    expect(rows[0].textContent).toContain("Närvaro att registrera – vecka 4");
+    expect(rows[0].textContent).toContain("registreras automatiskt som närvarande");
+    // C17: bara nästa möte har en svart knapp.
+    const list = document.querySelector('ol[aria-label="Att göra i dag"]') as HTMLElement;
+    const black = [...list.querySelectorAll<HTMLElement>("a, button")].filter((b) => b.classList.contains("bg-antracit"));
+    expect(black.map((b) => b.textContent)).toEqual(["Spela in mötet med Nadia Warsame"]);
+    // Följ upp: Yusuf har en påminnelse, en flagga och en oläst notis – en rad.
+    const follow = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Följ upp"] > li')];
+    expect(follow.filter((r) => (r.querySelector("a")?.textContent ?? "").includes("Yusuf Abdi"))).toHaveLength(1);
+    // Veckokalendern bakom "Visa hela veckan".
+    expect(h.some((x) => x.startsWith("Veckokalender"))).toBe(false);
+    screen.getByRole("button", { name: /Visa hela veckan/ }).click();
+    await screen.findByRole("heading", { name: /Veckokalender – vecka 5/ });
     for (const k of keys) expect(ALLOWED.coach, k).toContain(k);
   });
 
@@ -171,15 +193,22 @@ describe("Min vecka per roll", () => {
     expect(document.body.textContent ?? "").not.toMatch(/\d\s?kr(?![a-zåäö])/i);
   });
 
-  it("ekonomen: fakturakörningen, uppgifterna och referenserna – samma kort som Fakturering", async () => {
+  it("ekonomen: en rad per faktura med alla anmärkningar och en knapp – varje siffra på ett ställe (E2)", async () => {
     const { keys } = setup("ekonom");
-    const h = await headings("Uppgifter till dig");
-    expect(KPI_LABELS()).toEqual(["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"]);
-    expect(KPI_LINKS()).toEqual({ "Januari att fakturera": "#/ekonomi/2027-01", "Stoppade fakturor": "#/ekonomi/2027-01", "Senast i Fortnox": "#/ekonomi/2027-01" });
-    // En faktura per avtal och månad (beslut 2026-10-07): referensen fylls i per faktura.
-    for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera", "Olästa notiser"]) {
-      expect(h, t).toContain(t);
-    }
+    const h = await headings("Att göra");
+    expect(KPI_TILES()).toHaveLength(0);
+    expect(h[0]).toBe("Att göra");
+    // Fakturering behåller månadsöversikten och historiken – Min vecka har bara listan.
+    for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera"]) expect(h, t).not.toContain(t);
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')].map((r) => r.textContent ?? "");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toContain("Faktura januari 2027");
+    expect(rows[0]).toContain("Beställarreferens saknas");
+    expect(rows[0]).toContain("3 veckor utan närvaro att godkänna");
+    expect(rows[1]).toContain("Tilläggsfaktura 2 · december 2026");
+    expect(rows[1]).toContain("Returnerad av kommunen");
+    expect(rows[1]).toContain("Preskriptionsrisk BOT-26-0117");
+    expect(rows[2]).toContain("Uppgift från Johan Berg");
     expect(screen.getByRole("link", { name: "Öppna körningen januari" }).getAttribute("href")).toBe("#/ekonomi/2027-01");
     for (const k of keys) expect([...ALLOWED.ekonom, "session.ping"], k).toContain(k);
   });

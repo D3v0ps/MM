@@ -73,45 +73,90 @@ async function registerWeek4(page: Page) {
 }
 
 // ================================================================ Min vecka
-test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvaron", async ({ page }, info) => {
+/** Raderna i en att göra-lista på Min vecka (paket 2). */
+const todo = (page: Page, name = "Att göra i dag") => main(page).getByRole("list", { name, exact: true }).locator(":scope > li");
+
+test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ upp, kalendern bakom en knapp och länk till närvaron", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", COACH);
   await expect(page.getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
   await noBadText(page);
-  await expect(main(page)).toContainText(/Närvaro att registrera\s*6\s*Kräver åtgärd/i);
-  // "Förslag/ej fastställt" står en gång på sidan: brickan i månadsavsnittet (förklaringen som verktygstips), inte i tre till rader.
+  // Överst: närvaron med sista tid i dag 10.00 och regeln om automatisk närvaro i en rad.
+  const first = todo(page).first();
+  await expect(first).toContainText("Närvaro att registrera – vecka 4");
+  await expect(first).toContainText(/Senast i dag kl\. 10\.00\s*48 min kvar/);
+  await expect(first).toContainText("6 tillfällen saknar närvaro");
+  await expect(first).toContainText("registreras automatiskt som närvarande");
+  // "Förslag/ej fastställt" står en gång på sidan: i månadsbedömningarnas rad (förklaringen som verktygstips).
   await expect(page.getByText(/^Förslag: senast /).first()).toBeVisible();
   await expect(page.getByTitle("Sista dag ej fastställd – förslag 5:e arbetsdagen")).toHaveCount(1);
   await expect(page.getByText("Förslag – ej fastställt")).toHaveCount(0);
   const text = await main(page).innerText();
   expect(text).not.toMatch(/deadline/i);
   expect(text).not.toMatch(/\b1 (godkända|granskade|tillfällen|olästa)\b/);
-  await expect(main(page)).toContainText(/Månads\u00adbedömningar januari\s*4 av 15/i);
-  await expect(page.getByRole("link", { name: "Bedöm", exact: true })).toHaveCount(5);
-  // Marias olästa meddelande från 1 februari 08.15 syns (samma räkning som deltagarkortets olästa) – överst på sidan.
-  const msgs = card(page, "Meddelanden från kommunen");
-  await expect(msgs).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
-  await expect(msgs).toContainText("Från Maria Ekdahl");
-  await expect(msgs.getByRole("link", { name: /Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
+  // Månadsbedömningarna: en rad – nästa att bedöma som knapp, resten bakom Visa alla.
+  const manad = todo(page).filter({ hasText: "Månadsbedömningar januari 2027" });
+  await expect(manad).toContainText("4 av 15 godkända – 11 kvar att gå igenom");
+  await expect(manad).toContainText("Månadsrapporterna byggs av bedömningarna: 14 st · 11 väntar på din bedömning · 3 godkända, ska levereras");
+  await expect(manad.getByRole("link", { name: /^Bedöm / })).toHaveCount(1);
+  await manad.getByRole("button", { name: "Visa alla 11" }).click();
+  await expect(manad.getByRole("list", { name: "Månadsbedömningar som återstår" }).locator("li")).toHaveCount(10);
+  // Svara kommunen: Marias olästa meddelande från 1 februari 08.15 (samma räkning som deltagarkortets olästa).
+  const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  await expect(msg).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
+  await expect(msg).toContainText("från Maria Ekdahl");
+  await expect(msg.getByRole("link", { name: /Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
 
   await page.setViewportSize({ width: 400, height: 860 });
-  const bb = await page.getByRole("link", { name: "Bedöm", exact: true }).first().boundingBox();
+  const bb = await manad.getByRole("link", { name: /^Bedöm / }).boundingBox();
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(bb && bb.x >= 0 && bb.x + bb.width <= 400).toBeTruthy();
   expect(over).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1280, height: 900 });
 
+  // Mötesrapporten att granska och Följ upp: Yusuf har en påminnelse och en flagga – en rad.
+  await expect(page.getByRole("link", { name: /^Granska/ })).toHaveCount(1);
+  await expect(todo(page).filter({ hasText: "Mötesrapport att granska" })).toContainText("Mehmet Kaya");
+  const follow = todo(page, "Följ upp");
+  await expect(follow.filter({ hasText: "Yusuf Abdi" })).toHaveCount(1);
+  await expect(follow.filter({ hasText: "Yusuf Abdi" })).toContainText("Påminnelse: ingen progression 3 veckor i rad – inget möte dokumenterat (v. 4 2027).");
+  await expect(follow.filter({ hasText: "Yusuf Abdi" })).toContainText("Upprepad ogiltig frånvaro");
+  await expect(follow.filter({ hasText: "Amal Hassan" })).toContainText("Fastnat i fas 1");
+  await expect(main(page).getByRole("link", { name: "4 olästa notiser" })).toBeVisible();
+  // Rapporter som förfaller har inget eget kort (de står i listan). Att kartlägga: Amal saknar nivå.
+  await expect(card(page, "Rapporter som förfaller")).toHaveCount(0);
+  await expect(card(page, "Att kartlägga (1)")).toContainText("Amal Hassan");
+  // Veckokalendern bakom "Visa hela veckan".
+  await expect(page.getByTestId("kalender-dag")).toHaveCount(0);
+  await page.getByRole("button", { name: /Visa hela veckan/ }).click();
   await expect(page.getByTestId("kalender-dag")).toHaveCount(5);
-  await expect(page.getByRole("link", { name: "Granska" })).toHaveCount(1);
-  await expect(card(page, "Mötesrapporter att granska")).toContainText("Mehmet Kaya");
-  await expect(page.getByRole("link", { name: "Öppna notiser" })).toBeVisible();
-  await expect(card(page, "Egna flaggor")).toContainText("Fastnat i fas 1");
-  await expect(card(page, "Egna flaggor")).toContainText("Upprepad ogiltig frånvaro");
-  await expect(card(page, "Påminnelser")).toContainText("Ingen progression 3 veckor i rad: inget möte dokumenterat (v. 4 2027).");
-  await expect(card(page, "Rapporter som förfaller")).toContainText("Månadsrapporter januari 2027: 14 st");
-  await expect(card(page, "Rapporter som förfaller")).toContainText("Väntar på din bedömning: 11 · Godkända, ska levereras: 3");
-  await page.getByRole("link", { name: "Registrera närvaro för vecka 4" }).click();
+  await first.getByRole("link", { name: "Registrera närvaro för vecka 4" }).click();
   await expect.poll(() => currentPath(page, info)).toBe("/narvaro?vecka=forra");
   await expect(page.getByRole("heading", { level: 1, name: "Närvaro" })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Min vecka (C17): bara nästa möte har en svart knapp – övriga möten är textlänkar med ikon", async ({ page }, info) => {
+  const errors = await open(page, info, "/min-vecka", COACH);
+  const list = main(page).getByRole("list", { name: "Att göra i dag", exact: true });
+  await expect(list).toBeVisible();
+  const black = await list.evaluate((el) => [...el.querySelectorAll("a, button")].filter((b) => b.classList.contains("bg-antracit")).map((b) => (b.textContent ?? "").trim()));
+  expect(black).toEqual(["Spela in mötet med Nadia Warsame"]);
+  const next = todo(page).filter({ hasText: "Nästa" });
+  await expect(next).toContainText("Nadia Warsame");
+  await expect(next.getByRole("link", { name: "Spela in mötet med Nadia Warsame" })).toHaveAttribute("href", isDemo(info) ? `#/avstamning/${SC.nadia}?spela=1` : `/avstamning/${SC.nadia}?spela=1`);
+  await expect(todo(page).filter({ hasText: "Habiba Karlsson" }).getByRole("link", { name: "Spela in mötet med Habiba Karlsson" })).toBeVisible();
+  // Klara möten (närvaro och godkänd mötesrapport) står i listans fot.
+  await expect(main(page)).toContainText("Klart i dag: 09.00 Jonna Osman, 09.00 Guled Farah.");
+  expect(errors).toEqual([]);
+});
+
+test("Min vecka visar att vecka 4 är klar när närvaron är registrerad", async ({ page }, info) => {
+  const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
+  await registerWeek4(page);
+  await go(page, info, "/min-vecka");
+  await expect(page.getByText("Närvaron för vecka 4 är registrerad.", { exact: false })).toBeVisible();
+  await expect(todo(page).filter({ hasText: "Närvaro att registrera" })).toHaveCount(0);
+  await noBadText(page);
   expect(errors).toEqual([]);
 });
 
@@ -228,16 +273,6 @@ test("Närvaro: 'Markera alla som närvarande' per dag – bekräftelse med namn
   await expect(bulkRows).toHaveCount(2);
   await expect(bulkRows.first()).toContainText("3 tillfällen");
   await expect(bulkRows.first()).toContainText("Amira Haddad");
-  expect(errors).toEqual([]);
-});
-
-test("Min vecka visar att vecka 4 är klar när närvaron är registrerad", async ({ page }, info) => {
-  const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
-  await registerWeek4(page);
-  await go(page, info, "/min-vecka");
-  await expect(page.getByText("Allt är registrerat för vecka 4")).toBeVisible();
-  await expect(main(page)).toContainText(/Närvaro att registrera\s*0/i);
-  await noBadText(page);
   expect(errors).toEqual([]);
 });
 
@@ -647,14 +682,15 @@ test("Meddelande från kommunen syns i Min vecka och räknas som läst efteråt"
   await page.getByRole("button", { name: "Skicka meddelandet" }).click();
   await expect(page.getByText("Tiden passar bra. Vi ses på torsdag.").first()).toBeVisible();
   await switchUser(page, info, COACH, "/min-vecka");
-  const msgCard = card(page, "Meddelanden från kommunen");
-  await expect(msgCard).toContainText("Tiden passar bra");
-  await expect(msgCard).toContainText("BOT-26-0143");
-  await expect(msgCard).toContainText("Från Maria Ekdahl");
-  await btn(msgCard, "Läs och svara").click();
+  const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  await expect(msg).toContainText("Tiden passar bra");
+  await expect(msg).toContainText("BOT-26-0143");
+  await expect(msg).toContainText("från Maria Ekdahl");
+  await msg.getByRole("button", { name: /^Läs och svara/ }).click();
   await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${SC.nadia}?flik=meddelanden`);
   await go(page, info, "/min-vecka");
-  await expect(card(page, "Meddelanden från kommunen").getByText("Inga olästa meddelanden")).toBeVisible();
+  await expect(todo(page).first()).toBeVisible();
+  await expect(todo(page).filter({ hasText: "Svara kommunen" })).toHaveCount(0);
   await noBadText(page);
   expect(errors).toEqual([]);
 });

@@ -115,7 +115,7 @@ export const ekoReissue = command("ekonomi.reissue", z.object({
 export const ekoTaskDone = command("ekonomi.taskDone", z.object({
   taskId: IdSchema,
   note: z.string().max(1000).optional(),
-}), { invalidates: [BILLING, "inkorg.start", "kommun.start", "kommun.deltagare", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
+}), { invalidates: [BILLING, "inkorg.start", "kommun.start", "kommun.deltagare", "arenden.kortManad", NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Fråga samordnaren om två ärenden som överlappar samma vecka (samma deltagare). Texten byggs av hanteraren och
@@ -125,7 +125,7 @@ export const ekoAskCoordinator = command("ekonomi.askCoordinator", z.object({
   month: MonthKeySchema,
   caseId: IdSchema,
   otherCaseId: IdSchema,
-}), { invalidates: [BILLING, "inkorg.start", ...LOG] }).returns<Result<{ taskId: string }, "not_found" | "no_overlap">>();
+}), { invalidates: [BILLING, "inkorg.start", NAV, ...LOG] }).returns<Result<{ taskId: string }, "not_found" | "no_overlap">>();
 
 /** Stäng månadens fakturakörning (alla fakturor är skapade eller manuellt fakturerade). */
 export const ekoCloseRun = command("ekonomi.closeRun", z.object({ month: MonthKeySchema }), { invalidates: [BILLING, MGMT, CASES, ...START, "coach.minVecka", NAV, ...LOG] })
@@ -391,7 +391,8 @@ export const ekoPriceList = query("ekonomi.priceList", z.object({})).returns<Pri
 
 export type TaskCaseView = { caseId: string; caseNumber: string };
 export type TaskView = TaskRef & { status: "open" | "done"; cases: TaskCaseView[]; doneAt: LocalDateTime | null; doneByName: string | null };
-export type UnbilledRow = { caseId: string; caseNumber: string; status: InvoiceStatus; weeks: BillableWeek[]; age: number; amountOre: number; presc: LocalDate; left: number };
+/** invoiceId = fakturan som har den äldsta veckan (skapad eller öppen), null = veckan är bara underlag (Min vecka grupperar per faktura). */
+export type UnbilledRow = { caseId: string; caseNumber: string; status: InvoiceStatus; weeks: BillableWeek[]; age: number; amountOre: number; presc: LocalDate; left: number; invoiceId: string | null };
 /** En returnerad faktura (och en som krediterats och gjorts om). */
 export type ReturnedRow = {
   invoiceId: string;
@@ -408,7 +409,8 @@ export type ReturnedRow = {
 };
 /** En faktura som inte kan skapas eftersom beställarreferensen saknas eller är fel. */
 export type RefInvoiceRow = { invoiceId: string; month: MonthKey; title: string; status: InvoiceDisplayStatus; buyerReference: string | null; problem: string; lines: number };
-export type ZeroRow = { id: string; month: MonthKey; caseId: string; caseNumber: string; weekKey: WeekKey; planned: number | null; approved: boolean };
+/** invoiceId = fakturan som veckan står på (Min vecka grupperar per faktura). */
+export type ZeroRow = { id: string; month: MonthKey; caseId: string; caseNumber: string; weekKey: WeekKey; planned: number | null; approved: boolean; invoiceId: string };
 export type RunRow = { id: string; month: MonthKey; status: BillingRunStatus; invoices: number; count: number; weeks: number; totalOre: number; entries: [InvoiceDisplayStatus, number][]; todo: number };
 
 /** Ekonomens startsida (prototypens eko.start). */
@@ -432,6 +434,11 @@ export type BillingStartView = {
     counts: { blocked: number; priceBlocked: number; zeroPending: number; review: number; ready: number };
     stepNow: number;
     perContract: boolean;
+    /**
+     * Körningens fakturor (Min vecka, paket 2: en rad per faktura med alla anmärkningar): fakturans läge (blocked = stoppad,
+     * review = att godkänna, ready = godkänd eller skapad), antal rader och veckor och beloppet.
+     */
+    invoiceRows: { invoiceId: string; title: string; bucket: "blocked" | "review" | "ready"; lines: number; weeks: number; amountOre: number }[];
   } | null;
   openTasks: number;
   unbilled: { totalOre: number; count: number; limit: number; prescText: string; rows: UnbilledRow[] };

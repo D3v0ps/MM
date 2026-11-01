@@ -34,7 +34,7 @@ test("kallelsen går med e-post när deltagaren har e-post – SMS och utringnin
   const errors = await open(page, info, "/min-vecka", SARA);
   const m = main(page);
   await expect(m.getByRole("link", { name: "BOT-27-0039" })).toBeVisible();
-  await m.getByRole("button", { name: "Boka", exact: true }).first().click();
+  await m.getByRole("button", { name: "Boka första mötet för BOT-27-0039" }).click();
   await expect(dialog(page)).toContainText("Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren.");
   await dialog(page).getByRole("button", { name: "Boka mötet" }).click();
   await expect(dialog(page)).toHaveCount(0);
@@ -57,6 +57,53 @@ test("kallelsen går med e-post när deltagaren har e-post – SMS och utringnin
   // Filtret Utringning finns när det finns samtal i loggen.
   await main(page).getByRole("button", { name: "Utringning", exact: true }).click();
   await expect(main(page).locator("[data-send-item]")).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("uppgiften att ringa deltagaren i att göra-listan (paket 2, S2): sista tid, ringlänken, Systemet, Boka om och Ringt – kallad", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const errors = await open(page, info, "/inkorg/registrera", SARA);
+  const m = main(page);
+  // En beställning per telefon för en deltagare med telefonnummer men utan e-postadress (SMS är inte kopplat i testmiljön).
+  await page.fill("#reg-ref-name", "Anna Ny");
+  await page.fill("#reg-ref-email", "anna.ny@botkyrka.se");
+  await page.fill("#reg-ref-unit", "Arbetsmarknadsenheten Tumba");
+  await page.fill("#reg-start", "2027-02-15");
+  await page.locator("#reg-period").getByRole("button", { name: "6 månader" }).click();
+  await page.fill("#reg-fn", "Test");
+  await page.fill("#reg-ln", "Telefonsson");
+  await page.fill("#reg-pnr", "19930303-1111");
+  await page.fill("#reg-phone", "070-000 00 00");
+  await page.fill("#reg-city", "Tumba");
+  await page.selectOption("#reg-area", "G");
+  await page.locator("#reg-prior").getByRole("button", { name: "Nej" }).click();
+  await m.getByRole("button", { name: "Registrera beställningen" }).click();
+  await expect(toastWith(page, "Beställningen är registrerad. Ärendenummer BOT-27-0051.")).toBeVisible();
+  await m.getByRole("button", { name: "Acceptera", exact: true }).click();
+  await page.check("#ink-coach-u-amira");
+  await page.fill("#ink-fm-date", "2027-02-03");
+  await page.fill("#ink-fm-time", "10:00");
+  await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
+  await dialog(page).getByRole("button", { name: "Klart" }).click();
+
+  // Min vecka: uppgiften med första mötets tid som sista tid, numret som ringlänk och avsändaren Systemet.
+  await switchTo(page, info, "/min-vecka", SARA);
+  const row = main(page).getByRole("list", { name: "Att göra", exact: true }).locator(":scope > li").filter({ hasText: "Ring deltagaren och kalla till första mötet" });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("BOT-27-0051");
+  await expect(row).toContainText("Senast ons 3 feb kl. 10.00");
+  await expect(row).toContainText("Från Systemet");
+  await expect(row.getByRole("link", { name: /^Ring 070-000 00 00/ })).toHaveAttribute("href", "tel:0700000000");
+  await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Min vecka/ })).toContainText("1");
+  // Boka om: samma bokning som första mötet.
+  await row.getByRole("button", { name: "Boka om första mötet för BOT-27-0051" }).click();
+  await expect(dialog(page).getByRole("heading", { name: "Boka om första mötet – BOT-27-0051" })).toBeVisible();
+  await dialog(page).getByRole("button", { name: "Avbryt" }).click();
+  // Ringt – kallad stänger uppgiften (samma kommando som Markera som klar).
+  await row.getByRole("button", { name: "Ringt – kallad BOT-27-0051" }).click();
+  await expect(toastWith(page, "Uppgiften är klar – deltagaren är kallad.")).toBeVisible();
+  await expect(main(page).getByRole("list", { name: "Att göra", exact: true }).locator(":scope > li").filter({ hasText: "Ring deltagaren" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Min vecka/ })).not.toContainText(/\d/);
   expect(errors).toEqual([]);
 });
 

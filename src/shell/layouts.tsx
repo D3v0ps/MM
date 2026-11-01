@@ -246,7 +246,8 @@ function Sidebar() {
                   item={it}
                   active={active === it.to}
                   n={it.count ? (counts?.[it.count] ?? 0) : 0}
-                  hot={it.count !== "inbox"}
+                  hot={it.count !== "inbox" && it.count !== "tasks"}
+                  srSuffix={it.count === "tasks" ? " öppna uppgifter" : undefined}
                   onPick={close}
                 />
               ))}

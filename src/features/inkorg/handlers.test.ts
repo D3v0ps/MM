@@ -52,11 +52,14 @@ const OLD_ALERTS_SAM = [
 const OLD_DL_FIRST = ["rep:rep-16356", "reg:u-amira", "avrop:case-270048", "avrop:case-270049", "rep:rep-16692", "rep:rep-16694", "avrop:case-270050", "fm:case-270039", "bill:2027-01", "dev:dev-14317", "cd:cd-2", "rep:rep-15642"];
 
 describe("sidopanelens räknare (navCounts)", () => {
-  it("samma tal som prototypens navCount och olästa notiser", async () => {
-    expect(await q(navCounts, {}, sara())).toEqual({ inbox: 6, deadlines: 6, unregistered: 0, notifications: 0 });
-    expect(await q(navCounts, {}, johan())).toEqual({ inbox: 6, deadlines: 6, unregistered: 0, notifications: 0 });
-    expect(await q(navCounts, {}, karin())).toEqual({ inbox: 0, deadlines: 6, unregistered: 0, notifications: 3 });
-    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, notifications: 4 });
+  it("samma tal som prototypens navCount och olästa notiser – Förfaller räknar det som är mitt ansvar (paket 2, S7)", async () => {
+    // Förfaller: försenat och i dag som är användarens eget ansvar (Förfallers förval). Samordnaren: den försenade slutrapporten
+    // (eskalerad från coachen), två svar på avrop och två veckorapporter – inte coachens närvaroregistrering. Avtalsansvarig: inget
+    // av det är hans. Chefen: slutrapporten, som har eskalerats till chefen. Uppgifter: inga öppna i testdatat.
+    expect(await q(navCounts, {}, sara())).toEqual({ inbox: 6, deadlines: 5, unregistered: 0, tasks: 0, notifications: 0 });
+    expect(await q(navCounts, {}, johan())).toEqual({ inbox: 6, deadlines: 0, unregistered: 0, tasks: 0, notifications: 0 });
+    expect(await q(navCounts, {}, karin())).toEqual({ inbox: 0, deadlines: 1, unregistered: 0, tasks: 0, notifications: 3 });
+    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 0, notifications: 4 });
   });
 });
 
@@ -146,6 +149,52 @@ describe("avropsinkorgen", () => {
     expect(j).not.toHaveProperty("protectedItems");
     // Inga viten i kronor – belopp syns bara för ekonomen (beslut 5, 2026-10-07).
     expect(j.warnings.text).toBe("3 varningar kan leda till uppsägning.");
+  });
+});
+
+describe("Min vecka och Förfaller (paket 2)", () => {
+  it("Förfaller: Mitt ansvar – ägaren, rollen eller eskalerat till rollen", async () => {
+    const mine = async (a: Actor) => (await q(inboxDeadlines, {}, a)).rows.filter((x) => x.mine).map((x) => x.id);
+    // Samordnaren: svar på avrop, första mötet och veckorapporterna – och slutrapporten som har eskalerats förbi coachen.
+    expect(await mine(sara())).toEqual(["rep:rep-16356", "avrop:case-270048", "avrop:case-270049", "rep:rep-16692", "rep:rep-16694", "avrop:case-270050", "fm:case-270039"]);
+    // Coachens närvaroregistrering och månadsrapporter är inte samordnarens förrän de passerat sista dag.
+    const all = (await q(inboxDeadlines, {}, sara())).rows;
+    expect(all.find((x) => x.id === "reg:u-amira")?.mine).toBe(false);
+    expect(all.filter((x) => x.kind === "manadsrapport").every((x) => !x.mine)).toBe(true);
+    // Chefen: det som har eskalerats till chefen (slutrapporten mer än ett dygn efter sista dag).
+    expect(await mine(karin())).toEqual(["rep:rep-16356"]);
+    // Avtalsansvarig: åtgärdsplanen (avtalets) och beställarrapporten – inte inkorgens förfallotider.
+    const j = await mine(johan());
+    expect(j.some((id) => id.startsWith("avrop:"))).toBe(false);
+  });
+
+  it("Min vecka: förfaller räknar bara det som är mitt ansvar – inte 90 till denna vecka", async () => {
+    const s = await q(inboxStart, {}, sara());
+    expect(s.deadlines.mineCount).toBe(7);
+    expect(s.deadlines.mine.map((x) => x.kind)).toEqual(["slutrapport", "avrop_svar", "avrop_svar", "veckorapport_publicering", "veckorapport_publicering", "avrop_svar", "forsta_mote"]);
+    // Ärendet följer med (samma ärende slås ihop i att göra-listan) och flaggorna har ärendet.
+    expect(s.deadlines.mine.find((x) => x.kind === "forsta_mote")).toMatchObject({ caseId: "case-270039", caseNumber: "BOT-27-0039" });
+    expect(s.alerts.find((a) => a.key === "nomeeting:case-270039")).toMatchObject({ caseId: "case-270039", caseNumber: "BOT-27-0039" });
+  });
+
+  it("uppgiften att ringa deltagaren (S2): sista tid = första mötet, numret till den som får se personen, avsändaren Systemet", async () => {
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara()))
+      .toMatchObject({ ok: true });
+    rt.store.updateRow("persons", row("cases", "case-270049")!.personId, { email: "", phone: "070-000 00 00", preferredContact: "sms" });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true });
+    const t = (await q(inboxStart, {}, sara())).tasks.find((x) => x.kind === "participant_contact");
+    expect(t).toMatchObject({
+      caseId: "case-270049", caseNumber: "BOT-27-0049", dueAt: "2027-02-04T13:30", call: { phone: "070-000 00 00", firstMeeting: true },
+      rebook: { caseId: "case-270049", caseNumber: "BOT-27-0049", coachName: "Leila Nouri" },
+    });
+    // Uppgiften skapades när Sara bokade, men den kommer från systemet (bara visningen).
+    expect(t?.sub).toMatch(/^Från Systemet · /);
+    // Menyn: en öppen uppgift vid Min vecka. Ringt – kallad (samma kommando som Markera som klar) stänger den.
+    expect((await q(navCounts, {}, sara())).tasks).toBe(1);
+    expect(await run(inboxTaskDone, { taskId: t!.id }, sara())).toMatchObject({ ok: true });
+    expect((await q(inboxStart, {}, sara())).tasks).toEqual([]);
+    expect((await q(navCounts, {}, sara())).tasks).toBe(0);
   });
 });
 

@@ -6,11 +6,15 @@ import { useQuery } from "@/shell/backend";
 import { Button, Card, ErrorNotice, Loading, Stack } from "@/ui";
 import { notifList } from "../api";
 
-/** De tre senaste olästa notiserna och länken till Notiser. */
-export function UnreadNotices() {
+/**
+ * De tre senaste olästa notiserna och länken till Notiser. hideEmpty (Min vecka, paket 2: tomma block visas inte) = inget kort
+ * när det inte finns några olästa (och medan notiserna hämtas).
+ */
+export function UnreadNotices({ hideEmpty = false }: { hideEmpty?: boolean } = {}) {
   const q = useQuery(notifList, {});
   const unread = (q.data?.items ?? []).filter((n) => n.readAt === null);
   const latest = unread.slice(0, 3);
+  if (hideEmpty && !q.error && unread.length === 0) return null;
   return (
     <Card
       title="Olästa notiser"
