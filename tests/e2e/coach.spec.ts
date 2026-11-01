@@ -106,10 +106,15 @@ test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ up
   await manad.getByRole("button", { name: "Visa alla 11" }).click();
   await expect(manad.getByRole("list", { name: "Månadsbedömningar som återstår" }).locator("li")).toHaveCount(10);
   // Svara kommunen: Marias olästa meddelande från 1 februari 08.15 (samma räkning som deltagarkortets olästa).
+  // Samma ärende en rad: meddelandet står på Nadias mötesrad (nästa möte) med Läs och svara som textknapp.
   const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  await expect(msg).toHaveCount(1);
   await expect(msg).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
   await expect(msg).toContainText("från Maria Ekdahl");
-  await expect(msg.getByRole("link", { name: /Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
+  await expect(msg).toContainText("Nästa");
+  await expect(msg.getByRole("link", { name: /^Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
+  await expect(todo(page).filter({ has: page.getByRole("link", { name: /^Nadia Warsame\s*BOT-26-0143/ }) })).toHaveCount(1);
+  await expect(msg.getByRole("button", { name: /^Läs och svara/ })).toBeVisible();
 
   await page.setViewportSize({ width: 400, height: 860 });
   const bb = await manad.getByRole("link", { name: /^Bedöm / }).boundingBox();

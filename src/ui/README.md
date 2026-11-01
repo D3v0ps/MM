@@ -244,9 +244,6 @@ Alla kontroller tar `value` + `onValueChange(value)` (kryssrutan `checked` + `on
 - **`Check`**: kryssruta med etikett, hela raden klickbar (44 px). `checked`, `onCheckedChange`, `disabled?`, `id?`, `invalid?` (felmarkering utan `Field`).
 - **`Seg`**: knappgrupp för snabba val (`aria-pressed`). `options: (V | { value, label, icon?, tone?: "green" | "yellow" | "red", lang?, dir?, disabled? })[]`,
   `multi` = flerval (`value` är en lista). `ariaLabel?` – inuti ett `Field` namnges gruppen av fältets etikett.
-
----
-
 - **`ErrorSummary`** (`items`, `title?`, `id?`) och **`focusErrorSummary(id)`** – GOV.UK-mönstret: efter ett misslyckat försök visas sammanfattningen
   överst med länkar till fälten och får fokus (`id` gör den fokuserbar). Används i kartläggningen; mötet visar den vid knapparna.
 
@@ -261,6 +258,8 @@ Alla kontroller tar `value` + `onValueChange(value)` (kryssrutan `checked` + `on
 - **`MoreActions`** – "Fler val": de mindre vanliga åtgärderna bakom en knapp, så att sidan visar högst två knappar överst (aktivitetsvyn).
   Disclosure-mönstret, inte en meny: knapparna nås med Tab. Fokus på första valet när panelen öppnas; Esc och klick utanför stänger och lämnar
   fokus på Fler val; ett val stänger panelen och lämnar fokus på Fler val innan åtgärden körs (en dialog ger sedan tillbaka fokus dit).
+
+---
 
 ## 6. Flikar
 

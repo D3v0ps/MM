@@ -187,6 +187,17 @@ describe("Min vecka per roll", () => {
     const list = document.querySelector('ol[aria-label="Att göra i dag"]') as HTMLElement;
     const black = [...list.querySelectorAll<HTMLElement>("a, button")].filter((b) => b.classList.contains("bg-antracit"));
     expect(black.map((b) => b.textContent)).toEqual(["Spela in mötet med Nadia Warsame"]);
+    // Samma ärende en rad: Nadias möte kl. 10.00 och meddelandet från kommunen står på mötets rad – den andra åtgärden som
+    // textknapp under anmärkningarna.
+    const titled = (n: string) => rows.filter((r) => (r.querySelector("div.min-h-11.font-bold a")?.textContent ?? "").includes(n));
+    expect(titled("Nadia Warsame")).toHaveLength(1);
+    const nadia = titled("Nadia Warsame")[0];
+    expect(nadia.textContent).toContain("Svara kommunen");
+    expect(within(nadia).getByRole("button", { name: /^Läs och svara/ }).classList.contains("bg-antracit")).toBe(false);
+    for (const r of rows) {
+      const n = r.querySelector("div.min-h-11.font-bold a")?.textContent;
+      if (n) expect(titled(n), n).toHaveLength(1);
+    }
     // Följ upp: Yusuf har en påminnelse, en flagga och en oläst notis – en rad.
     const follow = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Följ upp"] > li')];
     expect(follow.filter((r) => (r.querySelector("a")?.textContent ?? "").includes("Yusuf Abdi"))).toHaveLength(1);
@@ -195,6 +206,24 @@ describe("Min vecka per roll", () => {
     screen.getByRole("button", { name: /Visa hela veckan/ }).click();
     await screen.findByRole("heading", { name: /Veckokalender – vecka 5/ });
     for (const k of keys) expect(ALLOWED.coach, k).toContain(k);
+  });
+
+  it("coachen: ett AI-utkast från dagens möte står på mötets rad – samma möte en gång, inte två rader", async () => {
+    // Dagens möte med en påbörjad mötesrapport blir ett AI-utkast (som efter en inspelning): utkastet ska inte stå på en egen rad.
+    const today = DEMO_START.slice(0, 10);
+    const draft = rt.store.rows("check_ins").find((x) => x.status === "draft" && !!x.ai);
+    const ci = rt.store.rows("check_ins").find((x) => x.heldAt.startsWith(today));
+    if (!draft?.ai || !ci) throw new Error("Testdatat saknar ett AI-utkast eller ett möte i dag");
+    rt.store.updateRow("check_ins", ci.id, { status: "draft", ai: draft.ai });
+    const c = rt.raw().get("cases", ci.caseId);
+    setup("coach");
+    await headings("Att göra i dag");
+    // Raderna om ärendets möte och mötesrapport (månadsbedömningarnas utfällbara lista nämner också ärendet).
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra i dag"] > li')]
+      .filter((r) => (r.textContent ?? "").includes(c?.caseNumber ?? "?") && /mötesrapport|möte /i.test(r.textContent ?? "") && !(r.textContent ?? "").includes("Månadsbedömningar"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("mötesrapport att granska – utkast från AI");
+    expect(within(rows[0]).getByRole("link", { name: /^Granska mötesrapporten med / }).getAttribute("href")).toBe(`#/avstamning/${ci.caseId}?avstamning=${ci.id}`);
   });
 
   it("den vilande rollen handledare har ingen Min vecka (Karims beslut 2026-10-09): ingenting visas och inga frågor körs", async () => {

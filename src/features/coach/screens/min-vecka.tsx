@@ -28,7 +28,11 @@ export function MinVeckaScreen() {
   return <MinVecka v={q.data} />;
 }
 
-type Part = TodoPart & { item: Omit<TodoItem, "key"> };
+/**
+ * En del i att göra-listan. group = ärendet: samma ärende står på en rad (todoRows) – raden får den viktigaste delens rubrik,
+ * tid och knapp, och de andra delarna blir anmärkningar (rest.notes, annars delens egna) med sin åtgärd som textknapp (rest.action).
+ */
+type Part = TodoPart & { item: Omit<TodoItem, "key">; rest?: { notes?: ReactNode[]; action?: ReactNode } };
 
 /** SLA-läget som status under tiden (text + ikon). "I god tid" visas inte – tiden står redan i raden. */
 const slaToStatus = (sla: { label: string; tone: string }): TodoStatus | null =>
@@ -37,8 +41,11 @@ const slaToStatus = (sla: { label: string; tone: string }): TodoStatus | null =>
 /** "Senast i dag kl. 10.00" – en sista tid (skiljer sig från dagens möten, som bara har klockslaget). */
 const by = (dueAt: string, now: string) => `Senast ${whenText(dueAt, now)}`;
 
-/** Ordningen vid samma tid och för det som saknar tid (C1: närvaro, möten, mötesrapporter, månadsbedömningar, kommunen). */
-const W = { narvaro: 10, starta: 15, forfaller: 18, mote: 20, manad: 30, utkast: 40, kommunen: 50, rost: 55 } as const;
+/**
+ * Ordningen vid samma tid och för det som saknar tid (C1: närvaro, möten, mötesrapporter, månadsbedömningar, kommunen) – och
+ * vilken del i ett ärende som ger raden dess rubrik och knapp (lägre först): dagens möte går före det som förfaller i ärendet.
+ */
+const W = { narvaro: 10, mote: 12, starta: 15, forfaller: 18, manad: 30, utkast: 40, kommunen: 50, rost: 55 } as const;
 
 function MinVecka({ v }: { v: MinVeckaView }) {
   const nav = useNav();
@@ -80,7 +87,15 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
   for (const c of v.toStart) {
     parts.push({
-      key: `starta:${c.caseId}`, dueAt: c.firstMeetingAt, weight: W.starta,
+      key: `starta:${c.caseId}`, group: c.caseId, dueAt: c.firstMeetingAt, weight: W.starta,
+      rest: {
+        notes: ["Insats att starta: första mötet har hållits."],
+        action: (
+          <Button kind="ghost" icon="play" to={`/arenden/${encodeURIComponent(c.caseId)}?starta=1`}>
+            Starta insatsen <span className="sr-only">för {c.name} {c.caseNumber}</span>
+          </Button>
+        ),
+      },
       item: {
         icon: "play", when: whenText(c.firstMeetingAt, now).replace(/^./, (x) => x.toUpperCase()), title: <CaseName big caseId={c.caseId} name={c.name} caseNumber={c.caseNumber} />,
         notes: ["Insats att starta: första mötet har hållits. Starta insatsen så att tillfällen, närvaro och rapporter kommer igång."],
@@ -94,6 +109,9 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   }
   // Dagens möten och andra enskilda tillfällen. Klara (passerade med närvaro och godkänd mötesrapport) står i listans fot.
   const done: string[] = [];
+  // Ett AI-utkast från dagens möte står på mötets rad (samma ärende och samma möte en gång) – inte som en egen rad längre ned.
+  const draftIds = new Set(v.drafts.map((d) => d.checkInId));
+  const onTodayRow = new Set<string>();
   for (const a of v.today) {
     const k = kindOf(a.kind);
     const past = a.startsAt < now;
@@ -104,11 +122,13 @@ function MinVecka({ v }: { v: MinVeckaView }) {
       done.push(`${fmtTime(a.startsAt)} ${a.name}`);
       continue;
     }
+    const aiDraft = !!ci && !ci.approved && draftIds.has(ci.id);
+    if (aiDraft && ci) onTodayRow.add(ci.id);
     const enc = encodeURIComponent(a.caseId);
     // C17: bara nästa möte har en svart knapp – övriga är textlänkar med ikon.
     const kind = isNext ? "primary" : "ghost";
     const who = <>{" "}<span className="sr-only">med {a.name}</span></>;
-    const action: ReactNode =
+    const actionOf = (kind: "primary" | "ghost"): ReactNode =>
       a.kind === "möte" && !ci ? (
         a.recordable ? (
           <Button kind={kind} icon="mic" to={`/avstamning/${enc}?spela=1`}>
@@ -121,13 +141,16 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         )
       ) : a.kind === "möte" && ci && !ci.approved ? (
         <Button kind={kind} icon="edit" to={`/avstamning/${enc}?avstamning=${encodeURIComponent(ci.id)}`}>
-          Öppna mötet{who}
+          {aiDraft ? "Granska mötesrapporten" : "Öppna mötet"}
+          {who}
         </Button>
       ) : past && !a.attendance ? (
         <Button kind="ghost" icon="check-square" to={`/narvaro?vecka=denna&arende=${enc}`}>
           Registrera närvaro{who}
         </Button>
       ) : null;
+    const action = actionOf(kind);
+    const meetingNote = `${k.label} · ${a.location} · ${a.durationMin} min${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
     const status: TodoStatus | null = isNext
       ? { text: `Nästa · ${relative(a.startsAt, now)}`, tone: "next" }
       : past && !a.attendance
@@ -136,10 +159,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           ? { text: ATT[a.attendance.status]?.label ?? "Registrerad", tone: "done" }
           : null;
     parts.push({
-      key: `akt:${a.id}`, dueAt: a.startsAt, weight: W.mote,
+      // Nästa möte ger raden dess svarta knapp också när ärendet har ett annat tillfälle i dag.
+      key: `akt:${a.id}`, group: a.caseId, dueAt: a.startsAt, weight: isNext ? W.mote - 1 : W.mote,
+      rest: { notes: [`${fmtTime(a.startsAt)}: ${meetingNote}`], action: actionOf("ghost") },
       item: {
         icon: k.icon, when: fmtTime(a.startsAt), status, marked: isNext, title: <CaseName big caseId={a.caseId} name={a.name} caseNumber={a.caseNumber} />,
-        notes: [`${k.label} · ${a.location} · ${a.durationMin} min${ci && !ci.approved ? " · mötet är påbörjat" : ""}`],
+        notes: [meetingNote],
         action,
       },
     });
@@ -168,7 +193,15 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   // Rapporter och uppföljningar som förfaller inom en vecka (månadsrapporterna står i månadsbedömningarnas rad).
   for (const x of v.due.other) {
     parts.push({
-      key: `dl:${x.id}`, dueAt: x.dueAt, weight: W.forfaller,
+      key: `dl:${x.id}`, group: x.caseId, dueAt: x.dueAt, weight: W.forfaller,
+      rest: {
+        notes: [`${x.label}: ${by(x.dueAt, now).toLowerCase()}${x.provisional ? " (sista dag ej fastställd med kommunen – förslag i avtalet)" : ""}.`],
+        action: x.href ? (
+          <Button kind="ghost" iconRight="arrow-right" to={x.href}>
+            Öppna <span className="sr-only">{x.label.toLowerCase()}{x.caseNumber ? ` ${x.caseNumber}` : ""}</span>
+          </Button>
+        ) : undefined,
+      },
       item: {
         icon: "file", when: by(x.dueAt, now), status: slaToStatus(x.sla),
         title: x.caseId && x.caseNumber && x.name ? (
@@ -209,9 +242,16 @@ function MinVecka({ v }: { v: MinVeckaView }) {
     });
   }
   // Mötesrapporter att granska (AI-utkast) – ingen tidsgräns.
-  for (const ci of v.drafts) {
+  for (const ci of v.drafts.filter((d) => !onTodayRow.has(d.checkInId))) {
     parts.push({
-      key: `utkast:${ci.checkInId}`, dueAt: null, weight: W.utkast,
+      key: `utkast:${ci.checkInId}`, group: ci.caseId, dueAt: null, weight: W.utkast,
+      rest: {
+        action: (
+          <Button kind="ghost" iconRight="arrow-right" to={`/avstamning/${encodeURIComponent(ci.caseId)}?avstamning=${encodeURIComponent(ci.checkInId)}`}>
+            Granska <span className="sr-only">mötesrapporten för {ci.name} {ci.caseNumber}</span>
+          </Button>
+        ),
+      },
       item: {
         icon: "sparkles", title: <CaseName big caseId={ci.caseId} name={ci.name} caseNumber={ci.caseNumber} />,
         notes: [
@@ -229,7 +269,14 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   // Svara kommunen: olästa meddelanden, ett per ärende.
   for (const n of v.messages) {
     parts.push({
-      key: `msg:${n.caseId}`, dueAt: null, weight: W.kommunen,
+      key: `msg:${n.caseId}`, group: n.caseId, dueAt: null, weight: W.kommunen,
+      rest: {
+        action: (
+          <Button kind="ghost" iconRight="arrow-right" pending={read.pending} onClick={() => void openMessage(n)}>
+            Läs och svara <span className="sr-only">– {n.name} {n.caseNumber}</span>
+          </Button>
+        ),
+      },
       item: {
         icon: "message", title: <CaseName big caseId={n.caseId} name={n.name} caseNumber={n.caseNumber} />,
         notes: [
@@ -247,7 +294,14 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   // Deltagarnas röstmeddelanden (fas 2).
   for (const r of voice.data ?? []) {
     parts.push({
-      key: `rost:${r.id}`, dueAt: null, weight: W.rost,
+      key: `rost:${r.id}`, group: r.caseId, dueAt: null, weight: W.rost,
+      rest: {
+        action: (
+          <Button kind="ghost" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(r.caseId)}?visa=rost`}>
+            Läs röstmeddelandet <span className="sr-only">från {r.name}</span>
+          </Button>
+        ),
+      },
       item: {
         icon: "mic", title: <CaseName big caseId={r.caseId} name={r.name} caseNumber={r.caseNumber} />,
         notes: [
@@ -265,7 +319,21 @@ function MinVecka({ v }: { v: MinVeckaView }) {
 
   const rows = todoRows(parts);
   const sum = todoSummary(rows, now);
-  const items: TodoItem[] = rows.map((r) => ({ key: r.key, ...r.main.item }));
+  // Samma ärende en rad: de andra delarna i ärendet blir anmärkningar med sin åtgärd som textknapp under raden.
+  const items: TodoItem[] = rows.map((r) => {
+    if (!r.rest.length) return { key: r.key, ...r.main.item };
+    const actions = r.rest.map((p) => (p.rest?.action ? <span key={p.key}>{p.rest.action}</span> : null)).filter(Boolean);
+    return {
+      key: r.key, ...r.main.item,
+      notes: [...(r.main.item.notes ?? []), ...r.rest.flatMap((p) => p.rest?.notes ?? p.item.notes ?? [])],
+      children: (
+        <>
+          {r.main.item.children}
+          {actions.length > 0 && <div className="flex flex-wrap gap-x-3">{actions}</div>}
+        </>
+      ),
+    };
+  });
   const foot = [
     unreg === 0 ? `Närvaron för vecka ${wLast} är registrerad.` : null,
     done.length ? `Klart i dag: ${done.join(", ")}.` : null,
@@ -515,10 +583,11 @@ function ToMap({ v }: { v: MinVeckaView }) {
       items={items}
       foot={
         <>
-          Nivån väljs i kartläggningen.{" "}
+          Här står dina deltagare. Nivån väljs i kartläggningen. Alla i avtalet som saknar nivå står på{" "}
           <Link to="/grupper" className="inline-flex min-h-11 items-center font-bold text-antracit underline underline-offset-3">
             Grupper och nivåer
           </Link>
+          .
         </>
       }
     />
