@@ -192,11 +192,19 @@ function Week({ v }: { v: StartView }) {
   const sum = todoSummary(rows, now);
   const items: TodoItem[] = rows.map((r) => {
     const flags = r.rest.map((p) => p.flag).filter((f): f is AlertView => !!f);
+    // Övriga delar i samma ärende behåller sina knappar (t.ex. "Ringt – kallad" när ärendet också har ett avrop att svara på).
+    const others = r.rest.filter((p) => !p.flag && p.action);
     return {
       key: r.key, icon: r.main.icon, title: r.main.title, when: r.dueAt ? `Senast ${whenText(r.dueAt, now)}` : undefined, status: statusOf(r.dueAt, now),
       notes: [...r.main.notes, ...r.rest.flatMap((p) => p.restNotes ?? p.notes)], action: r.main.action,
       // Flaggor i ett ärende som har en annan åtgärd: kvitteras med en textknapp under anmärkningarna.
-      children: flags.length ? <div className="flex flex-wrap gap-x-3">{flags.map((f) => <span key={f.key}>{ackButton(f, true)}</span>)}</div> : null,
+      children:
+        others.length || flags.length ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {others.map((p) => <span key={p.key} className="inline-flex flex-wrap gap-x-2">{p.action}</span>)}
+            {flags.map((f) => <span key={f.key}>{ackButton(f, true)}</span>)}
+          </div>
+        ) : null,
     };
   });
   const flagRows = handles ? todoRows(v.alerts.map(alertPart)) : [];

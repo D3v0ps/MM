@@ -156,6 +156,24 @@ describe("Min vecka per roll", () => {
     }
   });
 
+  it("samordnaren: ett ärende med flera saker behåller alla knappar – Ringt – kallad finns kvar bredvid Starta insatsen", async () => {
+    // Ett bekräftat ärende vars första möte hölls i morse: insatsen ska startas – och kallelsen ligger kvar som uppgift.
+    const c = rt.store.rows("cases").find((x) => x.status === "confirmed" && !!x.firstMeetingAt);
+    if (!c) throw new Error("Inget bekräftat ärende med första möte i testdatat");
+    rt.store.updateRow("cases", c.id, { firstMeetingAt: `${DEMO_START.slice(0, 10)}T08:00` });
+    rt.store.insertRow("tasks", {
+      id: "task-ring-flera", toRole: "samordnare", toId: null, fromId: "system", createdAt: "2027-02-01T08:00", status: "open", kind: "participant_contact",
+      caseIds: [c.id], text: `Ring deltagaren och kalla till första mötet – ärende ${c.caseNumber}, Alby. Kallelsen kunde inte skickas.`,
+      deviationId: null, emailId: null, responseId: null, month: null, doneAt: null, doneBy: null, doneNote: null,
+    });
+    setup("samordnare");
+    const ringt = await screen.findByRole("button", { name: `Ringt – kallad ${c.caseNumber}` }, { timeout: 8000 });
+    const row = ringt.closest("li") as HTMLElement;
+    // Ärendet står en gång – och båda åtgärderna finns i samma rad.
+    expect(within(row).getByRole("link", { name: `Starta insatsen ${c.caseNumber}` })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: `Ringt – kallad ${c.caseNumber}` })).toHaveLength(1);
+  });
+
   it("avtalsansvarig: hans egna saker först – beställarrapporten, åtgärdsplanerna, varningarna och målen; inkorgen är en rad (S5)", async () => {
     const { keys } = setup("avtalsansvarig");
     const h = await headings("Att göra");
