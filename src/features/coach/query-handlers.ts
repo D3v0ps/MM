@@ -7,7 +7,7 @@ import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
 import { phaseSince, stuck } from "@/core/cases";
-import { isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
+import { autoAttendanceOf, isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
@@ -369,6 +369,8 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
     sameDayText: `Frånvaronotis samma dag: ${isUnset(same) ? "tillval som inte är fastställt – ingen notis skickas." : same ? "skickas till handläggaren." : "används inte."}`,
     absenceReasons: [...ABSENCE_REASONS],
     repeatedRule: { ...main.cfg.attendance.repeatedAbsenceRule },
+    // Samma källa som jobbet auto_attendance (organisationens inställningar, src/features/_shared/auto-attendance.ts).
+    autoAttendance: (({ autoPresent, autoPresentAt }) => ({ on: autoPresent, at: autoPresentAt }))(autoAttendanceOf(main.org)),
     caseCount: cases.length,
     cases: cases.filter((c) => c.status === "active").map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), location: c.location })),
     weeks: { last: await week(lastMon), this: await week(thisMon) },

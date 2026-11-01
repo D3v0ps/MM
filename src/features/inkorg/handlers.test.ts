@@ -13,6 +13,7 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
 import { caseAccept, caseBookFirstMeeting } from "@/features/arenden/api";
 import { navCounts } from "@/features/session/nav-api";
+import { plannedEndWarning } from "./texts";
 import {
   emailApplySupplement, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxList, inboxRegister, inboxRegisterForm,
   inboxRevealPnr, inboxStart, inboxTaskDone,
@@ -146,6 +147,30 @@ describe("avropsinkorgen", () => {
     expect(j).not.toHaveProperty("protectedItems");
     // Inga viten i kronor – belopp syns bara för ekonomen (beslut 5, 2026-10-07).
     expect(j.warnings.text).toBe("3 varningar kan leda till uppsägning.");
+  });
+});
+
+describe("tolkat avrop (UX-genomgången, paket 1, S13 – bara visning)", () => {
+  it("procenten visas bara under 80 %, och handläggarens slutdatum som inte stämmer med omfattningen varnas", async () => {
+    const d = await q(inboxItem, { id: "em-106" }, sara());
+    const parsed = d?.body.kind === "order" ? d.body.parsed : null;
+    // Word-mallen tolkas med 99 % – ingen procent visas.
+    expect(parsed?.groups.flatMap((g) => g.fields).filter((f) => f.note).map((f) => f.note?.kind)).toEqual([]);
+    expect(parsed?.endWarning).toBe("Slutdatumet 2 apr 2027 stämmer inte med 12 månader och används inte. Slutdatumet räknas fram ur omfattningen från första mötets dag.");
+    const ai = await q(inboxItem, { id: "em-102" }, sara());
+    const notes = ai?.body.kind === "order" ? ai.body.parsed?.groups.flatMap((g) => g.fields).map((f) => f.note).filter((n) => n?.kind === "low") : [];
+    expect(notes?.length).toBe(2);
+    for (const n of notes ?? []) expect(n?.kind === "low" && Number.parseInt(n.pct, 10)).toBeLessThan(80);
+    expect(ai?.body.kind === "order" && ai.body.parsed?.endWarning).toBeNull();
+  });
+  it("plannedEndWarning: ingen varning när datumet stämmer, vid annan tidsperiod eller utan slutdatum", () => {
+    expect(plannedEndWarning({ orderPeriod: "12", desiredStart: "2027-02-08", plannedEnd: "2028-02-07" })).toBeNull();
+    expect(plannedEndWarning({ orderPeriod: "annan", desiredStart: "2027-02-08", plannedEnd: "2027-04-02" })).toBeNull();
+    expect(plannedEndWarning({ orderPeriod: "6", desiredStart: "2027-02-08", plannedEnd: "" })).toBeNull();
+    expect(plannedEndWarning({ orderPeriod: "6", desiredStart: "2027-02-15", plannedEnd: "2027-04-23" })).toBe(
+      "Slutdatumet 23 apr 2027 stämmer inte med 6 månader och används inte. Slutdatumet räknas fram ur omfattningen från första mötets dag.",
+    );
+    expect(plannedEndWarning({ orderPeriod: "6", plannedEnd: "2027-04-23" })).toBe("Slutdatumet 23 apr 2027 används inte. Med 6 månader räknas slutdatumet fram ur omfattningen från första mötets dag.");
   });
 });
 

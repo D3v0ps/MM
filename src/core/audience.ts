@@ -13,7 +13,7 @@
 // ett annat tillfälle vid samma tid (hoppas över; deltagarens egna tillfällen ersätts aldrig automatiskt). Rader som målgruppen
 // bjöd in och som inte längre hör till (ny nivå, nytt yrkesområde, avslutad eller pausad insats) tas bort – men bara utan
 // registrerad närvaro. Manuellt inbjudna (källan manual) rörs aldrig.
-import type { AreaCode, GroupAudience, InviteSource, LocalDateTime } from "@/data/schema";
+import type { AreaCode, GroupActivityKind, GroupAudience, InviteSource, LocalDateTime } from "@/data/schema";
 import { inviteBlock, overlaps, type InviteCase } from "./group-activities";
 import { addWorkingDays, dayOf, nthWorkingDay, type MonthKey } from "./time";
 
@@ -34,6 +34,20 @@ export function audienceColumns(a: Audience | null): AudienceColumns {
 
 /** "G – Lager och logistik" – yrkesområdet som det skrivs i valen. */
 export const areaLabel = (code: AreaCode, name: string): string => `${code} – ${name}`;
+/** Yrkesområdets namn ur valets etikett: "G – Lager och logistik" -> "Lager och logistik" (annars etiketten som den är). */
+export const areaNameOfLabel = (code: string, label: string): string => (label.startsWith(`${code} – `) ? label.slice(code.length + 3) : label);
+
+/**
+ * Månadens yrkesområdesträff (Karims beslut 2026-10-22). Planera på Grupper och nivåer fyller i namnet och typen som träffarna
+ * har (UX-genomgången, paket 1) – samma som testdatats träffar (src/data/seed/gen-group-activities.ts).
+ */
+export const AREA_MEETING_KIND: GroupActivityKind = "annat";
+/** "Yrkesområdesträff: lager och logistik" – liten begynnelsebokstav utom i förkortningar ("IT och teknik"). */
+export function areaMeetingName(areaName: string): string {
+  const n = areaName.trim();
+  const lower = /^[A-ZÅÄÖ]{2}/.test(n) ? n : n.charAt(0).toLocaleLowerCase("sv") + n.slice(1);
+  return `Yrkesområdesträff: ${lower}`;
+}
 
 /**
  * Målgruppen i klarspråk: "Nivå 2 – Behöver stöd …" eller "Yrkesområde G – Lager och logistik". Namnen slås upp av anroparen

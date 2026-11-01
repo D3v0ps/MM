@@ -89,6 +89,13 @@ describe("Närvaro", () => {
     expect(v.sameDayText).toBe("Frånvaronotis samma dag: tillval som inte är fastställt – ingen notis skickas.");
     expect(v.absenceReasons).toEqual(["Sjukdom", "Vård av barn", "Myndighetsbesök", "Annat giltigt skäl"]);
     expect(v.repeatedRule).toEqual({ absentInvalid: 2, withinDays: 14 });
+    // Klockslaget för den automatiska närvaron kommer från samma källa som jobbet auto_attendance (paket 1, C4).
+    expect(v.autoAttendance).toEqual({ on: true, at: "18:00" });
+    const org = rt.store.rows("org_settings")[0];
+    rt.store.updateRow("org_settings", org.id, { settings: { ...org.settings, attendance: { autoPresent: true, autoPresentAt: "16:30" } } });
+    expect((await q(narvaroView, {}, amira())).autoAttendance).toEqual({ on: true, at: "16:30" });
+    rt.store.updateRow("org_settings", org.id, { settings: { ...org.settings, attendance: { autoPresent: false, autoPresentAt: "16:30" } } });
+    expect((await q(narvaroView, {}, amira())).autoAttendance).toEqual({ on: false, at: "16:30" });
     expect(w.reports.slice(0, 2).map((r) => [r.name, r.mine, r.left, r.publishedAt])).toEqual([["Maria Ekdahl", 4, 4, null], ["Linda Karlsson", 2, 2, null]]);
     expect(w.reports.filter((r) => r.publishedAt).map((r) => r.publishedAt)).toEqual(["2027-02-01T07:00", "2027-02-01T07:00"]);
   });

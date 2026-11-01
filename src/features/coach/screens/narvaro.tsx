@@ -2,10 +2,18 @@
 // Närvaro (/narvaro?vecka=forra|denna) – snabbregistrering med ett klick per tillfälle. Veckorapporten till handläggaren
 // publiceras automatiskt när alla hennes deltagare är registrerade. Coach (ärenden där hen är huvudcoach) och handledare (teamärenden)
 // – listan följer tilldelningen även om alla ärenden i avtalet är läsbara (beslut 2026-10-09).
-// Port av prototypens coach.narvaro och åtgärden coach.attendanceSet. "Markera alla som närvarande" per dag (beslut
-// 2026-10-02): en bekräftelse med namnen, ett kommando (coach.attendanceSetAll), redan registrerade ändras aldrig och
-// enskilda rättas efteråt med radens knappar.
+// Port av prototypens coach.narvaro och åtgärden coach.attendanceSet.
+// UX-genomgången, paket 1 (C4, C5):
+//   * Ingressen säger regeln: registrera bara frånvaro och sen ankomst, senast kl. <tid> samma dag – övriga blir Närvarande
+//     automatiskt. Klockslaget kommer från samma källa som jobbet auto_attendance (NarvaroView.autoAttendance).
+//   * Listan först. Vecka, Visa, Dag och Yrkesområde/Nivå/Tagg ligger bakom knappen Filtrera – de valda filtren står som text.
+//   * "Markera övriga som närvarande (N)" gäller hela den visade listan (ett kommando per dag, coach.attendanceSetAll – redan
+//     registrerade ändras aldrig, enskilda rättas efteråt med radens knappar). Bekräftelsen finns kvar: Ångra skulle kräva att
+//     närvaro kan tas bort, och det tillåter inte databasens regler (RLS) i dag.
+//   * Statusen visas en gång per rad: knappgruppen visar den valda statusen, märket bara det som knappgruppen inte visar
+//     (Ej registrerad, Planerat, orsaken och Automatiskt registrerad).
 import { useState, type ReactNode } from "react";
+import { uniq } from "@/core/util";
 import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -13,12 +21,12 @@ import { Link } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useQueryPatch } from "@/shell/url-state";
 import { useSession } from "@/shell/session";
-import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
+import { Badge, Button, Card, cn, Disclosure, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
 import { activityRemove } from "@/features/arenden/api";
 import { ActivityModal } from "@/features/arenden/screens/kort-start";
 import { useGroupingFilter } from "@/features/grupper/screens/grouping-filter";
 import { attendanceSet, attendanceSetAll, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
-import { ATT_OPTIONS, AttBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, Persp } from "./shared";
+import { ATT_OPTIONS, AutoBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, Persp } from "./shared";
 
 type Week = "last" | "this";
 type Show = "open" | "all";
@@ -38,7 +46,16 @@ export function NarvaroScreen({ query }: ScreenProps) {
   const v = gf.active ? onlyCases(v0, gf.matches) : v0;
   const param = query.get("vecka");
   const initial: Week = param === "forra" ? "last" : param === "denna" ? "this" : openOf(v, "last").length ? "last" : "this";
-  return <Narvaro v={v} initial={initial} caseId={caseId} filters={gf.fields} />;
+  return <Narvaro v={v} initial={initial} caseId={caseId} filters={gf.fields} filterLabels={gf.labels} />;
+}
+
+/** "18:00" -> "18.00" (svensk tid i text). */
+const clock = (at: string) => at.replace(":", ".");
+/** Ingressen: regeln för den automatiska närvaron (C4). Utan automatisk närvaro: registrera varje tillfälle. */
+export function narvaroLead(auto: NarvaroView["autoAttendance"], dueText: string): string {
+  return auto.on
+    ? `Registrera bara frånvaro och sen ankomst, senast kl. ${clock(auto.at)} samma dag. Övriga blir Närvarande automatiskt.`
+    : `Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${dueText}.`;
 }
 
 const onlyCases = (v: NarvaroView, keep: (caseId: string) => boolean): NarvaroView => ({
@@ -52,7 +69,7 @@ const filteredLabel = (v: NarvaroView, caseId: string): string =>
 
 const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.startsAt < v.now && !a.attendance);
 
-function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Week; caseId: string | null; filters?: ReactNode }) {
+function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: NarvaroView; initial: Week; caseId: string | null; filters?: ReactNode; filterLabels?: string[] }) {
   const { actor } = useSession();
   const patch = useQueryPatch();
   const role = actor.role;
@@ -70,8 +87,9 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
   // Tillfällen vars registrering pågår (radens kommando): knapparna ignorerar klick tills svaret kommit – två samtidiga
   // kommandon för samma tillfälle får annars skriva samma rad (dubbelklick). Medan "Markera alla" pågår gäller alla rader.
   const [inflight, setInflight] = useState<Record<string, true>>({});
-  // Senaste "Markera alla som närvarande": visas som statusrad (läses upp) tills veckan eller dagen byts.
-  const [bulk, setBulk] = useState<{ day: string; marked: number; total: number } | null>(null);
+  // Senaste "Markera övriga som närvarande": visas som statusrad (läses upp) tills veckan eller dagen byts – med
+  // veckorapporterna som publicerades (i stället för en kvittens per rapport).
+  const [bulk, setBulk] = useState<{ marked: number; total: number; published: string[] } | null>(null);
   // Lägg till och ta bort enstaka tillfällen (beslut 2026-10-08) – bara tillfällen utan registrerad närvaro kan tas bort.
   const [adding, setAdding] = useState(false);
   const remove = useCommand(activityRemove);
@@ -107,6 +125,9 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
   const byDay = new Map<string, NarvaroRow[]>();
   for (const a of visible) byDay.set(dayOf(a.startsAt), [...(byDay.get(dayOf(a.startsAt)) ?? []), a]);
   const lastOpen = openOf(v, "last").length;
+  /** Passerade tillfällen i den visade listan som saknar registrering – de som "Markera övriga som närvarande" gäller. */
+  const openVisible = visible.filter((a) => a.startsAt < now && !a.attendance);
+  const autoCount = all.filter((a) => a.attendance?.source === "auto").length;
 
   const register = async (a: NarvaroRow, status: AttStatus, reason = "") => {
     if (inflight[a.activityId] || setAll.pending) return;
@@ -129,21 +150,24 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
     if (s === "absent_valid") setPending(a.activityId);
     else void register(a, s);
   };
-  /** Passerade tillfällen en dag som ännu saknar registrering (de som "Markera alla som närvarande" gäller). */
-  const openOn = (d: string) => all.filter((a) => dayOf(a.startsAt) === d && a.startsAt < now && !a.attendance);
-  const markAll = async (d: string) => {
-    const list = openOn(d);
+  /**
+   * Markera övriga som närvarande: alla passerade tillfällen i den visade listan som saknar registrering. Ett kommando per dag
+   * (coach.attendanceSetAll – en loggrad per dag, som förut). Bekräftelsen räknar upp dem: en registrering kan inte ångras
+   * (närvaro kan inte tas bort), bara rättas på raden.
+   */
+  const markOthers = async () => {
+    const list = openVisible;
     if (!list.length) return;
     const n = list.length;
     const ok = await confirm({
       title: `Markera ${n} som närvarande?`,
       body: (
         <Stack gap="sm">
-          <p>Närvarande registreras {dayLabel(d)} för:</p>
+          <p>Närvarande registreras för:</p>
           <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
             {list.map((a) => (
               <li key={a.activityId}>
-                {a.name} ({a.caseNumber}) · {fmtTime(a.startsAt)} {kindOf(a.kind).label.toLowerCase()}
+                {a.name} ({a.caseNumber}) · {dayLabel(a.startsAt)} {fmtTime(a.startsAt)} {kindOf(a.kind).label.toLowerCase()}
               </li>
             ))}
           </ul>
@@ -157,28 +181,23 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
     // Raderna står kvar i läget "Ej registrerade" med sina knappar, så att enskilda kan rättas direkt.
     setTouched((t) => {
       const next = { ...t };
-      for (const a of list) next[a.activityId] = true;
+      for (const x of list) next[x.activityId] = true;
       return next;
     });
     setPending(null);
-    const res = await setAll.run({ day: d, activityIds: list.map((a) => a.activityId) }).catch(() => null);
-    if (!res || !res.ok) {
-      // not_found: listan var inaktuell – sidan räknas om av kommandot, så raderna visar det som gäller.
-      toast(res && !res.ok && res.message ? res.message : "Närvaron kunde inte sparas.", "error");
-      return;
+    let marked = 0;
+    const published: string[] = [];
+    for (const d of uniq(list.map((x) => dayOf(x.startsAt))).sort()) {
+      const res = await setAll.run({ day: d, activityIds: list.filter((x) => dayOf(x.startsAt) === d).map((x) => x.activityId) }).catch(() => null);
+      if (!res || !res.ok) {
+        // not_found: listan var inaktuell – sidan räknas om av kommandot, så raderna visar det som gäller.
+        toast(res && !res.ok && res.message ? res.message : "Närvaron kunde inte sparas.", "error");
+        break;
+      }
+      marked += res.marked.length;
+      published.push(...res.published.map((x) => x.text));
     }
-    setBulk({ day: d, marked: res.marked.length, total: n });
-    toast(`${plural(res.marked.length, "tillfälle markerat", "tillfällen markerade")} som närvarande.`);
-    for (const pub of res.published) toast(pub.text);
-  };
-  const markAllButton = (d: string) => {
-    const n = openOn(d).length;
-    if (n === 0) return null;
-    return (
-      <Button kind="secondary" icon="check-square" pending={setAll.pending} onClick={() => void markAll(d)}>
-        Markera alla som närvarande ({n})
-      </Button>
-    );
+    setBulk({ marked, total: n, published });
   };
 
   const dayOptions = [
@@ -216,9 +235,13 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
           <div className="text-small text-text-muted">
             {k.label} · {a.location} · {a.durationMin} min · <span data-testid="arendenummer" className="tabular-nums tracking-[0.01em]">{a.caseNumber}</span>
           </div>
+          {/* Statusen en gång per rad: den valda står i knappgruppen – här bara det som knappgruppen inte visar. */}
           <Row gap="sm">
             {at ? (
-              <AttBadge at={at} />
+              <>
+                {at.status === "absent_valid" && at.reason && <span className="text-body">Orsak: {at.reason}</span>}
+                {at.source === "auto" && <AutoBadge />}
+              </>
             ) : future ? (
               <Badge tone="outline" icon="clock">
                 Planerat
@@ -286,13 +309,20 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
     );
   };
 
+  const filterText = [
+    week === "last" ? `Förra veckan (v. ${v.weeks.last.no})` : `Den här veckan (v. ${v.weeks.this.no})`,
+    show === "open" ? "Ej registrerade" : "Alla tillfällen",
+    day === "all" ? "Hela veckan" : fmtWeekday(day),
+    ...filterLabels,
+  ].join(" · ");
+
   return (
     <Page
       title="Närvaro"
       eyebrow={role === "handledare" ? "Handledare – dina teamärenden" : "Snabbregistrering"}
       lead={`${
         role === "handledare" ? `Du ser tillfällen för ${v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet. ` : ""
-      }Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}.`}
+      }${narvaroLead(v.autoAttendance, v.dueText)}`}
       crumbs={role === "coach" ? [MIN_VECKA_CRUMB, { label: "Närvaro" }] : undefined}
     >
       {caseId && (
@@ -302,39 +332,82 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
           </Link>
         </Notice>
       )}
-      {filters && <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] items-end gap-x-4 gap-y-3">{filters}</div>}
-      <Row between>
-        <Seg<Week>
-          ariaLabel="Vecka"
-          value={week}
-          onValueChange={setWeek}
-          options={[
-            { value: "last", label: `Förra veckan (v. ${v.weeks.last.no})${lastOpen ? ` · ${lastOpen} kvar` : ""}` },
-            { value: "this", label: `Den här veckan (v. ${v.weeks.this.no})` },
-          ]}
-        />
-        <Seg<Show>
-          ariaLabel="Visa"
-          value={show}
-          onValueChange={setShow}
-          options={[
-            { value: "open", label: `Ej registrerade (${open.length})` },
-            { value: "all", label: `Alla (${all.length})` },
-          ]}
-        />
-      </Row>
+      {/* Filtren bakom en knapp – de valda står som text bredvid (C5). */}
+      <Disclosure
+        id="narvaro-filtren"
+        kind="secondary"
+        label="Filtrera"
+        openLabel="Dölj filtren"
+        aside={
+          <span className="text-body" data-testid="narvaro-filtertext">
+            <span className="font-bold">Visar: </span>
+            {filterText}
+          </span>
+        }
+      >
+        <div className="flex flex-col gap-4 rounded-mb border border-ljusgra p-4">
+          <Row gap="sm">
+            <Seg<Week>
+              ariaLabel="Vecka"
+              value={week}
+              onValueChange={setWeek}
+              options={[
+                { value: "last", label: `Förra veckan (v. ${v.weeks.last.no})${lastOpen ? ` · ${lastOpen} kvar` : ""}` },
+                { value: "this", label: `Den här veckan (v. ${v.weeks.this.no})` },
+              ]}
+            />
+            <Seg<Show>
+              ariaLabel="Visa"
+              value={show}
+              onValueChange={setShow}
+              options={[
+                { value: "open", label: `Ej registrerade (${open.length})` },
+                { value: "all", label: `Alla (${all.length})` },
+              ]}
+            />
+          </Row>
+          <Stack gap="sm">
+            <span className="text-label font-bold tracking-[0.09em] text-text-muted uppercase">Dag</span>
+            <Seg
+              ariaLabel="Dag"
+              value={day}
+              onValueChange={(x) => {
+                setDay(x);
+                setPending(null);
+                setBulk(null);
+              }}
+              options={dayOptions}
+            />
+          </Stack>
+          {filters && <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] items-end gap-x-4 gap-y-3">{filters}</div>}
+        </div>
+      </Disclosure>
 
-      {all.length === 0 ? (
-        // Veckan saknar tillfällen (t.ex. tom databas): varken "0 av 0" eller ett Klart-märke – säg i stället vad som gör att tillfällen dyker upp.
-        <Card tone="sub">
-          <div data-testid="narvaro-raknare" className="flex min-w-0 flex-col gap-1">
-            <div className="text-[1.125rem] font-bold">Inga tillfällen vecka {wk.no}</div>
-            <div className="text-body text-text-muted">{NO_SESSIONS_TEXT}</div>
-          </div>
-        </Card>
-      ) : (
-        <Card tone={open.length > 0 ? "red" : "blue"}>
-          <div data-testid="narvaro-raknare" className="flex flex-wrap items-center gap-x-5 gap-y-3">
+      <Card
+        flush
+        title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`}
+        icon="list"
+        actions={
+          <Row gap="sm">
+            <span className="text-small text-text-muted">{visible.length} visas</span>
+            {openVisible.length > 0 && (
+              <Button kind="primary" icon="check-square" pending={setAll.pending} onClick={() => void markOthers()}>
+                Markera övriga som närvarande ({openVisible.length})
+              </Button>
+            )}
+            {v.cases.length > 0 && (
+              <Button icon="plus" onClick={() => setAdding(true)}>
+                Lägg till tillfälle
+              </Button>
+            )}
+          </Row>
+        }
+      >
+        {all.length > 0 && (
+          <div
+            data-testid="narvaro-raknare"
+            className={cn("flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-ljusgra px-[18px] py-3.5", open.length > 0 ? "bg-rod-ton shadow-[inset_4px_0_0_var(--color-rod)]" : "bg-bla-ton")}
+          >
             <span className="text-[2rem] leading-none font-extrabold tabular-nums" aria-hidden="true">
               {open.length}
             </span>
@@ -344,6 +417,7 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
               </div>
               <div className="text-body text-text-muted">
                 {passed.length - open.length} av {passed.length} passerade tillfällen registrerade
+                {autoCount > 0 ? ` (${autoCount} automatiskt registrerade)` : ""}
                 {all.length > passed.length ? ` · ${all.length - passed.length} planerade senare i veckan` : ""}. Registrera senast {fmtDateTimeLong(wk.dueAt)}.
               </div>
             </div>
@@ -355,43 +429,11 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
               </Badge>
             )}
           </div>
-        </Card>
-      )}
-
-      <Stack gap="sm">
-        <span className="text-label font-bold tracking-[0.09em] text-text-muted uppercase">Dag</span>
-        <Seg
-          ariaLabel="Dag"
-          value={day}
-          onValueChange={(x) => {
-            setDay(x);
-            setPending(null);
-            setBulk(null);
-          }}
-          options={dayOptions}
-        />
+        )}
         {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
-        <p role="status" aria-live="polite" className="text-body font-bold">
-          {bulk ? `${bulk.marked} av ${bulk.total} tillfällen ${dayLabel(bulk.day)} markerade som närvarande. Rätta enskilda med knapparna på raden.` : ""}
+        <p role="status" aria-live="polite" className={cn("m-0 text-body font-bold", bulk && "border-b border-ljusgra px-[18px] py-3")}>
+          {bulk ? [`${bulk.marked} av ${bulk.total} tillfällen markerade som närvarande. Rätta enskilda med knapparna på raden.`, ...bulk.published].join(" ") : ""}
         </p>
-        {day !== "all" && <Row>{markAllButton(day)}</Row>}
-      </Stack>
-
-      <Card
-        flush
-        title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`}
-        icon="list"
-        actions={
-          <Row gap="sm">
-            <span className="text-small text-text-muted">{visible.length} visas</span>
-            {v.cases.length > 0 && (
-              <Button icon="plus" onClick={() => setAdding(true)}>
-                Lägg till tillfälle
-              </Button>
-            )}
-          </Row>
-        }
-      >
         {all.length === 0 ? (
           <Empty icon="calendar" title={`Inga tillfällen vecka ${wk.no}`}>
             {NO_SESSIONS_TEXT}
@@ -414,10 +456,7 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
               {day === "all" && (
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-ljusgra-ton2 px-[18px] py-2.5 text-label font-extrabold tracking-[0.08em] uppercase">
                   <span>{fmtWeekday(dayKey)}</span>
-                  <Row gap="sm">
-                    <span>{list.filter((a) => a.startsAt < now && !a.attendance).length} kvar</span>
-                    <span className="normal-case tracking-normal">{markAllButton(dayKey)}</span>
-                  </Row>
+                  <span>{list.filter((x) => x.startsAt < now && !x.attendance).length} kvar</span>
                 </div>
               )}
               {list.map(renderRow)}
@@ -486,6 +525,15 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
         <Card title="Så fungerar registreringen" icon="info">
           <Stack gap="sm">
             <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
+              {v.autoAttendance.on ? (
+                <li data-testid="narvaro-regel">
+                  <b>Registrera bara frånvaro och sen ankomst</b>, senast kl. {clock(v.autoAttendance.at)} samma dag. Kl. {clock(v.autoAttendance.at)} blir passerade
+                  tillfällen utan registrering <b>Närvarande</b> automatiskt och märks <b>Automatiskt registrerad</b>. Du kan ändra dem efteråt. Helgdagar, pausade
+                  veckor och veckor vars veckorapport redan har skickats registreras inte automatiskt.
+                </li>
+              ) : (
+                <li data-testid="narvaro-regel">Närvaron registreras inte automatiskt. Registrera varje tillfälle.</li>
+              )}
               <li>
                 <b>Närvarande</b> eller <b>Sen</b> räknas som närvaro.
               </li>

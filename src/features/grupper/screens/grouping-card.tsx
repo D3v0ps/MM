@@ -1,19 +1,18 @@
 "use client";
 // Kortet "Nivå och yrkesområde" (coachmötet 2026-10-09, Karims beslut 3; Karims beslut 2026-10-22): längst ned i kartläggningen
-// och i deltagarkortets "Ändra". Den som kartlägger (Adam) eller coachen väljer nivå (1–5 med namn) och taggen "Vill arbeta" och
-// skriver en rad till coacherna (sparas som en vanlig anteckning). Gruppen är deltagarens yrkesområde – den visas, men väljs inte
-// här (den följer ärendets yrkesområde). Nivån krävs innan kartläggningen godkänns och tas sedan aldrig bort – den höjs (Höj nivå)
-// eller byts. Valen sparas direkt (som kartläggningens fält sparas automatiskt) – ett anrop i taget, alltid det senaste läget.
-// Misslyckas en sparning visas det senast sparade läget. Raden till coacherna sparas med "Spara raden" – osparad text skyddas
-// (sidbyte, Klar i dialogen). Nivåhistoriken ("Nivå 1 från 9 okt (Amira), Nivå 2 från 22 okt (Sara)") visas under valen.
+// och i deltagarkortets "Ändra". Den som kartlägger (Adam) eller coachen väljer nivå (1–5 med namn) och taggen "Vill arbeta".
+// Gruppen är deltagarens yrkesområde – den visas, men väljs inte här (den följer ärendets yrkesområde). Nivån krävs innan
+// kartläggningen godkänns och tas sedan aldrig bort – den höjs (Höj nivå) eller byts. Valen sparas direkt (som kartläggningens
+// fält sparas automatiskt) – ett anrop i taget, alltid det senaste läget. Misslyckas en sparning visas det senast sparade läget.
+// Nivåhistoriken ("Nivå 1 från 9 okt (Amira), Nivå 2 från 22 okt (Sara)") visas under valen.
+// "En rad till coacherna" är borttagen (UX-genomgången, paket 1, C15): den sparades som en vanlig anteckning (typen Övrigt) –
+// raderna som redan finns står kvar i tidslinjen som förut. En anteckning skrivs med "Skriv anteckning" på deltagarkortets Översikt.
 // Internt: syns aldrig för kommunen, i rapporter eller exporter och skickas aldrig till AI. AI placerar aldrig någon i en nivå.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { plural } from "@/core/format";
 import { fmtDateShort, fmtTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useUnsavedGuard } from "@/shell/guard";
-import { Badge, Button, Card, ErrorNotice, Field, Icon, Loading, Modal, Notice, Seg, Stack, TextArea, toast, useModalClose, useModalDirty, type SegOption } from "@/ui";
-import { caseNoteSave } from "@/features/arenden/api";
+import { Badge, Button, Card, ErrorNotice, Field, Icon, Loading, Modal, Notice, Seg, Stack, toast, useModalClose, type SegOption } from "@/ui";
 import { caseGroupingsSave, caseGroupingsView, caseLevelRaise, type CaseGroupings, type CaseGroupingsView, type GroupingOption, type LevelChange } from "../api";
 
 type State = { levelId: string | null; tags: Record<string, string | null> };
@@ -105,7 +104,7 @@ export function CaseGroupingRow({ caseId, className, areaAction }: { caseId: str
   );
 }
 
-/** Klar stänger som krysset: finns en osparad rad till coacherna frågar dialogen först (useModalDirty i Editor). */
+/** Klar stänger som krysset. */
 function DoneButton() {
   const close = useModalClose();
   return (
@@ -131,7 +130,6 @@ function Editor({
 }: { v: CaseGroupingsView; title: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode; levelError?: string | null }) {
   const save = useCommand(caseGroupingsSave);
   const raise = useCommand(caseLevelRaise);
-  const note = useCommand(caseNoteSave);
   const [state, setState] = useState<State>(() => stateOf(v));
   const [status, setStatus] = useState<{ kind: "idle" | "saving" | "saved" | "failed"; at?: string; text?: string }>({ kind: "idle" });
   const pending = useRef<State | null>(null);
@@ -139,12 +137,6 @@ function Editor({
   // Senast sparade läget (serverns) – visas när en sparning misslyckas – och senast valda läget (ändringarna bygger på det).
   const saved = useRef<State>(state);
   const latest = useRef<State>(state);
-  const [line, setLine] = useState("");
-  const [lineError, setLineError] = useState<string | null>(null);
-  // Osparad rad till coacherna: frågar innan sidan byts och innan dialogen stängs (Klar, krysset, Esc).
-  const lineDirty = line.trim() !== "";
-  useUnsavedGuard(lineDirty && !note.pending);
-  useModalDirty(lineDirty);
 
   useEffect(() => {
     saved.current = stateOf(v);
@@ -197,22 +189,6 @@ function Editor({
     }
     setStatus({ kind: "saved", at: res.savedAt });
     toast(`Nivån är höjd till ${res.levelName}. ${levelChangeText(res)}`.trim());
-  };
-
-  const saveLine = async () => {
-    const body = line.trim();
-    if (!body) {
-      setLineError("Skriv något först.");
-      return;
-    }
-    const res = await note.run({ caseId: v.caseId, occurredOn: v.today, kind: "other", audience: "full", body }).catch(() => null);
-    if (!res || !res.ok) {
-      setLineError(res && !res.ok && res.message ? res.message : "Raden kunde inte sparas.");
-      return;
-    }
-    setLine("");
-    setLineError(null);
-    toast("Raden är sparad som en anteckning i deltagarkortet.");
   };
 
   const hasLevel = !!v.current.level;
@@ -277,14 +253,6 @@ function Editor({
       <div role="status" aria-live="polite" data-grouping-status={status.kind} className="flex min-h-6 items-center gap-1.5 text-small text-text-muted">
         {status.kind !== "idle" && <Icon name={status.kind === "failed" ? "alert" : status.kind === "saving" ? "clock" : "check"} className={status.kind === "failed" ? "text-rod" : undefined} />}
         <span className={status.kind === "failed" ? "font-bold text-antracit" : undefined}>{statusText}</span>
-      </div>
-      <Field label="En rad till coacherna (valfritt)" id={`gr-rad-${v.caseId}`} error={lineError ?? undefined} help="Sparas som en anteckning i deltagarkortet med dagens datum när du trycker Spara raden. Skriv aldrig personnummer.">
-        <TextArea rows={2} value={line} maxLength={2000} onValueChange={(x) => { setLine(x); if (lineError) setLineError(null); }} />
-      </Field>
-      <div>
-        <Button kind="secondary" icon="edit" pending={note.pending} onClick={() => void saveLine()}>
-          Spara raden
-        </Button>
       </div>
     </Stack>
   );

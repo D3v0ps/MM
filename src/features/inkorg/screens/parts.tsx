@@ -117,8 +117,6 @@ function Note({ n }: { n: FieldNote | null }) {
       return <Badge tone="bluetone" icon="link" title={n.title}>Från komplettering</Badge>;
     case "low":
       return <Badge tone="grey" icon="alert-circle">Osäker {n.pct}</Badge>;
-    case "pct":
-      return <span className="text-small text-text-muted">{n.pct}</span>;
   }
 }
 

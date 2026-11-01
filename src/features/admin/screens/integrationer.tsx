@@ -5,12 +5,14 @@
 import type { ReactNode } from "react";
 import { fmtDate, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
+import { useRuntime } from "@/shell/runtime";
 import { Badge, BuildPhase, Button, Card, CellSub, DemoNote, Grid, Icon, Kpi, Notice, Page, QueryView, Section, Split, Stack, Table, toast } from "@/ui";
 import { TestDataReset } from "@/features/session/screens/test-data-reset";
 import {
   adminIntegrations, adminRunJob, type DataProtectionView, type IntegrationStatus, type IntegrationsView, type JobRow, type SubprocessorStatus,
 } from "../api";
-import { JOB_STATUS, KV, Masonry } from "./parts";
+import { jobHealth } from "../jobs";
+import { JobStatusBadge, KV, Masonry } from "./parts";
 
 const INT_STATUS: Record<IntegrationStatus, ReactNode> = {
   active: <Badge tone="blue" icon="check-circle">Aktiv</Badge>,
@@ -57,6 +59,9 @@ export function IntegrationerScreen() {
 
 function IntegrationsContent({ d }: { d: IntegrationsView }) {
   const run = useCommand(adminRunJob);
+  const demo = useRuntime() === "demo";
+  const health = jobHealth(d.jobs, demo);
+  const failed = d.jobs.filter((j) => j.status === "failed").length;
   // Korten byggs på servern (admin.integrations), så att leverantörerna och regionerna inte ligger i webbläsarens kod.
   const INT = d.integrations;
   const active = INT.filter((x) => x.status === "active").length;
@@ -73,7 +78,8 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
       <Grid cols={dp ? 4 : 3}>
         {dp && <SubprocessorKpi dp={dp} />}
         <Kpi label="Integrationer" value={`${active} av ${INT.length}`} sub="aktiva" />
-        <Kpi label="Bakgrundsjobb" value={d.jobs.length} sub={`${d.jobs.filter((j) => j.status === "failed").length} fel senaste dygnet`} />
+        {/* x av y: jobben med läget Klar av alla jobb – samma räkning som Min vecka (jobHealth). */}
+        <Kpi label="Bakgrundsjobb" value={`${health.ok.length} av ${d.jobs.length}`} sub={`går som de ska${failed ? ` · ${failed} med fel` : ""}`} />
         {/* Ordet (t.ex. "Stockholm") krymper i en smal ruta i stället för att gå utanför den (fyra rutor vid 1024 px). */}
         <Kpi className="[container-type:inline-size] [&>div:nth-child(2)]:text-[clamp(1.25rem,14cqi,2rem)]" label="Data lagras i" value={d.storage.place} sub={d.storage.detail} />
       </Grid>
@@ -120,12 +126,11 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
                 <>
                   <span className="font-bold">{j.name}</span>
                   <CellSub>{j.schedule}</CellSub>
-                  {j.phase && <div className="mt-1"><BuildPhase fas={j.phase} /></div>}
                 </>
               ),
             },
             { key: "last", label: "Senaste körning", nowrap: true, render: (j) => (j.last ? <>{fmtDateTime(j.last)}{j.manual && <CellSub>Manuellt av {j.manualBy}</CellSub>}</> : "–") },
-            { key: "status", label: "Status", render: (j) => JOB_STATUS[j.status] },
+            { key: "status", label: "Status", render: (j) => <JobStatusBadge j={j} /> },
             { key: "result", label: "Resultat", render: (j) => <span>{j.result}</span> },
             {
               key: "run", label: "Kör",

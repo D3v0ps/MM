@@ -12,11 +12,13 @@ import {
   CaseStatusBadge,
   ConfirmHost,
   DemoNote,
+  Disclosure,
   Field,
   Input,
   Kpi,
   Kv,
   MaskedPnr,
+  MoreActions,
   PerspectiveLink,
   QueryView,
   SimulatedAiNotice,
@@ -267,11 +269,72 @@ describe("bara i prototypen", () => {
   });
 });
 
+describe("Disclosure och Fler val (paket 1)", () => {
+  it("Disclosure: knappen har aria-expanded och visar och döljer avsnittet; aside syns alltid", () => {
+    render(
+      <Disclosure label="Visa deltagarna (12)" openLabel="Dölj deltagarna" aside={<span>Visar: allt</span>}>
+        <p>Innehållet</p>
+      </Disclosure>,
+    );
+    const b = screen.getByRole("button", { name: "Visa deltagarna (12)" });
+    expect(b.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Innehållet").closest("[hidden]")).not.toBeNull();
+    expect(screen.getByText("Visar: allt")).toBeTruthy();
+    fireEvent.click(b);
+    const open = screen.getByRole("button", { name: "Dölj deltagarna" });
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Innehållet").closest("[hidden]")).toBeNull();
+    expect(document.getElementById(open.getAttribute("aria-controls") ?? "")).not.toBeNull();
+  });
+  it("MoreActions: fokus på första valet, Esc stänger och lämnar fokus på Fler val, ett val stänger panelen", () => {
+    const onPick = vi.fn();
+    render(
+      <MoreActions>
+        <button type="button" onClick={onPick}>
+          Ställ in
+        </button>
+      </MoreActions>,
+    );
+    const more = screen.getByRole("button", { name: "Fler val" });
+    fireEvent.click(more);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement?.textContent).toBe("Ställ in");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(more);
+    fireEvent.click(more);
+    fireEvent.click(screen.getByText("Ställ in"));
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(more);
+  });
+});
+
 describe("toast, bekräftelse och laddning", () => {
   it("toast visas i role=status", () => {
     render(<Toaster />);
     act(() => toast("Avropet är accepterat."));
     expect(screen.getByRole("status").textContent).toContain("Avropet är accepterat.");
+  });
+  it("toast: högst två åt gången – den nya ersätter den äldsta – och stängknappen tar bort den (Ö2)", () => {
+    render(<Toaster />);
+    act(() => {
+      toast("Första.");
+      toast("Andra.");
+      toast("Tredje.", "error");
+    });
+    const region = screen.getByRole("status");
+    expect(region.querySelectorAll("[data-toast]")).toHaveLength(2);
+    expect(region.textContent).not.toContain("Första.");
+    expect(region.textContent).toContain("Andra.");
+    expect(region.textContent).toContain("Tredje.");
+    const close = screen.getAllByRole("button", { name: "Stäng kvittensen" });
+    expect(close).toHaveLength(2);
+    act(() => fireEvent.click(close[0]));
+    expect(region.textContent).not.toContain("Andra.");
+    expect(region.textContent).toContain("Tredje.");
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Stäng kvittensen" })));
+    expect(region.querySelectorAll("[data-toast]")).toHaveLength(0);
   });
   it("confirmDialog löses med true vid bekräfta och false vid avbryt", async () => {
     render(<ConfirmHost />);

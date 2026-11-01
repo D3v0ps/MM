@@ -137,6 +137,47 @@ test("förfaller: grupper, filter per typ och sammanslagna månadsrapporter", as
   expect(errors).toEqual([]);
 });
 
+// ---------------------------------------------------------------- UX-genomgången, paket 1 (S9 och S13)
+test("smal skärm: adressen till en post visar bara posten med Till listan – listan utan nyckeltalsrutor (S9)", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await open(page, info, "/inkorg/em-106", SARA);
+  const m = main(page);
+  const back = m.getByRole("button", { name: "Till listan" });
+  await expect(back).toBeVisible();
+  await expect(m.locator("[data-inkorg-row]").first()).toBeHidden();
+  await expect(m.locator("[data-inkorg-summary]")).toBeHidden();
+  await back.click();
+  // Listan: posten som visades har fokus, posten själv är dold.
+  await expect(m.locator('[data-inkorg-row][aria-current="true"]')).toBeFocused();
+  await expect(back).toBeHidden();
+  await expect(m.locator("[data-inkorg-summary]")).toBeHidden();
+  // En rad i listan: bara posten igen.
+  await m.locator("[data-inkorg-row]").nth(1).click();
+  await expect(m.getByRole("button", { name: "Till listan" })).toBeVisible();
+  await expect(m.locator("[data-inkorg-row]").first()).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  // ?arende= pekar också på en post.
+  await open(page, info, "/inkorg?arende=case-270049", SARA);
+  await expect(main(page).getByRole("button", { name: "Till listan" })).toBeVisible();
+  await expect(main(page).locator("[data-inkorg-row]").first()).toBeHidden();
+  // Bred skärm: listan, nyckeltalen och posten bredvid varandra som förut.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(main(page).locator("[data-inkorg-summary]")).toBeVisible();
+  await expect(main(page).locator("[data-inkorg-row]").first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("tolkat avrop: procent bara under 80 % och varning när slutdatumet inte stämmer med omfattningen (S13)", async ({ page }, info) => {
+  const errors = await open(page, info, "/inkorg/em-106", SARA);
+  const parsed = main(page).locator("section").filter({ has: page.locator("h2", { hasText: "Tolkat formulär" }) });
+  await expect(page.getByTestId("slutdatum-varning")).toContainText("Slutdatumet 2 apr 2027 stämmer inte med 12 månader och används inte.");
+  await expect(parsed).not.toContainText(/99\s%/);
+  await open(page, info, "/inkorg/em-102", SARA);
+  const ai = main(page).locator("section").filter({ has: page.locator("h2", { hasText: "Tolkat formulär" }) });
+  await expect(ai.getByText(/^Osäker \d+\s%$/).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 // ---------------------------------------------------------------- Min vecka (samordnarens och avtalsansvarigs startsida)
 test("inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar samma tal", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg", SARA);

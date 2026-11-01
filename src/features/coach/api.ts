@@ -492,6 +492,12 @@ export type NarvaroView = {
   sameDayText: string;
   absenceReasons: string[];
   repeatedRule: { absentInvalid: number; withinDays: number };
+  /**
+   * Automatisk närvaro (Karims beslut 1, 2026-10-09): på eller av och klockslaget då dagen räknas som slut ("18:00") – samma
+   * källa som jobbet auto_attendance (organisationens inställningar, autoAttendanceOf). Sidans ingress och "Så fungerar
+   * registreringen" bygger på den – klockslaget hårdkodas aldrig.
+   */
+  autoAttendance: { on: boolean; at: string };
   caseCount: number;
   /** Pågående ärenden som tillfällen kan läggas till i (beslut 2026-10-08). */
   cases: { caseId: string; caseNumber: string; name: string; location: string }[];

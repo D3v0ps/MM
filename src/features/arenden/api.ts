@@ -753,6 +753,8 @@ export type CaseOverview = {
    * samordnare, avtalsansvarig och coach med full åtkomst (samma som CaseCard.files).
    */
   files: CaseFiles | null;
+  /** Rollen skriver anteckningar i ärendet (samma roller som arenden.noteSave) – knappen "Skriv anteckning" på Översikt. */
+  canWriteNotes: boolean;
 };
 export const caseOverview = query("arenden.kortOversikt", CaseParams).returns<CaseOverview | null>();
 

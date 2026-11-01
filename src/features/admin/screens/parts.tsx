@@ -2,18 +2,27 @@
 // Små delar som adminvyerna och arbetsgivarregistret delar (prototypens KV, Masonry, Group, Details, Pre, YesNo och Unset).
 import { useId, useState, type ReactNode } from "react";
 import { isUnset, unsetHint } from "@/core/config";
-import { Badge, Icon, cn } from "@/ui";
-import type { JobStatusView } from "../api";
+import { useRuntime } from "@/shell/runtime";
+import { Badge, BuildPhase, Icon, cn } from "@/ui";
+import type { JobRow, JobStatusView } from "../api";
+import { jobDisplayStatus } from "../jobs";
 
 export const UNSET_TEXT = "Ej fastställt – regeln aktiveras inte";
 
 /** Bakgrundsjobbets status som märke med text och ikon (Underbiträden och integrationer och systemadministratörens Min vecka). */
 export const JOB_STATUS: Record<JobStatusView, ReactNode> = {
   ok: <Badge tone="blue" icon="check">Klar</Badge>,
+  not_run: <Badge tone="outline" icon="clock">Inte körd än</Badge>,
   waiting: <Badge tone="grey" icon="clock">Väntar</Badge>,
   disabled: <Badge tone="outline" icon="minus-circle">Inte aktiverad</Badge>,
   failed: <Badge tone="red" icon="alert">Fel</Badge>,
 };
+
+/** Jobbets enda läge: i prototypen "Byggs i fas N" för jobb i en senare utvecklingsfas, annars läget (src/features/admin/jobs.ts). */
+export function JobStatusBadge({ j }: { j: Pick<JobRow, "status" | "phase"> }) {
+  const shown = jobDisplayStatus(j, useRuntime() === "demo");
+  return shown === "phase" && j.phase ? <BuildPhase fas={j.phase} /> : <>{JOB_STATUS[j.status]}</>;
+}
 
 /** Etikett och värde på samma rad när det finns plats, annars under varandra (fungerar i smala kort och på 400 px). */
 export function KV({ items, label = 170 }: { items: readonly (readonly [ReactNode, ReactNode] | null | false | undefined)[]; label?: number }) {

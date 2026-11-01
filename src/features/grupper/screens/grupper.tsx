@@ -1,12 +1,14 @@
 "use client";
 // Grupper och nivåer (/grupper) – Karims beslut 2026-10-22: "Grupperna ändras om till yrkesområdena", "Grupperna (yrkesområdena)
 // bjuds in till större gruppaktiviteter en gång i månaden", "Nivå aktiviteterna sker 1-3 gånger i veckan" och "Fem nivåer,
-// deltagare är i exakt en nivå åt gången". Avsnitten:
+// deltagare är i exakt en nivå åt gången". Avsnitten (ordningen och de hopfällbara listorna: UX-genomgången, paket 1):
+//   Utan nivå             överst – pågående och bekräftade insatser utan nivå, med antal i rubriken – länk till kartläggningen
 //   Yrkesområden          varje yrkesområde (avtalsområdena A–L): antal aktiva deltagare och den här och nästa månadens
-//                         yrkesområdesträff – eller "Ingen träff planerad i <månad>" med Planera (Ny aktivitet med yrkesområdet)
-//   Nivåer                de fem nivåerna: antal, deltagarna (länk till kortet, Höj nivå och Byt nivå) och nivåns återkommande
-//                         aktiviteter; Byt namn för den som får ändra
-//   Utan nivå             pågående och bekräftade insatser utan nivå – länk till kartläggningen
+//                         yrkesområdesträff – eller "Ingen träff planerad i <månad>" med Planera (Ny aktivitet med yrkesområdet,
+//                         namnet och typen ifyllda). Hopfällbar – förvalt ihopfälld när det är fler än AREAS_OPEN_MAX
+//   Nivåer                de fem nivåerna: antal, nivåns återkommande aktiviteter och deltagarna (länk till kortet, Höj nivå och
+//                         Byt nivå) – deltagarna hopfällbara per nivå, förvalt ihopfällda när de är fler än PEOPLE_OPEN_MAX;
+//                         Byt namn för den som får ändra
 //   Taggar                som förut: byta namn, arkivera, återställa, nytt värde och ny kategori
 // Bara Miljonbemanning – aldrig kommunen eller ekonomen (rutten och frågan). Inget raderas. Allt är internt.
 import { useEffect, useState } from "react";
@@ -18,7 +20,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { Link } from "@/shell/nav";
 import { useQueryPatch } from "@/shell/url-state";
 import {
-  Badge, Button, Card, CaseLink, CaseStatusBadge, Empty, ErrorNotice, Field, Input, Loading, Modal, ModalCancelButton, Notice, Page, Row, Select, Seg, Stack, TextArea, toast,
+  Badge, Button, Card, CaseLink, CaseStatusBadge, Disclosure, Empty, ErrorNotice, Field, Input, Loading, Modal, ModalCancelButton, Notice, Page, Row, Select, Seg, Stack, TextArea, toast,
 } from "@/ui";
 import {
   caseLevelRaise, caseLevelSet, groupingArchive, groupingCreate, groupingDefaults, groupingOverview, groupingRename, type GroupingOption, type GroupingOverview, type OverviewMember,
@@ -27,6 +29,10 @@ import { levelChangeText } from "./grouping-card";
 
 const NAME_HELP = "Använd neutrala ord, till exempel ”Körkort”. Aldrig omdömen om personer.";
 const TITLE = "Grupper och nivåer";
+/** Fler yrkesområden än så: listan är ihopfälld när sidan öppnas (avtalets tolv områden A–L). */
+export const AREAS_OPEN_MAX = 6;
+/** Fler deltagare än så på en nivå: nivåns lista är ihopfälld när sidan öppnas. */
+export const PEOPLE_OPEN_MAX = 8;
 
 export function GrupperScreen({ query }: ScreenProps) {
   // Varje avtal har sina egna nivåer, yrkesområden och taggar – ?avtal= (id) väljer bland aktörens avtal, annars det första.
@@ -125,130 +131,7 @@ function Overview({ v }: { v: GroupingOverview }) {
         </Notice>
       )}
 
-      <Card title="Yrkesområden" icon="users" id="gr-omraden">
-        <p className="mb-2 text-body text-text-muted">
-          Deltagarens grupp är yrkesområdet i beställningen. En gång i månaden träffas varje yrkesområde. De som tillkommer bjuds in automatiskt fram till träffen.
-        </p>
-        <ul className="flex flex-col" aria-label="Yrkesområden">
-          {v.areas.map((a) => (
-            <li key={a.code} className="flex flex-col gap-1.5 border-b border-ljusgra py-3 last:border-b-0" data-testid="yrkesomrade">
-              <Row between>
-                <span className="font-bold">{a.name}</span>
-                <span className="text-body text-text-muted">
-                  {[plural(a.active, "aktiv deltagare", "aktiva deltagare"), a.paused ? `${a.paused} pausad${a.paused === 1 ? "" : "e"}` : "", a.waiting ? `${a.waiting} väntar på start` : ""].filter(Boolean).join(" · ")}
-                </span>
-              </Row>
-              {a.meetings.map((m) => (
-                <div key={m.month} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {m.items.length ? (
-                    m.items.map((g) => (
-                      <Link key={g.id} to={`/aktiviteter/${encodeURIComponent(g.id)}`} className="inline-flex min-h-11 items-center gap-1.5 underline underline-offset-3">
-                        <Badge tone="blue" icon="calendar">Träff</Badge>
-                        {g.name} – {fmtDateTimeLong(g.startsAt)}
-                      </Link>
-                    ))
-                  ) : (
-                    <>
-                      <span className="inline-flex items-center gap-1.5 text-body">
-                        <Badge tone="outline" icon="circle">Ingen träff</Badge>
-                        Ingen träff planerad i {monthName(m.month)}
-                      </span>
-                      {v.canPlan && planMeetingDay(m.month, v.today) && (
-                        <Button kind="ghost" icon="plus" to={`/aktiviteter/ny?omrade=${encodeURIComponent(a.code)}&datum=${planMeetingDay(m.month, v.today)}`}>
-                          Planera<span className="sr-only"> en träff för {a.name} i {monthName(m.month)}</span>
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <Card title="Nivåer" icon="layers" id="gr-nivaer">
-        <p className="mb-2 text-body text-text-muted">
-          Fem nivåer: hur nära arbete deltagaren är. Varje deltagare är på exakt en nivå. Nivån väljs i kartläggningen och kan höjas när deltagaren utvecklas. Nivåaktiviteterna återkommer varje vecka och bjuder in nivåns deltagare automatiskt.
-        </p>
-        {raised && (
-          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-mb border border-ljusgra px-3 py-2" data-testid="senaste-hojning">
-            <span role="status" className="text-body">
-              {raised.text}
-            </span>
-            <Button id="gr-angra" kind="secondary" icon="reset" pending={undo.pending} onClick={() => void doUndo(raised)}>
-              Ångra<span className="sr-only"> – flytta {raised.member.name} tillbaka till {raised.fromName}</span>
-            </Button>
-          </div>
-        )}
-        <Stack>
-          {v.levels.map((l) => (
-            <section key={l.id} aria-labelledby={`gr-niva-${l.id}`} className="flex flex-col gap-2 rounded-mb border border-ljusgra p-3" data-testid="niva">
-              <Row between>
-                <h3 id={`gr-niva-${l.id}`} tabIndex={-1} className="m-0 text-ui font-bold">
-                  {l.name}
-                </h3>
-                <Row gap="sm">
-                  <span className="text-body text-text-muted">{plural(l.people.length, "deltagare", "deltagare")}</span>
-                  {v.canEdit && (
-                    <Button kind="ghost" icon="edit" onClick={() => setDialog({ mode: "rename", g: l })}>
-                      Byt namn<span className="sr-only"> på {l.name}</span>
-                    </Button>
-                  )}
-                </Row>
-              </Row>
-              {l.description && <p className="m-0 text-small text-text-muted">{l.description}</p>}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-body font-bold">Återkommande aktiviteter:</span>
-                {l.series.length ? (
-                  l.series.map((x) => (
-                    <Link key={x.id} to={x.nextId ? `/aktiviteter/${encodeURIComponent(x.nextId)}` : "/aktiviteter"} className="inline-flex min-h-11 items-center gap-1.5 underline underline-offset-3">
-                      <Badge tone="outline" icon="refresh">Varje vecka</Badge>
-                      {x.name} – {x.schedule}
-                    </Link>
-                  ))
-                ) : (
-                  <span className="text-body text-text-muted">Inga ännu.</span>
-                )}
-                {v.canPlan && (
-                  <Button kind="ghost" icon="plus" to={`/aktiviteter/ny?niva=${encodeURIComponent(l.id)}&upprepa=1`}>
-                    Ny nivåaktivitet<span className="sr-only"> för {l.name}</span>
-                  </Button>
-                )}
-              </div>
-              {l.people.length ? (
-                <ul className="m-0 flex list-none flex-col p-0" aria-label={`Deltagare på ${l.name}`}>
-                  {l.people.map((m) => (
-                    <li key={m.caseId} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ljusgra py-1.5">
-                      <CaseLink caseId={m.caseId} caseNumber={m.caseNumber} className="-ml-1.5">
-                        {m.name}
-                      </CaseLink>
-                      <span className="text-small tabular-nums text-text-muted">{m.caseNumber}</span>
-                      <CaseStatusBadge status={m.status} />
-                      {v.canPlace && (
-                        <span className="ml-auto flex flex-wrap gap-1">
-                          {l.nextLevel && (
-                            <Button kind="ghost" icon="trending-up" pending={busy === m.caseId} onClick={() => void doRaise(m, l.id)}>
-                              Höj nivå<span className="sr-only"> för {m.name} till {l.nextLevel.name}</span>
-                            </Button>
-                          )}
-                          <Button kind="ghost" icon="layers" onClick={() => setDialog({ mode: "level", member: m, levelId: l.id })}>
-                            Byt nivå<span className="sr-only"> för {m.name}</span>
-                          </Button>
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="m-0 text-body text-text-muted">Ingen deltagare på nivån just nu.</p>
-              )}
-            </section>
-          ))}
-        </Stack>
-      </Card>
-
-      <Card title="Utan nivå – att kartlägga" icon="clipboard" id="gr-utan-niva">
+      <Card title={`Utan nivå – att kartlägga (${v.unplaced.length})`} icon="clipboard" id="gr-utan-niva">
         <p className="mb-2 text-body text-text-muted">Insatser som pågår eller väntar på start och saknar nivå. Nivån väljs i kartläggningen innan den godkänns.</p>
         {v.unplaced.length ? (
           <ul className="m-0 flex list-none flex-col p-0" aria-label="Deltagare utan nivå">
@@ -282,6 +165,144 @@ function Overview({ v }: { v: GroupingOverview }) {
         ) : (
           <p className="m-0 text-body text-text-muted">Alla pågående insatser har en nivå.</p>
         )}
+      </Card>
+
+      <Card title={`Yrkesområden (${v.areas.length})`} icon="users" id="gr-omraden">
+        <p className="mb-2 text-body text-text-muted">
+          Deltagarens grupp är yrkesområdet i beställningen. En gång i månaden träffas varje yrkesområde. De som tillkommer bjuds in automatiskt fram till träffen.
+        </p>
+        <Disclosure
+          id="gr-omraden-lista"
+          defaultOpen={v.areas.length <= AREAS_OPEN_MAX}
+          label={`Visa yrkesområdena (${v.areas.length})`}
+          openLabel="Dölj yrkesområdena"
+          summary={<p className="m-0 text-body" data-testid="omraden-summa">{areaSummary(v)}</p>}
+        >
+          <ul className="flex flex-col" aria-label="Yrkesområden">
+            {v.areas.map((a) => (
+              <li key={a.code} className="flex flex-col gap-1.5 border-b border-ljusgra py-3 last:border-b-0" data-testid="yrkesomrade">
+                <Row between>
+                  <span className="font-bold">{a.name}</span>
+                  <span className="text-body text-text-muted">
+                    {[plural(a.active, "aktiv deltagare", "aktiva deltagare"), a.paused ? `${a.paused} pausad${a.paused === 1 ? "" : "e"}` : "", a.waiting ? `${a.waiting} väntar på start` : ""].filter(Boolean).join(" · ")}
+                  </span>
+                </Row>
+                {a.meetings.map((m) => (
+                  <div key={m.month} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {m.items.length ? (
+                      m.items.map((g) => (
+                        <Link key={g.id} to={`/aktiviteter/${encodeURIComponent(g.id)}`} className="inline-flex min-h-11 items-center gap-1.5 underline underline-offset-3">
+                          <Badge tone="blue" icon="calendar">Träff</Badge>
+                          {g.name} – {fmtDateTimeLong(g.startsAt)}
+                        </Link>
+                      ))
+                    ) : (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 text-body">
+                          <Badge tone="outline" icon="circle">Ingen träff</Badge>
+                          Ingen träff planerad i {monthName(m.month)}
+                        </span>
+                        {v.canPlan && planMeetingDay(m.month, v.today) && (
+                          <Button kind="ghost" icon="plus" to={`/aktiviteter/ny?omrade=${encodeURIComponent(a.code)}&datum=${planMeetingDay(m.month, v.today)}`}>
+                            Planera<span className="sr-only"> en träff för {a.name} i {monthName(m.month)}</span>
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </Disclosure>
+      </Card>
+
+      <Card title={`Nivåer (${v.levels.length})`} icon="layers" id="gr-nivaer">
+        <p className="mb-2 text-body text-text-muted">
+          Fem nivåer: hur nära arbete deltagaren är. Varje deltagare är på exakt en nivå. Nivån väljs i kartläggningen och kan höjas när deltagaren utvecklas. Nivåaktiviteterna återkommer varje vecka och bjuder in nivåns deltagare automatiskt.
+        </p>
+        {raised && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-mb border border-ljusgra px-3 py-2" data-testid="senaste-hojning">
+            <span role="status" className="text-body">
+              {raised.text}
+            </span>
+            <Button id="gr-angra" kind="secondary" icon="reset" pending={undo.pending} onClick={() => void doUndo(raised)}>
+              Ångra<span className="sr-only"> – flytta {raised.member.name} tillbaka till {raised.fromName}</span>
+            </Button>
+          </div>
+        )}
+        <Stack>
+          {v.levels.map((l) => (
+            <section key={l.id} aria-labelledby={`gr-niva-${l.id}`} className="flex flex-col gap-2 rounded-mb border border-ljusgra p-3" data-testid="niva">
+              <Row between>
+                <h3 id={`gr-niva-${l.id}`} tabIndex={-1} className="m-0 text-ui font-bold">
+                  {l.name}
+                </h3>
+                <Row gap="sm">
+                  <span className="text-body text-text-muted" data-testid="niva-antal">{plural(l.people.length, "deltagare", "deltagare")}</span>
+                  {v.canEdit && (
+                    <Button kind="ghost" icon="edit" onClick={() => setDialog({ mode: "rename", g: l })}>
+                      Byt namn<span className="sr-only"> på {l.name}</span>
+                    </Button>
+                  )}
+                </Row>
+              </Row>
+              {l.description && <p className="m-0 text-small text-text-muted">{l.description}</p>}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-body font-bold">Återkommande aktiviteter:</span>
+                {l.series.length ? (
+                  l.series.map((x) => (
+                    <Link key={x.id} to={x.nextId ? `/aktiviteter/${encodeURIComponent(x.nextId)}` : "/aktiviteter"} className="inline-flex min-h-11 items-center gap-1.5 underline underline-offset-3">
+                      <Badge tone="outline" icon="refresh">Varje vecka</Badge>
+                      {x.name} – {x.schedule}
+                    </Link>
+                  ))
+                ) : (
+                  <span className="text-body text-text-muted">Inga ännu.</span>
+                )}
+                {v.canPlan && (
+                  <Button kind="ghost" icon="plus" to={`/aktiviteter/ny?niva=${encodeURIComponent(l.id)}&upprepa=1`}>
+                    Ny nivåaktivitet<span className="sr-only"> för {l.name}</span>
+                  </Button>
+                )}
+              </div>
+              {l.people.length ? (
+                <Disclosure
+                  id={`gr-niva-lista-${l.id}`}
+                  defaultOpen={l.people.length <= PEOPLE_OPEN_MAX}
+                  label={<>Visa deltagarna ({l.people.length})<span className="sr-only"> på {l.name}</span></>}
+                  openLabel={<>Dölj deltagarna<span className="sr-only"> på {l.name}</span></>}
+                >
+                  <ul className="m-0 flex list-none flex-col p-0" aria-label={`Deltagare på ${l.name}`}>
+                    {l.people.map((m) => (
+                      <li key={m.caseId} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ljusgra py-1.5">
+                        <CaseLink caseId={m.caseId} caseNumber={m.caseNumber} className="-ml-1.5">
+                          {m.name}
+                        </CaseLink>
+                        <span className="text-small tabular-nums text-text-muted">{m.caseNumber}</span>
+                        <CaseStatusBadge status={m.status} />
+                        {v.canPlace && (
+                          <span className="ml-auto flex flex-wrap gap-1">
+                            {l.nextLevel && (
+                              <Button kind="ghost" icon="trending-up" pending={busy === m.caseId} onClick={() => void doRaise(m, l.id)}>
+                                Höj nivå<span className="sr-only"> för {m.name} till {l.nextLevel.name}</span>
+                              </Button>
+                            )}
+                            <Button kind="ghost" icon="layers" onClick={() => setDialog({ mode: "level", member: m, levelId: l.id })}>
+                              Byt nivå<span className="sr-only"> för {m.name}</span>
+                            </Button>
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </Disclosure>
+              ) : (
+                <p className="m-0 text-body text-text-muted">Ingen deltagare på nivån just nu.</p>
+              )}
+            </section>
+          ))}
+        </Stack>
       </Card>
 
       {v.tags.map((t) => (
@@ -332,6 +353,14 @@ function Overview({ v }: { v: GroupingOverview }) {
       {dialog && dialog.mode !== "level" && <GroupingDialog dialog={dialog} contractId={v.contractId} onClose={() => setDialog(null)} />}
     </Page>
   );
+}
+
+/** Raden när yrkesområdena är ihopfällda: hur många som har en träff planerad den här månaden. */
+export function areaSummary(v: Pick<GroupingOverview, "areas">): string {
+  const month = v.areas[0]?.meetings[0]?.month;
+  if (!month) return `${plural(v.areas.length, "yrkesområde", "yrkesområden")}.`;
+  const planned = v.areas.filter((a) => a.meetings[0]?.items.length).length;
+  return `${planned} av ${v.areas.length} yrkesområden har en träff planerad i ${monthName(month)}.`;
 }
 
 /** Byt nivå för en deltagare: välj vilken som helst av de fem. Utan nivå (fromLevelId null): Välj nivå. */

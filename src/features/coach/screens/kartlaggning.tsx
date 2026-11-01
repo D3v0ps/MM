@@ -5,6 +5,9 @@
 // Anpassningar beskrivs funktionellt – aldrig diagnoser. Port av prototypens coach.kartlaggning. Utkastet sparas automatiskt
 // på servern tills kartläggningen är godkänd (useAutosave, beslut 2026-10-02) – en text som ser ut som en diagnos stoppar
 // autosparningen tills den är borttagen. Fälten ligger i utkastminnet (useDraft), så Tillbaka visar dem igen.
+// Godkänn med fel (UX-genomgången, paket 1, C7): en felsammanfattning överst med länkar till fälten – också nivån och
+// yrkesspåret – får fokus (GOV.UK-mönstret, som mötesformuläret). Ingen kvittens efter godkännandet – rutan "Kartläggningen
+// är godkänd" får fokus i stället, så att inget täcker Spara ändringar.
 import { useEffect, useRef, useState } from "react";
 import { AUTOSAVE_INTAKE } from "@/api/invalidation";
 import { fmtDate } from "@/core/time";
@@ -12,7 +15,7 @@ import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosa
 import { useCommand, useQuery } from "@/shell/backend";
 import { rebaseStaleDraft, useDraft, useDraftMemory, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
-import { AutosaveStatus, Badge, Button, Card, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
+import { AutosaveStatus, Badge, Button, Card, ErrorSummary, Field, focusErrorSummary, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
 import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
 import { caseGroupingsView } from "@/features/grupper/api";
 import { GroupingCard } from "@/features/grupper/screens/grouping-card";
@@ -28,6 +31,14 @@ const REQUIRED: Record<string, string> = {
   workExperience: "Beskriv arbetslivserfarenheten.", education: "Fyll i utbildning.", languageNotes: "Beskriv språket.", digitalSkills: "Välj digital vana.",
   drivingLicence: "Välj körkort.", workGoals: "Skriv yrkesmålet.", chosenTrack: "Välj yrkesspår.", firstWeekGoal: "Skriv första veckomålet.",
 };
+/** Fältens id i formuläret – länkarna i felsammanfattningen. Nivån ligger i kortet Nivå och yrkesområde (gr-niva-<ärende>). */
+const FIELD_ID: Record<string, string> = {
+  workExperience: "ia-work", education: "ia-edu", languageNotes: "ia-lang", digitalSkills: "ia-dig", drivingLicence: "ia-lic", workGoals: "ia-goal",
+  chosenTrack: "ia-track", adaptations: "ia-adapt", firstWeekGoal: "ia-first",
+};
+/** Ordningen i sammanfattningen: som fälten står på sidan, nivån sist. */
+const FIELD_ORDER = ["workExperience", "education", "languageNotes", "digitalSkills", "drivingLicence", "workGoals", "chosenTrack", "adaptations", "firstWeekGoal", "level"];
+const SUMMARY_ID = "ia-fel";
 const uniq = (xs: string[]) => [...new Set(xs)];
 /** Listan med ett sparat värde som inte finns bland alternativen sist. */
 const withValue = (list: string[], value: string) => uniq([...list, ...(value && !list.includes(value) ? [value] : [])]);
@@ -104,6 +115,8 @@ function IntakeForm({ v }: { v: Ok }) {
   const [allTracks, setAllTracks] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savedNow, setSavedNow] = useState<"approved" | "draft" | null>(null);
+  // Senaste försöket som stoppades: true = Godkänn, false = Spara utkast (titeln i felsammanfattningen), null = inget.
+  const [attempt, setAttempt] = useState<boolean | null>(null);
   // Utkastet bygger på det sparade läget och versionen: de läggs i minnet med första ändringen (också i en godkänd kartläggning,
   // som inte sparas automatiskt), så att utkastet kan lyftas till raden på servern om den ändras medan sidan är lämnad.
   const anchorDraft = () => {
@@ -161,17 +174,23 @@ function IntakeForm({ v }: { v: Ok }) {
     if (approve && levels.data && !levels.data.current.level) e.level = LEVEL_REQUIRED_TEXT;
     setErrors(e);
     if (Object.keys(e).length) {
-      toast(approve ? "Kartläggningen kan inte godkännas ännu. Se markerade fält." : "Ta bort diagnosen innan du sparar.", "error");
-      // Bara nivån saknas: fokus till nivåvalet.
-      if (Object.keys(e).length === 1 && e.level) document.getElementById(`gr-niva-${c.caseId}`)?.querySelector<HTMLElement>("button")?.focus();
+      // Felsammanfattningen överst får fokus – länkarna leder till fälten (också nivån och yrkesspåret).
+      setAttempt(approve);
+      focusErrorSummary(SUMMARY_ID);
       return;
     }
+    setAttempt(null);
     // En pågående autosparning får bli klar först.
     await autosave.settle();
     const res = await save.run({ caseId: c.caseId, data: trimmed(f), approve, expectedVersion: versionRef.current ?? undefined }).catch(() => null);
     if (!res || !res.ok) {
       // Spåret hör inte till deltagarens yrkesområde: felet står vid valet.
-      if (res && !res.ok && res.error === "track" && res.message) setErrors({ chosenTrack: res.message });
+      if (res && !res.ok && res.error === "track" && res.message) {
+        setErrors({ chosenTrack: res.message });
+        setAttempt(approve);
+        focusErrorSummary(SUMMARY_ID);
+        return;
+      }
       toast(res && !res.ok && res.message ? res.message : "Kartläggningen kunde inte sparas.", "error");
       return;
     }
@@ -181,8 +200,11 @@ function IntakeForm({ v }: { v: Ok }) {
     autosave.markSaved(res.savedAt);
     forgetDraft();
     setSavedNow(approve ? "approved" : "draft");
-    toast(approve ? "Kartläggningen är godkänd. Yrkesspåret är sparat på ärendet." : "Utkastet är sparat.");
+    // Godkänd: rutan överst säger det och får fokus – ingen kvittens som täcker knapparna längst ned.
+    if (approve) requestAnimationFrame(() => document.getElementById("ia-godkand")?.focus());
+    else toast("Utkastet är sparat.");
   };
+  const summaryItems = attempt === null ? [] : FIELD_ORDER.filter((k) => errors[k]).map((k) => ({ id: k === "level" ? `gr-niva-${c.caseId}` : FIELD_ID[k], text: errors[k] }));
 
   return (
     <Page
@@ -202,6 +224,7 @@ function IntakeForm({ v }: { v: Ok }) {
         )
       }
     >
+      <ErrorSummary id={SUMMARY_ID} items={summaryItems} title={attempt ? "Kartläggningen kan inte godkännas ännu" : "Rätta det här innan du sparar"} />
       <Card>
         <Row between>
           <CaseHeadView head={c} />
@@ -231,8 +254,8 @@ function IntakeForm({ v }: { v: Ok }) {
         </Notice>
       )}
       {savedNow === "approved" && (
-        <Notice tone="ok" title="Kartläggningen är godkänd">
-          Nästa steg: sätt veckomålet i första mötet och flytta ärendet till fas 2 när deltagaren är redo.
+        <Notice tone="ok" title="Kartläggningen är godkänd" id="ia-godkand" tabIndex={-1}>
+          Yrkesspåret är sparat på ärendet. Nästa steg: sätt veckomålet i första mötet och flytta ärendet till fas 2 när deltagaren är redo.
           <Row className="mt-2">
             <Button kind="primary" iconRight="arrow-right" to={`/avstamning/${encodeURIComponent(c.caseId)}`}>
               Öppna mötet

@@ -34,7 +34,7 @@ import {
   maskPnrText, meetingDays, plainPnr, sla, sortPending, toRow, visibleCaseIds, type InboxData, type InboxEnv, type Item,
 } from "./model";
 import {
-  dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, OPTIONAL_FIELDS, ORDER_FIELDS, refErrorMB,
+  dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, OPTIONAL_FIELDS, ORDER_FIELDS, plannedEndWarning, refErrorMB,
   whenText, workingDaysText, type DeadlineRow, type OrderFieldKey,
 } from "./texts";
 
@@ -127,8 +127,9 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
     if (cr) return { kind: cr.changed ? "corrected" : "checked", title: `${personName(d.profiles, cr.by)} ${whenText(cr.at, d.e.now)}` };
     const sup = fromSup(k);
     if (sup) return { kind: "supplement", title: `Införd ${whenText(sup.handledAt, d.e.now)}` };
+    // Procenten bara när tolkningen är osäker (under 80 %) – annars ingen anteckning (S13).
     if (s === "low") return { kind: "low", pct: pct(conf[k] as number, 0) };
-    return conf[k] != null && ex[k] !== "" && ex[k] != null ? { kind: "pct", pct: pct(conf[k] as number, 0) } : null;
+    return null;
   };
   const person = c ? d.personById.get(c.personId) ?? null : null;
   // Fälten som inte frågas efter (Miljonbemanning sätter dem, eller bara vid annan tidsperiod) visas bara när mejlet har ett
@@ -149,6 +150,7 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
   return {
     method: m.parseMethod, help: METHOD[m.parseMethod]?.help ?? "", nMissing: all.filter((f) => f.state === "missing").length, nLow: all.filter((f) => f.state === "low").length,
     aiRun: run ? `Tolkat av ${run.provider} på ${Math.max(1, Math.round((run.latencyMs || 0) / 1000))} s.` : null, groups,
+    endWarning: plannedEndWarning(ex),
   };
 }
 

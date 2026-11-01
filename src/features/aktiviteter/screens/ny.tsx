@@ -5,9 +5,11 @@
 // Karims beslut 2026-10-22: "Upprepa varje vecka" gör aktiviteten återkommande (veckodagar Mån–Fre, första och sista dag) – för
 // en nivå eller ett yrkesområde; servern skapar tillfällena två veckor framåt och bjuder in målgruppen. Meddelandet är av som
 // standard för en återkommande aktivitet. Adressen kan förvälja målgruppen och dagen (bara koder och id:n): ?omrade=G, ?niva=<id>,
-// ?datum=YYYY-MM-DD, ?upprepa=1 – Planera och Ny nivåaktivitet på Grupper och nivåer.
+// ?datum=YYYY-MM-DD, ?upprepa=1 – Planera och Ny nivåaktivitet på Grupper och nivåer. Planera (?omrade= utan ?upprepa) fyller
+// också i namnet "Yrkesområdesträff: <yrkesområdet>" och träffarnas typ (UX-genomgången, paket 1) – går att ändra.
 import { useState } from "react";
 import { plural } from "@/core/format";
+import { AREA_MEETING_KIND, areaMeetingName, areaNameOfLabel } from "@/core/audience";
 import { normalizeWeekdays, SERIES_RECOMMENDED_MAX_DAYS, SERIES_WEEKDAY_LABEL, SERIES_WEEKDAYS, seriesScheduleError } from "@/core/group-series";
 import { addWorkingDays, dayOf } from "@/core/time";
 import { useCommand } from "@/shell/backend";
@@ -37,8 +39,13 @@ export function NyAktivitetScreen({ query }: ScreenProps) {
   return <NyAktivitet form={data} query={query} />;
 }
 
-/** Förval ur adressen: målgruppen (bara om den finns i formuläret), dagen och upprepningen. */
-function presetFrom(query: URLSearchParams, form: NonNullable<ReturnType<typeof useActivityFormData>["data"]>): { choice: InviteChoice; date: string | null; repeat: boolean } {
+/**
+ * Förval ur adressen: målgruppen (bara om den finns i formuläret), dagen och upprepningen. Ett yrkesområde utan upprepning är
+ * månadens yrkesområdesträff (Planera): namnet och typen fylls i som de befintliga träffarnas.
+ */
+function presetFrom(
+  query: URLSearchParams, form: NonNullable<ReturnType<typeof useActivityFormData>["data"]>,
+): { choice: InviteChoice; date: string | null; repeat: boolean; meeting: Pick<ActivityFormState, "name" | "kind"> | null } {
   const area = query.get("omrade");
   const level = query.get("niva");
   const date = query.get("datum");
@@ -48,10 +55,12 @@ function presetFrom(query: URLSearchParams, form: NonNullable<ReturnType<typeof 
       ? { mode: "niva", audienceId: level, caseIds: [] }
       : EMPTY_CHOICE;
   const repeat = query.get("upprepa") === "1";
+  const areaGroup = choice.mode === "omrade" && !repeat ? form.groupings.find((g) => g.kind === "area" && g.id === choice.audienceId) : undefined;
   return {
     choice: repeat && choice.mode === "enskilda" ? { mode: "niva", audienceId: null, caseIds: [] } : choice,
     date: date && DATE_RE.test(date) && date > dayOf(form.now) ? date : null,
     repeat,
+    meeting: areaGroup ? { name: areaMeetingName(areaNameOfLabel(areaGroup.id, areaGroup.name)), kind: AREA_MEETING_KIND } : null,
   };
 }
 
@@ -61,7 +70,9 @@ function NyAktivitet({ form, query }: { form: NonNullable<ReturnType<typeof useA
   const createSeries = useCommand(groupActivitySeriesCreate);
   const withConfirm = useActivityConfirm();
   const [preset] = useState(() => presetFrom(query, form));
-  const [initial] = useState<ActivityFormState>(() => ({ ...blankForm(form, addWorkingDays(dayOf(form.now), 1)), ...(preset.date ? { date: preset.date } : {}) }));
+  const [initial] = useState<ActivityFormState>(() => ({
+    ...blankForm(form, addWorkingDays(dayOf(form.now), 1)), ...(preset.date ? { date: preset.date } : {}), ...(preset.meeting ?? {}),
+  }));
   const [value, setValue] = useState<ActivityFormState>(initial);
   const [choice, setChoice] = useState<InviteChoice>(preset.choice);
   const [notify, setNotify] = useState(true);

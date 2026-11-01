@@ -1139,6 +1139,8 @@ handleQuery(caseOverview, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseOve
     upcoming: acts.filter((a) => a.startsAt >= now && a.startsAt <= limit && (!team || a.kind !== "möte")).map(activityView),
     placement: pl ? { employerName: emp?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, supervisorName: pl.supervisorName, fourRights: pl.fourRights ?? null } : null,
     files,
+    // "Skriv anteckning" på Översikt: samma roller som kommandot (NOTE_WRITERS).
+    canWriteNotes: NOTE_WRITERS.includes(L.role),
   };
 });
 

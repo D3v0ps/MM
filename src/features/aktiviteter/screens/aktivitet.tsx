@@ -9,6 +9,8 @@
 // Karims beslut 2026-10-22: målgruppen (en nivå eller ett yrkesområde) visas, och de som målgruppen bjöd in tas inte bort för hand
 // (de bjuds in automatiskt). Ett tillfälle i en återkommande aktivitet visar "Del av återkommande aktivitet: tisdag och torsdag 10.00",
 // "Ställ in bara det här tillfället" och "Avsluta hela serien"; dag, tid och längd är seriens.
+// UX-genomgången, paket 1 (C11): överst bara Bjud in deltagare och Ändra – Ställ in, Ändra alla kommande tillfällen och Avsluta
+// hela serien ligger under Fler val. Förklaringen om automatisk inbjudan står en gång ovanför listan, inte vid varje deltagare.
 import { useRef, useState } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
 import { plural } from "@/core/format";
@@ -18,7 +20,7 @@ import { useUnsavedGuard } from "@/shell/guard";
 import { useNav } from "@/shell/nav";
 import { usePageTitle } from "@/shell/page-effects";
 import type { ScreenProps } from "@/shell/routes";
-import { Badge, Button, Card, CaseLink, Check, ErrorNotice, Field, Input, Kv, Loading, Modal, Notice, Page, Row, Seg, Stack, toast, useAuditView, useConfirm, type SegOption } from "@/ui";
+import { Badge, Button, Card, CaseLink, Check, ErrorNotice, Field, Input, Kv, Loading, Modal, MoreActions, Notice, Page, Row, Seg, Stack, toast, useAuditView, useConfirm, type SegOption } from "@/ui";
 import { auditView } from "@/features/session/api";
 import { durationLabel } from "@/features/arenden/screens/kort-start";
 import { attendanceSet, attendanceSetAll } from "@/features/coach/api";
@@ -281,6 +283,8 @@ function Aktivitet({ v }: { v: Ok }) {
   };
 
   const series = a.series;
+  const seriesOpen = !!series && !series.ended;
+  // Överst två knappar – Bjud in och Ändra – och resten under Fler val (UX-genomgången, paket 1, C11).
   const actions = v.canEdit ? (
     <Row gap="sm">
       <Button icon="users" onClick={() => setInviting(true)}>
@@ -289,11 +293,31 @@ function Aktivitet({ v }: { v: Ok }) {
       <Button icon="edit" onClick={() => setEditing(true)}>
         {series ? "Ändra det här tillfället" : "Ändra"}
       </Button>
-      <Button kind="danger" icon="x" pending={cancel.pending} onClick={() => void cancelActivity()}>
-        {series ? "Ställ in bara det här tillfället" : "Ställ in"}
-      </Button>
+      <MoreActions>
+        {seriesOpen && (
+          <Button kind="ghost" icon="edit" onClick={() => setEditingSeries(true)}>
+            Ändra alla kommande tillfällen
+          </Button>
+        )}
+        <Button kind="ghost" icon="x" className="[&_svg]:text-rod" pending={cancel.pending} onClick={() => void cancelActivity()}>
+          {series ? "Ställ in bara det här tillfället" : "Ställ in"}
+        </Button>
+        {seriesOpen && series && (
+          <Button
+            kind="ghost"
+            icon="x-circle"
+            className="[&_svg]:text-rod"
+            pending={endSeries.pending}
+            onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify, startsOn: series.startsOn, today: dayOf(v.now) })}
+          >
+            Avsluta hela serien
+          </Button>
+        )}
+      </MoreActions>
     </Row>
   ) : undefined;
+  /** Förklaringen om automatisk inbjudan – en gång ovanför listan i stället för vid varje deltagare (C11). */
+  const autoInvited = v.canEdit && !!a.audience && parts.some((p) => !p.attendance && p.audienceMember);
 
   return (
     <Page
@@ -314,21 +338,14 @@ function Aktivitet({ v }: { v: Ok }) {
             <span>
               {series.ended
                 ? `Den återkommande aktiviteten är avslutad${series.endsOn ? ` ${fmtDate(series.endsOn)}` : ""}.`
-                : "Ändringar här gäller bara det här tillfället. Med Ändra alla kommande tillfällen ändrar du namn, plats, ansvarig och gruppmål i hela serien. Dag, tid och längd gäller hela serien – ska tiden ändras avslutar du serien och skapar en ny."}
+                : `Ändringar här gäller bara det här tillfället. ${v.canEdit ? "Under Fler val ändrar du alla kommande tillfällen (namn, plats, ansvarig och gruppmål) eller avslutar hela serien. " : ""}Dag, tid och längd gäller hela serien – ska tiden ändras avslutar du serien och skapar en ny.`}
             </span>
             {v.canEdit && !series.ended && (
-              <Row gap="sm">
-                <Button kind="secondary" icon="edit" onClick={() => setEditingSeries(true)}>
-                  Ändra alla kommande tillfällen
-                </Button>
-                <Button kind="secondary" icon="x" pending={endSeries.pending} onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify, startsOn: series.startsOn, today: dayOf(v.now) })}
-                >
-                  Avsluta hela serien
-                </Button>
+              <div>
                 <Button kind="ghost" icon="list" to="/aktiviteter">
                   Alla återkommande aktiviteter
                 </Button>
-              </Row>
+              </div>
             )}
           </Stack>
         </Notice>
@@ -405,6 +422,11 @@ function Aktivitet({ v }: { v: Ok }) {
               )}
             </div>
           )}
+          {autoInvited && a.audience && (
+            <p className="m-0 text-body text-text-muted" data-testid="automatisk-hjalp">
+              {`Inbjudna automatiskt via ${a.audience.kind === "area" ? "yrkesområdet" : "nivån"} kan inte tas bort här. Kommer deltagaren inte: registrera frånvaro när aktiviteten har börjat. Hör deltagaren inte längre hit: byt ${a.audience.kind === "area" ? "yrkesområde" : "nivå"} på deltagarkortet.`}
+            </p>
+          )}
           {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
           <p role="status" aria-live="polite" className="m-0 text-body font-bold">
             {bulk}
@@ -438,11 +460,6 @@ function Aktivitet({ v }: { v: Ok }) {
                   )}
                 </Row>
               </Row>
-              {v.canEdit && !p.attendance && p.audienceMember && a.audience && (
-                <p className="m-0 text-body text-text-muted" data-testid="automatisk-hjalp">
-                  {`Inbjuden automatiskt via ${a.audience.kind === "area" ? "yrkesområdet" : "nivån"} och kan inte tas bort här. Kommer deltagaren inte: registrera frånvaro när aktiviteten har börjat. Hör deltagaren inte längre hit: byt ${a.audience.kind === "area" ? "yrkesområde" : "nivå"} på deltagarkortet.`}
-                </p>
-              )}
               {started && v.canEdit && (
                 <>
                   <Seg

@@ -227,11 +227,26 @@ Alla kontroller tar `value` + `onValueChange(value)` (kryssrutan `checked` + `on
 - **`DateInput`** (`'YYYY-MM-DD'`), **`TimeInput`** (`'HH:mm'`), **`DateTimeInput`** (`'YYYY-MM-DDTHH:mm'` = `LocalDateTime`).
 - **`Select`**: inbyggd `<select>` (bäst för skärmläsare). `options: ({ value, label, disabled? } | string)[]`, `placeholder?` (tomt första val).
 - **`TextArea`**: `rows?` (3).
-- **`Check`**: kryssruta med etikett, hela raden klickbar (44 px). `checked`, `onCheckedChange`, `disabled?`, `id?`.
+- **`Check`**: kryssruta med etikett, hela raden klickbar (44 px). `checked`, `onCheckedChange`, `disabled?`, `id?`, `invalid?` (felmarkering utan `Field`).
 - **`Seg`**: knappgrupp för snabba val (`aria-pressed`). `options: (V | { value, label, icon?, tone?: "green" | "yellow" | "red", lang?, dir?, disabled? })[]`,
   `multi` = flerval (`value` är en lista). `ariaLabel?` – inuti ett `Field` namnges gruppen av fältets etikett.
 
 ---
+
+- **`ErrorSummary`** (`items`, `title?`, `id?`) och **`focusErrorSummary(id)`** – GOV.UK-mönstret: efter ett misslyckat försök visas sammanfattningen
+  överst med länkar till fälten och får fokus (`id` gör den fokuserbar). Används i kartläggningen; mötet visar den vid knapparna.
+
+### Hopfällbart och Fler val (`src/ui/disclosure.tsx`)
+```tsx
+<Disclosure label={`Visa deltagarna (${n})`} openLabel="Dölj deltagarna" defaultOpen={n <= 8} aside={<span>Visar: …</span>}>…</Disclosure>
+<MoreActions><Button kind="ghost" icon="x" onClick={…}>Ställ in</Button>…</MoreActions>
+```
+- **`Disclosure`** – en knapp med `aria-expanded`/`aria-controls` som visar och döljer ett avsnitt. `label`, `openLabel?`, `defaultOpen?`, `kind?`
+  (standard `ghost`), `summary?` (bara när det är ihopfällt), `aside?` (alltid bredvid knappen – t.ex. de valda filtren som text, Närvaro).
+  Förvalt ihopfällt när listan är lång (Grupper och nivåer).
+- **`MoreActions`** – "Fler val": de mindre vanliga åtgärderna bakom en knapp, så att sidan visar högst två knappar överst (aktivitetsvyn).
+  Disclosure-mönstret, inte en meny: knapparna nås med Tab. Fokus på första valet när panelen öppnas; Esc och klick utanför stänger och lämnar
+  fokus på Fler val; ett val stänger panelen och lämnar fokus på Fler val innan åtgärden körs (en dialog ger sedan tillbaka fokus dit).
 
 ## 6. Flikar
 
@@ -253,7 +268,10 @@ Piltangenter, Home och End byter flik. `count` 0 eller null visas inte. Flikval 
 - **`useConfirm()`** – ersätter `MM.confirm` (aldrig `window.confirm`):
   `if (await confirm({ title: "Avböj avropet?", body: "…", confirmLabel: "Avböj", tone: "danger" })) …` → `true`/`false`. (`confirmDialog` = samma utan hook.)
 - **`toast(text, tone?)`** / **`useToast()`** – `tone`: `"ok"` (blå kant, standard) eller `"error"` (röd kant). Prototypens `MM.toast(x, 'blue')` → `toast(x)`, `'red'` → `toast(x, "error")`.
-  Visas 5,2 s, läses upp (`role=status`). Texten får aldrig innehålla personuppgifter som inte redan syns på skärmen.
+  Visas 5,2 s, läses upp (`role=status`). Högst två åt gången – en ny ersätter den äldsta – och varje har en stängknapp ("Stäng kvittensen").
+  De ligger överst (uppe till höger på dator, under den fasta toppraden på smal skärm), så att de aldrig täcker dialogernas knappar eller en
+  fast knapprad längst ned. Visa inte flera kvittenser efter varandra för samma åtgärd – samla dem i en statusrad (Närvaro gör så). Texten får
+  aldrig innehålla personuppgifter som inte redan syns på skärmen.
 - **`useDownload()`** – `await download("fakturaunderlag-2027-01.csv", csv, mime?)`. Riktiga appen: Blob + tillfällig länk (textfiler får BOM för Excel).
   Binärt går också: `await download("Manadsrapport_BOT-26-0143_2027-01_v1.pdf", blob, "application/pdf")` (Blob eller Uint8Array, orört).
   Prototypen byter implementation med `<DownloadProvider impl={…}>` (artefaktens nedladdning – tar binärt direkt – annars `showText` för text). Skärmar använder aldrig `<a download>`.
@@ -266,7 +284,7 @@ Värdarna (`Toaster`, `ConfirmHost`, `TextDialogHost`) ligger redan i layouten �
 
 ## 8. Meddelanden och laddning
 
-- **`Notice`** – `tone`: `info` (blå, standard) · `warn` (grå, antracit kant) · `critical` (röd, `role=alert`) · `ok`. `title?`, `icon?`.
+- **`Notice`** – `tone`: `info` (blå, standard) · `warn` (grå, antracit kant) · `critical` (röd, `role=alert`) · `ok`. `title?`, `icon?`, `id?` och `tabIndex?` (en kvittens som får fokus i stället för en toast, t.ex. "Kartläggningen är godkänd").
 - **`DemoNote`** – förklaring som **bara visas i prototypen** ("Prototyp: …", streckad ram). Allt annat är likadant i appen.
 - **`Empty`** – `icon?`, `title`, `children?`, `action?`.
 - **`Loading`** – "Hämtar…" (syns efter 250 ms så att snabba svar inte blinkar). `label?`.
