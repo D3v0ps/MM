@@ -310,7 +310,7 @@ Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, *
 
 ## Systemadministratör
 
-Fliken **Administratör** har **Användare och roller**, **Underbiträden och integrationer**, **Mallar och utskick**, **Grupper och nivåer** och **Revisionslogg**. I ärendena kan systemadministratören bara läsa och ändra kontaktvägen.
+Fliken **Administratör** har **Användare och roller**, **Underbiträden och integrationer**, **Mallar och utskick** och **Revisionslogg**. **Grupper och nivåer** finns under **Min vardag**. I ärendena kan systemadministratören bara läsa och ändra kontaktvägen.
 
 ### Lägga till en kollega
 
