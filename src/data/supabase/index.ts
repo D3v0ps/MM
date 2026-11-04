@@ -10,7 +10,7 @@ export { toColumn, toField, toDbRow, fromDbRow, toTimestamptz, fromTimestamptz, 
  * Tabeller som användarens repo läser via en vy: contracts_public (0002: kommunen får inte avtalets interna mål) och
  * cases_public (0013: plats, mötestider och bakgrund döljs i skyddade ärenden och för ekonomen).
  */
-export const USER_READ_VIEWS: Readonly<Record<string, string>> = { contracts: "contracts_public", cases: "cases_public" };
+export const USER_READ_VIEWS: Readonly<Record<string, string>> = { contracts: "contracts_public", cases: "cases_public", bonus_claims: "bonus_claims_public" };
 
 /** Repo för systemsteg (service role, ctx.system): läser och skriver tabellerna direkt. */
 export function appRepo(client: SupabaseClient | PgClient): AppRepo {

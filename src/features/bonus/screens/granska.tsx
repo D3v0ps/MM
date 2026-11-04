@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { usePageTitle } from "@/shell/page-effects";
-import { useUnsavedGuard } from "@/shell/guard";
+import { leaveWithoutAsking, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { fmtDate, fmtDateTime } from "@/core/time";
 import {
@@ -172,7 +172,8 @@ function SubmitCard({ v, form, dirty }: { v: BonusReviewView; form: Form; dirty:
     if (!res) return toast("Anspråket kunde inte skickas. Försök igen.", "error");
     if (!res.ok) return toast(res.message || "Anspråket kunde inte skickas.", "error");
     toast(`Bonussteg ${v.step} är skickat till kommunen.`);
-    nav.push(`/arenden/${encodeURIComponent(v.caseId)}?flik=handelser`);
+    // Fälten skickades med anspråket – inget är osparat, så vakten ska inte fråga.
+    leaveWithoutAsking(() => nav.push(`/arenden/${encodeURIComponent(v.caseId)}?flik=handelser`));
   };
   return (
     <Card title="Skicka till kommunen" icon="send">

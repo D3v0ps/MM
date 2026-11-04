@@ -45,11 +45,11 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
   it("ekonom: Min vardag + Ekonomi med fakturakörningen för förra månaden enligt klockan", () => {
     expect(labels("ekonom")).toEqual([
       ["Min vardag", ["Min vecka /min-vecka #tasks"]],
-      ["Ekonomi", ["Fakturering /ekonomi", "Fakturakörning januari /ekonomi/2027-01", "Prislista /ekonomi/prislista"]],
+      ["Ekonomi", ["Fakturering /ekonomi", "Fakturakörning januari /ekonomi/2027-01", "Bonusfakturor /ekonomi/bonus", "Prislista /ekonomi/prislista"]],
     ]);
-    expect(labels("ekonom", "2027-01-05T08:00")[1][1]).toEqual(["Fakturering /ekonomi", "Fakturakörning december /ekonomi/2026-12", "Prislista /ekonomi/prislista"]);
+    expect(labels("ekonom", "2027-01-05T08:00")[1][1]).toEqual(["Fakturering /ekonomi", "Fakturakörning december /ekonomi/2026-12", "Bonusfakturor /ekonomi/bonus", "Prislista /ekonomi/prislista"]);
     // Utan klocka visas inte fakturakörningen (raden kommer när tiden är hämtad).
-    expect(labels("ekonom", null)[1][1]).toEqual(["Fakturering /ekonomi", "Prislista /ekonomi/prislista"]);
+    expect(labels("ekonom", null)[1][1]).toEqual(["Fakturering /ekonomi", "Bonusfakturor /ekonomi/bonus", "Prislista /ekonomi/prislista"]);
   });
   it("alla MB-roller börjar menyn med Min vecka, och högst en rollflik", () => {
     for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const) {

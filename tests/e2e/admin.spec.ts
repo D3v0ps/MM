@@ -76,11 +76,14 @@ test("avtal: konfiguration och ej fastställda värden – ett avtal, ingen väl
   const errors = await open(page, info, "/admin/avtal", ROBIN);
   await rendersOk(page);
   // AI-leverantören är fastställd sedan 2026-09-30 (Gemini Flash via Vertex AI EU). Gallringen av bilagor till beställningen
-  // togs bort 2026-10-08 (beslut 5: bilagor gallras inte automatiskt) – därför 10.
-  await expect(main(page)).toContainText("10 värden är inte fastställda – reglerna aktiveras inte");
+  // togs bort 2026-10-08 (beslut 5: bilagor gallras inte automatiskt) – därför 10. Incitamentsmodellen är fastställd sedan
+  // 2026-11-04 (bonussteg 1–5) – därför 9.
+  await expect(main(page)).toContainText("9 värden är inte fastställda – reglerna aktiveras inte");
   let t = await text(page);
   expect(t).not.toContain("Gallring av bilagor");
-  expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(9);
+  expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(8);
+  expect(t).toContain("Påslagen – bonussteg 1–5");
+  expect(t).toContain("Enligt avtalet – beloppet syns bara för ekonomen.");
   expect(!/\b35 %/.test(t) || t.includes("Internt mål")).toBe(true);
   expect(t).not.toMatch(/deadline/i);
   // Bara kommunavtal i Miljonmatch (beslut 2026-10-06): ett avtal i testdatat – ingen avtalsväljare, ingen jämförelse.
@@ -93,6 +96,8 @@ test("avtal: konfiguration och ej fastställda värden – ett avtal, ingen väl
   expect(t).toContain("Personuppgiftsbiträde – kommunen är personuppgiftsansvarig");
   await page.locator("summary", { hasText: "Visa JSON (contracts.config)" }).click();
   expect(await text(page)).toContain('"casePrefix": "BOT"');
+  // Bonusens tak är ett belopp – inte heller i JSON för systemadministratören.
+  expect(await text(page)).not.toContain("capOre");
   await expect(page.locator("summary", { hasText: "Dölj JSON (contracts.config)" })).toHaveCount(1);
   if (isDemo(info)) {
     await btn(page, "Öppna frågor till Botkyrka").click();
@@ -422,8 +427,9 @@ test("revisionslogg: läsbara värden, filter, export och markering", async ({ p
   await expect(main(page)).toContainText("Poster (3)");
   await page.locator("#log-case").fill("");
   // 23 poster: utskicket av den generiska bekräftelsen till em-104 finns inte sedan 2026-10-07, och testdatats ändring av
-  // startdatum (Karims beslut 2026-10-29) har sin loggrad.
-  await expect(main(page)).toContainText("Poster (23)");
+  // startdatum (Karims beslut 2026-10-29) har sin loggrad. Plus testdatats bonusanspråk och december månads bonusfaktura
+  // (Karims beslut 2026-11-04): 21 rader – 44 poster.
+  await expect(main(page)).toContainText("Poster (44)");
 
   // Exporten loggas och innehåller åtgärdskoden
   let csv = "";

@@ -38,6 +38,9 @@
 --                         har inga belopp. Ingen raderar.
 --      bonus_claim_decisions  läsa: åtkomst full, team, billing eller customer. Skapa: se punkt 2. Ingen ändrar eller raderar.
 -- 6. mm.customer_safe_config tar också bort bonusens tak i öre (bonus.capOre) i kommunens version av avtalet (contracts_public).
+-- 7. Vyn bonus_claims_public (som cases_public, 0013): ekonomen läser anspråken utan innehållet (underlaget, kommentaren,
+--    checklistan, verifieringens typ och kommunens motivering). Inloggade läser tabellen bara via vyn – direkt bara id, ärende,
+--    avtal, steg och läge.
 --
 -- Speglas i src/data/policy.ts (bonus_claims, bonus_claim_decisions, invoice_lines), src/data/schema.ts (TABLE_NAMES,
 -- UNIQUE_KEYS), src/core/config.ts (customerSafeConfig) och scripts/db/columns.ts.
@@ -332,10 +335,11 @@ create policy bonus_claims_update on public.bonus_claims for update to authentic
 -- ---------------------------------------------------------------- 4. Bonusfakturans rader
 alter table public.invoice_lines add column if not exists bonus_claim_id text references public.bonus_claims (id);
 create index if not exists invoice_lines_bonus_claim_id_idx on public.invoice_lines (bonus_claim_id);
--- Periodiska rader: en per ärende och faktura (som förut). Bonusrader: en per anspråk och faktura.
-drop index if exists public.invoice_lines_draft_case_key;
+-- Periodiska rader: en per ärende och faktura (som förut). Bonusrader: en per anspråk och faktura. Det nya indexet skapas innan
+-- det gamla tas bort, så att det aldrig finns ett ögonblick utan regeln.
 create unique index if not exists invoice_lines_draft_case_periodic_key on public.invoice_lines (invoice_draft_id, case_id) where bonus_claim_id is null;
 create unique index if not exists invoice_lines_draft_bonus_claim_key on public.invoice_lines (invoice_draft_id, bonus_claim_id) where bonus_claim_id is not null;
+drop index if exists public.invoice_lines_draft_case_key;
 -- En bonusfaktura per avtal, månad och grupp (som de periodiska, 0023).
 create unique index if not exists invoice_drafts_bonus_key on public.invoice_drafts (contract_id, month, grouping_key) where kind = 'bonus';
 
@@ -383,6 +387,40 @@ as $$
     ) c
   ) b
 $$;
+
+-- ---------------------------------------------------------------- 7. Läsning av bonusanspråken: vyn bonus_claims_public
+-- RLS döljer rader, inte kolumner (samma mönster som cases_public i 0013). Ekonomen (åtkomsten 'billing') läser anspråken för
+-- bonusfakturan – bonussteget, läget och beslutet – men aldrig innehållet: redovisningsunderlaget (snapshot med progression,
+-- mål och närvaro), coachens kommentar (basis), checklistan, verifieringens typ och kommunens motivering. Därför:
+--   * vyn bonus_claims_public ger samma rader som bonus_claims_select, och för 'billing' är basis tom, checklist {}, snapshot,
+--     verification_kind och decision_note null,
+--   * inloggade läser bara kolumnerna id, case_id, contract_id, step och status direkt i tabellen (villkoren i ändringar och
+--     triggrarnas uppslag ovan) – allt annat via vyn. Ändringar och nya rader går som förut till tabellen, med samma policyer.
+-- SupabaseRepo läser tabellen bonus_claims via bonus_claims_public (src/data/supabase/index.ts, USER_READ_VIEWS). Service role
+-- läser tabellen direkt (jobbet och systemstegen). jsonb_populate_record gör funktionen oberoende av kolumnordningen.
+create or replace function mm.visible_bonus_claims() returns setof public.bonus_claims
+language sql stable security definer set search_path = public, mm
+as $$
+  -- policy.ts bonus_claims.read: åtkomst full, team eller billing; kommunen (customer) bara skickade och beslutade.
+  select (case
+            when a.access = 'billing' then jsonb_populate_record(k, '{"basis": "", "checklist": {}, "snapshot": null, "verification_kind": null, "decision_note": null}'::jsonb)
+            else k
+          end).*
+  from public.bonus_claims k
+  join mm.my_case_access() a on a.case_id = k.case_id
+  where a.access in ('full', 'team', 'billing') or (a.access = 'customer' and k.status in ('submitted', 'approved', 'rejected'))
+$$;
+revoke all on function mm.visible_bonus_claims() from public, anon;
+grant execute on function mm.visible_bonus_claims() to authenticated, service_role;
+
+drop view if exists public.bonus_claims_public;
+create view public.bonus_claims_public with (security_invoker = true) as select * from mm.visible_bonus_claims();
+revoke all on public.bonus_claims_public from anon, authenticated;
+grant select on public.bonus_claims_public to authenticated, service_role;
+
+-- Direkt läsning av tabellen: bara kolumnerna som ändringarnas villkor och triggrarnas uppslag använder.
+revoke select on public.bonus_claims from authenticated;
+grant select (id, case_id, contract_id, step, status) on public.bonus_claims to authenticated;
 
 reset lock_timeout;
 reset statement_timeout;

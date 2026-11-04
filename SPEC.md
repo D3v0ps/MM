@@ -95,6 +95,13 @@ Tillägg från sammanfogningen (2026-10-29): filer på deltagarkortet och Ändra
 
 ---
 
+**Karims beslut 2026-11-04 – bonusstegen (byggt 2026-11-04, migration 0039 och `supabase/manual/2026-11-bonus-botkyrka.sql`):** incitamentsmodellen är fastställd och godtagen av Botkyrka (fråga 13 besvarad). Bonus är påslagen i avtalet (§6.2, §7.17).
+
+1. **Fem bonussteg** (ordet är alltid "bonussteg", aldrig "nivå"), belopp exkl. moms (25 %), artiklarna BOT-BONUS-1 … BOT-BONUS-5 i prislistan: 1 Dokumenterad progression 1 500 kr, 2 Stark progression 3 000 kr, 3 Arbete eller studier 6 000 kr, 4 Hållbart resultat +4 000 kr, 5 Snabbhetspremie +2 000 kr. Stegen räknas aldrig av mot varandra, varje steg högst en gång per ärende, taket är 12 000 kr per ärende. "I anslutning till insatsen" = under insatsen eller inom tre månader efter slutdatum.
+2. **Förslag från regeln – människan skickar:** jobbet föreslår (ingen AI); coachen granskar, fyller i verifieringens typ och datum (steg 2–5) eller checklistan (steg 1) och skickar. Inga dokument i Miljonmatch eller i kommunens portal – bara verifieringens typ och datum.
+3. **Kommunen beslutar i portalen** (Läs och besluta – godkänn eller avslå, med frivillig motivering), en gång per anspråk. Ett beslut som kom med mejl registreras av samordnaren eller avtalsansvarig med en anteckning – mejl är kommunens formella kanal.
+4. **Egen bonusfaktura** per avtal och månad (månaden för kommunens beslut), skild från månadens faktura, med taket räknat i beslutsordning. Belopp syns bara för ekonomen – inte för coachen, kommunen eller i redovisningsunderlaget.
+
 **Granskningen 2026-10-07 (efter omgång A och B):** självregistreringen kräver synligheten "own" och avvisar plusadresser, enheten för synligheten "unit" tas bara från medlemskapet, och taket för nya konton räknas på unika adresser och per IP (§4). Kommunen läser inte avtalets viten, bonusanspråken eller beställarrapporten (0026). Bilagor i avböjda beställningar gallras och lagringen stäms av mot bilagorna (§7.2). En returnerad faktura görs om från dagens underlag, en avbruten skapelse kan köras om, och reservläget en faktura per ärende använder ärendets referens (§7.15, 0023). Migrationens konvertering av gamla fakturor räknar som den gamla modellen. CLAUDE.md punkt 8 ändras av Karim.
 
 **Nytt i v0.2:** namnet är fastställt, upphandlingsdokumenten är inlästa och Botkyrkas besked är inarbetade. Det viktigaste som ändrats: beställningar sker formellt via mejl, närvarorapport ska lämnas varje vecka, fakturor kräver kommunens beställarreferens och samlingsfakturor accepteras inte utan särskild överenskommelse.
@@ -176,7 +183,7 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 | Arbetsgivarmatchare / SYV/metodstöd | MB | Som den egna inloggningsrollen | Platser i ärendets team (inte inloggningsroller): vem som helst av Miljonbemannings personal utom ekonom och systemadministratör. Styr notiser och Mina ärenden | – |
 | Chef / controller | MB | Allt i läsläge utom belopp (ofakturerat och viten visas som antal), KPI:er, flaggor, revisionslogg | Kvitterar flaggor, åtgärdsplaner, loggkontroll. Får ändå spara, dela inom Miljonbemanning och arkivera egna rapporter i rapportbyggaren (§7.11 k, beslut 2026-10-02) | Microsoft |
 | Ekonom | MB | Ärendenummer, perioder, avtalsområde, referenser, fakturaunderlaget, fakturorna med belopp och prislistan – inga anteckningar, rapporter, gruppaktiviteter, nivåer eller grupper. Den enda rollen som ser belopp (beslut 2026-10-07; sedan 2026-10-09 alltid för den som har rollen, också med fler roller) | Fakturakörning, beställarreferens och inköpsordernummer per faktura, Fortnox, kreditering, export | Microsoft |
-| Kommunens handläggare | Beställare | Egna beställda ärenden (självregistrering kräver `customerVisibility: own` – kontrolleras i koden när kontot skapas). Inga belopp: inte avtalets viten och inte bonusanspråken (0026) | Beställer, bifogar filer, läser rapporter, skickar meddelanden, kvitterar, beslutar om bonusanspråk (fas 3, i en vy utan belopp), fyller i Mina uppgifter | E-post + engångskod; kontot skapas själv på avtalets kommundomän (beslut 2026-10-07) |
+| Kommunens handläggare | Beställare | Egna beställda ärenden (självregistrering kräver `customerVisibility: own` – kontrolleras i koden när kontot skapas). Inga belopp: inte avtalets viten (0026) och inga belopp eller tak för bonus – skickade och beslutade bonusanspråk i egna ärenden utan belopp (0039, Karims beslut 2026-11-04) | Beställer, bifogar filer, läser rapporter, skickar meddelanden, kvitterar, beslutar om bonusanspråk (fas 3, i en vy utan belopp), fyller i Mina uppgifter | E-post + engångskod; kontot skapas själv på avtalets kommundomän (beslut 2026-10-07) |
 | Deltagare (fas 4) | – | Egen plan och bokningar | Bokar, svarar på puls | BankID (senare) |
 
 **Alla på Miljonbemanning ser alla ärenden (beslut 2026-10-09, Karim):** "Alla på Miljonbemanning ska kunna se varandras deltagare och göra saker i varandras ärenden – men kommunen ser bara sina egna. Vi ska fortfarande kunna tilldela deltagare, så att den som är tilldelad får notiser, mejl och påminnelser." Coachen (och den vilande rollen handledare) får därför full åtkomst till alla ärenden i avtal de är medlemmar i (`caseAccess` i `src/core/access.ts`, `mm.case_access_level` i migration 0029) och skriver där rollen tillåter (närvaro, avstämningar, bedömningar, händelser, anteckningar, meddelanden, praktik). Tilldelningen (huvudcoach och team) finns kvar och styr notiser, mejl, påminnelser, nyckeltal, coachens Mina ärenden och Min vecka; ärendelistan har valet Mina ärenden / Alla ärenden. Byte av huvudcoach och Ändra team är fortfarande samordnare och avtalsansvarig. Den vilande spärren för skyddade personuppgifter gäller som förut (en coach som inte är huvudcoach ser då bara ärendenummer och status). Ekonom, chef, admin och kommunens handläggare är oförändrade.
@@ -230,7 +237,7 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 | organizations | Leverantörer och beställare | name, org_nr, kind (supplier/customer), email_domains[] |
 | contracts | Avtal = konfiguration | supplier_id, customer_id, name, contract_number, dnr, starts_on, ends_on, case_prefix, data_role (processor/controller), config (jsonb, zod-validerad), status |
 | contract_areas | Avtalsområden | contract_id, code (A–L), name, active |
-| price_items | Prislista med giltighet | contract_id, area_id?, code, unit (participant_week/month/package/each), package_months?, price_ore, vat_rate, valid_from, valid_to, fortnox_article_no |
+| price_items | Prislista med giltighet | contract_id, area_id?, code, unit (participant_week/month/package/each; bonus_step för bonusstegen – utan avtalsområde, koden ur `bonus.steps`), package_months?, price_ore, vat_rate, valid_from, valid_to, fortnox_article_no |
 | profiles | Användare | id (= auth.users), organization_id, full_name, email, phone, title, active |
 | memberships | Roll per avtal | user_id, contract_id, role (handledare vilande sedan 2026-10-09), customer_unit? |
 | buyer_references | Kommunens beställarreferenser | customer_id, reference (8–10 siffror), unit, default_for_user_id?, active |
@@ -259,13 +266,14 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 | reports | Alla rapporter och intyg | contract_id, case_id?, recipient_user_id?, kind (weekly_attendance/monthly/final/order_confirmation/customer_summary/skills_certificate/statistics), period_start, period_end, status, snapshot (jsonb: den frysta vy-modellen och, för månads- och slutrapporter, fakta för kommunens resultatfil), pdf_path, version, due_at, approved_by, approved_at, delivered_at, delivered_to[], opened_at |
 | pulse_invites | Pulsutskick | case_id, token_hash, channel, language, occasion (week2/exit/periodic), sent_at, expires_at, used_at |
 | pulse_responses | Pulssvar | invite_id (unik – ett svar per länk), answers (jsonb), language, contact_requested, submitted_at |
-| bonus_claims | Bonusanspråk (fas 3) | case_id, kind (work/progression), basis, evidence_paths[], submitted_at, customer_decision, decided_by, decided_at, amount_ore, invoice_draft_id |
+| bonus_claims | Bonusanspråk (fas 3, beslut 2026-11-04, migration 0039) – ett per bonussteg och ärende som räknas (förslag, skickat, godkänt; unikt), avslagna och återtagna står kvar | case_id, contract_id, step (bonussteg 1–5), kind (progression för 1–2, work för 3–5), status (suggested/submitted/approved/rejected/withdrawn), source (auto/manual), basis (kommentar, högst 500 tecken), outcome_event_id?, follows_claim_id? (steg 4–5: steg 3-anspråket), reached_on, verification_kind, verification_on, checklist (steg 1), snapshot (det frysta redovisningsunderlaget), created_by/at, submitted_by/at, withdrawn_by/at, customer_decision, decided_by/at, decision_note. amount_ore alltid null och evidence_paths alltid tom (kontroller) – beloppet står bara på bonusfakturan. Inloggade läser via vyn `bonus_claims_public`: ekonomen utan underlag, kommentar, checklista, verifieringens typ och motivering |
+| bonus_claim_decisions | Kommunens beslut om ett bonusanspråk (0039) – append-only, ett per anspråk; triggern ändrar anspråket i samma transaktion | claim_id (unik), case_id, contract_id, decision (approved/rejected), note?, via (portal/mejl), decided_by (handläggaren; null när beslutet kom med mejl), recorded_by, decided_at |
 | kpi_snapshots | Beräknade KPI:er | contract_id, kpi_key, window, value, numerator, denominator, computed_at |
 | alerts | Flaggor | contract_id, case_id?, kind, severity, message, recipient_roles[], created_at, acknowledged_by, acknowledged_at, action_plan |
 | deadlines | SLA-bevakning | contract_id, case_id?, report_id?, kind, due_at, met_at, status |
 | billing_runs | Fakturakörning per månad | contract_id, month, status, created_by |
 | invoice_drafts | En faktura per avtal och månad (Botkyrka, `billing.invoicePer: contract_and_month`) eller per ärende och månad (`case_and_month`) – migration 0023 | billing_run_id, contract_id, month, kind (periodic/bonus), case_id? (bara vid en faktura per ärende), grouping_key (`avtal`; tilläggsfakturor `avtal-tillagg-2` …), buyer_reference (en per faktura, fylls i av ekonomen), purchase_order_number? (bara kommunens 99-nummer; tomt = inget), invoiced_object (avtalsnumret – ärendenumret står på varje rad), accrued_ore, remaining_ore, status, approved_by/at, manual_invoice_no, fortnox_document_number, fortnox_idempotency_key (unik), fortnox_created_at, synced_at. Unikt: avtal + månad + grupp för periodiska fakturor |
-| invoice_lines | Fakturans rader, en per ärende (unikt per faktura). Frysta när fakturan skapas i Fortnox eller markeras som manuellt fakturerad – en skapad faktura ändras aldrig (0023) | invoice_draft_id, case_id, price_item_id, quantity, unit_price_ore, vat_rate, description, iso_weeks[], zero_attendance_weeks[], note (upparbetat och återstående, Peppol BT-127) |
+| invoice_lines | Fakturans rader, en per ärende (unikt per faktura) – på bonusfakturan en per bonussteg (unikt per faktura och anspråk, 0039). Frysta när fakturan skapas i Fortnox eller markeras som manuellt fakturerad – en skapad faktura ändras aldrig (0023) | invoice_draft_id, case_id, price_item_id, quantity, unit_price_ore, vat_rate, description, iso_weeks[], zero_attendance_weeks[], note (upparbetat och återstående, Peppol BT-127; på bonusfakturan bonussteget och beslutsdagen), bonus_claim_id? (bara på bonusfakturan, för ett godkänt anspråk – triggern invoice_lines_bonus_check) |
 | invoice_credits | Kreditering av en returnerad faktura som görs om (0023) | contract_id, month, invoice_draft_id (fakturan som krediterades; case_id bara i äldre rader), credited_at, credited_by, buyer_reference |
 | integrations | Fortnox, Graph, SMS, e-post | kind, status, config, secrets_enc, token_expires_at |
 | jobs | Bakgrundsjobb | kind, payload, status, attempts, run_after, last_error |
@@ -352,7 +360,19 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
     "format": "peppol_bis_3_via_fortnox",
     "fallback": ["export_xlsx_pdf", "botkyrka_fakturaportal"]
   },
-  "bonus": { "enabled": false, "model": "ATT_FASTSTÄLLA enligt incitamentsmodellen", "separateInvoice": true },
+  "bonus": {
+    "enabled": true, "model": "Miljonbemannings incitamentsmodell med bonussteg 1–5, godtagen av Botkyrka kommun", "separateInvoice": true,
+    "capOre": 1200000, "offset": "never", "attendanceMinPercent": 80, "speedWeeks": 10, "sustainMonths": 3, "resultWindowMonthsAfterEnd": 3,
+    "step2EventKinds": ["praktik_startad", "validering_uppnadd", "yrkesbevis", "intervju_arbetsgivarkontakt"],
+    "step3EventKinds": ["arbete_paborjat", "studier_paborjade"],
+    "steps": [
+      { "step": 1, "label": "Dokumenterad progression", "priceItemCode": "BOT-BONUS-1" },
+      { "step": 2, "label": "Stark progression", "priceItemCode": "BOT-BONUS-2" },
+      { "step": 3, "label": "Arbete eller studier", "priceItemCode": "BOT-BONUS-3" },
+      { "step": 4, "label": "Hållbart resultat", "priceItemCode": "BOT-BONUS-4" },
+      { "step": 5, "label": "Snabbhetspremie", "priceItemCode": "BOT-BONUS-5" }
+    ]
+  },
   "pulse": { "occasions": ["week2", "exit"], "periodicEveryDays": 30, "languages": ["sv", "en", "ar", "so"], "minNForAggregate": 5 },
   "statistics": { "onRequestMaxPerYear": 2, "free": true },
   "termination": { "returnDataWithinDays": 31, "deleteAfterReturn": true },
@@ -523,7 +543,7 @@ Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "n
 
 - **Händelsetyper** (mall 02 avsnitt 5): praktik/arbetsplatsförlagt moment startat · anställningsintervju eller konkret arbetsgivarkontakt · arbetserbjudande · arbete påbörjat · studier påbörjade/antagen · validering/certifiering uppnådd · annat konkret resultat. Lägg till för validering: reell kompetens dokumenterad · vägledning till formell validering · yrkeskompetensbevis/diplom utfärdat. Fält: datum, aktör (arbetsgivare/skola), verifiering (typ + ev. fil), kommentar.
 - **Avslut:** datum + avslutsorsak – arbete · studier · avbrott: flytt · avbrott: kommunens beslut · avbrott: deltagarens val · avbrott: övriga skäl · planerat avslut utan resultat.
-- **Resultatklassning** (resultat / ej resultat / exkluderas ur nämnaren) styrs av avtalets resultatdefinition. Arbete och studier räknas som resultat först när verifiering registrerats; innan dess visas de som "preliminärt". Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag (§7.17).
+- **Resultatklassning** (resultat / ej resultat / exkluderas ur nämnaren) styrs av avtalets resultatdefinition. Arbete och studier räknas som resultat först när verifiering registrerats; innan dess visas de som "preliminärt". Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag och ger ett förslag till bonusanspråk (§7.17).
 - Avslut skapar automatiskt ett utkast till slutrapport och en exit-pulsmätning. Bara rollen coach avslutar en insats (`arenden.caseClose`, fliken Händelser och utfall).
 - **Avbrott via mejl (beslut 2026-10-09):** kommunen mejlar avrop@ med ärendenumret (portalen har ingen funktion för avbrott). Mejlet står i avropsinkorgen som Övrigt med etiketten "Avbrott", kopplat till ärendet om numret finns. Samordnaren svarar med säkert meddelande och ber huvudcoachen avsluta insatsen samma dag, så att fakturan stämmer.
 - **Grupper vid avslut:** placeringen i nivå, grupper och taggar tas inte bort automatiskt, men ett avslutat ärende syns inte i Anteckningar, räknas inte i antalet per grupp och kan inte bjudas in till aktiviteter (§7.20).
@@ -683,12 +703,27 @@ Licenser att kontrollera: Fortnox Integration (om den inte ingår i ert paket) o
 - Chefsvyn visar antal varningar och öppna åtgärdsplaner med förfallodatum.
 - **Kommunens godkännande av åtgärdsplanen** registreras av avtalsansvarig (beslut 2026-10-07 – kommunens chef finns inte längre i portalen). Inget mejl till kommunen om planen.
 
-### 7.17 Bonusanspråk (fas 3)
+### 7.17 Bonusanspråk – bonussteg 1–5 (Karims beslut 2026-11-04)
 
-- När arbete påbörjas i anslutning till genomförd insats (verifierat), eller progression når nivån i incitamentsmodellen, skapas ett förslag till bonusanspråk med redovisningsunderlag (verifiering och relevanta rapportutdrag).
-- Anspråket skickas till kommunen i portalen, som godkänner eller avslår – kommunen avgör om en anställning är sammanhållen.
-- Godkänt anspråk ger en separat bonusfaktura, åtskild från periodfakturorna.
-- Reglerna läggs i `contracts.config.bonus` när incitamentsmodellen är fastställd (§13). Tills dess är funktionen avstängd, men underlaget samlas in från dag 1.
+Incitamentsmodellen är fastställd och godtagen av Botkyrka (§13 fråga 13). Allt läses ur `contracts.config.bonus` (§6.2) och prislistan – inget belopp eller värde står i koden. Ordet är alltid **bonussteg**, aldrig "nivå".
+
+| Steg | Namn | Belopp exkl. moms | Regel för förslaget |
+|---|---|---|---|
+| 1 | Dokumenterad progression | 1 500 kr | Närvaro minst `attendanceMinPercent` (80 %) från start till i dag eller slutdatum och minst två godkända månadsbedömningar (före och efter). Coachen bockar av fyra punkter med var underlaget finns: genomförd individuell plan, förbättrade ansökningshandlingar, genomförd branschintroduktion, aktivt deltagande i arbetsgivarnära aktivitet. En gång per ärende |
+| 2 | Stark progression | 3 000 kr | En händelse av typerna `step2EventKinds` (praktik, validering, yrkesbevis, intervju) under insatsen. Jobbspår och antagning till utbildningsförberedande aktivitet har ingen händelsetyp – coachen skapar steget själv |
+| 3 | Arbete eller studier | 6 000 kr | En händelse av typerna `step3EventKinds` med registrerad verifiering, under insatsen eller inom `resultWindowMonthsAfterEnd` (3) månader efter slutdatum – sista dagen räknas, dagen efter inte. Resultatdatum = händelsens dag |
+| 4 | Hållbart resultat | +4 000 kr | `sustainMonths` (3) månader efter steg 3:s resultatdatum, när steg 3 är skickat eller godkänt. Coachen fyller i en ny verifiering daterad tidigast den dagen |
+| 5 | Snabbhetspremie | +2 000 kr | Steg 3 nått senast `speedWeeks` (10) veckor från start – föreslås tillsammans med steg 3 |
+
+- **Inga avräkningar och ett tak:** stegen läggs ihop (`offset: "never"`), varje steg högst en gång per ärende (ett anspråk som räknas – förslag, skickat eller godkänt – per ärende och steg, unikt i databasen), och summan per ärende stannar vid `capOre` (12 000 kr). Taket räknas på bonusfakturan i ordning efter kommunens beslut (beslutstid, sedan id): varje godkänt anspråk får min(pris, tak − det som redan godkänts). Ett sänkt belopp har en anmärkning för ekonomen och står i radens text.
+- **Förslag från regeln – ingen AI:** jobbet `report_schedule` (och minnesläget i samma steg) skapar förslag (`status = suggested`, `source = auto`) och loggar varje förslag. Samma underlag föreslås aldrig två gånger – inte heller efter ett avslag eller ett återtagande. Coachen kan alltid skapa ett anspråk själv (`source = manual`); ett avslaget hindrar inte ett nytt. Steg 4 och 5 bygger på ett anspråk för steg 3 (`follows_claim_id`), och återtas steg 3 följer de med.
+- **Coachen granskar och skickar** (`/bonus/:id`, kortet Bonus under deltagarkortets Händelser och Min vecka "Bonus att granska"): underlaget i ärendet, verifieringens typ och datum (steg 2–5) eller checklistan (steg 1), en kort kommentar (högst 500 tecken, inga personnummer), förhandsvisningen av redovisningsunderlaget och Skicka till kommunen (bekräftas). Ett skickat anspråk kan återtas tills kommunen beslutat. Alla som arbetar i ärendet (coach, samordnare, avtalsansvarig) kan göra det.
+- **Redovisningsunderlaget** (PDF med `@react-pdf/renderer`, `redovisningsunderlag-bonus-<ärendenummer>-steg<n>.pdf`) byggs bara av godkända uppgifter och fryses när anspråket skickas (`bonus_claims.snapshot`): avtal och ärendenummer, bonussteget och regeln, perioden, yrkesområde och yrkesspår, mål ur den senaste godkända planen, närvaron, egna aktiviteter per typ, progressionen i första och senaste godkända månadsbedömning, händelsen, verifieringens typ och datum, arbetsgivaren eller utbildningsanordnaren, checklistan och kommentaren. Aldrig belopp, nivå, taggar, gruppaktiviteter, gruppmål, personnummer eller dokument. Visning och nedladdning loggas.
+- **Kommunen beslutar i portalen** (`/portal/bonus/:id`, en sak per skärm: läs, besluta, bekräfta): handläggaren ser bara skickade och beslutade anspråk i sina egna ärenden – aldrig förslag eller återtagna – och godkänner eller avslår en gång, med frivillig motivering. Steg 4 och 5 kan godkännas först när steg 3 är godkänt. Startsidans Att göra räknar anspråken. Mejlet (`bonusansprak`) har bara ärendenumret och länken till portalen. Kommunen avgör om en anställning är sammanhållen.
+- **Beslut som kom med mejl** (mejl är kommunens formella kanal): samordnaren eller avtalsansvarig registrerar det på granskningssidan med en anteckning om mejlet (`via = mejl`, ingen beslutsfattare).
+- **Huvudcoachen får en notis** i appen när kommunen beslutat (`bonus_decision`, under Följ upp på Min vecka) – utan namn.
+- **Bonusfakturan** (`invoice_drafts.kind = 'bonus'`, en per avtal och månad för kommunens beslut, tilläggsfakturor som för månadens faktura): en rad per bonussteg (antal 1, enhet st, artikel ur prislistan, anmärkning med bonussteget och beslutsdagen), egen beställarreferens och inköpsordernummer, Godkänn, Skapa i Fortnox eller Markera som manuellt fakturerad, och med i Excel-underlaget. Bonus står aldrig på månadens faktura. `/ekonomi/bonus`, Min vecka och kortet Bonusfakturor på Fakturering. Bara ekonomen ser belopp och taket; prislistan visar bonusstegen för sig.
+- **Begränsade testare** ser inget om bonus (ett ekonomiskt villkor).
 
 ### 7.18 Deltagarkortet: tidslinje, anteckningar och månadsunderlag
 
@@ -898,7 +933,7 @@ Auth och roller, avtalskonfiguration, mejlbeställning och portal, ärendenummer
 
 ### Fas 3 – Mervärde
 
-- [ ] Bonusanspråk med redovisningsunderlag, kommunens beslut i portalen och separata bonusfakturor.
+- [x] Bonusanspråk med redovisningsunderlag, kommunens beslut i portalen och separata bonusfakturor (bonussteg 1–5, Karims beslut 2026-11-04, migration 0039 – §7.17).
 - [ ] Yrkeskompetensbevis/diplom som PDF.
 - [ ] Arbetsgivarregister och praktikplatser med de fyra rätten.
 - [ ] Statistik på begäran och fullständig dataexport + radering vid avtalsslut.
@@ -930,7 +965,7 @@ Fasen hette tidigare "KK-redo" – Kammarkollegiets krav byggs inte i Miljonmatc
 | 10 | Vad är den "avtalade säkra rutinen" för skyddade personuppgifter? | Botkyrka | Stängd av beslutet 2026-10-07 (skyddet borttaget ur appen, spärren vilande). Att frågan inte ställs är stämt av med Botkyrka 2026-10-08 |
 | 11 | Gallring under avtalstiden (vid avtalsslut gäller återlämning inom en månad) | Botkyrka | Öppen |
 | 12 | Progressionsområden: räcker tillägget språk, eller vill kommunen också följa hälsa och livskvalitet (AFK 7.8)? | Botkyrka + MB | Öppen |
-| 13 | Incitamentsmodell: vilken modell gäller och när kan bonus begäras? | Botkyrka + MB | Öppen |
+| 13 | Incitamentsmodell: vilken modell gäller och när kan bonus begäras? | Botkyrka + MB | **Besvarad 2026-11-04 (Karims beslut):** bonussteg 1–5 med tak 12 000 kr per deltagare, inga avräkningar, egen bonusfaktura – godtagen av Botkyrka (§7.17) |
 | 14 | Beställarrapportens innehåll och frekvens | Botkyrka | Öppen – sedan 2026-10-07 en rapport per avtal och månad som Miljonbemanning lämnar till kommunen utanför Miljonmatch |
 | 15 | Ingår Fortnox Integration och e-faktura i ert paket? Vem godkänner API-kopplingen? | MB ekonomi | Öppen |
 | 16 | Vem är systemägare, och vem sköter Terraform-koden för DNS (Google Cloud DNS)? | MB | Öppen – appens e-post använder inte längre miljonbemanning.se (avsändaren är `notis@miljonmatch.se` sedan 2026-10-01, DNS hos one.com), så Resend-posterna i Terraform-zonen behövs inte för appen |

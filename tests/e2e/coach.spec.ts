@@ -677,9 +677,9 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   await expect(events).toHaveCount(2);
   await btn(group(page, "Typ av händelse"), "Arbete påbörjat").click();
   await expect(main(page).getByText("Möjligt bonusunderlag", { exact: true })).toBeVisible();
-  // Bonus är avstängd: en rad med en bricka, inget eget kort (kortet visas bara när bonus är aktiv i avtalet).
-  await expect(page.getByText("Bonus avstängd – modellen ej fastställd")).toBeVisible();
-  await expect(card(page, "Bonus")).toHaveCount(0);
+  // Bonus är påslagen (Karims beslut 2026-11-04): kortet Bonus leder till bonusstegen på deltagarkortet – ingen avstängd-bricka.
+  await expect(page.getByText("Bonus avstängd – modellen ej fastställd")).toHaveCount(0);
+  await expect(card(page, "Bonus").getByRole("link", { name: "Bonus på deltagarkortet" })).toBeVisible();
   await btn(page, "Tumba Städ & Fastighet AB").click();
   await expect(page.locator("#ev-actor")).toHaveValue("Tumba Städ & Fastighet AB");
   await btn(group(page, "Verifiering"), "Anställningsbevis").click();

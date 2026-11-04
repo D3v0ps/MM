@@ -296,7 +296,7 @@ const chooseRole = (userId: string, role: string) => async (tx: Tx) => {
 };
 
 /** Tabellen som RLS-läsningen görs mot: avtal och ärenden läses via vyerna contracts_public och cases_public (se supabase/README.md). */
-const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t);
+const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t === "bonus_claims" ? "bonus_claims_public" : t);
 const COUNT_SQL = TABLE_NAMES.map((t) => `select '${t}' as t, count(*)::int as n from public.${readSource(t)}`).join(" union all ");
 
 async function pgCounts(tx: Tx): Promise<Record<string, number>> {
@@ -3485,6 +3485,31 @@ describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och 
     expect(memRead("bonus_claims", "u-lars")).toEqual(data.bonus_claims.map((k) => k.id).sort());
   });
 
+  it("ekonomen läser anspråken utan innehållet (bonus_claims_public) – underlaget, kommentaren och motiveringen bara för den som arbetar i ärendet och kommunen", async () => {
+    type Row = { id: string; status: string; step: number; basis: string; snapshot: unknown; checklist: unknown; verification_kind: string | null; decision_note: string | null };
+    const view = (key: string) =>
+      asPersona(findPersona(key), async (tx) =>
+        (await tx.query<Row>("select id, status, step, basis, snapshot, checklist, verification_kind, decision_note from public.bonus_claims_public where id in ('bc-5', 'bc-6') order by id")).rows);
+    const lars = await view("u-lars");
+    expect(lars.map((r) => [r.id, r.status, r.step])).toEqual([["bc-5", "rejected", 3], ["bc-6", "submitted", 2]]);
+    for (const r of lars) expect({ basis: r.basis, snapshot: r.snapshot, checklist: r.checklist, verification_kind: r.verification_kind, decision_note: r.decision_note }).toEqual({ basis: "", snapshot: null, checklist: {}, verification_kind: null, decision_note: null });
+    // Den som arbetar i ärendet och kommunen (skickade och beslutade) läser innehållet.
+    for (const key of ["u-amira", "k-maria"]) {
+      const rows = await view(key);
+      expect(rows.map((r) => [r.id, r.basis, (r.snapshot as { v?: number } | null)?.v ?? null]), key).toEqual([["bc-5", "Kommentar", 1], ["bc-6", "Kommentar", 1]]);
+    }
+    // Direkt i tabellen: bara id, ärende, avtal, steg och läge – aldrig innehållet, för någon inloggad.
+    for (const key of ["u-lars", "u-amira", "k-maria"]) {
+      const got = await asPersona(findPersona(key), async (tx) => ({
+        ok: await attempt(tx, "select id, case_id, contract_id, step, status from public.bonus_claims"),
+        snapshot: await attempt(tx, "select snapshot from public.bonus_claims"),
+        basis: await attempt(tx, "select basis from public.bonus_claims"),
+      }));
+      expect([got.ok.ok, got.snapshot.ok, got.basis.ok], key).toEqual([true, false, false]);
+      expect(got.snapshot, key).toMatchObject({ code: "42501" });
+    }
+  });
+
   it("beloppet står aldrig på anspråket och inga dokument – för någon, också servern", async () => {
     expect(data.bonus_claims.every((k) => k.amountOre === null && k.evidencePaths.length === 0)).toBe(true);
     expect({ pg: await pgUpdate("bc-1", { amountOre: 150000 }, "u-amira"), mem: memUpdate("bc-1", { amountOre: 150000 }, "u-amira") }).toEqual({ pg: false, mem: false });
@@ -3530,7 +3555,7 @@ describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och 
     // Anspråket ändras av triggern – och ett andra beslut nekas (en rad per anspråk).
     const after = await asPersona(findPersona("k-maria"), async (tx) => {
       await tx.query(insertSql("bonus_claim_decisions", ok as unknown as Record<string, unknown>));
-      const k = (await tx.query<{ status: string; customer_decision: string; decided_by: string }>("select status, customer_decision, decided_by from public.bonus_claims where id = 'bc-6'")).rows[0];
+      const k = (await tx.query<{ status: string; customer_decision: string; decided_by: string }>("select status, customer_decision, decided_by from public.bonus_claims_public where id = 'bc-6'")).rows[0];
       const again = await attempt(tx, insertSql("bonus_claim_decisions", { ...ok, id: "bcd-t-igen", decision: "rejected" } as unknown as Record<string, unknown>));
       return { k, again };
     });

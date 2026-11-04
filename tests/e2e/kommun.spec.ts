@@ -629,7 +629,8 @@ test("5b. uppgift från Miljonbemanning, avböjd beställning, orderbekräftelse
   expect(t).not.toMatch(/Händelser i dina ärenden|kunde inte tas emot|Ny ansvarig coach/i);
   const unread = await main(page).locator("section").filter({ hasText: /Olästa rapporter och meddelanden/ }).first().innerText();
   expect(unread, "ny orderbekräftelse bland de olästa").toMatch(/Orderbekräftelse[\s\S]*BOT-27-0051/);
-  expect(t, "uppgiften customer_decision").toMatch(/Att göra \(1\)/i);
+  // Uppgiften och testdatats två bonusanspråk att besluta om (BOT-26-0027, Karims beslut 2026-11-04).
+  expect(t, "uppgiften customer_decision och bonusanspråken").toMatch(/Att göra \(3\)/i);
   expect(t).toMatch(/Miljonbemanning behöver ditt beslut om BOT-26-0148/);
   expect(t, "inga förkortningar i datum").not.toMatch(/ kl\. |\b(jan|feb|dec)\b/);
   await noHScroll(page, "Startsidan med uppgift och olästa");
@@ -646,7 +647,9 @@ test("5b. uppgift från Miljonbemanning, avböjd beställning, orderbekräftelse
   await btn(page, "Markera som klar").first().click();
   await expect(main(page)).not.toContainText("Miljonbemanning behöver ditt beslut", { timeout: 10_000 });
   await go(page, info, "/portal", MARIA);
-  await expect(main(page), "uppgiften är klar").not.toContainText(/Att göra \(/);
+  // Bonusanspråken står kvar tills Maria beslutat.
+  await expect(main(page), "uppgiften är klar").toContainText(/Att göra \(2\)/);
+  await expect(main(page)).not.toContainText("Miljonbemanning behöver ditt beslut om BOT-26-0148");
 
   // Rättelse: den levererade rapporten finns kvar tills den nya versionen är levererad (Sofia är Nadias coach efter bytet)
   await go(page, info, `/rapporter/${NADIA_DEC}`, SOFIA);

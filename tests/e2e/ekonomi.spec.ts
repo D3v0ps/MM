@@ -286,7 +286,10 @@ test("6 och 8. reservväg: Excel- och CSV-export och manuellt fakturerad (kräve
   const lineSheet = entryText(entries, "xl/worksheets/sheet2.xml");
   for (const h of ["Er referens", "Ert ordernummer", "Artikelnummer", "Benämning", "À-pris exkl. moms", "Belopp exkl. moms", "Anmärkningar för ekonomen"]) expect(lineSheet).toContain(h);
   expect(lineSheet).toContain("BOT-26-0143 · v. ");
-  expect(lineSheet).toContain('<autoFilter ref="A1:L125"/>');
+  // 124 rader på månadens faktura och två på januaris bonusfaktura (bonussteg 3 och 5, Karims beslut 2026-11-04).
+  expect(lineSheet).toContain('<autoFilter ref="A1:L127"/>');
+  expect(lineSheet).toContain("BOT-26-0008 · Bonussteg 3");
+  expect(invoiceSheet).toContain("Bonusfaktura januari 2027");
   const xlsxText = entries.map((e) => new TextDecoder().decode(e.data)).join("\n");
   expect(xlsxText).not.toContain("Nadia");
   expect(xlsxText).not.toContain("Warsame");

@@ -99,8 +99,8 @@ export type ReportDeps = { reportSchedule?: () => Promise<{ ctx: Ctx; state: Rep
 
 /**
  * Jobbet: kör ensureReports, ensureGroupActivities (nivåaktiviteternas tillfällen och målgruppernas inbjudningar),
- * ensureMonthlyAssessments (förifyllda månadsbedömningar), ensureBillingRuns (månadens fakturakörning) och finishStartChanges
- * (ändringar av startdatum som inte blev klara) – i den ordningen,
+ * ensureMonthlyAssessments (förifyllda månadsbedömningar), ensureBillingRuns (månadens fakturakörning), finishStartChanges
+ * (ändringar av startdatum som inte blev klara) och ensureBonusClaims (förslagen till bonusanspråk) – i den ordningen,
  * alla steg också när ett tidigare steg kastar (det första felet kastas sist). Utfallet är "created" (något skapades eller
  * ändrades) eller "none" – inga id:n eller namn.
  */
