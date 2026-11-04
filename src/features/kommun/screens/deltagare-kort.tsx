@@ -15,7 +15,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Badge, Button, Card, Empty, ErrorNotice, Field, focusSoon, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, Stack, TabPanel, Tabs,
+  Badge, Button, Card, Empty, ErrorNotice, Field, focusSoon, Kv, List, ListItem, Loading, MaskedPnr, Notice, PerspectiveLink, Stack, TabPanel, Tabs,
   TextArea, Timeline, cn, useAuditView, useToast, type TimelineItem,
 } from "@/ui";
 import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomCaseDetail, type KomMessage } from "../api";
@@ -306,6 +306,29 @@ function AttendanceLine({ a }: { a: NonNullable<KomCaseDetail["attendance"]> }) 
   );
 }
 
+// ---------------------------------------------------------------- Bonus (beslut 2026-11-04)
+/** Bonusanspråk som Miljonbemanning har skickat: steget, läget som text och ikon och länken till underlaget och beslutet. Inga belopp. */
+function BonusList({ d }: { d: KomCaseDetail }) {
+  return (
+    <Card flush title="Bonus" icon="award">
+      <List>
+        {d.bonus.map((b) => (
+          <ListItem key={b.claimId} title={`Bonussteg ${b.step} · ${b.label}`} sub={b.sentAt ? `Skickat ${fD(b.sentAt)}${b.decidedAt ? ` · beslut ${fD(b.decidedAt)}` : ""}` : undefined}>
+            <span className="flex flex-wrap items-center gap-2">
+              <Badge tone={b.status === "approved" ? "blue" : b.status === "rejected" ? "red" : "grey"} icon={b.icon}>
+                {b.status === "submitted" ? "Väntar på ditt beslut" : b.statusText}
+              </Badge>
+              <Button kind={b.status === "submitted" ? "primary" : "ghost"} iconRight="arrow-right" to={`/portal/bonus/${encodeURIComponent(b.claimId)}`}>
+                {b.status === "submitted" ? "Läs och besluta" : "Läs underlaget"} <span className="sr-only">för bonussteg {b.step}</span>
+              </Button>
+            </span>
+          </ListItem>
+        ))}
+      </List>
+    </Card>
+  );
+}
+
 // ---------------------------------------------------------------- Rapporter
 function Reports({ d }: { d: KomCaseDetail }) {
   return (
@@ -323,6 +346,7 @@ function Reports({ d }: { d: KomCaseDetail }) {
           </List>
         )}
       </Card>
+      {d.bonus.length > 0 && <BonusList d={d} />}
       {d.reports.some((r) => r.correcting) && <Muted>En rapport som rättas finns kvar här tills Miljonbemanning har levererat den nya versionen.</Muted>}
       <Muted>
         Rapporterna byggs bara av uppgifter som coachen har godkänt.{" "}

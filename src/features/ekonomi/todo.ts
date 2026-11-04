@@ -15,6 +15,7 @@ export type InvoiceTodoAction =
   | { kind: "reissue"; row: ReturnedRow }
   | { kind: "approve"; month: string }
   | { kind: "run"; month: string }
+  | { kind: "bonus"; month: string }
   | { kind: "task"; task: TaskView };
 
 export type InvoiceTodo = {
@@ -33,7 +34,7 @@ export type InvoiceTodo = {
 type Part = TodoPart & { title: string | null; note: string; action: InvoiceTodoAction | null; dueText: string | null };
 
 /** Ordningen och vilken anmärkning som ger raden dess knapp (lägre först). */
-const W = { reissue: 5, ref: 10, unbilled: 15, approve: 20, run: 30, task: 40 } as const;
+const W = { reissue: 5, ref: 10, unbilled: 15, approve: 20, run: 30, bonus: 35, task: 40 } as const;
 
 export function invoiceTodos(v: BillingStartView, now: string): InvoiceTodo[] {
   const parts: Part[] = [];
@@ -81,6 +82,14 @@ export function invoiceTodos(v: BillingStartView, now: string): InvoiceTodo[] {
       dueText: `preskriberas ${fmtDate(u.presc)}`,
       note: `Preskriptionsrisk ${u.caseNumber}: ${plural(u.weeks.length, "vecka", "veckor")} (${weekText(u.weeks)}) · ${kr(u.amountOre)} · preskriberas ${fmtDate(u.presc)} (${u.left >= 0 ? `om ${plural(u.left, "dag", "dagar")}` : "passerat"}).`,
       action: null,
+    });
+  }
+  // Bonusfakturor som inte är skapade (beslut 2026-11-04) – en rad per faktura, ingen tidsgräns.
+  for (const b of v.bonus) {
+    parts.push({
+      key: `bonus:${b.invoiceId}`, group: b.invoiceId, dueAt: null, weight: W.bonus, title: b.title, dueText: null,
+      note: `${plural(b.lines, "bonussteg", "bonussteg")} godkända av kommunen · ${kr(b.amountOre)} exkl. moms · ${b.bucket === "blocked" ? "stoppad" : b.bucket === "review" ? "att granska och godkänna" : "klar att skapa"}.`,
+      action: { kind: "bonus", month: b.month },
     });
   }
   // Uppgifter till ekonomen: egna rader.

@@ -7,7 +7,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { accessIndex, caseAccessIn } from "@/core/access";
 import { defaultGroupings } from "@/core/groupings";
-import { requireOperational } from "@/core/config";
+import { customerSafeConfig, requireOperational } from "@/core/config";
 import { startChangeLock, startChangeMonths, startChangeReportLock } from "@/core/start-date";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
@@ -61,9 +61,28 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     acknowledgedBy: null, acknowledgedAt: null, actionPlan: null,
   });
   const deadline = (id: string, contractId: string, caseId: string | null): Tables["deadlines"] => ({ id, contractId, caseId, reportId: null, kind: "forsta_mote", dueAt: at, metAt: null, status: "open" });
-  const bonus = (id: string, caseId: string): Tables["bonus_claims"] => ({
-    id, caseId, kind: "work", basis: "Anställningsbevis", evidencePaths: [], submittedAt: at, customerDecision: null, decidedBy: null, decidedAt: null, amountOre: null, invoiceDraftId: null,
+  // Bonusanspråk (0039) i alla lägen: förslag (Marias ärende), skickat (Amiras), godkänt (det skyddade ärendet), återtaget
+  // (Petras), avslaget och skickat (Marias) – med kommunens beslut för de beslutade. Stegen är lediga i ärendena (Amiras ärende
+  // BOT-26-0008 har testdatats anspråk för steg 2–5).
+  const bonus = (id: string, caseId: string, step: number, status: Tables["bonus_claims"]["status"], by = "u-amira"): Tables["bonus_claims"] => {
+    const sent = status === "submitted" || status === "approved" || status === "rejected";
+    const decided = status === "approved" || status === "rejected";
+    return {
+      id, caseId, contractId: "c-bot", step, kind: step <= 2 ? "progression" : "work", status, source: "manual", basis: "Kommentar", evidencePaths: [], outcomeEventId: null,
+      followsClaimId: null, reachedOn: "2027-01-20", verificationKind: step >= 2 ? "anställningsbevis" : null, verificationOn: step >= 2 ? "2027-01-18" : null, checklist: {},
+      snapshot: sent ? { v: 1, claimId: id } : null, createdBy: by, createdAt: at, submittedAt: sent ? at : null, submittedBy: sent ? by : null,
+      withdrawnBy: status === "withdrawn" ? by : null, withdrawnAt: status === "withdrawn" ? at : null, customerDecision: decided ? status : null,
+      decidedBy: decided ? "k-maria" : null, decidedAt: decided ? at : null, decisionNote: null, amountOre: null, invoiceDraftId: null,
+    };
+  };
+  const bonusDecision = (claim: Tables["bonus_claims"], decidedBy: string): Tables["bonus_claim_decisions"] => ({
+    id: `bcd-${claim.id}`, claimId: claim.id, caseId: claim.caseId, contractId: claim.contractId, decision: claim.status as "approved" | "rejected", note: null, via: "portal",
+    decidedBy, recordedBy: decidedBy, decidedAt: at,
   });
+  const bonusRows = [
+    bonus("bc-1", mariaCase.id, 1, "suggested"), bonus("bc-2", amiraCase.id, 1, "submitted"), { ...bonus("bc-3", protectedCase.id, 2, "approved"), decidedBy: protectedCase.referrerId },
+    bonus("bc-4", petraCase.id, 3, "withdrawn", "u-petra"), bonus("bc-5", mariaCase.id, 3, "rejected"), bonus("bc-6", mariaCase.id, 2, "submitted"),
+  ];
   const cdev = (id: string, caseId: string | null): Tables["contract_deviations"] => ({
     ...data.contract_deviations[0], id, caseId,
   });
@@ -174,12 +193,13 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       { id: "kpi-1", contractId: "c-bot", kpiKey: "resultatgrad", window: "rolling_6m", value: 0.34, numerator: 17, denominator: 50, computedAt: at },
       { id: "kpi-2", contractId: "c-ny", kpiKey: "resultatgrad", window: "month", value: null, numerator: 0, denominator: 0, computedAt: at },
     ],
-    bonus_claims: [bonus("bc-1", mariaCase.id), bonus("bc-2", amiraCase.id), bonus("bc-3", protectedCase.id), bonus("bc-4", petraCase.id)],
+    bonus_claims: bonusRows,
+    bonus_claim_decisions: [bonusDecision(bonusRows[2], protectedCase.referrerId!), bonusDecision(bonusRows[4], "k-maria")],
     contract_deviations: [cdev("cd-x1", mariaCase.id), cdev("cd-x2", protectedCase.id)],
     invoice_drafts: [draft],
     invoice_lines: [{
       id: `${draft.id}:${draftCase.id}`, invoiceDraftId: draft.id, caseId: draftCase.id, priceItemId: "pi-G", quantity: 4, unitPriceOre: 350000, vatRate: 25,
-      description: `${draftCase.caseNumber} · v. 1–4 2027`, isoWeeks: ["2027-W01", "2027-W02", "2027-W03", "2027-W04"], zeroAttendanceWeeks: [], note: "",
+      description: `${draftCase.caseNumber} · v. 1–4 2027`, isoWeeks: ["2027-W01", "2027-W02", "2027-W03", "2027-W04"], zeroAttendanceWeeks: [], note: "", bonusClaimId: null,
     }],
     billing_week_approvals: [{ id: `${draftCase.id}:2026-W45`, contractId: "c-bot", month: "2026-11", caseId: draftCase.id, weekKey: "2026-W45", approvedBy: "u-lars", approvedAt: at, note: "" }],
     invoice_credits: [{ id: "ic-1", contractId: "c-bot", month: "2026-12", invoiceDraftId: returnedInvoice.id, caseId: null, creditedAt: at, creditedBy: "u-lars", buyerReference: "55102938" }],
@@ -625,6 +645,10 @@ describe("avtal: kommunen läser aldrig de interna målen", () => {
     expect(got.view.map((c) => c.id)).toEqual(["c-bot"]);
     const cfg = got.view[0].config;
     expect(JSON.stringify(cfg)).not.toMatch(/internalTarget|belowInternal/);
+    // Bonusens tak per deltagare är ett belopp (0039, Karims beslut 2026-11-04): reglerna finns, taket inte – samma som customerSafeConfig.
+    expect(cfg.bonus).toMatchObject({ enabled: true, speedWeeks: 10 });
+    expect(cfg.bonus).not.toHaveProperty("capOre");
+    expect(cfg).toEqual(JSON.parse(JSON.stringify(customerSafeConfig(data.contracts.find((c) => c.id === "c-bot")!.config))));
     expect(() => requireOperational(cfg as never)).not.toThrow();
     const original = data.contracts.find((c) => c.id === "c-bot")!.config;
     expect((cfg.kpis as { key: string; contractTarget?: number }[]).map((k) => [k.key, k.contractTarget ?? null]))
@@ -813,6 +837,14 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
     if (row.fortnoxIdempotencyKey) c.fortnoxIdempotencyKey = `${row.fortnoxIdempotencyKey}:kopia`;
   }
   if (t === "invoice_lines") c.caseId = data.cases.find((x) => !data.invoice_lines.some((l) => l.invoiceDraftId === row.invoiceDraftId && l.caseId === x.id))?.id;
+  // Bonusanspråk (0039): högst ett som räknas per ärende och steg – kopian får ett ledigt steg 1–3 (de bygger inte på steg 3) och
+  // aktuell tid (testklockan). Utan ledigt steg blir kopian återtagen – den kan då ingen skapa.
+  if (t === "bonus_claims") {
+    const taken = new Set(data.bonus_claims.filter((k) => k.caseId === row.caseId && ["suggested", "submitted", "approved"].includes(k.status)).map((k) => k.step));
+    const free = [1, 2, 3].find((s) => !taken.has(s));
+    Object.assign(c, { step: free ?? 1, kind: (free ?? 1) <= 2 ? "progression" : "work", followsClaimId: null, createdAt: "2027-02-01T09:12" });
+    if (free == null) Object.assign(c, { status: "withdrawn", withdrawnAt: "2027-02-01T09:12", withdrawnBy: row.createdBy });
+  }
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
     c.userId = data.profiles.map((p) => p.id).find((u) => !taken.has(`${u}|${row.contractId}|${row.role}`));
@@ -1764,7 +1796,7 @@ describe("fakturan per avtal och månad (0023): frysta rader – samma regler i 
   const caseWithout = (draftId: string) => data.cases.find((c) => c.startDate && !data.invoice_lines.some((l) => l.invoiceDraftId === draftId && l.caseId === c.id))!;
   const line = (draftId: string, caseId: string): Tables["invoice_lines"] => ({
     id: `${draftId}:${caseId}`, invoiceDraftId: draftId, caseId, priceItemId: "pi-G", quantity: 1, unitPriceOre: 139800, vatRate: 25, description: "BOT-26-0001 · v. 1 2027",
-    isoWeeks: ["2027-W01"], zeroAttendanceWeeks: [], note: "",
+    isoWeeks: ["2027-W01"], zeroAttendanceWeeks: [], note: "", bonusClaimId: null,
   });
 
   it("testdatat: en faktura per avtal och månad, tilläggsfakturan i december och frysta rader; körningen har ingen standardstatus längre", async () => {
@@ -1775,6 +1807,8 @@ describe("fakturan per avtal och månad (0023): frysta rader – samma regler i 
       { month: "2026-09", grouping_key: "avtal", status: "paid", case_id: null }, { month: "2026-10", grouping_key: "avtal", status: "paid", case_id: null },
       { month: "2026-11", grouping_key: "avtal", status: "paid", case_id: null }, { month: "2026-12", grouping_key: "avtal", status: "sent", case_id: null },
       { month: "2026-12", grouping_key: "avtal-tillagg-2", status: "returned", case_id: null },
+      // Bonusfakturan för december (beslut 2026-11-04): egen faktura, skild från den periodiska.
+      { month: "2026-12", grouping_key: "bonus", status: "manual", case_id: null },
     ]);
     const cols = await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_name = 'billing_runs'");
     expect(cols.rows.map((c) => c.column_name)).not.toContain("default_invoice_status");
@@ -3407,5 +3441,142 @@ describe("ändra startdatum (0038): läsning och skrivning – samma regler i RL
     expect(res!.after).toEqual(res!.before);
     expect(res!.policies).toBe(2);
     expect(res!.triggers).toBe(4);
+  });
+});
+
+// ================================================================ Bonusstegen (0039, Karims beslut 2026-11-04)
+describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och beslut – samma regler i RLS, triggrarna och policy.ts", () => {
+  // Testklockan (mm.app_now()) står på 09.12 när blocket börjar – se beforeEach. Raderna i EXTRA: bc-1 förslag och bc-6 skickat
+  // (steg 2) i Marias ärende, bc-5 avslaget, bc-2 skickat i Amiras ärende (också Marias), bc-3 godkänt i det skyddade ärendet, bc-4 återtaget.
+  const at = "2027-02-01T09:12";
+  const clocked: RawAccess<Tables> = { ...raw, now: () => at };
+  const claim = (id: string) => data.bonus_claims.find((k) => k.id === id)!;
+  const memRead = (t: "bonus_claims" | "bonus_claim_decisions", key: string) =>
+    (data[t] as { id: string }[]).filter((x) => canReadRow(t, x as never, actorOf(findPersona(key)), raw)).map((x) => x.id).sort();
+  const pgRead = (t: "bonus_claims" | "bonus_claim_decisions", key: string) =>
+    asPersona(findPersona(key), async (tx) => (await tx.query<{ id: string }>(`select id from public.${t} order by id`)).rows.map((r) => r.id));
+  const memUpdate = (id: string, patch: Partial<Tables["bonus_claims"]>, key: string) => {
+    const cur = claim(id);
+    const a = actorOf(findPersona(key));
+    return canReadRow("bonus_claims", cur, a, raw) && canWriteRow("bonus_claims", { ...cur, ...patch }, a, clocked);
+  };
+  const lit = (v: unknown) => (v === null ? "null" : typeof v === "object" ? `'${JSON.stringify(v)}'::jsonb` : `'${String(v)}'`);
+  const setSql = (patch: Record<string, unknown>) => Object.entries(patch).map(([k, v]) => `${quoteIdent(snakeCase(k))} = ${lit(v)}`).join(", ");
+  const pgUpdate = async (id: string, patch: Partial<Tables["bonus_claims"]>, key: string) =>
+    allowed(await asPersona(findPersona(key), (tx) => attempt(tx, `update public.bonus_claims set ${setSql(patch)} where id = '${id}'`)));
+  const decision = (claimId: string, by: string, patch: Partial<Tables["bonus_claim_decisions"]> = {}): Tables["bonus_claim_decisions"] => {
+    const k = claim(claimId);
+    return { id: `bcd-t-${claimId}-${by}`, claimId, caseId: k.caseId, contractId: k.contractId, decision: "approved", note: null, via: "portal", decidedBy: by, recordedBy: by, decidedAt: at, ...patch };
+  };
+  const memDecide = (d: Tables["bonus_claim_decisions"], key: string) => canWriteRow("bonus_claim_decisions", d, actorOf(findPersona(key)), clocked);
+  const pgDecide = async (d: Tables["bonus_claim_decisions"], key: string) =>
+    allowed(await asPersona(findPersona(key), (tx) => attempt(tx, insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>))));
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
+
+  it("läsning: Miljonbemanning i avtalet (också ekonomen) läser alla; kommunen bara skickade och beslutade i sina ärenden – aldrig förslag eller återtagna", async () => {
+    for (const key of ["u-amira", "u-sara", "u-lars", "u-karin", "k-maria", "k-omar", "deltagare"]) {
+      for (const t of ["bonus_claims", "bonus_claim_decisions"] as const) expect(await pgRead(t, key), `${key} ${t}`).toEqual(memRead(t, key));
+    }
+    expect(memRead("bonus_claims", "k-maria").filter((id) => id.startsWith("bc-"))).toEqual(["bc-2", "bc-5", "bc-6"]);
+    expect(data.bonus_claims.filter((k) => memRead("bonus_claims", "k-maria").includes(k.id)).every((k) => ["submitted", "approved", "rejected"].includes(k.status))).toBe(true);
+    expect(memRead("bonus_claims", "u-lars")).toEqual(data.bonus_claims.map((k) => k.id).sort());
+  });
+
+  it("beloppet står aldrig på anspråket och inga dokument – för någon, också servern", async () => {
+    expect(data.bonus_claims.every((k) => k.amountOre === null && k.evidencePaths.length === 0)).toBe(true);
+    expect({ pg: await pgUpdate("bc-1", { amountOre: 150000 }, "u-amira"), mem: memUpdate("bc-1", { amountOre: 150000 }, "u-amira") }).toEqual({ pg: false, mem: false });
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.bonus_claims set amount_ore = 150000 where id = 'bc-1'"), { role: "service_role" });
+    expect(service).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("övergångar: förslag ändras och skickas av den som arbetar i ärendet i eget namn – aldrig godkänt direkt, aldrig efter beslut", async () => {
+    const send = { status: "submitted" as const, snapshot: { v: 1 }, submittedAt: at, submittedBy: "u-amira" };
+    const cases: [string, string, Partial<Tables["bonus_claims"]>, boolean][] = [
+      ["kommentar i förslaget", "bc-1", { basis: "Ny kommentar" }, true],
+      ["skicka i eget namn", "bc-1", send, true],
+      ["skicka i någon annans namn", "bc-1", { ...send, submittedBy: "u-erik" }, false],
+      ["skicka utan underlag", "bc-1", { ...send, snapshot: null }, false],
+      ["skicka med gammal tid", "bc-1", { ...send, submittedAt: "2027-01-31T09:12" }, false],
+      ["godkänna direkt", "bc-6", { status: "approved", customerDecision: "approved", decidedBy: "u-amira", decidedAt: at }, false],
+      ["ändra ett skickat anspråks kommentar", "bc-6", { basis: "Ändrad" }, false],
+      ["återta ett skickat", "bc-6", { status: "withdrawn", withdrawnAt: at, withdrawnBy: "u-amira" }, true],
+      ["ändra ett avslaget", "bc-5", { basis: "Ändrad" }, false],
+      ["återta ett avslaget", "bc-5", { status: "withdrawn", withdrawnAt: at, withdrawnBy: "u-amira" }, false],
+      ["återuppliva ett återtaget", "bc-4", { status: "suggested", withdrawnAt: null, withdrawnBy: null }, false],
+    ];
+    for (const [label, id, patch, want] of cases) expect({ pg: await pgUpdate(id, patch, "u-amira"), mem: memUpdate(id, patch, "u-amira") }, label).toEqual({ pg: want, mem: want });
+    // Bara den som arbetar i ärendet: inte ekonomen, chefen, admin eller kommunen.
+    for (const key of ["u-lars", "u-karin", "u-robin", "k-maria"]) {
+      expect({ pg: await pgUpdate("bc-1", { basis: "X" }, key), mem: memUpdate("bc-1", { basis: "X" }, key) }, key).toEqual({ pg: false, mem: false });
+    }
+  });
+
+  it("kommunens beslut i portalen: eget skickat anspråk, en gång, i eget namn och med aktuell tid – och anspråket ändras i samma steg", async () => {
+    const ok = decision("bc-6", "k-maria");
+    expect({ pg: await pgDecide(ok, "k-maria"), mem: memDecide(ok, "k-maria") }).toEqual({ pg: true, mem: true });
+    const cases: [string, Tables["bonus_claim_decisions"], string, boolean][] = [
+      ["ett förslag", decision("bc-1", "k-maria"), "k-maria", false],
+      ["ett redan beslutat", decision("bc-5", "k-maria"), "k-maria", false],
+      ["en annan handläggares ärende", decision("bc-6", "k-omar"), "k-omar", false],
+      ["i någon annans namn", decision("bc-6", "k-maria", { decidedBy: "k-omar", recordedBy: "k-maria" }), "k-maria", false],
+      ["med gammal tid", decision("bc-6", "k-maria", { decidedAt: "2027-01-30T09:12" }), "k-maria", false],
+      ["coachen i portalen", decision("bc-6", "u-amira"), "u-amira", false],
+      ["ekonomen", decision("bc-6", "u-lars"), "u-lars", false],
+    ];
+    for (const [label, d, key, want] of cases) expect({ pg: await pgDecide(d, key), mem: memDecide(d, key) }, label).toEqual({ pg: want, mem: want });
+    // Anspråket ändras av triggern – och ett andra beslut nekas (en rad per anspråk).
+    const after = await asPersona(findPersona("k-maria"), async (tx) => {
+      await tx.query(insertSql("bonus_claim_decisions", ok as unknown as Record<string, unknown>));
+      const k = (await tx.query<{ status: string; customer_decision: string; decided_by: string }>("select status, customer_decision, decided_by from public.bonus_claims where id = 'bc-6'")).rows[0];
+      const again = await attempt(tx, insertSql("bonus_claim_decisions", { ...ok, id: "bcd-t-igen", decision: "rejected" } as unknown as Record<string, unknown>));
+      return { k, again };
+    });
+    expect(after.k).toEqual({ status: "approved", customer_decision: "approved", decided_by: "k-maria" });
+    expect(after.again.ok).toBe(false);
+    // Samma i minnet: beslutet ändrar anspråket (afterInsert) och ett andra beslut stoppas.
+    const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    mem.clock = () => at;
+    const repo = new MemoryRepo<Tables>(mem, actorOf(findPersona("k-maria")), POLICIES);
+    await repo.table("bonus_claim_decisions").insert(ok);
+    expect(mem.raw().get("bonus_claims", "bc-6")).toMatchObject({ status: "approved", customerDecision: "approved", decidedBy: "k-maria" });
+    await expect(repo.table("bonus_claim_decisions").insert({ ...ok, id: "bcd-t-igen", decision: "rejected" })).rejects.toBeTruthy();
+  });
+
+  it("beslut som kom med mejl: registreras bara av samordnare och avtalsansvarig, utan beslutsfattare och med anteckning", async () => {
+    const mail = (by: string, patch: Partial<Tables["bonus_claim_decisions"]> = {}) => decision("bc-6", by, { via: "mejl", decidedBy: null, recordedBy: by, note: "Mejl från handläggaren.", ...patch });
+    const cases: [string, Tables["bonus_claim_decisions"], string, boolean][] = [
+      ["samordnaren", mail("u-sara"), "u-sara", true],
+      ["avtalsansvarig", mail("u-johan"), "u-johan", true],
+      ["coachen", mail("u-amira"), "u-amira", false],
+      ["chefen", mail("u-karin"), "u-karin", false],
+      ["utan anteckning", mail("u-sara", { note: null }), "u-sara", false],
+      ["med beslutsfattare", mail("u-sara", { decidedBy: "u-sara" }), "u-sara", false],
+      ["kommunen via mejl", mail("k-maria"), "k-maria", false],
+    ];
+    for (const [label, d, key, want] of cases) expect({ pg: await pgDecide(d, key), mem: memDecide(d, key) }, label).toEqual({ pg: want, mem: want });
+  });
+
+  it("beslutsloggen ändras och tas aldrig bort – för någon", async () => {
+    for (const key of ["k-maria", "u-sara", "u-robin", "u-lars"]) {
+      const got = await asPersona(findPersona(key), async (tx) => ({
+        upd: await attempt(tx, "update public.bonus_claim_decisions set note = 'x' where id = 'bcd-bc-5'"),
+        del: await attempt(tx, "delete from public.bonus_claim_decisions where id = 'bcd-bc-5'"),
+      }));
+      expect([allowed(got.upd), allowed(got.del)], key).toEqual([false, false]);
+    }
+  });
+
+  it("fakturaraden: en bonusrad bara på en bonusfaktura och för ett godkänt anspråk – också för servern", async () => {
+    const periodic = data.invoice_drafts.find((d) => d.kind === "periodic" && d.status === "paid")!;
+    const bonusDraft = data.invoice_drafts.find((d) => d.kind === "bonus")!;
+    const base = data.invoice_lines.find((l) => l.invoiceDraftId === bonusDraft.id)!;
+    const line = (id: string, patch: Partial<Tables["invoice_lines"]>) => insertSql("invoice_lines", { ...base, id, ...patch } as unknown as Record<string, unknown>);
+    const service = (sql: string) => asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" });
+    expect(await service(line("il-t-1", { invoiceDraftId: periodic.id }))).toMatchObject({ ok: false, code: "23514" });
+    expect(await service(line("il-t-2", { bonusClaimId: "bc-6", caseId: claim("bc-6").caseId }))).toMatchObject({ ok: false, code: "23514" });
+    expect(await service(line("il-t-3", { bonusClaimId: null }))).toMatchObject({ ok: false, code: "23514" });
   });
 });

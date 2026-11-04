@@ -17,6 +17,7 @@ const KIND: Record<NotifView["kind"], { label: string; icon: IconName; tone: Bad
   progress_reminder: { label: "Påminnelse", icon: "bell", tone: "grey" },
   progress_escalation: { label: "Eskalering", icon: "flag", tone: "red" },
   message: { label: "Meddelande", icon: "message", tone: "outline" },
+  bonus_decision: { label: "Bonusbeslut", icon: "award", tone: "bluetone" },
 };
 type Filter = "alla" | "olasta" | NotifView["kind"];
 

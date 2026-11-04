@@ -22,11 +22,11 @@ const lars = (): Actor => listPersonas(rt.raw()).find((x) => x.actor.userId === 
 const q = <D extends QueryDef<any, any>>(def: D, input: ParamsOf<D>, actor: Actor) => rt.run("query", def.key, input, actor) as Promise<ResultOf<D>>;
 
 describe("invoiceTodos – en rad per faktura", () => {
-  it("testdatat: januarifakturan, den returnerade tilläggsfakturan och uppgiften – sorterade på sista tid", async () => {
+  it("testdatat: januarifakturan, den returnerade tilläggsfakturan, januaris bonusfaktura och uppgiften – sorterade på sista tid", async () => {
     const v = await q(ekoStart, {}, lars());
     const rows = invoiceTodos(v, DEMO_START);
-    expect(rows.map((r) => r.title)).toEqual(["Faktura januari 2027", "Tilläggsfaktura 2 · december 2026", "Uppgift från Johan Berg"]);
-    const [jan, dec, task] = rows;
+    expect(rows.map((r) => r.title)).toEqual(["Faktura januari 2027", "Tilläggsfaktura 2 · december 2026", "Bonusfaktura januari 2027", "Uppgift från Johan Berg"]);
+    const [jan, dec, bonus, task] = rows;
     // Januari: sista dag i Fortnox, referensen saknas och tre veckor utan närvaro – knappen fyller i referensen (stoppar fakturan).
     expect(jan.dueAt).toBe(v.current?.due);
     expect(jan.notes[0]).toMatch(/^Beställarreferens saknas/);
@@ -39,6 +39,10 @@ describe("invoiceTodos – en rad per faktura", () => {
     expect(dec.notes.some((n) => n.startsWith("Returnerad av kommunen"))).toBe(true);
     expect(dec.action).toMatchObject({ kind: "ref", invoiceId: dec.invoiceId });
     expect(task.action).toMatchObject({ kind: "task" });
+    // Bonusfakturan (Karims beslut 2026-11-04): ingen tidsgräns, antal bonussteg och beloppet – knappen öppnar bonusfakturan.
+    expect(bonus.dueAt).toBeNull();
+    expect(bonus.notes[0]).toMatch(/^2 bonussteg godkända av kommunen · 8[\u00a0 ]000[\u00a0 ]kr exkl\. moms · /);
+    expect(bonus.action).toEqual({ kind: "bonus", month: "2027-01" });
   });
 
   it("varje siffra på ett ställe: varje faktura och varje ofakturerad vecka står på exakt en rad", async () => {
@@ -54,7 +58,7 @@ describe("invoiceTodos – en rad per faktura", () => {
 
   it("en returnerad faktura med rättad referens: knappen krediterar och skapar en ny", () => {
     const v = {
-      current: null, tasks: [], refInvoices: [], zero: [], unbilled: { rows: [] },
+      current: null, tasks: [], refInvoices: [], zero: [], unbilled: { rows: [] }, bonus: [],
       returned: [
         {
           invoiceId: "inv-1", month: "2026-12", title: "Tilläggsfaktura 2 · december 2026", status: "returned", lines: 2, quantity: 10, amountOre: 1393500, caseNumbers: [],

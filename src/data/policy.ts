@@ -79,7 +79,16 @@
 //                 raderas aldrig · aldrig kommunen. Startdatumet i en startad insats (pågår, pausad, avslutad) ändras aldrig
 //                 direkt i ärendet (bara via en ändring); bara coach, samordnare och avtalsansvarig sätter det när insatsen
 //                 startar, och ett nytt ärende skapas aldrig med startdatum
-//   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
+//   Bonus         bonusanspråk (bonus_claims, 0039, beslut 2026-11-04 – bonussteg 1–5): raden har aldrig ett belopp (amountOre
+//                 alltid null) · läses av Miljonbemanning med åtkomst full, team eller billing och av kommunen (åtkomst customer)
+//                 bara när anspråket är skickat eller beslutat – aldrig förslag eller återtagna · skapas av den som arbetar i
+//                 ärendet som förslag i eget namn (förslagen från regeln skrivs av servern, ctx.system) · ändras av den som arbetar
+//                 i ärendet: förslag → skickat (med det frysta redovisningsunderlaget) eller återtaget, skickat → återtaget ·
+//                 beslutat eller återtaget ändras aldrig · raderas aldrig. Kommunens beslut (bonus_claim_decisions) är append-only:
+//                 handläggaren i portalen i eget namn, eller samordnare/avtalsansvarig som registrerar ett mejl (med motivering);
+//                 en ny rad ändrar anspråket i samma steg (afterInsert) och bara när det är skickat och obeslutat. En bonusrad på
+//                 en faktura står bara på en bonusfaktura och gäller ett godkänt anspråk (invoice_lines)
+//   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
 //
@@ -99,6 +108,8 @@ import {
 } from "@/core/start-date";
 import type { Case, Report, TableName, Tables } from "./schema";
 import { dayOf, diffMinutes } from "@/core/time";
+import { FOLLOWS_STEP3, stepKind } from "@/core/bonus";
+import { BONUS_ACTIVE_STATUSES, BONUS_CLAIM_STATUSES, BONUS_SOURCES } from "./schema";
 
 type Raw = RawAccess<Tables>;
 
@@ -785,6 +796,140 @@ function caseStartGuard(cur: Case, next: Case, a: Actor): boolean {
   return has(START_CHANGERS, a);
 }
 
+// ---------------------------------------------------------------- Bonus (0039)
+type BonusClaimRow = Tables["bonus_claims"];
+type BonusDecisionRow = Tables["bonus_claim_decisions"];
+/** Kommunen läser bara skickade och beslutade anspråk (bonus_claims_select, 0039) – aldrig förslag eller återtagna. */
+const BONUS_CUSTOMER_STATUSES: readonly BonusClaimRow["status"][] = ["submitted", "approved", "rejected"];
+/** Fälten som coachen ändrar i ett förslag (triggern bonus_claims_guard). */
+const BONUS_EDITABLE = ["basis", "reachedOn", "verificationKind", "verificationOn", "checklist"];
+/** Högsta skillnaden i minuter mellan radens tid och klockan (triggrarna: 600 sekunder). Ett minne utan klocka prövar inte tiden. */
+const BONUS_CLOCK_MINUTES = 10;
+const atNow = (raw: Raw, at: string | null | undefined): boolean => {
+  const now = raw.now?.();
+  return !now || (!!at && Math.abs(diffMinutes(now, at)) <= BONUS_CLOCK_MINUTES);
+};
+const isObj = (v: unknown): boolean => !!v && typeof v === "object" && !Array.isArray(v);
+const chars = (s: string | null | undefined) => [...(s ?? "")].length;
+/** Tabellens kontroller (check i 0039 – gäller alla): steget, läget, inga belopp och inga dokument, formen och texternas längd. */
+function bonusClaimShape(x: BonusClaimRow): boolean {
+  const statusOk = (BONUS_CLAIM_STATUSES as readonly string[]).includes(x.status) && (x.source == null || (BONUS_SOURCES as readonly string[]).includes(x.source));
+  const stepOk = x.step == null || (Number.isInteger(x.step) && x.step >= 1 && x.step <= 5 && x.kind === stepKind(x.step) && FOLLOWS_STEP3.includes(x.step) === (x.followsClaimId != null));
+  const sent = ["submitted", "approved", "rejected"].includes(x.status);
+  const decided = ["approved", "rejected"].includes(x.status);
+  const shape = (!sent || (x.snapshot != null && x.submittedAt != null)) && (x.status !== "suggested" || (x.snapshot == null && x.submittedAt == null))
+    && decided === (x.customerDecision != null && x.decidedAt != null)
+    && (!decided || x.customerDecision === x.status) && (x.status === "withdrawn") === (x.withdrawnAt != null && x.withdrawnBy != null);
+  const text = chars(x.basis) <= 500 && (x.verificationKind == null || chars(x.verificationKind) <= 200) && (x.decisionNote == null || chars(x.decisionNote) <= 1000)
+    && isObj(x.checklist) && (x.snapshot == null || isObj(x.snapshot));
+  return statusOk && stepOk && shape && text && x.amountOre == null && x.evidencePaths.length === 0;
+}
+/**
+ * Raden stämmer med ärendet (triggern bonus_claims_check, 0039 – gäller också systemet där): ärendets avtal, händelsen i ärendet
+ * och steg 3-anspråket i samma ärende.
+ */
+function bonusClaimConsistent(x: BonusClaimRow, raw: Raw): boolean {
+  if (raw.get("cases", x.caseId)?.contractId !== x.contractId) return false;
+  if (x.outcomeEventId != null && raw.get("outcome_events", x.outcomeEventId)?.caseId !== x.caseId) return false;
+  if (x.followsClaimId != null) {
+    const f = raw.get("bonus_claims", x.followsClaimId);
+    if (!f || f.caseId !== x.caseId || f.step !== 3) return false;
+  }
+  return true;
+}
+/**
+ * Övergångarna för inloggade (triggern bonus_claims_guard, 0039): ett beslutat eller återtaget anspråk ändras aldrig och en
+ * ändring som inte ändrar något nekas; i ett förslag ändras bara kommentaren, resultatdatum, verifieringen och checklistan;
+ * förslag → skickat med redovisningsunderlaget, i eget namn och med aktuell tid; förslag eller skickat → återtaget i eget namn
+ * med aktuell tid. Kommunens beslut registreras bara via bonus_claim_decisions (bonusDecisionApply).
+ */
+function bonusClaimTransition(cur: BonusClaimRow, x: BonusClaimRow, a: Actor, raw: Raw): boolean {
+  if (cur.status === "approved" || cur.status === "rejected" || cur.status === "withdrawn") return false;
+  const changed = changedFields(cur, x);
+  if (!changed.length) return false;
+  let allowed: string[];
+  if (cur.status === "suggested" && x.status === "suggested") allowed = BONUS_EDITABLE;
+  else if (cur.status === "suggested" && x.status === "submitted") {
+    if (x.snapshot == null || x.submittedAt == null || !self(a, x.submittedBy) || !atNow(raw, x.submittedAt)) return false;
+    allowed = [...BONUS_EDITABLE, "status", "snapshot", "submittedAt", "submittedBy"];
+  } else if (x.status === "withdrawn") {
+    if (x.withdrawnAt == null || !self(a, x.withdrawnBy) || !atNow(raw, x.withdrawnAt)) return false;
+    allowed = ["status", "withdrawnAt", "withdrawnBy"];
+  } else return false;
+  return changed.every((k) => allowed.includes(k));
+}
+/**
+ * Ny rad: den som arbetar i ärendet, medlem i avtalet, som förslag från coachen i eget namn (source manual) utan underlag, beslut
+ * eller återtagande (bonus_claims_insert). För inloggade dessutom (triggern bonus_claims_check): aktuell tid och – för steg 4 och 5
+ * – ett steg 3-anspråk som räknas. Ändring: den som arbetar i ärendet, övergångarna i bonusClaimTransition. Ingen raderar (regeln
+ * stoppar också MemoryRepo.remove(): raden är oförändrad). Högst ett anspråk som räknas per steg: UNIQUE_KEYS.
+ */
+function bonusClaimWrite(x: BonusClaimRow, a: Actor, raw: Raw): boolean {
+  if (!bonusClaimShape(x) || !bonusClaimConsistent(x, raw)) return false;
+  const cur = raw.get("bonus_claims", x.id);
+  if (!cur) {
+    if (!workOn(x.caseId, a, raw) || !member(a, x.contractId) || !self(a, x.createdBy)) return false;
+    if (x.status !== "suggested" || x.source !== "manual" || x.snapshot != null || x.submittedAt != null || x.submittedBy != null || x.withdrawnAt != null || x.withdrawnBy != null) return false;
+    if (x.customerDecision != null || x.decidedBy != null || x.decidedAt != null || x.decisionNote != null || x.invoiceDraftId != null) return false;
+    const f = x.followsClaimId ? raw.get("bonus_claims", x.followsClaimId) : undefined;
+    if (f && !BONUS_ACTIVE_STATUSES.includes(f.status)) return false;
+    return atNow(raw, x.createdAt);
+  }
+  return workOn(cur.caseId, a, raw) && workOn(x.caseId, a, raw) && bonusClaimTransition(cur, x, a, raw);
+}
+/** Beslutet stämmer med anspråket (triggern bonus_claim_decisions_check – för alla): samma ärende och avtal; form och längd (check). */
+function bonusDecisionConsistent(x: BonusDecisionRow, raw: Raw): boolean {
+  const k = raw.get("bonus_claims", x.claimId);
+  if (!k || k.caseId !== x.caseId || k.contractId !== x.contractId) return false;
+  if (!["approved", "rejected"].includes(x.decision) || (x.note != null && chars(x.note) > 1000)) return false;
+  if (x.via === "portal") return x.decidedBy != null && x.decidedBy === x.recordedBy;
+  return x.via === "mejl" && x.decidedBy == null && x.note != null && x.note.trim().length >= 1;
+}
+/**
+ * Anspråket kan få beslutet (mm.apply_bonus_decision, 0039): det är skickat och inte beslutat, och ett godkännande av steg 4 eller 5
+ * kräver att steg 3-anspråket är godkänt.
+ */
+function bonusDecisionApplies(x: BonusDecisionRow, raw: Raw): boolean {
+  const k = raw.get("bonus_claims", x.claimId);
+  if (!k || k.caseId !== x.caseId || k.contractId !== x.contractId || k.status !== "submitted" || k.customerDecision != null) return false;
+  if (x.decision === "rejected" || k.followsClaimId == null) return true;
+  return raw.get("bonus_claims", k.followsClaimId)?.status === "approved";
+}
+/**
+ * Ny rad (bonus_claim_decisions_insert, 0039): kommunens handläggare i portalen i eget namn med åtkomsten "customer" till ärendet,
+ * eller samordnare och avtalsansvarig i avtalet (full åtkomst) som registrerar ett beslut som kom med mejl – i eget namn och med
+ * motivering. För inloggade dessutom aktuell tid och att anspråket kan få beslutet (triggrarna). En befintlig rad ändras aldrig
+ * (ingen update-policy) – regeln stoppar också MemoryRepo.remove(). Kommunen ser bara skickade anspråk, så bara de går att besluta.
+ */
+function bonusDecisionWrite(x: BonusDecisionRow, a: Actor, raw: Raw): boolean {
+  if (raw.get("bonus_claim_decisions", x.id) || !bonusDecisionConsistent(x, raw)) return false;
+  const k = raw.get("bonus_claims", x.claimId);
+  // Uppslaget i triggern görs med den inloggades rättigheter: anspråket ska gå att läsa.
+  if (!k || !RULES.bonus_claims.read(k, a, raw)) return false;
+  const acc = accessTo(raw, a, x.caseId);
+  const portal = x.via === "portal" && a.role === "kommun_handlaggare" && acc === "customer" && self(a, x.decidedBy) && self(a, x.recordedBy);
+  const mejl = x.via === "mejl" && (a.role === "samordnare" || a.role === "avtalsansvarig") && member(a, x.contractId) && acc === "full" && x.decidedBy == null && self(a, x.recordedBy);
+  return (portal || mejl) && atNow(raw, x.decidedAt) && bonusDecisionApplies(x, raw);
+}
+/**
+ * Anspråket ändras i samma steg som beslutet skrivs (triggern bonus_claim_decisions_apply, 0039 – bara inloggade): status och
+ * beslut, vem (handläggaren, eller den som registrerade ett mejl), när och motiveringen.
+ */
+function bonusDecisionApply(x: BonusDecisionRow, _a: Actor, raw: Raw): readonly Cascade<Tables>[] {
+  if (!bonusDecisionApplies(x, raw)) throw new PolicyError("bonus_claim_decisions");
+  return [{ table: "bonus_claims", id: x.claimId, patch: { status: x.decision, customerDecision: x.decision, decidedBy: x.decidedBy ?? x.recordedBy, decidedAt: x.decidedAt, decisionNote: x.note } }];
+}
+/**
+ * Fakturaradens slag (triggern invoice_lines_bonus_check, 0039 – gäller alla): en rad utan anspråk står bara på en periodisk
+ * faktura; en bonusrad bara på en bonusfaktura och för ett godkänt anspråk i radens ärende och fakturans avtal.
+ */
+function invoiceLineKindOk(x: Tables["invoice_lines"], raw: Raw): boolean {
+  const d = raw.get("invoice_drafts", x.invoiceDraftId);
+  if (x.bonusClaimId == null) return d?.kind === "periodic";
+  const k = raw.get("bonus_claims", x.bonusClaimId);
+  return d?.kind === "bonus" && !!k && k.caseId === x.caseId && k.contractId === d.contractId && k.status === "approved";
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -898,15 +1043,23 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     // Kommunens godkännande av en åtgärdsplan registreras av avtalsansvarig (beslut 2026-10-07 – kommunens chef är borttagen).
     write: (d, a) => ["samordnare", "avtalsansvarig", "chef"].includes(a.role) && member(a, d.contractId),
   },
-  // Bonusanspråk (fas 3, avstängt): raden har beloppet (amountOre) – kommunen läser och ändrar den inte (beslut 5 2026-10-07:
-  // inga belopp för kommunen, 0026). Kommunens beslut om ett anspråk byggs i fas 3 med en vy utan belopp.
+  // Bonusanspråk (0039, beslut 2026-11-04): raden har aldrig ett belopp (amountOre är alltid null – beloppet räknas bara på
+  // bonusfakturan), så kommunen kan läsa skickade och beslutade anspråk i sina ärenden. Förslag och återtagna anspråk är interna.
+  // Bara den som arbetar i ärendet skapar och ändrar (ekonomens ändring från 0026 är borttagen); kommunens beslut skrivs bara
+  // som ett beslut (bonus_claim_decisions).
   bonus_claims: {
-    read: (x, a, raw) => ["full", "team", "billing"].includes(accessTo(raw, a, x.caseId)),
-    write: (x, a, raw) => {
-      if (workOn(x.caseId, a, raw)) return true;
-      if (!exists(raw, "bonus_claims", x.id)) return false;
-      return a.role === "ekonom" && accessTo(raw, a, x.caseId) === "billing";
+    read: (x, a, raw) => {
+      const acc = accessTo(raw, a, x.caseId);
+      return ["full", "team", "billing"].includes(acc) || (acc === "customer" && BONUS_CUSTOMER_STATUSES.includes(x.status));
     },
+    write: bonusClaimWrite,
+  },
+  // Kommunens beslut (0039): append-only – läses av den som har åtkomst till ärendet (också kommunen), skapas i portalen eller
+  // registreras efter ett mejl; en ny rad ändrar anspråket i samma steg (afterInsert).
+  bonus_claim_decisions: {
+    read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
+    write: bonusDecisionWrite,
+    afterInsert: bonusDecisionApply,
   },
 
   // ---- Rapporter
@@ -951,7 +1104,7 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
         const s = id ? raw.get("invoice_drafts", id)?.status : undefined;
         return s === "draft" || s === "approved" || s === "returned";
       };
-      return a.role === "ekonom" && member(a, d?.contractId) && editable(x.invoiceDraftId) && (!before || editable(before.invoiceDraftId));
+      return a.role === "ekonom" && member(a, d?.contractId) && editable(x.invoiceDraftId) && (!before || editable(before.invoiceDraftId)) && invoiceLineKindOk(x, raw);
     },
   },
   billing_week_approvals: { read: (x, a) => has(BILLING_READERS, a) && member(a, x.contractId), write: (x, a) => a.role === "ekonom" && member(a, x.contractId) },

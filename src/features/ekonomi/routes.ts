@@ -6,6 +6,7 @@
 import { monthName } from "@/core/time";
 import type { RouteDef } from "@/shell/routes";
 import { ArendeScreen } from "./screens/arende";
+import { BonusFakturaScreen } from "./screens/bonus";
 import { FakturaScreen } from "./screens/faktura";
 import { KorningScreen } from "./screens/korning";
 import { PrislistaScreen } from "./screens/prislista";
@@ -19,6 +20,14 @@ export const routes: RouteDef[] = [
   { path: "/ekonomi/arende/:caseId?", title: (p) => (p.caseId ? "Ärende (ekonomi)" : "Sök ärende"), roles: ROLES, area: "mb", screen: ArendeScreen },
   // Prislistan (beslut 5): flyttad hit från avtalssidan – bara ekonomen ser priser.
   { path: "/ekonomi/prislista", title: "Prislista", roles: ROLES, area: "mb", screen: PrislistaScreen },
+  // Bonusfakturorna (beslut 2026-11-04): före /ekonomi/:month.
+  {
+    path: "/ekonomi/bonus/:month?",
+    title: (p) => (MONTH_RE.test(p.month ?? "") ? `Bonusfakturor ${monthName(p.month)}` : "Bonusfakturor"),
+    roles: ROLES,
+    area: "mb",
+    screen: BonusFakturaScreen,
+  },
   { path: "/ekonomi/:month/faktura/:caseId?", title: "Faktura", roles: ROLES, area: "mb", screen: FakturaScreen },
   {
     path: "/ekonomi/:month",

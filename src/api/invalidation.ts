@@ -34,13 +34,18 @@ export const AKTIVITETER = "aktiviteter.";
  * kartläggningen, grupperingarna eller gruppaktiviteterna anger GRUPPER själva (src/api/invalidation.test.ts kontrollerar).
  */
 export const GRUPPER = "grupper.";
+/**
+ * Bonus (§7.17, beslut 2026-11-04): deltagarkortets kort Bonus, Granska och skicka och kommunens beslut. Förhandsvisningen av
+ * redovisningsunderlaget läser närvaron, bedömningarna, planerna och händelserna – därför i CASE_FACTS.
+ */
+export const BONUS = "bonus.";
 /** Adminsidor som räknar ärenden, avstämningar och körningar. */
 export const CASE_STATS = ["admin.contract", "admin.integrations", "admin.orgRules"] as const;
 /**
  * Ärendets fakta ändras (närvaro, avstämning, status, rapporter): allt som räknar KPI:er, flaggor, deadlines och
  * fakturering. Brett med flit – närvaron styr veckorapporter, fakturaunderlag, sidopanelens räknare och ledningens nyckeltal.
  */
-export const CASE_FACTS = [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, BILLING, ...CASE_STATS, NAV, AKTIVITETER, ...LOG] as const;
+export const CASE_FACTS = [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, BILLING, ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] as const;
 
 // ---- Automatisk utkastsparning (D2 punkt 2): skärmen väljer en smalare mängd (useCommand(def, { invalidate })) än kontraktets.
 // Ett utkast påverkar bara utkastlistor och kortet – aldrig sidan själv (formuläret ligger kvar), inte räknarna i sidopanelen.

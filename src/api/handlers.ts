@@ -15,4 +15,5 @@ import "@/features/rost/handlers";
 import "@/features/notiser/handlers";
 import "@/features/synpunkter/handlers";
 import "@/features/grupper/handlers";
+import "@/features/bonus/handlers";
 export { execute, isSilentCommand, registeredKeys, rolesOf } from "./server";

@@ -61,8 +61,11 @@ export class MemoryStore<TT extends Record<string, Row>> {
     for (const key of keys) {
       const fields = typeof key === "string" ? [key] : key.fields;
       const whenNull = typeof key === "string" ? [] : (key.whenNull ?? []);
-      // Null i nyckeln räknas aldrig (som i Postgres); partiellt index: bara rader där whenNull-fälten är null.
-      const counts = (x: Record<string, unknown>) => fields.every((f) => x[f] != null) && whenNull.every((f) => x[f] == null);
+      const whenIn = typeof key === "string" ? undefined : key.whenIn;
+      // Null i nyckeln räknas aldrig (som i Postgres); partiellt index: bara rader där whenNull-fälten är null och whenIn-fältet
+      // har ett av värdena.
+      const counts = (x: Record<string, unknown>) =>
+        fields.every((f) => x[f] != null) && whenNull.every((f) => x[f] == null) && (!whenIn || whenIn.values.includes(x[whenIn.field]));
       if (!counts(r)) continue;
       const same = (x: Record<string, unknown>) => fields.every((f) => x[f] === r[f]);
       if (this.rows(name as keyof TT & string).some((x) => x.id !== row.id && counts(x as Record<string, unknown>) && same(x as Record<string, unknown>))) {

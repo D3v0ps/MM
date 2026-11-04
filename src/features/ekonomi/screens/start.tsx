@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import { ROLE_LABEL } from "@/api/roles";
 import { useQuery } from "@/shell/backend";
+import { Link } from "@/shell/nav";
 import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { fmtDateShort, fmtDateTime, fmtTime, monthName } from "@/core/time";
@@ -26,6 +27,29 @@ export function StartScreen() {
     <Page className={WRAP} title="Fakturering" eyebrow={eyebrow} lead={lead(q.data.customerName)}>
       <Start v={q.data} />
     </Page>
+  );
+}
+
+/** Bonusfakturor som inte är skapade än (beslut 2026-11-04) – egna fakturor, skilda från månadens faktura. */
+function BonusInvoicesCard({ v }: { v: BillingStartView }) {
+  return (
+    <Card title={`Bonusfakturor${v.bonus.length ? ` (${v.bonus.length})` : ""}`} icon="award" flush actions={<Link to="/ekonomi/bonus" className="inline-flex min-h-11 items-center font-bold underline">Alla bonusfakturor</Link>}>
+      {v.bonus.length === 0 ? (
+        <p className="m-0 px-[18px] py-4 text-text-muted">Inga bonusfakturor väntar. Bonus faktureras när kommunen har godkänt ett bonusanspråk.</p>
+      ) : (
+        <Table
+          caption="Bonusfakturor som inte är skapade"
+          rows={v.bonus}
+          rowKey="invoiceId"
+          columns={[
+            { key: "title", label: "Faktura", render: (b) => <Link to={`/ekonomi/bonus/${b.month}`} className="font-bold underline">{b.title}</Link> },
+            { key: "lines", label: "Bonussteg", num: true, render: (b) => num(b.lines) },
+            { key: "amount", label: "Belopp exkl. moms", num: true, nowrap: true, render: (b) => kr(b.amountOre) },
+            { key: "state", label: "Läge", render: (b) => (b.bucket === "blocked" ? <Badge tone="red" icon="alert-circle">Stoppad</Badge> : b.bucket === "review" ? <Badge tone="grey" icon="clock">Att godkänna</Badge> : <Badge tone="blue" icon="check">Klar</Badge>) },
+          ]}
+        />
+      )}
+    </Card>
   );
 }
 
@@ -87,6 +111,7 @@ function Start({ v }: { v: BillingStartView }) {
         <RefInvoicesCard v={v} a={a} />
         <ZeroCard v={v} />
       </Halves>
+      <BonusInvoicesCard v={v} />
       <Card title="Fakturakörningar per månad" icon="calendar" flush>
         <Table<RunRow>
           caption="Fakturakörningar per månad"

@@ -9,9 +9,11 @@
 // src/features/aktiviteter/audience-sync.ts – tillfällen som redan har börjat rörs aldrig) och de förifyllda
 // månadsbedömningarna för månaden att bedöma nu med AI-utkasten till dem (ensureMonthlyAssessments,
 // src/features/coach/ensure-assessments.ts – AI-jobben läggs i kön och körs av samma jobbkörning eller nästa).
-// Sist gör jobbet klart ändringar av startdatum som inte blev klara (Karims beslut 2026-10-29, finishStartChanges i
-// src/features/arenden/start-finish.ts – städningen efter en ändring som avbröts).
-// Ordningen: rapportutkasten, tillfällena och inbjudningarna, månadsbedömningarna, fakturakörningen, ändringarna av startdatum.
+// Sedan gör jobbet klart ändringar av startdatum som inte blev klara (Karims beslut 2026-10-29, finishStartChanges i
+// src/features/arenden/start-finish.ts – städningen efter en ändring som avbröts), och sist förslagen till bonusanspråk
+// (beslut 2026-11-04, ensureBonusClaims i src/features/bonus/ensure.ts – bara när bonus är påslagen i avtalet).
+// Ordningen: rapportutkasten, tillfällena och inbjudningarna, månadsbedömningarna, fakturakörningen, ändringarna av startdatum,
+// bonusförslagen.
 // Ett fel i ett steg stoppar inte de andra (som i minnesläget, src/data/memory-runtime.ts) – det första felet kastas efteråt, så
 // att jobbet sparar felorsaken och försöker igen. Alla steg är idempotenta, så ett nytt försök skapar bara det som fattas.
 //
@@ -28,6 +30,7 @@ import type { Repo } from "@/data/repo";
 import type { Job } from "@/data/schema";
 import { DataError, type PgError } from "@/data/supabase/repo";
 import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
+import { ensureBonusClaims } from "@/features/bonus/ensure";
 import { finishStartChanges } from "@/features/arenden/start-finish";
 import { ensureMonthlyAssessments } from "@/features/coach/ensure-assessments";
 import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
@@ -126,6 +129,7 @@ export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
       });
       await step(async () => (await ensureBillingRuns(ctx, { floor: state.floor })).created.length > 0);
       await step(async () => (await finishStartChanges(ctx, { floor: state.floor })) > 0);
+      await step(async () => (await ensureBonusClaims(ctx, { floor: state.floor })).created.length > 0);
       if (errors.length > 0) throw errors[0];
       return changed ? "created" : "none";
     },

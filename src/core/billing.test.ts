@@ -36,7 +36,7 @@ const draft = (month: string, p: Partial<InvoiceDraft> = {}): InvoiceDraft =>
 /** En fryst rad på en skapad faktura. */
 const frozen = (invoiceDraftId: string, caseId: string, weeks: string[], unitPriceOre = 139800): InvoiceLine => ({
   id: `${invoiceDraftId}:${caseId}`, invoiceDraftId, caseId, priceItemId: "pi-G", quantity: weeks.length, unitPriceOre, vatRate: 25, description: `rad ${caseId}`,
-  isoWeeks: weeks, zeroAttendanceWeeks: [], note: "",
+  isoWeeks: weeks, zeroAttendanceWeeks: [], note: "", bonusClaimId: null,
 });
 
 describe("debiterbara veckor", () => {

@@ -6,6 +6,8 @@
 // fakturerad; veckor som tillkommer efteråt hamnar på en tilläggsfaktura.
 // Beslut 5 (2026-10-07): belopp syns bara för rollen ekonom – alla frågor och kommandon här är bara för ekonomen (och nekas
 // för begränsade testare, HandlerOpts.commercial).
+// Bonus (beslut 2026-11-04): bonusfakturorna (kind bonus, src/core/bonus-billing.ts) går genom samma kommandon som de periodiska
+// – fakturan hittas med sitt id bland månadens bonusfakturor (findAny) – men står aldrig på en periodisk faktura.
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
@@ -15,10 +17,11 @@ import {
   type BillingMonth, type InvoiceLineView, type MonthInvoice,
 } from "@/core/billing";
 import { areaForMonth, inOrder } from "@/core/area-changes";
+import { bonusLineIdOf, bonusMonthInvoices } from "@/core/bonus-billing";
 import { CASE_NUMBER_RE, findCaseNumber, priceFor, priceItem } from "@/core/cases";
 import { bytesToBase64 } from "@/core/export/base64";
 import { XLSX_MIME } from "@/core/export/xlsx";
-import { DEFAULT_ORG_SETTINGS, isOperational, requireOperational, type OperationalConfig } from "@/core/config";
+import { bonusBillingModel, bonusModel, bonusStepLabel, DEFAULT_ORG_SETTINGS, isOperational, requireOperational, type OperationalConfig } from "@/core/config";
 import { areaName, invoiceStatusLabel, personName } from "@/core/labels";
 import { slaStatus, type SlaStatus } from "@/core/sla";
 import { addDays, addMonths, dayOf, diffDays, monday, monthKey, monthName, relative, weeksOfMonth, type LocalDateTime, type MonthKey } from "@/core/time";
@@ -30,7 +33,7 @@ import { upsert } from "../_shared/context";
 import { FORTNOX_OFF_ERROR, fortnoxOff } from "../_shared/fortnox-port";
 import { newInvoiceDraft } from "../_shared/rows";
 import {
-  billingApproveInvoice, billingApproveZeroWeek, billingExport, billingExportXlsx, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCase, ekoCaseList, ekoCloseRun, ekoCsv,
+  billingApproveInvoice, billingApproveZeroWeek, billingExport, billingExportXlsx, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoBonus, ekoCase, ekoCaseList, ekoCloseRun, ekoCsv,
   ekoFortnoxSync, ekoLine, ekoPreview, ekoPriceList, ekoReissue, ekoRun, ekoStart, ekoTaskDone, invoiceSetBuyerRef, invoiceSetPo,
   type BillingStartView, type CaseMonthRow, type InvoiceCheckView, type InvoiceView, type LineRow, type OverlapView, type RefInvoiceRow, type RefSuggestion,
   type ReturnedRow, type RunRow, type RunView, type SlaView, type TaskRef, type TaskView, type UnbilledRow, type ZeroRow,
@@ -104,8 +107,12 @@ async function loadBilling(ctx: Ctx, contract: Contract) {
     case_area_changes: { contractId: contract.id },
   });
   const ids = db.invoice_drafts.map((d) => d.id);
-  const invoice_lines = ids.length ? await ctx.repo.table("invoice_lines").list({ invoiceDraftId: { in: ids } }) : [];
-  return { ...db, invoice_lines };
+  // De godkända bonusanspråken (bonusfakturan): ekonomen läser dem med åtkomsten billing – raden har aldrig belopp (0039).
+  const [invoice_lines, bonus_claims] = await Promise.all([
+    ids.length ? ctx.repo.table("invoice_lines").list({ invoiceDraftId: { in: ids } }) : Promise.resolve([]),
+    ctx.repo.table("bonus_claims").list({ contractId: contract.id, status: "approved" }),
+  ]);
+  return { ...db, invoice_lines, bonus_claims };
 }
 type BillingData = Awaited<ReturnType<typeof loadBilling>>;
 
@@ -123,13 +130,14 @@ function lineRow(b: Base, l: InvoiceLineView): LineRow {
     caseId: l.caseId, caseNumber: l.caseNumber, areaCode: l.areaCode, areaTitle: areaTitle(b, l.areaCode), areaName: areaName(b.areas, l.areaCode), articleNo: l.articleNo,
     weeks: l.weeks, quantity: l.quantity, unitPriceOre: l.unitPriceOre, amountOre: l.amountOre, vatRate: l.vatRate, checks: l.checks.map((ch) => checkView(b, ch, l)),
     needsApproval: l.needsApproval, remarks: remarksOfLine(l), frozen: l.frozen, lineText: l.lineText, orderWeeks: l.orderWeeks, accruedWeeks: l.accruedWeeks,
+    ...(l.bonusStep != null ? { bonusStep: l.bonusStep, bonusLabel: bonusStepLabel(bonusModel(b.cfg), l.bonusStep) } : {}),
   };
 }
 
 /** Anmärkningar på raden. En fryst rad har bara en: veckor som inte längre är debiterbara (de behöver krediteras). */
 const remarksOfLine = (l: InvoiceLineView): number => (l.frozen ? l.checks.filter((c) => c.kind === "not_billable").length : remarksOf(l.checks));
 
-const caseNumberOf = (inv: MonthInvoice) => (inv.groupingKey.startsWith("avtal") ? null : (inv.lines[0]?.caseNumber ?? null));
+const caseNumberOf = (inv: MonthInvoice) => (inv.groupingKey.startsWith("avtal") || inv.groupingKey === "bonus" || inv.groupingKey.startsWith("bonus-tillagg-") ? null : (inv.lines[0]?.caseNumber ?? null));
 const titleOf = (inv: MonthInvoice) => invoiceTitle(inv, caseNumberOf(inv));
 
 /**
@@ -212,18 +220,27 @@ async function ekonomTasks(ctx: Ctx): Promise<Task[]> {
 }
 const taskRef = (b: Base, t: Task): TaskRef => ({ id: t.id, fromName: personName(b.profiles, t.fromId), createdAt: t.createdAt, text: t.text });
 
-/** Radens anmärkning (Peppol BT-127): upparbetat och återstående på beställningen. En fryst rad behåller sin sparade text. */
+/**
+ * Radens anmärkning (Peppol BT-127): upparbetat och återstående på beställningen. En fryst rad behåller sin sparade text. En
+ * bonusrad har bonussteget och kommunens beslut (src/core/bonus-billing.ts bonusLineNote).
+ */
 function lineNote(db: BillingData, inv: MonthInvoice, l: InvoiceLineView, env: Base["env"]): string {
   if (l.frozen && l.note) return l.note;
+  if (l.bonusClaimId) return l.note;
   const c = db.cases.find((x) => x.id === l.caseId);
   return c ? invoiceSummary(l, caseLedger(c, db, env), inv.stored ? inv.id : null).text : "";
 }
 
-/** Månadens fakturor för kommandona (underlaget läses om – aldrig från skärmen). */
+/**
+ * Månadens fakturor för kommandona (underlaget läses om – aldrig från skärmen): de periodiska (bm) och bonusfakturorna (bonus,
+ * src/core/bonus-billing.ts). findAny hittar fakturan med sitt id bland båda.
+ */
 async function monthOf(ctx: Ctx, month: MonthKey) {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
-  return { b, db, bm: monthInvoices(db, month, b.env) };
+  const bm = monthInvoices(db, month, b.env);
+  const bonus = bonusMonthInvoices(db, b.contract.id, month, b.env);
+  return { b, db, bm, bonus, findAny: (id: string): MonthInvoice | null => findInvoice(bm, id) ?? bonus.find((x) => x.id === id) ?? null };
 }
 
 /** Spara fakturans rad i invoice_drafts (den finns först när ekonomen gör något med fakturan). */
@@ -231,7 +248,7 @@ async function saveInvoice(ctx: Ctx, b: Base, db: BillingData, inv: MonthInvoice
   const cur = await ctx.repo.table("invoice_drafts").get(inv.id);
   const run = db.billing_runs.find((r) => r.month === inv.month) ?? null;
   const row = cur ?? newInvoiceDraft({
-    id: inv.id, month: inv.month, contractId: inv.contractId, groupingKey: inv.groupingKey, billingRunId: run?.id ?? null,
+    id: inv.id, month: inv.month, contractId: inv.contractId, groupingKey: inv.groupingKey, billingRunId: run?.id ?? null, kind: inv.kind,
     invoicedObject: b.perContract ? b.contract.contractNumber : (inv.lines[0]?.caseNumber ?? b.contract.contractNumber), caseId: b.perContract ? null : (inv.lines[0]?.caseId ?? null),
   });
   return upsert(ctx.repo.table("invoice_drafts"), { ...row, ...patch });
@@ -244,7 +261,7 @@ async function ensureInvoiceRow(ctx: Ctx, b: Base, db: BillingData, inv: MonthIn
   if (cur) return cur;
   const run = db.billing_runs.find((r) => r.month === inv.month) ?? null;
   const row = newInvoiceDraft({
-    id: inv.id, month: inv.month, contractId: inv.contractId, groupingKey: inv.groupingKey, billingRunId: run?.id ?? null,
+    id: inv.id, month: inv.month, contractId: inv.contractId, groupingKey: inv.groupingKey, billingRunId: run?.id ?? null, kind: inv.kind,
     invoicedObject: b.perContract ? b.contract.contractNumber : (inv.lines[0]?.caseNumber ?? b.contract.contractNumber), caseId: b.perContract ? null : (inv.lines[0]?.caseId ?? null),
   });
   try {
@@ -258,7 +275,8 @@ async function ensureInvoiceRow(ctx: Ctx, b: Base, db: BillingData, inv: MonthIn
 }
 
 /**
- * Skriv fakturans rader (invoice_lines) så att de blir exakt `lines` – idempotent med fasta id:n (faktura:ärende): en rad som
+ * Skriv fakturans rader (invoice_lines) så att de blir exakt `lines` – idempotent med fasta id:n (faktura:ärende, och för
+ * bonusfakturan faktura:ärende:steg<n> med anspråket i bonusClaimId – en rad per anspråk): en rad som
  * redan finns (en tidigare körning som avbröts) skrivs över, och rader för ärenden som inte längre är med tas bort. Går bara
  * medan fakturan får ändras (underlag, godkänd, eller returnerad när den görs om – 0023 mm.invoice_editable och policy.ts);
  * annars PolicyError.
@@ -267,10 +285,11 @@ async function writeLines(ctx: Ctx, db: BillingData, inv: MonthInvoice, lines: r
   const table = ctx.repo.table("invoice_lines");
   const keep = new Set<string>();
   for (const l of lines) {
+    const bonus = l.bonusClaimId && l.bonusStep != null ? { claimId: l.bonusClaimId, step: l.bonusStep } : null;
     const row: InvoiceLine = {
-      id: `${inv.id}:${l.caseId}`, invoiceDraftId: inv.id, caseId: l.caseId, priceItemId: l.priceItemId, quantity: l.quantity, unitPriceOre: l.unitPriceOre,
-      vatRate: l.vatRate, description: l.lineText, isoWeeks: l.weeks.map((w) => w.key), zeroAttendanceWeeks: l.weeks.filter((w) => w.zeroAttendance).map((w) => w.key),
-      note: lineNote(db, inv, { ...l, frozen: false, note: "" }, env),
+      id: bonus ? bonusLineIdOf(inv.id, l.caseId, bonus.step) : `${inv.id}:${l.caseId}`, invoiceDraftId: inv.id, caseId: l.caseId, priceItemId: l.priceItemId, quantity: l.quantity,
+      unitPriceOre: l.unitPriceOre, vatRate: l.vatRate, description: l.lineText, isoWeeks: l.weeks.map((w) => w.key), zeroAttendanceWeeks: l.weeks.filter((w) => w.zeroAttendance).map((w) => w.key),
+      note: bonus ? l.note : lineNote(db, inv, { ...l, frozen: false, note: "" }, env), bonusClaimId: bonus?.claimId ?? null,
     };
     keep.add(row.id);
     try {
@@ -326,8 +345,8 @@ handleCommand(billingApproveZeroWeek, { roles: BILLING, commercial: true }, asyn
 
 // ---------------------------------------------------------------- billing.approveInvoice (hela fakturan)
 handleCommand(billingApproveInvoice, { roles: BILLING, commercial: true }, async (ctx, p) => {
-  const { b, db, bm } = await monthOf(ctx, p.month);
-  const inv = findInvoice(bm, p.invoiceId);
+  const { b, db, findAny } = await monthOf(ctx, p.month);
+  const inv = findAny(p.invoiceId);
   if (!inv) return fail("not_found", NO_INVOICE);
   if (inv.created) return fail("created", "Fakturan är redan skapad.");
   if (!monthEnded(p.month, ctx.now())) return fail("month_open", monthOpenText(p.month));
@@ -343,10 +362,10 @@ handleCommand(billingSendFortnox, { roles: BILLING, commercial: true }, async (c
   // Utan Fortnox-port (supabase-läget tills en riktig klient finns) ändras ingenting: ingen rad fryses, ingen status, inget
   // nummer, ingen logg "skapad i Fortnox". Fakturan skapas i Fortnox för hand och markeras som manuellt fakturerad.
   if (fortnoxOff(ctx)) return fail("fortnox_off", FORTNOX_OFF_ERROR);
-  const { b, db, bm } = await monthOf(ctx, p.month);
+  const { b, db, findAny } = await monthOf(ctx, p.month);
   const invoices: MonthInvoice[] = [];
   for (const id of new Set(p.invoiceIds)) {
-    const inv = findInvoice(bm, id);
+    const inv = findAny(id);
     if (!inv) return fail("not_found", NO_INVOICE);
     invoices.push(inv);
   }
@@ -395,8 +414,8 @@ handleCommand(billingSendFortnox, { roles: BILLING, commercial: true }, async (c
 
 // ---------------------------------------------------------------- billing.markManual (reservvägen)
 handleCommand(billingMarkManual, { roles: BILLING, commercial: true }, async (ctx, p) => {
-  const { b, db, bm } = await monthOf(ctx, p.month);
-  const inv = findInvoice(bm, p.invoiceId);
+  const { b, db, findAny } = await monthOf(ctx, p.month);
+  const inv = findAny(p.invoiceId);
   if (!inv) return fail("not_found", NO_INVOICE);
   if (inv.created) return fail("created", "Fakturan är redan skapad.");
   if (!monthEnded(p.month, ctx.now())) return fail("month_open", monthOpenText(p.month));
@@ -424,25 +443,32 @@ handleCommand(billingExportXlsx, { roles: BILLING, commercial: true }, async (ct
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const bm = monthInvoices(db, p.month, b.env);
+  // Bonusfakturorna står efter månadens periodiska fakturor – egna fakturor, aldrig rader på en periodisk faktura.
+  const bonus = bonusMonthInvoices(db, b.contract.id, p.month, b.env);
   const bytes = await billingXlsx({
     month: p.month, now: ctx.now(), contract: { contractNumber: b.contract.contractNumber, dnr: b.contract.dnr },
     customer: { name: b.customer?.name ?? "", orgNr: b.customer?.orgNr ?? "" },
     // Avtalskonfigurationen har inget kundnummer i Fortnox (ännu) – cellen lämnas tom och ekonomen väljer kunden i Fortnox.
     customerNumber: null,
     paymentTermsDays: b.cfg.billing.paymentTermsDays, perContract: b.perContract, areas: b.areas,
-    invoices: bm.invoices.map((inv) => ({ inv, title: titleOf(inv), notes: Object.fromEntries(inv.lines.map((l) => [l.caseId, lineNote(db, inv, l, b.env)])) })),
+    invoices: [
+      ...bm.invoices.map((inv) => ({ inv, title: titleOf(inv), notes: Object.fromEntries(inv.lines.map((l) => [l.caseId, lineNote(db, inv, l, b.env)])) })),
+      ...bonus.map((inv) => ({ inv, title: titleOf(inv), notes: Object.fromEntries(inv.lines.map((l) => [l.bonusClaimId ?? l.caseId, lineNote(db, inv, l, b.env)])) })),
+    ],
   });
+  const invoices = bm.invoices.length + bonus.length;
+  const rows = bm.count + bonus.reduce((n, x) => n + x.lines.length, 0);
   // Loggas innan filen lämnas ut (samma händelse som CSV-filen). Bara antal – inga ärendenummer eller belopp i loggen.
   await ctx.audit({
-    action: "export.billing", entity: "billing_run", entityId: p.month, contractId: b.contract.id, details: { format: "xlsx", invoices: bm.invoices.length, rows: bm.count },
+    action: "export.billing", entity: "billing_run", entityId: p.month, contractId: b.contract.id, details: { format: "xlsx", invoices, rows },
   });
-  return ok({ filename: billingXlsxFilename(p.month), mime: XLSX_MIME, content: bytesToBase64(bytes), invoices: bm.invoices.length, rows: bm.count });
+  return ok({ filename: billingXlsxFilename(p.month), mime: XLSX_MIME, content: bytesToBase64(bytes), invoices, rows });
 });
 
 // ---------------------------------------------------------------- Fakturans beställarreferens (beslut 3: en per faktura)
 handleCommand(invoiceSetBuyerRef, { roles: BILLING, commercial: true }, async (ctx, p) => {
-  const { b, db, bm } = await monthOf(ctx, p.month);
-  const inv = findInvoice(bm, p.invoiceId);
+  const { b, db, findAny } = await monthOf(ctx, p.month);
+  const inv = findAny(p.invoiceId);
   if (!inv) return fail("not_found", NO_INVOICE);
   if (inv.created && inv.storedStatus !== "returned") return fail("created", "Fakturan är redan skapad. Referensen kan inte ändras.");
   const ref = p.reference.trim();
@@ -457,8 +483,8 @@ handleCommand(invoiceSetBuyerRef, { roles: BILLING, commercial: true }, async (c
 
 // ---------------------------------------------------------------- Fakturans inköpsordernummer (bara kommunens 99-nummer)
 handleCommand(invoiceSetPo, { roles: BILLING, commercial: true }, async (ctx, p) => {
-  const { b, db, bm } = await monthOf(ctx, p.month);
-  const inv = findInvoice(bm, p.invoiceId);
+  const { b, db, findAny } = await monthOf(ctx, p.month);
+  const inv = findAny(p.invoiceId);
   if (!inv) return fail("not_found", NO_INVOICE);
   if (inv.created) return fail("created", "Fakturan är redan skapad. Inköpsordernumret kan inte ändras.");
   const po = p.purchaseOrderNumber.trim();
@@ -480,7 +506,8 @@ handleCommand(ekoFortnoxSync, { roles: BILLING, commercial: true }, async (ctx, 
   if (fortnoxOff(ctx)) return fail("fortnox_off", FORTNOX_OFF_ERROR);
   const b = await base(ctx);
   const now = ctx.now();
-  const drafts = await ctx.repo.table("invoice_drafts").list({ month: p.month, contractId: b.contract.id, kind: "periodic" });
+  // De periodiska fakturorna och bonusfakturorna (beslut 2026-11-04) – båda skapas i Fortnox.
+  const drafts = await ctx.repo.table("invoice_drafts").list({ month: p.month, contractId: b.contract.id, kind: { in: ["periodic", "bonus"] } });
   let changed = 0;
   for (const d of drafts.sort((a, x) => (a.id < x.id ? -1 : 1))) {
     const next = NEXT[d.status];
@@ -500,15 +527,16 @@ handleCommand(ekoReissue, { roles: BILLING, commercial: true }, async (ctx, p) =
   // Den nya fakturan får status "Skapad i Fortnox" och ett fakturanummer – förutsätter porten. Utan port: ingen kreditering,
   // ingen ny faktura.
   if (fortnoxOff(ctx)) return fail("fortnox_off", FORTNOX_OFF_ERROR);
-  const { b, db, bm } = await monthOf(ctx, p.month);
-  const inv = findInvoice(bm, p.invoiceId);
+  const { b, db, findAny } = await monthOf(ctx, p.month);
+  const inv = findAny(p.invoiceId);
   if (!inv || !inv.stored) return fail("not_found", NO_INVOICE);
   if (inv.storedStatus !== "returned") return fail("not_returned", "Fakturan är inte returnerad.");
   if (inv.blocked) return fail("buyer_ref", "Rätta beställarreferensen innan du skapar en ny faktura.");
   const now = ctx.now();
   // Den nya fakturan räknas på nytt från dagens underlag: de frysta raderna med bara de veckor som fortfarande är debiterbara
   // (en vecka som rättats bort i efterhand, t.ex. ett uppehåll, faktureras inte igen). Nya veckor står på månadens öppna faktura.
-  const lines = reissueLines(inv, billingLines(db, p.month, b.env));
+  // En bonusfaktura görs om med samma rader (ett godkänt anspråk ändras aldrig).
+  const lines = inv.kind === "bonus" ? inv.lines.map((l) => ({ ...l, frozen: false })) : reissueLines(inv, billingLines(db, p.month, b.env));
   const round = reissueRound(inv.fortnoxIdempotencyKey);
   const drafts = ctx.repo.table("invoice_drafts");
   // Kreditfakturan: en per returnerad faktura och omgång (fast id) – en omkörning efter ett avbrott skriver den inte två gånger.
@@ -769,7 +797,12 @@ handleQuery(ekoCaseList, { roles: BILLING, commercial: true }, async (ctx) => {
 const UNIT_TEXT: Record<string, string> = { participant_week: "Pris per deltagare och vecka" };
 handleQuery(ekoPriceList, { roles: BILLING, commercial: true }, async (ctx) => {
   const b = await base(ctx);
-  const items = await ctx.repo.table("price_items").list({ contractId: b.contract.id });
+  const all = await ctx.repo.table("price_items").list({ contractId: b.contract.id });
+  // Bonusstegen (unit bonus_step) har inget avtalsområde och visas för sig, med steget och namnet ur avtalskonfigurationen.
+  const items = all.filter((p) => p.unit !== "bonus_step");
+  const m = bonusBillingModel(b.cfg);
+  const stepOf = (code: string) => m?.steps.find((s) => s.priceItemCode === code)?.step ?? null;
+  const bonusItems = all.filter((p) => p.unit === "bonus_step");
   return {
     customerName: b.customer?.name ?? "",
     contractNumber: b.contract.contractNumber,
@@ -781,6 +814,47 @@ handleQuery(ekoPriceList, { roles: BILLING, commercial: true }, async (ctx) => {
         id: p.id, areaName: areaName(b.areas, p.areaCode), fortnoxArticleNo: p.fortnoxArticleNo, unit: p.unit, priceOre: p.priceOre, vatRate: p.vatRate, validFrom: p.validFrom,
         validTo: p.validTo, exampleOnly: p.exampleOnly,
       })),
+    bonus: m
+      ? {
+          capOre: m.capOre,
+          items: bonusItems
+            .slice()
+            .sort(by((p) => `${stepOf(p.code) ?? 9}:${p.validFrom}`))
+            .map((p) => {
+              const step = stepOf(p.code);
+              return {
+                id: p.id, step, label: step ? `Bonussteg ${step} · ${bonusStepLabel(m, step)}` : p.code, fortnoxArticleNo: p.fortnoxArticleNo, unit: p.unit, priceOre: p.priceOre,
+                vatRate: p.vatRate, validFrom: p.validFrom, validTo: p.validTo, exampleOnly: p.exampleOnly,
+              };
+            }),
+        }
+      : null,
+  };
+});
+
+// ---------------------------------------------------------------- ekonomi.bonus (bonusfakturorna, beslut 2026-11-04)
+handleQuery(ekoBonus, { roles: BILLING, commercial: true }, async (ctx, p) => {
+  const b = await base(ctx);
+  const db = await loadBilling(ctx, b.contract);
+  const m = bonusBillingModel(b.cfg);
+  const months = [...new Set([
+    ...db.bonus_claims.filter((k) => k.decidedAt).map((k) => monthKey(k.decidedAt as string)),
+    ...db.invoice_drafts.filter((d) => d.kind === "bonus").map((d) => d.month),
+  ])].sort().reverse();
+  const month = p.month ?? months[0] ?? null;
+  const base0 = {
+    canAct: b.canAct, on: !!m, customerName: b.customer?.name ?? "", contractNumber: b.contract.contractNumber, months, capOre: m?.capOre ?? null, fortnox: { connected: !fortnoxOff(ctx) },
+    refRules: b.refRules,
+  };
+  if (!month) return { ...base0, month: null, monthOpen: null, invoices: [], totalOre: 0 };
+  const [tasks, credits] = await Promise.all([ekonomTasks(ctx), ctx.repo.table("invoice_credits").list({ contractId: b.contract.id, month })]);
+  const invoices = bonusMonthInvoices(db, b.contract.id, month, b.env);
+  return {
+    ...base0, month, monthOpen: monthEnded(month, ctx.now()) ? null : monthOpenText(month), totalOre: sum(invoices, (x) => x.amountOre),
+    invoices: invoices.map((inv) => ({
+      ...invoiceView(b, db, inv, tasks, credits),
+      capped: inv.capped.map((x) => ({ ...x, label: bonusStepLabel(m, x.step) })),
+    })),
   };
 });
 
@@ -882,8 +956,15 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
     };
   }
 
+  // Bonusfakturor som inte är skapade än (alla månader med godkända anspråk).
+  const bonusMonths = [...new Set(db.bonus_claims.filter((k) => k.decidedAt).map((k) => monthKey(k.decidedAt as string)))].sort();
+  const bonus = bonusMonths.flatMap((mk) =>
+    bonusMonthInvoices(db, b.contract.id, mk, b.env)
+      .filter((inv) => !inv.created && inv.lines.length > 0)
+      .map((inv) => ({ month: mk, invoiceId: inv.id, title: titleOf(inv), bucket: bucketOf(inv), lines: inv.lines.length, amountOre: inv.amountOre })));
+
   return {
-    canAct: b.canAct, customerName: b.customer?.name ?? "", current, openTasks: tasks.filter((t) => t.status === "open").length,
+    canAct: b.canAct, customerName: b.customer?.name ?? "", current, openTasks: tasks.filter((t) => t.status === "open").length, bonus,
     unbilled: { totalOre: sum(ub, (x) => x.amountOre), count: ub.length, limit: b.cfg.billing.unbilledWarningDays, prescText: prescText(b.cfg.billing), rows: ubRows },
     tasks: taskViews, returned, refInvoices, zero, runs: runRows,
     fortnox: {

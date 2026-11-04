@@ -382,7 +382,7 @@ describe("ekonomins åtgärder", () => {
     for (const caseId of [first.caseId, stray.id]) {
       rt.store.insertRow("invoice_lines", {
         id: `${JAN}:${caseId}`, invoiceDraftId: JAN, caseId, priceItemId: "pi-x", quantity: 99, unitPriceOre: 1, vatRate: 25, description: "avbruten", isoWeeks: ["2027-W01"],
-        zeroAttendanceWeeks: [], note: "",
+        zeroAttendanceWeeks: [], note: "", bonusClaimId: null,
       });
     }
     expect(await cmd(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] })).toMatchObject({ ok: true, created: [JAN], skipped: [] });
@@ -498,7 +498,8 @@ describe("fakturan godkänns och faktureras först när månaden är slut", () =
     // Ingenting ändrades: ingen godkänd eller fakturerad faktura, och inget i loggen.
     expect(rows("invoice_drafts").find((d) => d.id === FEB)?.status).toBe("draft");
     expect(rows("invoice_lines").filter((l) => l.invoiceDraftId === FEB)).toEqual([]);
-    expect(rows("audit_log").filter((l) => ["billing.approved", "billing.manual"].includes(l.action))).toEqual([]);
+    // (Testdatats enda rad är december månads bonusfaktura, som ekonomen fakturerade manuellt i januari – Karims beslut 2026-11-04.)
+    expect(rows("audit_log").filter((l) => ["billing.approved", "billing.manual"].includes(l.action)).map((l) => l.id)).toEqual(["log-bonusfaktura-2026-12"]);
   });
 
   it("januari (slut): monthOpen är null och fakturan kan godkännas som förut", async () => {

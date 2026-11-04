@@ -172,6 +172,9 @@ export type LineRow = {
   /** Beställda veckor och upparbetade veckor till och med månaden. */
   orderWeeks: number;
   accruedWeeks: number;
+  /** Bonusfakturans rad: bonussteget och dess namn (saknas på periodiska rader). */
+  bonusStep?: number;
+  bonusLabel?: string;
 };
 
 /** Förslag till fakturans beställarreferens (människan bekräftar – fylls aldrig i av sig själv). */
@@ -386,7 +389,19 @@ export type PriceListRow = {
   /** Exempelpris (price_items.example_only) – inte avtalets pris. En faktura med ett sådant pris är stoppad. */
   exampleOnly: boolean;
 };
-export type PriceListView = { customerName: string; contractNumber: string; unitText: string; items: PriceListRow[] };
+/** Bonusstegens prisrader (unit bonus_step): steget och dess namn ur avtalskonfigurationen. */
+export type BonusPriceRow = Omit<PriceListRow, "areaName"> & { step: number | null; label: string };
+/**
+ * items = priserna per deltagare och vecka. bonus = bonusstegen (beslut 2026-11-04) med taket per deltagare – null när bonus inte
+ * är påslagen i avtalet.
+ */
+export type PriceListView = {
+  customerName: string;
+  contractNumber: string;
+  unitText: string;
+  items: PriceListRow[];
+  bonus: { capOre: number; items: BonusPriceRow[] } | null;
+};
 export const ekoPriceList = query("ekonomi.priceList", z.object({})).returns<PriceListView>();
 
 export type TaskCaseView = { caseId: string; caseNumber: string };
@@ -440,6 +455,8 @@ export type BillingStartView = {
      */
     invoiceRows: { invoiceId: string; title: string; bucket: "blocked" | "review" | "ready"; lines: number; weeks: number; amountOre: number }[];
   } | null;
+  /** Bonusfakturor som inte är skapade än (beslut 2026-11-04): månaden, fakturan, antal bonussteg och beloppet. */
+  bonus: { month: MonthKey; invoiceId: string; title: string; bucket: "blocked" | "review" | "ready"; lines: number; amountOre: number }[];
   openTasks: number;
   unbilled: { totalOre: number; count: number; limit: number; prescText: string; rows: UnbilledRow[] };
   tasks: TaskView[];
@@ -455,3 +472,28 @@ export type BillingStartView = {
   refSuggestions: Record<string, RefSuggestion[]>;
 };
 export const ekoStart = query("ekonomi.start", z.object({})).returns<BillingStartView>();
+
+// ---- Bonusfakturor (beslut 2026-11-04, src/core/bonus-billing.ts)
+/** Ett godkänt anspråk som inte ger någon rad: taket per deltagare är redan nått. */
+export type BonusCappedRow = { claimId: string; caseId: string; caseNumber: string; step: number; label: string; priceOre: number };
+/**
+ * Bonusfakturorna för en månad: en per avtal och månad (eller per ärende med invoicePer "case_and_month") för de anspråk som
+ * kommunen godkände under månaden, skilda från de periodiska fakturorna. Samma åtgärder som de periodiska (beställarreferens,
+ * inköpsordernummer, godkänn, Fortnox eller manuellt fakturerad) med fakturans id. months = månader med godkända anspråk eller
+ * bonusfakturor, nyast först. Bara ekonomen.
+ */
+export type BonusBillingView = {
+  canAct: boolean;
+  on: boolean;
+  customerName: string;
+  contractNumber: string;
+  month: MonthKey | null;
+  months: MonthKey[];
+  monthOpen: string | null;
+  capOre: number | null;
+  invoices: (InvoiceView & { capped: BonusCappedRow[] })[];
+  totalOre: number;
+  fortnox: { connected: boolean };
+  refRules: RefRules;
+};
+export const ekoBonus = query("ekonomi.bonus", z.object({ month: MonthKeySchema.optional() })).returns<BonusBillingView>();

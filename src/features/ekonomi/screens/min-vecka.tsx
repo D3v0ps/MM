@@ -94,7 +94,7 @@ function Week({ v, now }: { v: BillingStartView; now: string }) {
 /** Radens knapp. Kommandona är desamma som på Fakturering (useBillingActions). */
 function ActionButton({ act, title, a }: { act: InvoiceTodoAction; title: string; a: BillingActions }) {
   const what = <>{" "}<span className="sr-only">– {title}</span></>;
-  if (!a.canAct && act.kind !== "run" && act.kind !== "approve") return null;
+  if (!a.canAct && act.kind !== "run" && act.kind !== "approve" && act.kind !== "bonus") return null;
   switch (act.kind) {
     case "ref":
       return (
@@ -121,6 +121,12 @@ function ActionButton({ act, title, a }: { act: InvoiceTodoAction; title: string
       return (
         <Button kind="secondary" iconRight="arrow-right" to={runPath(act.month)}>
           Öppna körningen{what}
+        </Button>
+      );
+    case "bonus":
+      return (
+        <Button kind="secondary" iconRight="arrow-right" to={`/ekonomi/bonus/${act.month}`}>
+          Öppna bonusfakturan{what}
         </Button>
       );
     case "task":

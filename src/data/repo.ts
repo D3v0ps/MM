@@ -28,7 +28,14 @@ export class UniqueError extends Error {
  * partiellt index – bara rader där fälten är null räknas (t.ex. aktiva medlemskap: removedAt null). Rader där något av
  * nyckelns fält är null räknas aldrig (som i Postgres, där null aldrig är lika med null).
  */
-export type UniqueKey<T> = (keyof T & string) | { fields: readonly (keyof T & string)[]; whenNull?: readonly (keyof T & string)[] };
+export type UniqueKey<T> =
+  | (keyof T & string)
+  | {
+      fields: readonly (keyof T & string)[];
+      whenNull?: readonly (keyof T & string)[];
+      /** Partiellt index med ett villkor på ett fält: bara rader där fältet har ett av värdena räknas (t.ex. status in (…)). */
+      whenIn?: { field: keyof T & string; values: readonly unknown[] };
+    };
 
 export type Cmp<V> =
   | V

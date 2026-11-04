@@ -29,12 +29,17 @@ const COL = Object.fromEntries(LINE_COLUMNS.map((c, i) => [c, i])) as Record<(ty
 
 /** Enheten på raden: priset gäller per deltagare och vecka. */
 export const LINE_UNIT = "vecka";
+/** Enheten på bonusfakturans rad: ett bonussteg (beslut 2026-11-04). */
+export const BONUS_LINE_UNIT = "st";
 
 export type BillingXlsxInvoice = {
   inv: MonthInvoice;
   /** "Faktura januari 2027", "Tilläggsfaktura 2 · december 2026". */
   title: string;
-  /** Radens anmärkning (Peppol BT-127, upparbetat och återstående) per ärende-id. En fryst rad har sin sparade text. */
+  /**
+   * Radens anmärkning (Peppol BT-127, upparbetat och återstående) per ärende-id – på bonusfakturan per anspråkets id (en rad per
+   * bonussteg). En fryst rad har sin sparade text.
+   */
   notes: Readonly<Record<string, string>>;
 };
 
@@ -141,7 +146,8 @@ function invoiceSheet(input: BillingXlsxInput): XlsxSheet {
     rows.push(["Kundnummer i Fortnox", input.customerNumber || null]);
     rows.push(["Betalningsvillkor", `${input.paymentTermsDays} dagar`]);
     rows.push(["Antal rader", inv.lines.length]);
-    rows.push(["Veckor", inv.quantity]);
+    if (inv.kind === "bonus") rows.push(["Bonussteg", inv.quantity]);
+    else rows.push(["Veckor", inv.quantity]);
     money("Summa exkl. moms", inv.amountOre);
     for (const v of inv.vat) money(`Moms ${v.rate} %`, v.vatOre);
     const t = invoiceTotals(inv);
@@ -149,7 +155,10 @@ function invoiceSheet(input: BillingXlsxInput): XlsxSheet {
     money("Att betala", t.grossRoundedOre);
     rows.push([
       "Fakturatext",
-      invoiceText({ contractNumber: input.contract.contractNumber, month: inv.month, lines: inv.lines.length, weeks: inv.quantity, number: inv.number, perContract: input.perContract }),
+      invoiceText({
+        contractNumber: input.contract.contractNumber, month: inv.month, lines: inv.lines.length, weeks: inv.quantity, number: inv.number, perContract: input.perContract,
+        ...(inv.kind === "bonus" ? { bonus: { cases: new Set(inv.lines.map((l) => l.caseId)).size } } : {}),
+      }),
     ]);
   }
   if (!rows.length) rows.push([`Inga fakturor för ${monthLabel(input.month).toLowerCase()}.`]);
@@ -167,11 +176,11 @@ function linesSheet(input: BillingXlsxInput): XlsxSheet {
       r[COL.Artikelnummer] = l.articleNo || null;
       r[COL.Benämning] = rowDescription(l, input.areas);
       r[COL.Antal] = l.quantity;
-      r[COL.Enhet] = LINE_UNIT;
+      r[COL.Enhet] = l.bonusClaimId ? BONUS_LINE_UNIT : LINE_UNIT;
       r[COL["À-pris exkl. moms"]] = oreToKr(l.unitPriceOre);
       r[COL["Moms %"]] = l.vatRate;
       r[COL["Belopp exkl. moms"]] = oreToKr(l.amountOre);
-      r[COL.Anmärkning] = notes[l.caseId] || null;
+      r[COL.Anmärkning] = notes[l.bonusClaimId ?? l.caseId] || null;
       r[COL["Anmärkningar för ekonomen"]] = lineRemarks(l) || null;
       rows.push(r);
     }
@@ -187,7 +196,9 @@ function aboutSheet(input: BillingXlsxInput): XlsxSheet {
   const rules = monthRules(month);
   const invs = input.invoices.map((x) => x.inv);
   const lines = invs.reduce((n, x) => n + x.lines.length, 0);
-  const weeks = invs.reduce((n, x) => n + x.quantity, 0);
+  // Veckorna bara på de periodiska fakturorna – bonusfakturan har ett bonussteg per rad.
+  const weeks = invs.reduce((n, x) => n + (x.kind === "bonus" ? 0 : x.quantity), 0);
+  const bonusInvs = invs.filter((x) => x.kind === "bonus");
   const created = invs.filter((x) => x.created).length;
   const rows: XlsxCell[][] = [];
   const boldRows: number[] = [];
@@ -215,6 +226,12 @@ function aboutSheet(input: BillingXlsxInput): XlsxSheet {
       ? "Månadens faktura har en rad per ärende. Ärendenumret är faktureringsobjekt. Veckor som registreras efter att fakturan skapats kommer på en tilläggsfaktura för samma månad."
       : "Varje ärende har en egen faktura för månaden. Ärendenumret är faktureringsobjekt. Veckor som registreras efter att fakturan skapats kommer på en tilläggsfaktura.",
   ]);
+  if (bonusInvs.length) {
+    rows.push([
+      "Bonusfaktura",
+      "Bonus enligt incitamentsmodellen faktureras på en egen faktura, skild från månadens faktura för deltagarveckorna. En rad per bonussteg som kommunen godkänt under månaden (Antal = 1, Enhet = st, À-pris = bonusstegets pris i prislistan). Stegen läggs ihop utan avräkning upp till taket per deltagare.",
+    ]);
+  }
   rows.push(["Belopp", "Kronor exklusive moms, med två decimaler. Antal = veckor och À-pris = pris per deltagare och vecka enligt prislistan. Momsen räknas per momssats på fakturans summa. Summorna är desamma som i fakturakörningen."]);
   rows.push(["Personuppgifter", "Filen har bara ärendenummer – inga namn och inga personnummer. Spara den inte utanför ekonomins mappar."]);
 

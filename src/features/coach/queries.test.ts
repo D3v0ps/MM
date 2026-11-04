@@ -221,7 +221,8 @@ describe("Ärendevyerna", () => {
     expect(v.employers.map((e) => e.name)).toContain("Tumba Städ & Fastighet AB");
     expect(v.result).toMatchObject({ countsAsResult: ["arbete", "studier"], excluded: ["avbrott_flytt", "avbrott_kommunens_beslut"] });
     expect(v.result.definitionText).toMatch(/^Resultatdefinitionen är inte fastställd i avtalet\. Preliminärt i prototypen/);
-    expect([v.finalDays, v.finalProvisional, v.bonusOn, v.closed]).toEqual([5, true, false, null]);
+    // Bonus är påslagen sedan Karims beslut 2026-11-04 (incitamentsmodellen med bonussteg 1–5).
+    expect([v.finalDays, v.finalProvisional, v.bonusOn, v.closed]).toEqual([5, true, true, null]);
   });
 });
 

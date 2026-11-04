@@ -1,7 +1,7 @@
 // Kontrakt för området ärenden (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER, GRUPPER, CASE_FACTS } from "@/api/invalidation";
+import { AKTIVITETER, BILLING, BONUS, CARD, CASE_FACTS, CASE_STATS, CASES, COACH, GRUPPER, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS } from "@/api/invalidation";
 import {
   ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
   type ParticipantFileCategory,
@@ -207,7 +207,7 @@ export const caseStart = command("arenden.caseStart", z.object({
   caseId: IdSchema,
   startDate: LocalDateSchema,
   plan: WeekPlanSchema,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
   Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "start_date" | "no_end" | "plan">
 >();
 
@@ -219,7 +219,7 @@ export const caseStart = command("arenden.caseStart", z.object({
 export const caseScheduleChange = command("arenden.caseScheduleChange", z.object({
   caseId: IdSchema,
   plan: WeekPlanSchema,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
   Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan">
 >();
 
@@ -230,7 +230,7 @@ export const activityAdd = command("arenden.activityAdd", z.object({
   startsAt: LocalDateTimeSchema,
   durationMin: z.number().int().min(15).max(600),
   location: ShortText,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] }).returns<
   Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate">
 >();
 
@@ -239,7 +239,7 @@ export const activityAdd = command("arenden.activityAdd", z.object({
  * aktivitetsvyn (aktiviteter.taBort) – här nekas det (group_activity).
  */
 export const activityRemove = command("arenden.activityRemove", z.object({ activityId: IdSchema }), {
-  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG],
+  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG],
 }).returns<Result<object, "not_found" | "forbidden" | "has_attendance" | "group_activity">>();
 
 /**
@@ -412,7 +412,7 @@ export const caseClose = command("arenden.caseClose", z.object({
   endDate: z.union([LocalDateSchema, z.literal("")]).nullable().optional(),
   endReason: z.union([z.enum(END_REASONS), z.literal("")]).nullable().optional(),
   verified: z.boolean().optional(),
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "rost.", "puls.", ...CASE_STATS, AKTIVITETER, GRUPPER, NAV, ...LOG] }).returns<Result<{ reportId: string; resultClass: ResultClass }, "not_found" | "missing" | "forbidden" | "wrong_status">>();
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "rost.", "puls.", ...CASE_STATS, AKTIVITETER, GRUPPER, NAV, BONUS, ...LOG] }).returns<Result<{ reportId: string; resultClass: ResultClass }, "not_found" | "missing" | "forbidden" | "wrong_status">>();
 
 /**
  * Säkert meddelande i ärendet (prototypens message.send). Från Miljonbemanning: kommunen får ett mejl utan innehåll.

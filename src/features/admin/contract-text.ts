@@ -40,7 +40,7 @@ export const whoDecides = (q: number | "internt" | "test"): string =>
 // ---------------------------------------------------------------- Ord
 export const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", since_start: "sedan avtalsstart", month: "per månad", rolling_3m: "rullande 3 månader" };
 const FROM: Record<string, string> = { avrop_mottaget: "från att avropet kommit in", avslutsdatum: "från avslutsdatum", bestallning: "från beställning" };
-export const UNIT: Record<string, string> = { participant_week: "Per deltagare och vecka" };
+export const UNIT: Record<string, string> = { participant_week: "Per deltagare och vecka", bonus_step: "Per bonussteg" };
 export const ROLE_WORD: Record<string, string> = { chef: "chef", controller: "controller", avtalsansvarig: "avtalsansvarig", samordnare: "samordnare", coach: "coach" };
 export const DATA_ROLE: Record<string, string> = {
   processor: "Personuppgiftsbiträde – kommunen är personuppgiftsansvarig. PUB-avtal enligt SKR:s mall.",

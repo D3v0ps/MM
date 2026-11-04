@@ -25,8 +25,8 @@ const SKIP = new Set<TableName>([
   // Gruppaktiviteterna (0030) och de återkommande aktiviteterna (0035) finns inte än.
   "group_activity_series", "group_activities",
   "case_area_changes",
-  // Ändringarna av startdatum (0038) finns inte än.
-  "case_start_changes",
+  // Ändringarna av startdatum (0038) och kommunens bonusbeslut (0039) finns inte än.
+  "case_start_changes", "bonus_claim_decisions",
 ]);
 
 let db: PGlite;

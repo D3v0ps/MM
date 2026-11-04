@@ -52,7 +52,7 @@ export function newIntake(r: Pick<IntakeAssessment, "id" | "caseId">): IntakeAss
  * En ny faktura (beslut 2026-10-07: en per avtal och månad, src/core/billing.ts). id och grupp kommer från underlaget
  * (MonthInvoice.id och groupingKey). Status draft tills ekonomen godkänner eller skapar den.
  */
-export function newInvoiceDraft(r: Pick<InvoiceDraft, "id" | "month" | "contractId" | "groupingKey" | "billingRunId" | "invoicedObject"> & Partial<Pick<InvoiceDraft, "caseId">>): InvoiceDraft {
+export function newInvoiceDraft(r: Pick<InvoiceDraft, "id" | "month" | "contractId" | "groupingKey" | "billingRunId" | "invoicedObject"> & Partial<Pick<InvoiceDraft, "caseId" | "kind">>): InvoiceDraft {
   return {
     kind: "periodic", caseId: null, buyerReference: null, purchaseOrderNumber: null, accruedOre: null, remainingOre: null, status: "draft",
     approvedBy: null, approvedAt: null, manualInvoiceNo: null, fortnoxDocumentNumber: null, fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null,

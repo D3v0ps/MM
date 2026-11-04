@@ -57,10 +57,21 @@ const EKONOMI = [
   "ekonomi.billingSendFortnox", "ekonomi.caseList", "ekonomi.case", "ekonomi.closeRun", "ekonomi.csv", "ekonomi.fortnoxSync", "ekonomi.invoiceSetBuyerRef",
   "ekonomi.invoiceSetPo", "ekonomi.line", "ekonomi.preview", "ekonomi.priceList", "ekonomi.reissue", "ekonomi.run", "ekonomi.start", "ekonomi.taskDone",
 ];
-const DENIED = ["admin.contract", "admin.orgRules", "admin.setOrgRule", "admin.setContractManager", ...EKONOMI].sort();
-const EKONOMI_COMMAND = /ekonomi\.(billing|askCoordinator|closeRun|fortnox|reissue|taskDone|invoiceSet)/;
+/**
+ * Bonusstegen (Karims beslut 2026-11-04): bonus är ett ekonomiskt villkor – granskningen, kommunens beslut, underlaget och
+ * ekonomens bonusfakturor nekas begränsade testare. Kortet Bonus (bonus.kort) svarar "av" i stället (testet nedan).
+ */
+const BONUS = [
+  "bonus.aterta", "bonus.besluta", "bonus.granska", "bonus.portal", "bonus.registreraMejl", "bonus.skapa", "bonus.skicka", "bonus.spara", "bonus.underlag", "ekonomi.bonus",
+];
+const DENIED = ["admin.contract", "admin.orgRules", "admin.setOrgRule", "admin.setContractManager", ...EKONOMI, ...BONUS].sort();
+const EKONOMI_COMMAND = /ekonomi\.(billing|askCoordinator|closeRun|fortnox|reissue|taskDone|invoiceSet)|bonus\.(aterta|besluta|registreraMejl|skapa|skicka|spara|underlag)/;
 /** En roll som får anropa nyckeln (rollkontrollen kommer före spärren). Ekonomi är bara ekonomens (beslut 5). */
-const roleFor = (key: string): [string, Role] => (key.startsWith("admin.") ? ["u-robin", "admin"] : ["u-lars", "ekonom"]);
+const roleFor = (key: string): [string, Role] =>
+  key.startsWith("admin.") ? ["u-robin", "admin"] :
+  key === "bonus.portal" || key === "bonus.besluta" ? ["k-maria", "kommun_handlaggare"] :
+  key === "bonus.registreraMejl" ? ["u-sara", "samordnare"] :
+  key.startsWith("bonus.") ? ["u-amira", "coach"] : ["u-lars", "ekonom"];
 
 describe("spärren i execute(): hela sidor om pengar och villkor", () => {
   it("exakt avtalssidans frågor och alla Ekonomis frågor och kommandon är markerade", () => {
@@ -115,7 +126,7 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect(s.events.some((e: { possibleBonus: boolean }) => e.possibleBonus)).toBe(false);
     const ck = await any("coach.eventsPage", { caseId: "case-260008" }, as("u-amira", "coach", KARIM));
     const cs = await any("coach.eventsPage", { caseId: "case-260008" }, as("u-amira", "coach", SARA_T));
-    expect(ck.bonusOn).toBe(false);
+    expect(ck.bonusOn).toBe(true); // incitamentsmodellen är påslagen (Karims beslut 2026-11-04)
     expect(ck.events.some((e: { possibleBonus: boolean }) => e.possibleBonus)).toBe(true);
     expect("bonusOn" in cs).toBe(false);
     expect(cs.events.some((e: { possibleBonus: boolean }) => e.possibleBonus)).toBe(false);
@@ -272,16 +283,36 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expectClean(JSON.stringify(ds), "inkorg.deadlines");
   });
 
-  it("kommunens portal: inga priser, inget ordervärde och inget bonusanspråk – för någon (synpunkt #10 och #11)", async () => {
+  it("kommunens portal: inga priser och inget ordervärde – för någon (synpunkt #10 och #11); bonusanspråken utan belopp, inga för begränsade testare", async () => {
     const maria = (t?: string) => as("k-maria", "kommun_handlaggare", t);
     for (const t of [KARIM, SARA_T]) {
       const b = await any("kommun.bestallning", {}, maria(t));
       expect("prices" in b).toBe(false);
       expectClean(JSON.stringify(b), "kommun.bestallning");
       const d = await any("kommun.deltagare", { caseId: "case-260008" }, maria(t));
-      expect("priceOre" in d.order || "valueOre" in d.order || "bonus" in d).toBe(false);
+      expect("priceOre" in d.order || "valueOre" in d.order).toBe(false);
+      // Bonusanspråken (Karims beslut 2026-11-04): bonussteget och beslutet – aldrig belopp. Bonus är ett ekonomiskt villkor.
+      expect(d.bonus.length > 0).toBe(t === KARIM);
       expectClean(JSON.stringify(d), "kommun.deltagare");
+      const st = await any("kommun.start", {}, maria(t));
+      expect(st.bonus.length > 0).toBe(t === KARIM);
+      expectClean(JSON.stringify(st), "kommun.start");
     }
+    expect((await errorOf(any("bonus.portal", { claimId: "bonus-case-260027-3-1" }, maria(SARA_T))))?.code).toBe(TESTER_HIDDEN_CODE);
+    expectClean(JSON.stringify(await any("bonus.portal", { claimId: "bonus-case-260027-3-1" }, maria(KARIM))), "bonus.portal");
+  });
+
+  it("kortet Bonus och coachens Min vecka: av för begränsade testare, inga belopp för någon", async () => {
+    const k = await any("bonus.kort", { caseId: "case-260008" }, as("u-amira", "coach", KARIM));
+    const s = await any("bonus.kort", { caseId: "case-260008" }, as("u-amira", "coach", SARA_T));
+    expect(k.on).toBe(true);
+    expect(s).toEqual({ on: false });
+    expectClean(JSON.stringify(k), "bonus.kort");
+    const mk = await any("coach.minVecka", {}, as("u-amira", "coach", KARIM));
+    const ms = await any("coach.minVecka", {}, as("u-amira", "coach", SARA_T));
+    expect(mk.bonus.length).toBeGreaterThan(0);
+    expect(ms.bonus).toEqual([]);
+    expectClean(JSON.stringify(await any("bonus.granska", { claimId: "bonus-case-260008-4-1" }, as("u-amira", "coach", KARIM))), "bonus.granska");
   });
 
   it("orderbekräftelsen (rapportsidan, portalen och PDF:en): inget veckopris för någon sedan 2026-10-07 – också i en fryst rapport", async () => {

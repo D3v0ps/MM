@@ -295,7 +295,8 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact", "report_correction"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
-export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation"] as const;
+/** bonus_decision = kommunen har beslutat om ett bonusanspråk (till huvudcoachen, 0039 – kolumnen är text utan check). */
+export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation", "bonus_decision"] as const;
 export type UserNotificationKind = (typeof USER_NOTIFICATION_KINDS)[number];
 
 /**
@@ -372,8 +373,27 @@ export type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number];
 export const JOB_STATUSES = ["queued", "running", "done", "failed"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
+/** Bonusanspråkets äldre indelning: steg 1–2 = progression, steg 3–5 = work (arbete eller studier). */
 export const BONUS_KINDS = ["work", "progression"] as const;
 export type BonusKind = (typeof BONUS_KINDS)[number];
+/**
+ * Bonusanspråkets läge (§7.17, 0039): suggested = förslag (regelstyrt eller skapat av coachen) som Miljonbemanning granskar ·
+ * submitted = skickat till kommunen med det frysta redovisningsunderlaget · approved / rejected = kommunens beslut (bara via
+ * bonus_claim_decisions) · withdrawn = återtaget av Miljonbemanning. Kommunen läser bara submitted, approved och rejected.
+ */
+export const BONUS_CLAIM_STATUSES = ["suggested", "submitted", "approved", "rejected", "withdrawn"] as const;
+export type BonusClaimStatus = (typeof BONUS_CLAIM_STATUSES)[number];
+/** Ett anspråk som räknas: högst ett per ärende och bonussteg (bonus_claims_case_step_active_key, 0039). */
+export const BONUS_ACTIVE_STATUSES: readonly BonusClaimStatus[] = ["suggested", "submitted", "approved"];
+/** auto = förslag från regeln (jobbet report_schedule), manual = skapat av coachen. */
+export const BONUS_SOURCES = ["auto", "manual"] as const;
+export type BonusSource = (typeof BONUS_SOURCES)[number];
+/** Kommunens beslut i portalen, eller ett beslut som kommunen skickade med mejl och som Miljonbemanning registrerar. */
+export const BONUS_DECISION_VIAS = ["portal", "mejl"] as const;
+export type BonusDecisionVia = (typeof BONUS_DECISION_VIAS)[number];
+/** Punkterna som coachen bockar av för bonussteg 1 (med var underlaget finns). Närvaron och bedömningarna räknas fram. */
+export const BONUS_CHECKLIST_ITEMS = ["individuell_plan", "ansokningshandlingar", "branschintroduktion", "arbetsgivarnara_aktivitet"] as const;
+export type BonusChecklistItem = (typeof BONUS_CHECKLIST_ITEMS)[number];
 
 // ================================================================ Organisationer, avtal, användare
 export type Organization = {
@@ -1192,20 +1212,83 @@ export type PulseResponse = {
 };
 
 // ================================================================ Bonus, KPI, flaggor, deadlines (SPEC)
-/** Bonusanspråk (fas 3). */
+/** Coachens avbockning för bonussteg 1: klar och var underlaget finns (kort text, inga personnummer). */
+export type BonusChecklist = Partial<Record<BonusChecklistItem, { done: boolean; where: string }>>;
+
+/**
+ * Bonusanspråk (§7.17, 0039 – incitamentsmodellen, beslut 2026-11-04). Ett anspråk gäller ett bonussteg (1–5) i ett ärende –
+ * högst ett anspråk per steg som räknas (suggested, submitted, approved). Ett avslaget eller återtaget anspråk hindrar inte ett
+ * nytt för samma steg. Aldrig belopp på anspråket (amountOre är alltid null, check i 0039) – beloppet räknas på bonusfakturan
+ * ur prislistan och taket (src/core/bonus-billing.ts), så att kommunen och coachen aldrig kan läsa ett belopp i raden. Inga
+ * underlag som filer (evidencePaths är alltid tom) – intygen skickas till kommunen på annat sätt.
+ */
 export type BonusClaim = {
   id: string;
   caseId: string;
+  contractId: string;
+  /** Bonussteget 1–5 (aldrig "nivå"). Null bara i äldre rader före 0039. */
+  step: number | null;
+  /** Steg 1–2 = progression, steg 3–5 = work. */
   kind: BonusKind;
+  status: BonusClaimStatus;
+  /** Null bara i äldre rader före 0039. */
+  source: BonusSource | null;
+  /** Coachens korta kommentar i redovisningsunderlaget (högst 500 tecken, inga personnummer). */
   basis: string;
+  /** Alltid tom – inga dokument i Miljonmatch. */
   evidencePaths: string[];
+  /** Händelsen som gav förslaget (steg 2 och 3). */
+  outcomeEventId: string | null;
+  /** Steg 4 och 5: anspråket för steg 3 som de bygger på. */
+  followsClaimId: string | null;
+  /** Resultatdatum (steg 3–5: dagen arbetet eller studierna började; steg 1–2: dagen steget nåddes). */
+  reachedOn: LocalDate | null;
+  /** Verifieringens typ ("anställningsavtal", "antagningsbesked" …) och datum – aldrig själva dokumentet. */
+  verificationKind: string | null;
+  verificationOn: LocalDate | null;
+  /** Steg 1: coachens avbockning. Tomt objekt för andra steg. */
+  checklist: BonusChecklist;
+  /** Det frysta redovisningsunderlaget (BonusSnapshot i src/core/bonus.ts) – sätts när anspråket skickas till kommunen. */
+  snapshot: Record<string, unknown> | null;
+  createdBy: UserId;
+  createdAt: LocalDateTime;
   submittedAt: LocalDateTime | null;
+  submittedBy: UserId | null;
+  withdrawnBy: UserId | null;
+  withdrawnAt: LocalDateTime | null;
   customerDecision: "approved" | "rejected" | null;
   decidedBy: UserId | null;
   decidedAt: LocalDateTime | null;
-  /** Öre. */
+  /** Kommunens motivering (frivillig i portalen, krävs när Miljonbemanning registrerar ett beslut som kom med mejl). */
+  decisionNote: string | null;
+  /** Alltid null (0039) – beloppet står bara på bonusfakturan. */
   amountOre: number | null;
+  /** Används inte (0039) – fakturaraden pekar på anspråket (invoice_lines.bonusClaimId). */
   invoiceDraftId: string | null;
+};
+
+/**
+ * Kommunens beslut om ett bonusanspråk (0039) – append-only: en rad per anspråk, ändras och raderas aldrig. En ny rad ändrar
+ * anspråket i samma transaktion (triggern bonus_claim_decisions_apply, policy.ts bonusDecisionApply): status, beslut, vem, när
+ * och motiveringen – bara när anspråket är skickat och ännu inte beslutat.
+ *   via portal  kommunens handläggare beslutar i portalen i eget namn (decidedBy = recordedBy = handläggaren).
+ *   via mejl    kommunen skickade beslutet med mejl (CLAUDE.md punkt 10) och samordnaren eller avtalsansvarig registrerar det
+ *               i eget namn (recordedBy) med kommunens motivering eller en hänvisning till mejlet (note krävs). decidedBy = null.
+ */
+export type BonusClaimDecision = {
+  id: string;
+  claimId: string;
+  caseId: string;
+  contractId: string;
+  decision: "approved" | "rejected";
+  /** Motiveringen (högst 1000 tecken, inga personnummer). Krävs när via är mejl. */
+  note: string | null;
+  via: BonusDecisionVia;
+  /** Kommunens handläggare (portalen). Null när beslutet kom med mejl. */
+  decidedBy: UserId | null;
+  /** Den som registrerade beslutet i Miljonmatch (portalen: handläggaren själv). */
+  recordedBy: UserId;
+  decidedAt: LocalDateTime;
 };
 
 export type KpiSnapshot = {
@@ -1333,6 +1416,11 @@ export type InvoiceLine = {
   zeroAttendanceWeeks: WeekKey[];
   /** Radens anmärkning (Peppol BT-127): upparbetat och återstående på beställningen. Tom = räknas fram. */
   note: string;
+  /**
+   * Bonusfakturans rad (0039): anspråket som raden fakturerar – en rad per godkänt anspråk, id
+   * `${invoiceDraftId}:${caseId}:steg${n}`. Null på periodiska fakturor (en rad per ärende, id `${invoiceDraftId}:${caseId}`).
+   */
+  bonusClaimId: string | null;
 };
 
 /** Godkänd debiterbar vecka utan närvaro (prototypens billingApprovals[mån].zeroWeeks). */
@@ -1992,6 +2080,7 @@ export type Tables = {
   pulse_invites: PulseInvite;
   pulse_responses: PulseResponse;
   bonus_claims: BonusClaim;
+  bonus_claim_decisions: BonusClaimDecision;
   kpi_snapshots: KpiSnapshot;
   alerts: Alert;
   alert_acks: AlertAck;
@@ -2059,6 +2148,7 @@ export const TABLE_NAMES = [
   "group_goal_results",
   "case_area_changes",
   "case_start_changes",
+  "bonus_claim_decisions",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -2099,4 +2189,11 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   // Ändringarna av startdatum numreras på samma sätt (0038, case_start_changes_case_seq_key), och en anteckning är motivering
   // till högst en ändring (case_start_changes_note_id_key).
   case_start_changes: [{ fields: ["caseId", "seq"] }, "noteId"],
+  // Högst ett anspråk som räknas per ärende och bonussteg (0039, bonus_claims_case_step_active_key – bara suggested, submitted och
+  // approved). Ett avslaget eller återtaget anspråk hindrar inte ett nytt.
+  bonus_claims: [{ fields: ["caseId", "step"], whenIn: { field: "status", values: BONUS_ACTIVE_STATUSES } }],
+  // Ett beslut per anspråk (0039, bonus_claim_decisions_claim_id_key).
+  bonus_claim_decisions: ["claimId"],
+  // En rad per anspråk på en bonusfaktura (0039, invoice_lines_draft_bonus_claim_key).
+  invoice_lines: [{ fields: ["invoiceDraftId", "bonusClaimId"] }],
 };

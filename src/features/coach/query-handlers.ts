@@ -7,7 +7,7 @@ import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
 import { phaseSince, stuck } from "@/core/cases";
-import { autoAttendanceOf, isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
+import { autoAttendanceOf, bonusModel, bonusStepLabel, isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
@@ -232,6 +232,10 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
 
   const row = (c: Case) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person(c)) });
   const auto = autoAttendanceOf(main.org);
+  // Bonus att granska (beslut 2026-11-04): förslagen i coachens egna ärenden. Bonus är ett ekonomiskt villkor – inte för begränsade
+  // testare. Bara läsning via ctx.repo (policyn för bonus_claims).
+  const bonusModelOf = (contractId: string) => bonusModel(envs.find((e) => e.contractId === contractId)?.cfg);
+  const suggested = hidesCommercial(ctx.actor) || !ids.length ? [] : await ctx.repo.table("bonus_claims").list({ caseId: { in: ids }, status: "suggested" });
   return {
     now,
     autoPresentAt: auto.autoPresent ? auto.autoPresentAt : null,
@@ -301,6 +305,13 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       }),
     },
     toMap: toMap.map((c) => ({ ...row(c), intake: (intakeOf.get(c.id) as "draft" | "approved" | undefined) ?? "none" })),
+    bonus: suggested
+      .filter((k) => k.step != null && caseById.has(k.caseId) && !!bonusModelOf(caseById.get(k.caseId)!.contractId))
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1))
+      .map((k) => {
+        const c = caseById.get(k.caseId) as Case;
+        return { claimId: k.id, ...row(c), step: k.step as number, label: bonusStepLabel(bonusModelOf(c.contractId), k.step as number), sustain: k.step === 4 };
+      }),
     due: {
       monthly: dueMonthly.length ? { count: dueMonthly.length, byStatus, dueAt: dueMonthly[0].dueAt, sla: { label: dueMonthly[0].sla.label, tone: dueMonthly[0].sla.tone } } : null,
       other: due.filter((x) => x.kind !== "manadsrapport").map((x) => {

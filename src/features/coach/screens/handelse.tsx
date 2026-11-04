@@ -186,8 +186,16 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               Aktiv
             </Badge>
           </Row>
-          <p className="text-body">Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag.</p>
+          <p className="text-body">
+            Bonusstegen enligt incitamentsmodellen. Arbete eller studier med verifiering blir ett förslag till bonussteg 3 – du granskar och skickar det under Bonus
+            på deltagarkortet. Kommunen beslutar i portalen.
+          </p>
           <p className="text-body text-text-muted">{bonusText}</p>
+          <Row>
+            <Button kind="secondary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(v.head.caseId)}?flik=handelser`}>
+              Bonus på deltagarkortet
+            </Button>
+          </Row>
         </Stack>
       </Card>
     ) : (
@@ -375,7 +383,10 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               </Field>
               {possibleBonus && (
                 <Notice tone="info" icon="award" title="Möjligt bonusunderlag">
-                  Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Bonus är avstängd tills incitamentsmodellen är fastställd. <BuildPhase fas={3} off />
+                  {v.bonusOn
+                    ? "Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Med registrerad verifiering blir det ett förslag till bonussteg 3 som du granskar och skickar under Bonus på deltagarkortet."
+                    : "Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Bonus är avstängd i avtalet."}
+                  {!v.bonusOn && <> <BuildPhase fas={3} off /></>}
                 </Notice>
               )}
               <Row>
