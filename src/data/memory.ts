@@ -16,16 +16,25 @@ export type RowPolicy<TT extends Record<string, Row>, T extends Row> = {
   /**
    * Spegel av en trigger efter insert för inloggade (inte bypass): ändringar i andra tabeller som skrivs i samma synkrona steg
    * som den nya raden – som i samma transaktion i Postgres (t.ex. ett byte av yrkesområde som ändrar ärendet, 0036). Anropas
-   * efter write och före raden skrivs; ett fel stoppar både raden och ändringarna.
+   * efter write och före raden skrivs; ett fel stoppar både raden och ändringarna. `bypass`: skrivningen görs som service role
+   * (bakgrundsjobb och seed – bara med afterInsertForAll).
    */
-  afterInsert?(row: T, actor: Actor, raw: RawAccess<TT>): readonly Cascade<TT>[];
+  afterInsert?(row: T, actor: Actor, raw: RawAccess<TT>, bypass: boolean): readonly Cascade<TT>[];
   /** afterInsert gäller också bypass (en trigger för alla roller, också service role – t.ex. bonus_claim_decisions_apply, 0039). */
   afterInsertForAll?: boolean;
   /**
    * Spegel av en läsvy som döljer kolumner för vissa aktörer (t.ex. bonus_claims_public, 0039: ekonomen läser anspråken utan
-   * innehållet). Raden som aktören får läsa – bara för läsningar genom repot, aldrig för bypass.
+   * innehållet). Raden som aktören får läsa – bara för läsningar genom repot, aldrig för bypass. Filtret prövas mot den visade
+   * raden, som i vyn: ett filter på en dold kolumn träffar ingenting.
    */
   project?(row: T, actor: Actor, raw: RawAccess<TT>): T;
+  /**
+   * Spegel av kontroller och triggrar som gäller alla roller, också service role (t.ex. bonus_claims_guard och
+   * bonus_claim_decisions_append_only, 0039): prövas vid varje skrivning genom repot – också bypass – före write. `cur` är raden
+   * före (saknas vid insert) och `next` raden efter (null vid remove). Ändringar som afterInsert för med sig prövas inte (de görs
+   * av triggern själv, som i Postgres).
+   */
+  guard?(next: T | null, cur: T | undefined, raw: RawAccess<TT>): boolean;
 };
 export type Policies<TT extends Record<string, Row>> = { [N in keyof TT]?: RowPolicy<TT, TT[N]> };
 
@@ -156,7 +165,10 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
     // Läsvyns kolumner (project): bara för inloggade, som vyerna i Postgres.
     const shown = (r: TT[N]): TT[N] => (!this.opts.bypass && policy?.project ? policy.project(r, this.actor, raw) : r);
     const canWrite = (r: TT[N]) => this.opts.bypass || !policy?.write || policy.write(r, this.actor, raw);
-    const visible = (where?: Where<TT[N]>) => store.rows(name).filter((r) => matches(r, where) && canRead(r)).map(shown);
+    // Kontrollerna för alla roller (guard) – också bypass.
+    const guarded = (next: TT[N] | null, cur: TT[N] | undefined) => !policy?.guard || policy.guard(next, cur, raw);
+    // Filtret prövas mot raden som aktören ser (efter project), som i vyn.
+    const visible = (where?: Where<TT[N]>) => store.rows(name).filter(canRead).map(shown).filter((r) => matches(r, where));
     return {
       get: async (id) => {
         const r = store.getRow(name, id);
@@ -177,10 +189,11 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
       first: async (where, o) => clone(applyOpts(visible(where), { ...o, limit: 1 })[0] ?? null),
       count: async (where) => visible(where).length,
       insert: async (row) => {
-        if (!canWrite(row)) throw new PolicyError(name);
+        if (!guarded(row, undefined) || !canWrite(row)) throw new PolicyError(name);
         // Triggern efter insert (bara inloggade): raden och ändringarna i samma synkrona steg – allt eller inget, som en
         // transaktion: går en ändring inte att skriva tas raden bort och de ändrade raderna återställs.
-        const cascade = (!this.opts.bypass || policy?.afterInsertForAll) && policy?.afterInsert ? policy.afterInsert(row, this.actor, raw) : [];
+        const bypass = !!this.opts.bypass;
+        const cascade = (!bypass || policy?.afterInsertForAll) && policy?.afterInsert ? policy.afterInsert(row, this.actor, raw, bypass) : [];
         const before = cascade.map((x) => ({ x, prev: clone(store.getRow(x.table, x.id)) }));
         store.insertRow(name, clone(row));
         try {
@@ -196,7 +209,7 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         const cur = store.getRow(name, id);
         if (!cur || !canRead(cur)) throw new PolicyError(name);
         const next = { ...cur, ...patch, id } as TT[N];
-        if (!canWrite(next)) throw new PolicyError(name);
+        if (!guarded(next, cur) || !canWrite(next)) throw new PolicyError(name);
         return clone(store.updateRow(name, id, clone(patch)));
       },
       // Kontroll och skrivning i samma synkrona steg – två kommandon som körs samtidigt kan inte båda få raden.
@@ -204,12 +217,12 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         const cur = store.getRow(name, id);
         if (!cur || !canRead(cur) || !matches(cur, where)) return null;
         const next = { ...cur, ...patch, id } as TT[N];
-        if (!canWrite(next)) return null;
+        if (!guarded(next, cur) || !canWrite(next)) return null;
         return clone(store.updateRow(name, id, clone(patch)));
       },
       remove: async (id) => {
         const cur = store.getRow(name, id);
-        if (!cur || !canWrite(cur)) throw new PolicyError(name);
+        if (!cur || !guarded(null, cur) || !canWrite(cur)) throw new PolicyError(name);
         store.removeRow(name, id);
       },
     };

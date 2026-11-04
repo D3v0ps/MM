@@ -22,14 +22,15 @@
 --    (triggern bonus_claim_decisions_apply, för alla roller): status, beslut, vem, när och motiveringen – bara när anspråket är
 --    skickat och inte beslutat, och ett godkännande av steg 4 eller 5 bara när steg 3-anspråket är godkänt. Annars nekas hela raden.
 --    Ett avslag av steg 3 återtar de obeslutade steg 4 och 5 som bygger på det. Ändras och raderas aldrig, inte heller av service
---    role (triggern bonus_claim_decisions_append_only).
+--    role (triggern bonus_claim_decisions_append_only; service role får bara läsa och skapa – ingen truncate, som revisionsloggen).
 --      via portal  handläggaren som beställde insatsen (mm.case_referrer_id), med åtkomsten "customer" till ärendet, i eget namn
 --                  (decided_by = recorded_by = jag). Motiveringen är frivillig.
 --      via mejl    kommunen skickade beslutet med mejl (CLAUDE.md punkt 10): samordnaren eller avtalsansvarig i avtalet registrerar
 --                  det i eget namn (recorded_by = jag, decided_by null) med motivering (krävs).
 -- 3. Övergångarna i bonus_claims (triggern bonus_claims_guard). För alla roller: ett beslutat eller återtaget anspråk ändras
 --    aldrig, och submitted → approved/rejected bara via beslutet (mm.apply_bonus_decision sätter en transaktionslokal flagga som
---    triggern släpper igenom). För inloggade: suggested → submitted (underlaget med anspråkets id och steg krävs, i eget namn),
+--    triggern släpper igenom – och beslutet med samma anspråk, beslut och tid ska finnas i bonus_claim_decisions). För inloggade:
+--    suggested → submitted (underlaget med anspråkets id och steg som tal krävs, i eget namn),
 --    suggested → withdrawn och submitted → withdrawn (i eget namn). Steget, ärendet, avtalet, källan, händelsen, steg 3-anspråket och skaparen ändras aldrig. Ett skickat anspråk
 --    ändras inte (underlaget är fryst). En ändring som inte ändrar något nekas.
 -- 4. invoice_lines.bonus_claim_id: bonusfakturans rad pekar på anspråket – en rad per godkänt anspråk (unikt per faktura), id
@@ -160,9 +161,11 @@ drop trigger if exists bonus_claims_check on public.bonus_claims;
 create trigger bonus_claims_check before insert or update on public.bonus_claims
 for each row execute function mm.check_bonus_claim();
 
--- Övergångarna. För alla roller (också service role): ett beslutat eller återtaget anspråk ändras aldrig, och kommunens beslut
--- (godkänt eller avslaget och beslutets fält) skrivs bara av mm.apply_bonus_decision – funktionen sätter den transaktionslokala
--- flaggan mm.bonus_decision_apply medan den skriver. För inloggade dessutom (policy.ts bonusClaimTransition) övergångarna nedan.
+-- Övergångarna. För alla roller (också service role, policy.ts bonusClaimGuard): ett beslutat eller återtaget anspråk ändras
+-- aldrig, och kommunens beslut (godkänt eller avslaget och beslutets fält) skrivs bara av mm.apply_bonus_decision – funktionen
+-- sätter den transaktionslokala flaggan mm.bonus_decision_apply medan den skriver. Flaggan räcker inte ensam (vem som helst kan
+-- sätta en inställning i sin transaktion): anspråket ska vara skickat och beslutet med samma anspråk, beslut och tid ska finnas i
+-- bonus_claim_decisions. För inloggade dessutom (policy.ts bonusClaimTransition) övergångarna nedan.
 -- Fälten jämförs som jsonb utan de fält som övergången får ändra.
 create or replace function mm.guard_bonus_claim() returns trigger
 language plpgsql set search_path = public, mm
@@ -176,8 +179,10 @@ begin
   if old.status in ('approved', 'rejected', 'withdrawn') then
     raise exception 'Ett beslutat eller återtaget bonusanspråk ändras inte' using errcode = '42501';
   end if;
-  if not applying and (new.status in ('approved', 'rejected') or new.customer_decision is distinct from old.customer_decision
-      or new.decided_by is distinct from old.decided_by or new.decided_at is distinct from old.decided_at or new.decision_note is distinct from old.decision_note) then
+  if (new.status in ('approved', 'rejected') or new.customer_decision is distinct from old.customer_decision
+      or new.decided_by is distinct from old.decided_by or new.decided_at is distinct from old.decided_at or new.decision_note is distinct from old.decision_note)
+     and not (applying and old.status = 'submitted' and new.status in ('approved', 'rejected')
+              and exists (select 1 from public.bonus_claim_decisions d where d.claim_id = new.id and d.decision = new.status and d.decided_at = new.decided_at)) then
     raise exception 'Kommunens beslut registreras bara som ett beslut (bonus_claim_decisions)' using errcode = '42501';
   end if;
   if current_user not in ('authenticated', 'anon') then
@@ -189,10 +194,12 @@ begin
   if old.status = 'suggested' and new.status = 'suggested' then
     allowed := editable;
   elsif old.status = 'suggested' and new.status = 'submitted' then
-    -- Underlaget hör till anspråket: version 1, anspråkets id och bonussteg (policy.ts snapshotFits).
+    -- Underlaget hör till anspråket: version 1, anspråkets id och bonussteg – jämförda som jsonb, så att versionen och steget är
+    -- tal som i policy.ts snapshotFits (texten "1" eller "3" räcker inte).
     if new.snapshot is null or new.submitted_at is null or new.submitted_by is distinct from me
        or abs(extract(epoch from (new.submitted_at - mm.app_now()))) > 600
-       or new.snapshot ->> 'v' is distinct from '1' or new.snapshot ->> 'claimId' is distinct from new.id or new.snapshot ->> 'step' is distinct from new.step::text then
+       or new.snapshot -> 'v' is distinct from '1'::jsonb or new.snapshot -> 'claimId' is distinct from to_jsonb(new.id)
+       or new.snapshot -> 'step' is distinct from to_jsonb(new.step) then
       raise exception 'Ett skickat anspråk har sitt redovisningsunderlag och skickas i eget namn med aktuell tid' using errcode = '42501';
     end if;
     allowed := editable || array['status', 'snapshot', 'submitted_at', 'submitted_by'];
@@ -241,9 +248,11 @@ create index if not exists bonus_claim_decisions_decided_by_idx on public.bonus_
 create index if not exists bonus_claim_decisions_recorded_by_idx on public.bonus_claim_decisions (recorded_by);
 
 alter table public.bonus_claim_decisions enable row level security;
-revoke all on public.bonus_claim_decisions from anon, authenticated;
-grant all on public.bonus_claim_decisions to service_role;
--- Bara läsa och skapa: ett beslut ändras och raderas aldrig.
+-- Bara läsa och skapa, för alla (som revisionsloggen, 0009): ett beslut ändras och raderas aldrig – inte heller med truncate, som
+-- inte går genom radtriggrarna. "Läs in testdata på nytt" tömmer tabellen med mm.reset_test_data (security definer) och läser in
+-- besluten med "on conflict do nothing" (src/server/staging/load.ts), som bara kräver insert.
+revoke all on public.bonus_claim_decisions from anon, authenticated, service_role;
+grant select, insert on public.bonus_claim_decisions to service_role;
 grant select, insert on public.bonus_claim_decisions to authenticated;
 
 -- policy.ts bonus_claim_decisions.read: åtkomst full, team eller customer till ärendet – inte ekonomen (billing): kommunens
@@ -297,11 +306,15 @@ for each row execute function mm.check_bonus_decision();
 -- steg): status och beslut, vem (handläggaren, eller den som registrerade ett mejl), när och motiveringen. Bara när anspråket är
 -- skickat och inte beslutat – och ett godkännande av steg 4 eller 5 bara när steg 3-anspråket är godkänt. Avslås bonussteg 3
 -- återtas samtidigt de steg 4 och 5 som bygger på det och inte är beslutade (av systemet, med beslutets tid) – de kan aldrig
--- beslutas och ska inte stå kvar hos kommunen eller hindra ett nytt anspråk. Står beslutet redan på anspråket (testdata som läses
--- in med beslutade anspråk) ändras ingenting. Security definer: den inloggade ändrar aldrig anspråkets beslut direkt; flaggan
--- mm.bonus_decision_apply (transaktionslokal) släpper igenom ändringen i bonus_claims_guard. Ligger i schemat mm, som inte nås
--- via API:t.
-create or replace function mm.apply_bonus_decision(p_decision_id text) returns boolean
+-- beslutas och ska inte stå kvar hos kommunen eller hindra ett nytt anspråk. Står beslutet redan på anspråket ändras ingenting –
+-- men bara när p_existing_ok är satt: testdata som läses in med beslutade anspråk (seed och "Läs in testdata på nytt", som service
+-- role). För en inloggad nekas beslutet då som vilket beslutat anspråk som helst (policy.ts bonusDecisionApply) – annars kunde
+-- kommunen lägga ett beslut på ett anspråk som någon annan redan beslutat. Triggern avgör p_existing_ok utifrån sin current_user:
+-- inne i en security definer-funktion är current_user funktionens ägare. Ett direktanrop med true ändrar ingenting.
+-- Security definer: den inloggade ändrar aldrig anspråkets beslut direkt; flaggan mm.bonus_decision_apply (transaktionslokal)
+-- släpper igenom ändringen i bonus_claims_guard. Ligger i schemat mm, som inte nås via API:t.
+drop function if exists mm.apply_bonus_decision(text);
+create or replace function mm.apply_bonus_decision(p_decision_id text, p_existing_ok boolean) returns boolean
 language plpgsql security definer set search_path = public, mm
 as $$
 declare
@@ -317,7 +330,7 @@ begin
     return false;
   end if;
   if k.status = d.decision and k.customer_decision = d.decision and k.decided_at = d.decided_at then
-    return true;
+    return coalesce(p_existing_ok, false);
   end if;
   if k.status <> 'submitted' or k.customer_decision is not null then
     return false;
@@ -339,8 +352,8 @@ begin
   return true;
 end
 $$;
-revoke all on function mm.apply_bonus_decision(text) from public, anon;
-grant execute on function mm.apply_bonus_decision(text) to authenticated, service_role;
+revoke all on function mm.apply_bonus_decision(text, boolean) from public, anon;
+grant execute on function mm.apply_bonus_decision(text, boolean) to authenticated, service_role;
 
 -- För alla roller, också service role: ett beslut som inte går att lägga på anspråket stoppas, så att ett anspråk aldrig blir kvar
 -- som skickat bredvid ett beslut.
@@ -348,7 +361,8 @@ create or replace function mm.after_bonus_decision() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 begin
-  if not mm.apply_bonus_decision(new.id) then
+  -- Ett beslut som redan står på anspråket godtas bara när testdata läses in (inte inloggad).
+  if not mm.apply_bonus_decision(new.id, current_user not in ('authenticated', 'anon')) then
     raise exception 'Anspråket är inte skickat till kommunen, är redan beslutat, eller så behöver bonussteg 3 godkännas först' using errcode = '23514';
   end if;
   return null;

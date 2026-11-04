@@ -5,6 +5,7 @@
 //   - personnumren krypteras med testmiljöns riktiga nycklar (ctx.crypto på servern), så att "Visa" och dubblettkontrollen
 //     fungerar – testdatats påhittade nummer avkodas och krypteras om (AES-256-GCM + HMAC-SHA256)
 //   - revisionsloggen töms inte (append-only): testdatats loggrader läggs bara till om de saknas
+//   - kommunens bonusbeslut (append-only, 0039) läggs in med "on conflict do nothing" – service role får inte ändra dem
 //   - testarnas profiler och medlemskap behålls (inloggningen), de läggs bara till om de saknas
 // Bara påhittade uppgifter. Inga värden i felmeddelanden eller loggar – bara tabell och felkod.
 import type { PnrCrypto } from "@/api/server";
@@ -75,6 +76,9 @@ function chunk(table: TableName, rows: Record<string, unknown>[], ignoreDuplicat
   return out;
 }
 
+/** Tabellerna som service role bara läser och skapar i (append-only): raderna läggs in med "on conflict do nothing". */
+const APPEND_ONLY: ReadonlySet<TableName> = new Set<TableName>(["audit_log", "bonus_claim_decisions"]);
+
 /** Alla batchar i beroendeordning (seed.sql:s ordning). */
 export function seedBatches(crypto: PnrCrypto, data: MemoryData<Tables> = seedData()): SeedBatch[] {
   const out: SeedBatch[] = [];
@@ -86,8 +90,10 @@ export function seedBatches(crypto: PnrCrypto, data: MemoryData<Tables> = seedDa
       (table === "profiles" && TESTER_IDS.has(String((r as { id: string }).id))) || (table === "memberships" && TESTER_IDS.has(String((r as { userId: string }).userId)));
     const testers = all.filter(isTesterRow);
     const rest = all.filter((r) => !isTesterRow(r));
-    // Revisionsloggen töms aldrig: testdatats loggrader läggs bara till om de saknas (append-only, inga ändringar).
-    out.push(...chunk(table, toRows(table, rest, crypto), table === "audit_log"));
+    // Revisionsloggen töms aldrig: testdatats loggrader läggs bara till om de saknas (append-only, inga ändringar). Kommunens
+    // bonusbeslut töms av mm.reset_test_data men är också append-only: service role får bara läsa och skapa (0039), och
+    // "on conflict do update" kräver rätten att ändra – "do nothing" kräver bara insert.
+    out.push(...chunk(table, toRows(table, rest, crypto), APPEND_ONLY.has(table)));
     out.push(...chunk(table, toRows(table, testers, crypto), true));
   }
   return out;

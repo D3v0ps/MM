@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { SYSTEM_ACTOR } from "@/api/roles";
 import { accessIndex, caseAccessIn } from "@/core/access";
 import { defaultGroupings } from "@/core/groupings";
 import { customerSafeConfig, requireOperational } from "@/core/config";
@@ -3630,6 +3631,10 @@ describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och 
       ["fel steg", { v: 1, claimId: "bc-1", step: 3 }, false],
       ["fel version", { v: 2, claimId: "bc-1", step: 1 }, false],
       ["godtyckligt innehåll", { belopp: "1 500 kr" }, false],
+      // Jämförs som jsonb (R2-4): versionen och steget är tal, som i policy.ts – texten "1" räcker inte.
+      ["versionen som text", { v: "1", claimId: "bc-1", step: 1 }, false],
+      ["steget som text", { v: 1, claimId: "bc-1", step: "1" }, false],
+      ["båda som text", { v: "1", claimId: "bc-1", step: "1" }, false],
     ];
     for (const [label, snapshot, want] of cases) expect({ pg: await pgUpdate("bc-1", send(snapshot), "u-amira"), mem: memUpdate("bc-1", send(snapshot), "u-amira") }, label).toEqual({ pg: want, mem: want });
   });
@@ -3704,5 +3709,141 @@ describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och 
     expect(await service(line("il-t-1", { invoiceDraftId: periodic.id }))).toMatchObject({ ok: false, code: "23514" });
     expect(await service(line("il-t-2", { bonusClaimId: "bc-6", caseId: claim("bc-6").caseId }))).toMatchObject({ ok: false, code: "23514" });
     expect(await service(line("il-t-3", { bonusClaimId: null }))).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  // ---- Granskningsrunda 2: genvägen för testdata, flaggan, rättigheterna, underlaget och minnets vy och spärrar.
+  const memOk = (p: Promise<unknown>) => p.then(() => true, () => false);
+  const system = (s: MemoryStore<Tables>) => new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
+  const memWith = (extra: Partial<{ [N in TableName]: Tables[N][] }> = {}) => {
+    const d = structuredClone(data);
+    for (const [t, rows] of Object.entries(extra)) (d[t as TableName] as unknown[]).push(...structuredClone(rows as unknown[]));
+    const s = new MemoryStore<Tables>(d, UNIQUE_KEYS);
+    s.clock = () => at;
+    return s;
+  };
+
+  it("ett beslut som redan står på anspråket godtas bara när testdata läses in – aldrig för en inloggad (R2-1)", async () => {
+    // Ett godkänt anspråk utan beslut i loggen (bara möjligt för servern) – kommunen får inte "ta över" det med ett eget beslut.
+    const orphan: Tables["bonus_claims"] = {
+      ...claim("bc-5"), id: "bc-t-orphan", status: "approved", customerDecision: "approved", decidedBy: "k-omar", decidedAt: at, snapshot: { v: 1, claimId: "bc-t-orphan", step: 3 },
+    };
+    const d: Tables["bonus_claim_decisions"] = {
+      id: "bcd-t-orphan", claimId: orphan.id, caseId: orphan.caseId, contractId: orphan.contractId, decision: "approved", note: null, via: "portal", decidedBy: "k-maria", recordedBy: "k-maria", decidedAt: at,
+    };
+    const seedOrphan = async (tx: Tx) => { await tx.exec(insertSql("bonus_claims", orphan as unknown as Record<string, unknown>)); };
+    const kommun = await asUser(db, authOf("k-maria"), (tx) => attempt(tx, insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>)), { before: seedOrphan });
+    const service = await asUser(db, null, async (tx) => ({
+      a: await attempt(tx, insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>), [], { keep: true }),
+      k: (await tx.query<{ status: string; decided_by: string }>(`select status, decided_by from public.bonus_claims where id = '${orphan.id}'`)).rows[0],
+    }), { role: "service_role", before: seedOrphan });
+    expect(kommun).toMatchObject({ ok: false, code: "23514" });
+    expect(service.a.ok).toBe(true);
+    expect(service.k, "ingenting ändras på anspråket").toEqual({ status: "approved", decided_by: "k-omar" });
+    // Minnet: kommunen nekas, systemet (som service role och seed) godtas och ändrar ingenting.
+    const mem = memWith({ bonus_claims: [orphan] });
+    const maria = actorOf(findPersona("k-maria"));
+    expect({ pg: allowed(kommun), mem: await memOk(new MemoryRepo<Tables>(mem, maria, POLICIES).table("bonus_claim_decisions").insert(d)) }).toEqual({ pg: false, mem: false });
+    expect(await memOk(system(mem).table("bonus_claim_decisions").insert(d))).toBe(true);
+    expect(mem.raw().get("bonus_claims", orphan.id)).toMatchObject({ status: "approved", decidedBy: "k-omar" });
+    // Regeln själv: genvägen bara för systemet (p_existing_ok i mm.apply_bonus_decision).
+    const apply = POLICIES.bonus_claim_decisions!.afterInsert!;
+    const memRaw = { ...memWith({ bonus_claims: [orphan] }).raw(), now: () => at };
+    expect(() => apply(d, maria, memRaw, false)).toThrow();
+    expect(apply(d, SYSTEM_ACTOR, memRaw, true)).toEqual([]);
+  });
+
+  it("kommunens beslut skrivs på anspråket bara när beslutet finns i loggen – flaggan räcker inte, inte heller för service role (R2-2)", async () => {
+    const flag = "select set_config('mm.bonus_decision_apply', 'on', true)";
+    const approve = (when: string) => `update public.bonus_claims set status = 'approved', customer_decision = 'approved', decided_by = 'k-maria', decided_at = '${when}' where id = 'bc-6'`;
+    // Beslutet i loggen utan att triggern lägger det på anspråket (som mitt i mm.apply_bonus_decision).
+    const row = decision("bc-6", "k-maria", { id: "bcd-t-side" });
+    const sideload = async (tx: Tx) => {
+      await tx.exec("set local session_replication_role = replica");
+      await tx.exec(insertSql("bonus_claim_decisions", row as unknown as Record<string, unknown>));
+      await tx.exec("set local session_replication_role = origin");
+    };
+    const service = <T,>(fn: (tx: Tx) => Promise<T>, before?: (tx: Tx) => Promise<void>) => asUser(db, null, fn, { role: "service_role", before });
+    const noRow = await service(async (tx) => { await tx.query(flag); return attempt(tx, approve(at)); });
+    const withRow = await service(async (tx) => {
+      const noFlag = await attempt(tx, approve(at));
+      await tx.query(flag);
+      return { noFlag, same: await attempt(tx, approve(at)), otherTime: await attempt(tx, approve("2027-02-01T09:00")) };
+    }, sideload);
+    expect(noRow).toMatchObject({ ok: false, code: "42501" });
+    expect(withRow.noFlag).toMatchObject({ ok: false, code: "42501" });
+    expect(withRow.otherTime).toMatchObject({ ok: false, code: "42501" });
+    expect(withRow.same.ok).toBe(true);
+    // Inloggade med flaggan: aldrig (övergångarna för inloggade).
+    for (const key of ["u-amira", "k-maria"]) {
+      const got = await asPersona(findPersona(key), async (tx) => { await tx.query(flag); return attempt(tx, approve(at)); });
+      expect(allowed(got), key).toBe(false);
+    }
+    // Minnet: systemet ändrar beslutets fält bara när beslutet med samma anspråk, beslut och tid finns.
+    const patch = { status: "approved" as const, customerDecision: "approved" as const, decidedBy: "k-maria", decidedAt: at };
+    expect(await memOk(system(memWith()).table("bonus_claims").update("bc-6", patch))).toBe(false);
+    expect(await memOk(system(memWith({ bonus_claim_decisions: [row] })).table("bonus_claims").update("bc-6", patch))).toBe(true);
+    expect(await memOk(system(memWith({ bonus_claim_decisions: [row] })).table("bonus_claims").update("bc-6", { ...patch, decidedAt: "2027-02-01T09:00" }))).toBe(false);
+    for (const key of ["u-amira", "k-maria"]) {
+      expect(await memOk(new MemoryRepo<Tables>(memWith({ bonus_claim_decisions: [row] }), actorOf(findPersona(key)), POLICIES).table("bonus_claims").update("bc-6", patch)), key).toBe(false);
+    }
+  });
+
+  it("service role läser och skapar bara i beslutsloggen – ingen truncate (R2-3)", async () => {
+    const grants = await db.query<{ p: string }>(
+      "select string_agg(privilege_type, ',' order by privilege_type) as p from information_schema.role_table_grants where table_schema = 'public' and table_name = 'bonus_claim_decisions' and grantee = 'service_role'",
+    );
+    expect(grants.rows[0].p).toBe("INSERT,SELECT");
+    for (const sql of ["truncate public.bonus_claim_decisions", "update public.bonus_claim_decisions set note = 'x'", "delete from public.bonus_claim_decisions"]) {
+      expect(await asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" }), sql).toMatchObject({ ok: false, code: "42501" });
+    }
+    // "Läs in testdata på nytt" (mm.reset_test_data + on conflict do nothing) prövas i src/server/staging/load.test.ts.
+  });
+
+  it("ekonomen filtrerar på en dold kolumn och får ingenting – i vyn och i minnet (R2-5)", async () => {
+    const pgCount = (key: string, where: string) =>
+      asPersona(findPersona(key), async (tx) => (await tx.query<{ n: number }>(`select count(*)::int as n from public.bonus_claims_public where ${where}`)).rows[0].n);
+    const repo = (key: string) => new MemoryRepo<Tables>(store, actorOf(findPersona(key)), POLICIES).table("bonus_claims");
+    const filters: [string, Partial<Record<keyof Tables["bonus_claims"], unknown>>][] = [
+      ["verification_kind = 'anställningsbevis'", { verificationKind: "anställningsbevis" }],
+      ["basis = 'Kommentar'", { basis: "Kommentar" }],
+    ];
+    for (const [sql, where] of filters) {
+      const w = where as never;
+      const lars = { pg: await pgCount("u-lars", sql), count: await repo("u-lars").count(w), list: (await repo("u-lars").list(w)).length, first: await repo("u-lars").first(w), pick: (await repo("u-lars").pick(["id"], w)).length };
+      expect(lars, sql).toEqual({ pg: 0, count: 0, list: 0, first: null, pick: 0 });
+      // Den som arbetar i ärendet ser innehållet och träffar raderna – samma antal i vyn och i minnet.
+      const amira = { pg: await pgCount("u-amira", sql), mem: await repo("u-amira").count(w) };
+      expect(amira.pg, sql).toBeGreaterThan(0);
+      expect(amira.mem, sql).toBe(amira.pg);
+    }
+  });
+
+  it("systemet i minnet följer samma regler som service role: beslutade och återtagna anspråk ändras aldrig och beslutsloggen är append-only (R2-5)", async () => {
+    const service = async (sql: string) => allowed(await asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" }));
+    const free = data.cases.find((c) => c.contractId === "c-bot" && c.status === "active" && !data.bonus_claims.some((k) => k.caseId === c.id))!;
+    const suggestion = { ...claim("bc-1"), id: "bc-t-auto", caseId: free.id, step: 1, kind: "progression" as const, source: "auto" as const, createdBy: "system", createdAt: at };
+    const withdraw = { status: "withdrawn" as const, withdrawnAt: at, withdrawnBy: "system" };
+    const cases: [string, string, (r: ReturnType<typeof system>) => Promise<unknown>, boolean][] = [
+      ["ändra ett avslaget", "update public.bonus_claims set basis = 'x' where id = 'bc-5'", (r) => r.table("bonus_claims").update("bc-5", { basis: "x" }), false],
+      ["ändra ett återtaget", "update public.bonus_claims set basis = 'x' where id = 'bc-4'", (r) => r.table("bonus_claims").update("bc-4", { basis: "x" }), false],
+      ["återta ett godkänt", `update public.bonus_claims set status = 'withdrawn', withdrawn_at = '${at}', withdrawn_by = 'system' where id = 'bc-3'`, (r) => r.table("bonus_claims").update("bc-3", withdraw), false],
+      ["godkänna direkt", `update public.bonus_claims set status = 'approved', customer_decision = 'approved', decided_at = '${at}' where id = 'bc-6'`,
+        (r) => r.table("bonus_claims").update("bc-6", { status: "approved", customerDecision: "approved", decidedAt: at }), false],
+      ["skriva kommunens motivering", "update public.bonus_claims set decision_note = 'x' where id = 'bc-6'", (r) => r.table("bonus_claims").update("bc-6", { decisionNote: "x" }), false],
+      ["belopp på anspråket", "update public.bonus_claims set amount_ore = 150000 where id = 'bc-1'", (r) => r.table("bonus_claims").update("bc-1", { amountOre: 150000 }), false],
+      ["ta bort ett beslutat (beslutet pekar på det)", "delete from public.bonus_claims where id = 'bc-5'", (r) => r.table("bonus_claims").remove("bc-5"), false],
+      ["ändra ett beslut", "update public.bonus_claim_decisions set note = 'x' where id = 'bcd-bc-5'", (r) => r.table("bonus_claim_decisions").update("bcd-bc-5", { note: "x" }), false],
+      ["ta bort ett beslut", "delete from public.bonus_claim_decisions where id = 'bcd-bc-5'", (r) => r.table("bonus_claim_decisions").remove("bcd-bc-5"), false],
+      ["beslut på ett förslag", insertSql("bonus_claim_decisions", decision("bc-1", "k-maria", { id: "bcd-t-sys" }) as unknown as Record<string, unknown>),
+        (r) => r.table("bonus_claim_decisions").insert(decision("bc-1", "k-maria", { id: "bcd-t-sys" })), false],
+      // Det servern gör på riktigt fungerar: ett återtagande, ett nytt förslag (jobbet) och ett beslut som kom med mejl.
+      ["återta ett skickat", `update public.bonus_claims set status = 'withdrawn', withdrawn_at = '${at}', withdrawn_by = 'system' where id = 'bc-6'`, (r) => r.table("bonus_claims").update("bc-6", withdraw), true],
+      ["nytt förslag", insertSql("bonus_claims", suggestion as unknown as Record<string, unknown>), (r) => r.table("bonus_claims").insert(suggestion), true],
+      ["beslut på ett skickat", insertSql("bonus_claim_decisions", decision("bc-6", "k-maria", { id: "bcd-t-sys" }) as unknown as Record<string, unknown>),
+        (r) => r.table("bonus_claim_decisions").insert(decision("bc-6", "k-maria", { id: "bcd-t-sys" })), true],
+    ];
+    for (const [label, sql, run, want] of cases) {
+      expect({ pg: await service(sql), mem: await memOk(run(system(memWith()))) }, label).toEqual({ pg: want, mem: want });
+    }
   });
 });
