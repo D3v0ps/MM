@@ -54,7 +54,7 @@ export function invoiceTodos(v: BillingStartView, now: string): InvoiceTodo[] {
   for (const r of v.returned.filter((x) => !x.credit)) {
     parts.push({
       key: `returned:${r.invoiceId}`, group: r.invoiceId, dueAt: null, weight: r.refOk ? W.reissue : W.ref, title: r.title, dueText: null,
-      note: `Returnerad av kommunen: ${plural(r.quantity, "vecka faktureras", "veckor faktureras")} om på en ny faktura (${plural(r.lines, "rad", "rader")}, ${kr(r.amountOre)}).${r.refOk ? " Referensen är rättad – kreditera och skapa en ny." : ""}`,
+      note: `Returnerad av kommunen: ${r.bonus ? plural(r.quantity, "bonussteg faktureras", "bonussteg faktureras") : plural(r.quantity, "vecka faktureras", "veckor faktureras")} om på en ny faktura (${plural(r.lines, "rad", "rader")}, ${kr(r.amountOre)}).${r.refOk ? " Referensen är rättad – kreditera och skapa en ny." : ""}`,
       action: r.refOk ? { kind: "reissue", row: r } : { kind: "ref", invoiceId: r.invoiceId, month: r.month, title: r.title, buyerReference: r.buyerReference },
     });
   }

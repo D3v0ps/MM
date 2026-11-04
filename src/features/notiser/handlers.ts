@@ -1,6 +1,7 @@
 // Hanterare för området notiser (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { ok } from "@/api/contract";
 import { SUPPLIER_ROLES } from "@/api/roles";
+import { visibleNotifications } from "@/api/tester-access";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { DEFAULT_ORG_SETTINGS, type OrgSettings } from "@/core/config";
 import { notificationsFor, type NotificationDb } from "@/core/progression";
@@ -44,7 +45,8 @@ handleQuery(notifList, { roles: SUPPLIER_ROLES }, async (ctx) => {
   const getsReminders = role === "coach" || role === "handledare";
 
   // Sparade notiser och läsmarkeringar: bara den inloggades egna (policyn/RLS: mottagaren läser sina rader).
-  const user_notifications = await ctx.repo.table("user_notifications").list({ recipientId: userId });
+  // Bonusnotiserna visas inte för begränsade testare (ett ekonomiskt villkor).
+  const user_notifications = visibleNotifications(ctx.actor, await ctx.repo.table("user_notifications").list({ recipientId: userId }));
   const notification_reads = await ctx.repo.table("notification_reads").list({ userId });
 
   // ctx.system: påminnelser och eskaleringar räknas fram ur ärendena och avstämningarna i användarens avtal – i den riktiga

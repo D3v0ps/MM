@@ -893,12 +893,16 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
     };
   }).sort(by<UnbilledRow>("presc"));
 
-  // Returnerade fakturor (och de som krediterats och gjorts om)
+  // Bonusfakturorna i alla månader med godkända anspråk (beslut 2026-11-04).
+  const bonusMonths = [...new Set(db.bonus_claims.filter((k) => k.decidedAt).map((k) => monthKey(k.decidedAt as string)))].sort();
+  const bonusAll = bonusMonths.flatMap((mk) => bonusMonthInvoices(db, b.contract.id, mk, b.env));
+
+  // Returnerade fakturor (och de som krediterats och gjorts om) – också bonusfakturorna, som krediteras och görs om på samma sätt.
   const all = runs.flatMap((r) => billingOf.get(r.month)!.invoices);
-  const returned: ReturnedRow[] = all
+  const returned: ReturnedRow[] = [...all, ...bonusAll]
     .filter((inv) => inv.storedStatus === "returned" || credits.some((x) => x.invoiceDraftId === inv.id))
     .map((inv) => ({
-      invoiceId: inv.id, month: inv.month, title: titleOf(inv), status: inv.status, lines: inv.lines.length, quantity: inv.quantity, amountOre: inv.amountOre,
+      invoiceId: inv.id, month: inv.month, bonus: inv.kind === "bonus", title: titleOf(inv), status: inv.status, lines: inv.lines.length, quantity: inv.quantity, amountOre: inv.amountOre,
       caseNumbers: inv.lines.map((l) => l.caseNumber), buyerReference: inv.buyerReference, refOk: refInfo(inv.buyerReference, b.refRules).ok, credit: creditOf(credits, inv),
     }));
 
@@ -957,11 +961,9 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
   }
 
   // Bonusfakturor som inte är skapade än (alla månader med godkända anspråk).
-  const bonusMonths = [...new Set(db.bonus_claims.filter((k) => k.decidedAt).map((k) => monthKey(k.decidedAt as string)))].sort();
-  const bonus = bonusMonths.flatMap((mk) =>
-    bonusMonthInvoices(db, b.contract.id, mk, b.env)
-      .filter((inv) => !inv.created && inv.lines.length > 0)
-      .map((inv) => ({ month: mk, invoiceId: inv.id, title: titleOf(inv), bucket: bucketOf(inv), lines: inv.lines.length, amountOre: inv.amountOre })));
+  const bonus = bonusAll
+    .filter((inv) => !inv.created && inv.lines.length > 0)
+    .map((inv) => ({ month: inv.month, invoiceId: inv.id, title: titleOf(inv), bucket: bucketOf(inv), lines: inv.lines.length, amountOre: inv.amountOre }));
 
   return {
     canAct: b.canAct, customerName: b.customer?.name ?? "", current, openTasks: tasks.filter((t) => t.status === "open").length, bonus,

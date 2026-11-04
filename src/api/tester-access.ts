@@ -30,6 +30,13 @@ export function hidesCommercial(actor: Pick<Actor, "testerId"> | null | undefine
   return !FULL_ACCESS_TESTERS.includes(id);
 }
 
+/** Notiser om ett ekonomiskt villkor (kommunens beslut om bonus, beslut 2026-11-04) – visas aldrig för begränsade testare. */
+export const COMMERCIAL_NOTIFICATION_KINDS: readonly string[] = ["bonus_decision"];
+/** De sparade notiser som aktören får se: utan bonusnotiserna för en begränsad testare (notiserna, Min vecka och menyns siffra). */
+export function visibleNotifications<T extends { kind: string }>(actor: Pick<Actor, "testerId"> | null | undefined, rows: readonly T[]): T[] {
+  return hidesCommercial(actor) ? rows.filter((n) => !COMMERCIAL_NOTIFICATION_KINDS.includes(n.kind)) : [...rows];
+}
+
 /**
  * Pengar syns bara för rollen ekonom (beslut 5, Karim 2026-10-07): belopp i kronor, priser, prisartiklar, viten i kronor,
  * bonus, ofakturerat i kronor, AI-kostnader och fakturor med belopp lämnas bara ut när aktören har rollen ekonom OCH inte är

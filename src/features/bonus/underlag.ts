@@ -60,7 +60,7 @@ export type UnderlagInput = {
   contract: { contractNumber: string };
   customerName: string;
   now: LocalDateTime;
-  /** Den som skickar (i förhandsvisningen: den som granskar). */
+  /** Den som skickar. null = förhandsvisning av ett anspråk som inte är skickat (utkast – inget "Skickat … av …"). */
   sentBy: string | null;
 };
 
@@ -97,7 +97,8 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
   const step3 = FOLLOWS_STEP3.includes(step) && k.followsClaimId ? db.bonus_claims.find((y) => y.id === k.followsClaimId) ?? null : null;
   const eventId = step3 ? step3.outcomeEventId : k.outcomeEventId;
   const ev = eventId ? db.outcome_events.find((e) => e.id === eventId && e.caseId === c.id) ?? null : null;
-  const resultDay = step3?.reachedOn ?? k.reachedOn;
+  // Steg 4 och 5: resultatdatum är steg 3:s (det levande – aldrig en gammal kopia på anspråket).
+  const resultDay = step3 ? step3.reachedOn : k.reachedOn;
   const checklist = step === 1
     ? BONUS_CHECKLIST_ITEMS.map((item) => ({ label: BONUS_CHECKLIST_LABEL[item], where: ((k.checklist as BonusChecklist)[item]?.where ?? "").trim() })).filter((r, i) => !!(k.checklist as BonusChecklist)[BONUS_CHECKLIST_ITEMS[i]]?.done)
     : [];
@@ -111,6 +112,7 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
     stepLabel: bonusStepLabel(m, step),
     rule: bonusRuleText(m, step),
     createdAt: x.now,
+    draft: x.sentBy == null,
     sentByName: x.sentBy ? personName(db.profiles, x.sentBy) : null,
     coachName: c.leadCoachId ? personName(db.profiles, c.leadCoachId) : null,
     period: { start: c.startDate, end: c.endDate, plannedEnd: c.plannedEnd, ongoing: !c.endDate },
@@ -120,7 +122,7 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
     attendance: { percent: att.percent, planned: att.planned, registered: att.registered, attended: att.attended, from: c.startDate, to, minPercent: m.attendanceMinPercent },
     activities,
     progression,
-    reachedOn: k.reachedOn,
+    reachedOn: resultDay,
     event: ev ? { label: eventLabel(ev.kind), date: ev.occurredOn } : null,
     speed: step === 5 && c.startDate ? { deadline: speedDeadline(c.startDate, m), weeks: m.speedWeeks } : null,
     sustain: step === 4 && resultDay ? { since: resultDay, until: sustainDate(resultDay, m), months: m.sustainMonths } : null,
@@ -135,4 +137,5 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
 export const windowEndOf = (c: Pick<Case, "endDate">, m: BonusModel) => resultWindowEnd(c, m);
 
 /** PDF:ens filnamn: bara ärendenummer och steg – inga namn. */
-export const underlagFilename = (u: Pick<BonusUnderlag, "caseNumber" | "step">): string => `redovisningsunderlag-bonus-${u.caseNumber}-steg${u.step}.pdf`;
+export const underlagFilename = (u: Pick<BonusUnderlag, "caseNumber" | "step" | "draft">): string =>
+  `redovisningsunderlag-bonus-${u.caseNumber}-steg${u.step}${u.draft ? "-utkast" : ""}.pdf`;

@@ -209,6 +209,24 @@ describe("taket per deltagare – stegen läggs ihop, aldrig avräkning", () => 
     });
     expect([...a].filter(([id]) => id.startsWith("s")).reduce((n, [, x]) => n + x.amountOre, 0)).toBe(1200000);
   });
+  it("ett fakturerat anspråk räknas med det fakturerade beloppet – inte dagens prislista", () => {
+    const a = capAmounts([
+      { id: "s3", caseId: "c", decidedAt: "2027-01-12T14:05", priceOre: 500000, frozenOre: 600000 },
+      { id: "s5", caseId: "c", decidedAt: "2027-01-12T14:06", priceOre: 200000, frozenOre: 200000 },
+      { id: "s2", caseId: "c", decidedAt: "2026-12-15T10:20", priceOre: 300000, frozenOre: 300000 },
+      { id: "s4", caseId: "c", decidedAt: "2027-02-01T08:00", priceOre: 400000 },
+    ], 1200000);
+    expect(a.get("s4")).toEqual({ amountOre: 100000, priceOre: 400000, reduced: true, blocked: false });
+    expect([...a.values()].reduce((n, x) => n + x.amountOre, 0)).toBe(1200000);
+  });
+  it("ett anspråk utan riktigt pris räknas aldrig som 0 kr: de senare i ärendet stoppas (blocked), andra ärenden påverkas inte", () => {
+    const a = capAmounts([
+      { id: "x1", caseId: "c", decidedAt: "2027-01-01T10:00", priceOre: null },
+      { id: "x2", caseId: "c", decidedAt: "2027-01-02T10:00", priceOre: 300000 },
+      { id: "y1", caseId: "d", decidedAt: "2027-01-02T10:00", priceOre: 300000 },
+    ], 1200000);
+    expect(Object.fromEntries([...a].map(([id, x]) => [id, [x.amountOre, x.blocked]]))).toEqual({ x1: [0, false], x2: [0, true], y1: [300000, false] });
+  });
   it("samma beslutstid: id avgör ordningen, så beloppen är stabila", () => {
     const a = capAmounts([{ id: "y", caseId: "c", decidedAt: "2027-01-12T14:05", priceOre: 800000 }, { id: "x", caseId: "c", decidedAt: "2027-01-12T14:05", priceOre: 800000 }], 1200000);
     expect([a.get("x")!.amountOre, a.get("y")!.amountOre]).toEqual([800000, 400000]);

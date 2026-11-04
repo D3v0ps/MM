@@ -57,8 +57,17 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
     return (
       <KomPage narrow>
         <KomHead eyebrow={eyebrow} title={title} back={back} />
-        <Notice tone="ok" title={d === "approved" ? "Du har godkänt bonusanspråket" : "Du har avslagit bonusanspråket"}>
-          {done ? "Beslutet är sparat. Miljonbemanning får veta beslutet." : `Beslutet togs ${fmtDateFull(v.decision?.at)}.`}
+        {/* Just nu beslutat av handläggaren: "Du har …". Annars neutralt – en kollega kan ha beslutat, eller Miljonbemanning
+            registrerat ett beslut som kom med mejl. */}
+        <Notice
+          tone="ok"
+          title={
+            done
+              ? done === "approved" ? "Du har godkänt bonusanspråket" : "Du har avslagit bonusanspråket"
+              : `Kommunen har ${d === "approved" ? "godkänt" : "avslagit"} bonusanspråket ${fmtDateFull(v.decision?.at)}`
+          }
+        >
+          {done ? "Beslutet är sparat. Miljonbemanning får veta beslutet." : v.decision?.via === "mejl" ? "Beslut via mejl, registrerat av Miljonbemanning." : "Beslut i portalen."}
           {v.decision?.note && !done ? ` Motivering: ${v.decision.note}` : ""}
         </Notice>
         <Row>
@@ -130,7 +139,10 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
         <Stack>
           <Kv items={[["Deltagare", v.participantName], ["Ärendenummer", v.caseNumber], ["Bonussteg", `${v.step} · ${v.label}`], ["Skickat", v.sentAt ? fmtDateFull(v.sentAt) : "–"]]} />
           <p className="m-0">Intyg och andra dokument finns inte i portalen. Miljonbemanning skickar dem till dig på annat sätt om du behöver dem.</p>
-          {v.waitingForStep3 && <Notice tone="info" title="Besluta om bonussteg 3 först">Bonussteg {v.step} bygger på bonussteg 3. Du kan godkänna det när bonussteg 3 är godkänt.</Notice>}
+          {v.waitingForStep3 && <Notice tone="info" title="Beslutas efter bonussteg 3">Bonussteg {v.step} bygger på bonussteg 3. Det kan beslutas när bonussteg 3 är godkänt.</Notice>}
+          {v.status === "submitted" && !v.waitingForStep3 && !v.canDecide && (
+            <Notice tone="info" title="Handläggaren som beställde beslutar">Bara handläggaren som beställde insatsen kan besluta om bonusanspråket.</Notice>
+          )}
           <Row>
             <UnderlagPdfButton claimId={v.claimId} />
             {v.canDecide && (

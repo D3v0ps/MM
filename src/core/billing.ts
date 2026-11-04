@@ -306,7 +306,8 @@ export type BillingDb = Pick<
  * (example – price_items.example_only) eller priset 0 kr (zero). Fakturan stoppas tills priserna är rätt, som när
  * beställarreferensen saknas – ett fel pris fryses annars på fakturan när den skapas.
  */
-export type PriceProblem = "missing" | "example" | "zero";
+/** earlier = bonusfakturan: ett tidigare godkänt bonussteg i ärendet saknar ett riktigt pris, så taket går inte att räkna. */
+export type PriceProblem = "missing" | "example" | "zero" | "earlier";
 export function priceProblemOf(item: Pick<PriceItem, "exampleOnly" | "priceOre"> | null): PriceProblem | null {
   if (!item) return "missing";
   if (item.exampleOnly) return "example";
@@ -317,7 +318,11 @@ const PRICE_LINE: Record<PriceProblem, { label: string; text: string }> = {
   missing: { label: "Pris saknas", text: "Prislistan har inget pris för ärendets avtalsområde den här månaden." },
   example: { label: "Exempelpris", text: "Priset i prislistan är ett exempelpris, inte avtalets pris." },
   zero: { label: "Pris 0 kr", text: "Priset i prislistan är 0 kr." },
+  earlier: { label: "Taket kan inte räknas", text: "Ett tidigare godkänt bonussteg i ärendet saknar ett riktigt pris i prislistan. Taket per deltagare räknas när det priset finns." },
 };
+
+/** Radens varning för ett pris som inte går att fakturera (samma text på månadens faktura och bonusfakturan). */
+export const priceLineCheck = (p: PriceProblem): BillingCheck => ({ kind: "price", severity: "warning", ...PRICE_LINE[p] });
 
 /** Områdena i klartext: "A", "A och C", "A, C och K". */
 const areaList = (codes: readonly string[]): string => (codes.length <= 1 ? (codes[0] ?? "") : `${codes.slice(0, -1).join(", ")} och ${codes[codes.length - 1]}`);
@@ -336,6 +341,7 @@ export function priceStopCheck(lines: readonly Pick<BillingLine, "priceProblem" 
     part("example", (r, a) => `${r} har exempelpris${a}.`),
     part("missing", (r, a) => `${r} saknar pris${a}.`),
     part("zero", (r, a) => `${r} har priset 0 kr${a}.`),
+    part("earlier", (r) => `${r} väntar på priset för ett tidigare bonussteg i ärendet (taket).`),
   ].filter(Boolean);
   return {
     kind: "price", severity: "blocking", label: "Priserna är inte klara",

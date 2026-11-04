@@ -11,7 +11,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { kr } from "@/core/format";
 import { monthName } from "@/core/time";
 import { Badge, Button, Card, ErrorNotice, Field, Input, Loading, Notice, Page, Row, Select, Stack, Table, toast } from "@/ui";
-import { billingApproveInvoice, billingMarkManual, billingSendFortnox, ekoBonus, type BonusBillingView } from "../api";
+import { billingApproveInvoice, billingMarkManual, billingSendFortnox, ekoBonus, ekoReissue, type BonusBillingView } from "../api";
 import { CheckIcons, InvStatus, InvoicePoForm, InvoiceRefForm, RoleNotice, WRAP } from "./parts";
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -52,6 +52,7 @@ function BonusInvoice({ v, inv }: { v: BonusBillingView; inv: BonusBillingView["
   const approve = useCommand(billingApproveInvoice);
   const fortnox = useCommand(billingSendFortnox);
   const manual = useCommand(billingMarkManual);
+  const reissue = useCommand(ekoReissue);
   const [no, setNo] = useState("");
   const month = inv.month;
   const canChange = v.canAct && !inv.created;
@@ -64,6 +65,12 @@ function BonusInvoice({ v, inv }: { v: BonusBillingView; inv: BonusBillingView["
     const res = await fortnox.run({ month, invoiceIds: [inv.id] }).catch(() => null);
     if (!res || !res.ok) return toast(res && !res.ok ? res.message || "Fakturan kunde inte skapas." : "Fakturan kunde inte skapas.", "error");
     toast(res.created.length ? `${inv.title} är skapad i Fortnox.` : res.blocked.length ? "Fakturan är stoppad." : "Fakturan är inte godkänd än.");
+  };
+  // En returnerad bonusfaktura krediteras och görs om med samma bonussteg (ekonomi.reissue, samma som månadens faktura).
+  const onReissue = async () => {
+    const res = await reissue.run({ month, invoiceId: inv.id }).catch(() => null);
+    if (!res || !res.ok) return toast(res && !res.ok ? res.message || "Rätta beställarreferensen innan du skapar en ny faktura." : "Fakturan kunde inte göras om.", "error");
+    toast(res.reissued ? `${inv.title} är krediterad och en ny faktura är skapad.` : `${inv.title} är krediterad. Inget återstod att fakturera.`);
   };
   const onManual = async () => {
     const res = await manual.run({ month, invoiceId: inv.id, invoiceNo: no.trim() }).catch(() => null);
@@ -138,6 +145,25 @@ function BonusInvoice({ v, inv }: { v: BonusBillingView; inv: BonusBillingView["
           </Row>
           {inv.blocked && <Badge tone="red" icon="alert-circle">Stoppad – rätta det som står ovan först</Badge>}
         </Stack>
+      )}
+      {inv.status === "returned" && (
+        <div className="border-t border-ljusgra px-[18px] py-4">
+          <Notice tone={inv.blocked ? "critical" : "warn"} title="Fakturan är returnerad av kommunen">
+            <div className="flex flex-col gap-2">
+              {inv.blocked
+                ? "Fyll i rätt beställarreferens. Sedan krediterar du den returnerade bonusfakturan och skapar en ny med samma bonussteg."
+                : "Referensen är rättad. Kreditera den returnerade bonusfakturan och skapa en ny med samma bonussteg och belopp."}
+              {v.canAct && inv.blocked && <InvoiceRefForm inv={inv} rules={v.refRules} canAct={v.canAct} idSuffix={`bonus-retur-${inv.id}`} />}
+              {v.canAct && !inv.blocked && (
+                <Row>
+                  <Button kind="primary" icon="refresh" pending={reissue.pending} onClick={() => void onReissue()}>
+                    Kreditera och skapa ny faktura
+                  </Button>
+                </Row>
+              )}
+            </div>
+          </Notice>
+        </div>
       )}
     </Card>
   );

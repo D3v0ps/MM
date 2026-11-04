@@ -412,6 +412,8 @@ export type UnbilledRow = { caseId: string; caseNumber: string; status: InvoiceS
 export type ReturnedRow = {
   invoiceId: string;
   month: MonthKey;
+  /** En bonusfaktura (beslut 2026-11-04): quantity är antalet bonussteg, inte veckor. */
+  bonus: boolean;
   title: string;
   status: InvoiceDisplayStatus;
   lines: number;

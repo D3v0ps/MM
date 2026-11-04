@@ -8,6 +8,7 @@
 import type { Ctx } from "@/api/server";
 import { handleQuery } from "@/api/server";
 import { isSupplierRole } from "@/api/roles";
+import { visibleNotifications } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { unregistered } from "@/core/attendance";
 import { unreadNotifications } from "@/core/progression";
@@ -52,7 +53,7 @@ async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {
     ctx.repo.table("profiles").list(),
   ]);
   const ops = scopeToContract(await loadDb(ctx.system, ["cases", "check_ins"], { cases: { contractId: e.contract.id } }), e.contract.id);
-  return unreadNotifications({ ...ops, user_notifications: own, notification_reads: reads, profiles }, ctx.actor.userId, ctx.actor.role, e.env);
+  return unreadNotifications({ ...ops, user_notifications: visibleNotifications(ctx.actor, own), notification_reads: reads, profiles }, ctx.actor.userId, ctx.actor.role, e.env);
 }
 
 handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {

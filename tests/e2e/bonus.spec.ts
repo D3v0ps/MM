@@ -59,9 +59,10 @@ test("bonussteg 3: coachen skickar, kommunen godkänner i portalen och ekonomen 
   await expect(toasts(page)).toContainText("Bonussteg 3 är skickat till kommunen.");
   await expect(main(page)).toContainText(CASE_NO);
 
-  // 2. Kommunen: Att göra – Läs och besluta – Godkänn – Bekräfta beslutet (testdatats två anspråk i BOT-26-0027 och det nya).
+  // 2. Kommunen: Att göra – Läs och besluta – Godkänn – Bekräfta beslutet (testdatats bonussteg 3 i BOT-26-0027 och det nya;
+  // bonussteg 5 i BOT-26-0027 beslutas efter bonussteg 3 och räknas inte).
   await goAs(page, info, "/portal", MARIA);
-  await expect(main(page)).toContainText("Att göra (3)");
+  await expect(main(page)).toContainText("Att göra (2)");
   await expect(main(page)).toContainText(`Bonus att besluta om – ${CASE_NO}`);
   await main(page).getByRole("link", { name: new RegExp(`^Läs och besluta\\s+om bonussteg 3 för ${CASE_NO}`) }).click();
   await expect(main(page)).toContainText("Miljonbemanning begär bonus enligt incitamentsmodellen.");
@@ -75,7 +76,7 @@ test("bonussteg 3: coachen skickar, kommunen godkänner i portalen och ekonomen 
   await expect(main(page)).toContainText("Du har godkänt bonusanspråket");
   await expect(main(page)).not.toContainText(AMOUNT);
   await goAs(page, info, "/portal", MARIA);
-  await expect(main(page)).toContainText("Att göra (2)");
+  await expect(main(page)).toContainText("Att göra (1)");
 
   // 3. Ekonomen: februaris bonusfaktura – en rad för bonussteg 3, egen faktura.
   await goAs(page, info, "/ekonomi/bonus/2027-02", LARS);

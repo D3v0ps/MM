@@ -30,6 +30,8 @@ export type BonusUnderlag = {
   rule: string;
   /** När underlaget frystes (skickades) – i förhandsvisningen nu. */
   createdAt: LocalDateTime;
+  /** Förhandsvisning av ett anspråk som inte är skickat: "Utkast – inte skickat" i stället för "Skickat … av …". */
+  draft?: boolean;
   sentByName: string | null;
   coachName: string | null;
   period: { start: LocalDate | null; end: LocalDate | null; plannedEnd: LocalDate | null; ongoing: boolean };

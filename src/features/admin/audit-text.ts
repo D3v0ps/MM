@@ -181,7 +181,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   format: { csv: "CSV", xlsx: "Excel", pdf: "PDF", sie: "SIE", peppol: "Peppol" },
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
   reason: {
-    columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
+    step3_rejected: "kommunen avslog bonussteg 3", columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
     unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",

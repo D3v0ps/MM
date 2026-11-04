@@ -60,7 +60,10 @@ async function worksOn(ctx: Ctx, c: Pick<Case, "personId">): Promise<boolean> {
 const nameOf = (p: { firstName: string; lastName: string } | null): string => (p ? `${p.firstName} ${p.lastName}` : "–");
 const statusOf = (s: BonusClaim["status"] | "none") => ({ statusText: BONUS_STATUS_TEXT[s].text, icon: BONUS_STATUS_TEXT[s].icon });
 
-/** Underlaget för anspråket: det frysta (skickat) eller en förhandsvisning av det som skulle frysas nu. */
+/**
+ * Underlaget för anspråket: det frysta (skickat), eller en förhandsvisning av det som skulle frysas nu. sentBy = den som skickar
+ * just nu (Skicka till kommunen); null = förhandsvisning, märkt "Utkast – inte skickat" och utan "Skickat … av …".
+ */
 async function underlagOf(ctx: Ctx, x: CaseCtx, k: BonusClaim, sentBy: string | null): Promise<BonusUnderlag> {
   if (k.snapshot) return k.snapshot as unknown as BonusUnderlag;
   const byCase = { caseId: x.c.id };
@@ -103,7 +106,8 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
       const problem = manualCreateProblem(c, claims, s.step);
       return {
         step: s.step, label: s.label, status: shown?.status ?? "none", ...statusOf(shown?.status ?? "none"), claimId: shown?.id ?? null, source: shown?.source ?? null,
-        reachedOn: shown?.reachedOn ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
+        // Steg 4 och 5: resultatdatum är bonussteg 3:s (det levande), aldrig kopian på anspråket.
+        reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
         history: mine.filter((k) => k !== shown).map((k) => ({ claimId: k.id, status: k.status, statusText: BONUS_STATUS_TEXT[k.status].text, at: k.decidedAt ?? k.withdrawnAt ?? k.createdAt })),
       };
     });
@@ -146,7 +150,7 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
       windowEnd: k.step === 3 ? windowEndOf(c, m) : null,
     },
     problems,
-    underlag: await underlagOf(ctx, x, k, ctx.actor.userId),
+    underlag: await underlagOf(ctx, x, k, null),
     submitted: k.submittedAt ? { at: k.submittedAt, byName: personName(profiles, k.submittedBy) } : null,
     withdrawn: k.withdrawnAt ? { at: k.withdrawnAt, byName: personName(profiles, k.withdrawnBy) } : null,
     decision,
@@ -166,21 +170,26 @@ handleQuery(bonusPortal, { roles: ["kommun_handlaggare"], commercial: true }, as
   const waiting = k.status === "submitted" && waitsForStep3(k, step3);
   return {
     claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, participantName: nameOf(person), step: k.step, label: u.stepLabel, status: k.status, ...statusOf(k.status), sentAt: k.submittedAt,
-    underlag: u, canDecide: k.status === "submitted" && !k.customerDecision && !waiting, waitingForStep3: waiting, decision,
+    // Bara handläggaren som beställde insatsen beslutar (bonus_claim_decisions_insert, 0039) – också när synligheten är vidare.
+    underlag: u, canDecide: k.status === "submitted" && !k.customerDecision && !waiting && c.referrerId === ctx.actor.userId, waitingForStep3: waiting, decision,
   };
 });
 
 // ================================================================ Kommandon
 type Fields = { basis: string; reachedOn: string | null; verificationKind: string | null; verificationOn: string | null; checklist: BonusChecklist };
-/** Fälten städade: trimmade texter, tom verifiering = null, checklistan bara med kända punkter. */
-function cleanFields(p: Fields): Fields {
+/**
+ * Fälten städade: trimmade texter, tom verifiering = null, checklistan bara med kända punkter. Steg 4 och 5 har inget eget
+ * resultatdatum att ändra – det kommer från bonussteg 3 (ett datum från klienten ignoreras).
+ */
+function cleanFields(p: Fields, k: Pick<BonusClaim, "step" | "reachedOn">): Fields {
   const checklist: BonusChecklist = {};
   for (const item of BONUS_CHECKLIST_ITEMS) {
     const v = p.checklist[item];
     if (v && (v.done || v.where.trim())) checklist[item] = { done: v.done, where: v.where.trim() };
   }
   const kind = p.verificationKind?.trim() || null;
-  return { basis: p.basis.trim(), reachedOn: p.reachedOn, verificationKind: kind, verificationOn: p.verificationOn, checklist };
+  const reachedOn = FOLLOWS_STEP3.includes(k.step ?? 0) ? k.reachedOn : p.reachedOn;
+  return { basis: p.basis.trim(), reachedOn, verificationKind: kind, verificationOn: p.verificationOn, checklist };
 }
 const hasPnr = (f: Fields): boolean => looksLikePnr(f.basis) || looksLikePnr(f.verificationKind ?? "") || Object.values(f.checklist).some((v) => looksLikePnr(v?.where ?? ""));
 /** Bara de fält som ändras (en ändring som inte ändrar något nekas av triggern bonus_claims_guard). */
@@ -238,7 +247,7 @@ handleCommand(bonusSave, { roles: WORKERS, commercial: true }, async (ctx, p) =>
   if (!w) return fail("not_found", NOT_FOUND);
   const { k, x } = w;
   if (k.status !== "suggested") return fail("locked", LOCKED);
-  const f = cleanFields(p);
+  const f = cleanFields(p, k);
   if (hasPnr(f)) return fail("pnr", PNR);
   const patch = fieldPatch(k, f);
   let cur = k;
@@ -265,7 +274,7 @@ handleCommand(bonusSubmit, { roles: WORKERS, commercial: true }, async (ctx, p) 
   if (!w) return fail("not_found", NOT_FOUND);
   const { k, x } = w;
   if (k.status !== "suggested") return fail("locked", LOCKED);
-  const f = cleanFields(p);
+  const f = cleanFields(p, k);
   if (hasPnr(f)) return fail("pnr", PNR);
   const next: BonusClaim = { ...k, ...f };
   const problems = await problemsOf(ctx, x, next);
@@ -323,11 +332,17 @@ async function decide(ctx: Ctx, claimId: string, decision: "approved" | "rejecte
   const c = await ctx.repo.table("cases").get(k.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   if (via === "mejl" && !(await worksOn(ctx, c))) return fail("not_found", NOT_FOUND);
+  if (via === "portal" && c.referrerId !== ctx.actor.userId) return fail("not_found", NOT_FOUND);
   if (k.status !== "submitted" || k.customerDecision) return fail("decided", "Anspråket är redan beslutat eller återtaget.");
   if (note && looksLikePnr(note)) return fail("pnr", PNR);
   if (decision === "approved" && waitsForStep3(k, await followsOf(ctx, k))) {
     return fail("needs_step3", `Bonussteg ${k.step} bygger på bonussteg 3. Bonussteg 3 behöver godkännas först.`);
   }
+  // Steg 4 och 5 som bygger på steg 3 och inte är beslutade: ett avslag av steg 3 återtar dem i samma transaktion
+  // (mm.apply_bonus_decision, policy.ts bonusDecisionApply). ctx.system: kommunen läser inte förslagen – bara för loggen.
+  const followers = decision === "rejected" && k.step === 3
+    ? (await ctx.system.table("bonus_claims").list({ caseId: k.caseId })).filter((y) => y.followsClaimId === k.id && (y.status === "suggested" || y.status === "submitted"))
+    : [];
   const row: BonusClaimDecision = {
     id: ctx.newId("bonusbeslut"), claimId: k.id, caseId: k.caseId, contractId: k.contractId, decision, note: note?.trim() || null, via,
     decidedBy: via === "portal" ? ctx.actor.userId : null, recordedBy: ctx.actor.userId, decidedAt: ctx.now(),
@@ -340,6 +355,13 @@ async function decide(ctx: Ctx, claimId: string, decision: "approved" | "rejecte
     throw e;
   }
   await ctx.audit({ action: "bonus_claim.decided", entity: "bonus_claim", entityId: k.id, contractId: k.contractId, details: { caseId: k.caseId, step: k.step, decision, via, decisionId: row.id } });
+  for (const y of followers) {
+    if ((await ctx.system.table("bonus_claims").get(y.id))?.status !== "withdrawn") continue;
+    await ctx.audit({
+      action: "bonus_claim.withdrawn", entity: "bonus_claim", entityId: y.id, contractId: y.contractId,
+      details: { caseId: y.caseId, step: y.step, wasSubmitted: y.status === "submitted", reason: "step3_rejected", decisionId: row.id },
+    });
+  }
   await notifyDecision(ctx, c, k, decision);
   return ok({});
 }
@@ -357,7 +379,7 @@ handleCommand(bonusUnderlag, { roles: [...READERS, "kommun_handlaggare"], silent
   const c = await ctx.repo.table("cases").get(k.caseId);
   const x = kommun ? null : await caseCtx(ctx, k.caseId);
   if (!c || (!kommun && !x)) return fail("not_found", NOT_FOUND);
-  const underlag = x ? await underlagOf(ctx, x, k, ctx.actor.userId) : (k.snapshot as unknown as BonusUnderlag);
+  const underlag = x ? await underlagOf(ctx, x, k, null) : (k.snapshot as unknown as BonusUnderlag);
   const person = await ctx.repo.table("persons").get(c.personId);
   await ctx.audit({
     action: p.purpose === "download" ? "bonus_claim.underlag_downloaded" : "bonus_claim.underlag_viewed", entity: "bonus_claim", entityId: k.id, contractId: k.contractId,

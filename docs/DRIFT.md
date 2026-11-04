@@ -137,7 +137,7 @@ Karims beslut 2026-11-04 (SPEC §7.17): incitamentsmodellen med bonussteg 1–5.
 Kontroll efteråt (i SQL Editor):
 
 - `select count(*) from public.bonus_claim_decisions;` svarar 0 och `select count(*) from public.bonus_claims where amount_ore is not null;` svarar 0.
-- `select tgname from pg_trigger where tgname in ('bonus_claims_check', 'bonus_claims_guard', 'bonus_claim_decisions_check', 'bonus_claim_decisions_apply', 'invoice_lines_bonus_check') order by tgname;` ger fem rader.
+- `select tgname from pg_trigger where tgname in ('bonus_claims_check', 'bonus_claims_guard', 'bonus_claim_decisions_check', 'bonus_claim_decisions_apply', 'bonus_claim_decisions_append_only', 'invoice_lines_bonus_check') order by tgname;` ger sex rader.
 - `select indexname from pg_indexes where indexname in ('bonus_claims_case_step_active_key', 'bonus_claim_decisions_claim_id_key', 'invoice_lines_draft_case_periodic_key', 'invoice_lines_draft_bonus_claim_key', 'invoice_drafts_bonus_key') order by indexname;` ger fem rader, och `invoice_lines_draft_case_key` finns inte längre.
 - `select count(*) from pg_policies where tablename = 'bonus_claim_decisions';` svarar 2 (select och insert).
 - `select count(*) from public.bonus_claims_public;` fungerar (vyn finns), och `select has_column_privilege('authenticated', 'public.bonus_claims', 'snapshot', 'select');` svarar `false` (underlaget läses bara via vyn).

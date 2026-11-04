@@ -14,7 +14,15 @@ import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START, decodeTestPnr } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
-import { ekoBonus, ekoRun } from "@/features/ekonomi/api";
+import { base64ToBytes } from "@/core/export/base64";
+import { readZip } from "@/core/export/read-zip.test-helper";
+import { MemoryRepo } from "@/data/memory";
+import { POLICIES } from "@/data/policy";
+import { minVecka } from "@/features/coach/api";
+import { billingExportXlsx, billingMarkManual, ekoBonus, ekoReissue, ekoRun, ekoStart, invoiceSetBuyerRef } from "@/features/ekonomi/api";
+import { kommunStart } from "@/features/kommun/api";
+import { notifList } from "@/features/notiser/api";
+import { navCounts } from "@/features/session/nav-api";
 import { TEMPLATES } from "@/server/notify/templates";
 import {
   bonusCard, bonusCreate, bonusDecide, bonusPortal, bonusRecordMail, bonusReview, bonusSave, bonusSubmit, bonusUnderlag, bonusWithdraw, type BonusUnderlag,
@@ -239,5 +247,185 @@ describe("förslagen från regeln (jobbet)", () => {
     await r.run("query", "session.ping", {}, as("u-amira", "coach"));
     expect(auto()).toHaveLength(first.length);
     expect(r.store.rows("audit_log").filter((l) => l.action === "bonus_claim.suggested" && l.occurredAt > DEMO_START)).toHaveLength(first.length);
+  });
+});
+
+// ================================================================ Granskningsrunda 1
+describe("avslag av bonussteg 3 (A1): steg 4 och 5 som bygger på det står aldrig kvar", () => {
+  it("kommunen avslår steg 3: steg 5 återtas i samma steg och loggas – försvinner hos kommunen och hindrar inget nytt anspråk", async () => {
+    expect(await cmd(bonusDecide, { claimId: SENT3, decision: "rejected", note: "För få timmar i veckan." }, maria())).toMatchObject({ ok: true });
+    expect(rt.raw().get("bonus_claims", SENT5)).toMatchObject({ status: "withdrawn", withdrawnBy: "system", withdrawnAt: expect.any(String) });
+    const log = rows("audit_log").filter((l) => l.entityId === SENT5 && l.action === "bonus_claim.withdrawn");
+    expect(log).toHaveLength(1);
+    expect(log[0].details).toMatchObject({ caseId: "case-260027", step: 5, wasSubmitted: true, reason: "step3_rejected" });
+    // Kommunen: inget kvar att besluta om, och anspråket syns inte längre (återtaget).
+    const st = await q(kommunStart, {}, maria());
+    expect(st.bonus.map((b) => b.claimId)).toEqual([]);
+    expect(await q(bonusPortal, { claimId: SENT5 }, maria())).toBeNull();
+    // Miljonbemanning kan skapa nya anspråk för steg 3 och 5 (inget räknas längre för stegen).
+    expect(await cmd(bonusCreate, { caseId: "case-260027", step: 3 }, erik())).toMatchObject({ ok: true });
+    expect(await cmd(bonusCreate, { caseId: "case-260027", step: 5 }, erik())).toMatchObject({ ok: true });
+  });
+
+  it("steg 5 som väntar på steg 3 räknas inte i Att göra – det kommer med när steg 3 är godkänt", async () => {
+    expect((await q(kommunStart, {}, maria())).bonus.map((b) => [b.claimId, b.canDecide])).toEqual([[SENT3, true]]);
+    expect(await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, maria())).toMatchObject({ ok: true });
+    expect((await q(kommunStart, {}, maria())).bonus.map((b) => [b.claimId, b.canDecide])).toEqual([[SENT5, true]]);
+  });
+
+  it("ett godkänt steg 3 rör inte steg 5; ett avslag av steg 5 rör inte steg 3", async () => {
+    await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, maria());
+    expect(rt.raw().get("bonus_claims", SENT5)?.status).toBe("submitted");
+    await cmd(bonusDecide, { claimId: SENT5, decision: "rejected" }, maria());
+    expect([SENT3, SENT5].map((id) => rt.raw().get("bonus_claims", id)?.status)).toEqual(["approved", "rejected"]);
+  });
+});
+
+describe("taket och priserna på bonusfakturan (A2, A3)", () => {
+  const K4 = "bonus-case-260008-4-1";
+  const approveDirect = (id: string, decidedAt: string) =>
+    rt.store.updateRow("bonus_claims", id, {
+      status: "approved", verificationKind: "anställningsbevis", verificationOn: "2027-01-20", snapshot: { v: 1, claimId: id, step: rt.raw().get("bonus_claims", id)?.step },
+      submittedAt: "2027-01-25T10:00", submittedBy: "u-amira", customerDecision: "approved", decidedBy: "k-maria", decidedAt,
+    });
+
+  it("ett anspråk på en skapad faktura räknas med det fakturerade beloppet – en ändrad prislista ger aldrig mer än taket", async () => {
+    const jan = (await q(ekoBonus, { month: "2027-01" }, lars())).invoices[0];
+    if (!jan.buyerReference) expect(await cmd(invoiceSetBuyerRef, { month: "2027-01", invoiceId: jan.id, reference: "55102938" }, lars())).toMatchObject({ ok: true });
+    expect(await cmd(billingMarkManual, { month: "2027-01", invoiceId: jan.id, invoiceNo: "20270199" }, lars())).toMatchObject({ ok: true });
+    // Priset för bonussteg 3 ändras efteråt (6 000 → 5 000 kr) och bonussteg 4 godkänns i februari.
+    rt.store.updateRow("price_items", "pi-bonus-3", { priceOre: 500000 });
+    approveDirect(K4, "2027-02-01T08:00");
+    const feb = (await q(ekoBonus, { month: "2027-02" }, lars())).invoices[0];
+    const line = feb.lines.find((l) => l.bonusStep === 4)!;
+    // 3 000 (december) + 6 000 + 2 000 (januari, fakturerat) = 11 000 kr – 1 000 kr kvar till taket.
+    expect(line.amountOre).toBe(100000);
+    const frozen = rows("invoice_lines").filter((l) => l.bonusClaimId && l.caseId === "case-260008").reduce((n, l) => n + l.unitPriceOre * l.quantity, 0);
+    expect(frozen + line.amountOre).toBe(1200000);
+  });
+
+  it("ett anspråk utan pris stoppar fakturan – och de senare anspråken i ärendet räknas inte som om det vore 0 kr", async () => {
+    rt.store.updateRow("price_items", "pi-bonus-3", { validTo: "2027-01-31" });
+    await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, maria());
+    await cmd(bonusDecide, { claimId: SENT5, decision: "approved" }, maria());
+    const feb = (await q(ekoBonus, { month: "2027-02" }, lars())).invoices[0];
+    expect(feb.blocked).toBe(true);
+    expect(feb.lines.map((l) => [l.bonusStep, l.amountOre, l.checks.find((c) => c.kind === "price")?.label])).toEqual([
+      [3, 0, "Pris saknas"], [5, 0, "Taket kan inte räknas"],
+    ]);
+    expect(feb.capped).toEqual([]);
+  });
+
+  it("priset 0 kr är ett prisfel som stoppar fakturan – inte \"Taket är nått\"", async () => {
+    rt.store.updateRow("price_items", "pi-bonus-3", { priceOre: 0 });
+    await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, maria());
+    const feb = (await q(ekoBonus, { month: "2027-02" }, lars())).invoices[0];
+    expect(feb.blocked).toBe(true);
+    expect(feb.lines.map((l) => [l.bonusStep, l.checks.find((c) => c.kind === "price")?.label])).toEqual([[3, "Pris 0 kr"]]);
+    expect(feb.capped).toEqual([]);
+  });
+});
+
+describe("begränsade testare ser inga bonusnotiser (A4)", () => {
+  it("kommunens beslut syns inte i Min vecka, notiserna eller menyns siffra för en begränsad testare – men för Karim", async () => {
+    await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, maria());
+    const t = (testerId: string) => ({ ...erik(), testerId });
+    const limited = t("tester-sara");
+    const full = t("tester-karim");
+    const kinds = async (a: Actor) => ({
+      week: (await q(minVecka, {}, a)).unread.items.map((n) => n.kind),
+      list: (await q(notifList, {}, a)).items.map((n) => n.kind),
+      count: (await q(navCounts, {}, a)).notifications,
+    });
+    const l = await kinds(limited);
+    const k = await kinds(full);
+    expect(k.list).toContain("bonus_decision");
+    expect(k.week).toContain("bonus_decision");
+    expect(l.list).not.toContain("bonus_decision");
+    expect(l.week).not.toContain("bonus_decision");
+    expect(l.count).toBe(k.count - 1);
+  });
+});
+
+describe("en returnerad bonusfaktura görs om (A5)", () => {
+  it("står bland de returnerade på Fakturering och krediteras och görs om med samma bonussteg", async () => {
+    const DEC = "inv-c-bot-2026-12-bonus";
+    rt.store.updateRow("invoice_drafts", DEC, { status: "returned" });
+    const st = await q(ekoStart, {}, lars());
+    const r = st.returned.find((x) => x.invoiceId === DEC)!;
+    expect(r).toMatchObject({ bonus: true, title: "Bonusfaktura december 2026", lines: 1 });
+    const res = await cmd(ekoReissue, { month: "2026-12", invoiceId: DEC }, lars());
+    expect(res).toMatchObject({ ok: true, reissued: true });
+    const dec = await q(ekoBonus, { month: "2026-12" }, lars());
+    // Samma faktura med en kreditfaktura och en ny skapelse (som månadens faktura) – samma bonussteg och belopp.
+    const again = dec.invoices.find((i) => i.id === DEC)!;
+    expect(again).toMatchObject({ status: "fortnox_created", created: true });
+    expect(again.lines.map((l) => [l.caseNumber, l.bonusStep, l.amountOre])).toEqual([["BOT-26-0008", 2, 300000]]);
+    expect(rows("invoice_credits").filter((c) => c.invoiceDraftId === DEC)).toHaveLength(1);
+  });
+});
+
+describe("resultatdatum och förhandsvisningen (A6, A7)", () => {
+  it("steg 4 och 5 har inget eget resultatdatum: ett datum från klienten ignoreras och underlaget visar steg 3:s", async () => {
+    const before = rt.raw().get("bonus_claims", S5)!.reachedOn;
+    expect(await cmd(bonusSave, { claimId: S5, ...FIELDS, reachedOn: "2020-01-01" }, erik())).toMatchObject({ ok: true });
+    expect(rt.raw().get("bonus_claims", S5)!.reachedOn).toBe(before);
+    // Steg 3:s resultatdatum ändras – steg 5:s underlag följer det levande datumet.
+    await cmd(bonusSave, { claimId: S3, ...FIELDS, reachedOn: "2026-12-20" }, erik());
+    const r = await q(bonusReview, { claimId: S5 }, erik());
+    expect(r!.underlag.reachedOn).toBe("2026-12-20");
+  });
+
+  it("förhandsvisningen av ett anspråk som inte är skickat är ett utkast – inget \"Skickat … av …\"", async () => {
+    const r = await q(bonusReview, { claimId: S3 }, erik());
+    expect(r!.underlag).toMatchObject({ draft: true, sentByName: null });
+    const text = JSON.stringify(underlagSections(r!.underlag, "Deltagaren"));
+    expect(text).toContain("Utkast – inte skickat");
+    expect(text).not.toContain("Skickat");
+    const dl = await cmd(bonusUnderlag, { claimId: S3, purpose: "download" }, erik());
+    expect(dl).toMatchObject({ ok: true, filename: "redovisningsunderlag-bonus-BOT-26-0043-steg3-utkast.pdf", underlag: { draft: true } });
+    // Skickat: underlaget har den som skickade och inget utkast.
+    await cmd(bonusSubmit, { claimId: S3, ...FIELDS }, erik());
+    const sent = rt.raw().get("bonus_claims", S3)!.snapshot as unknown as BonusUnderlag;
+    expect(sent).toMatchObject({ draft: false, sentByName: "Erik Sjöberg" });
+    expect(JSON.stringify(underlagSections(sent, "Deltagaren"))).toContain("Skickat");
+  });
+});
+
+describe("bara handläggaren som beställde beslutar (D3)", () => {
+  it("med vidare synlighet ser en annan handläggare anspråket men kan inte besluta", async () => {
+    const contract = rt.raw().get("contracts", "c-bot")!;
+    const cfg = contract.config as { customerVisibility: Record<string, unknown> };
+    rt.store.updateRow("contracts", "c-bot", { config: { ...contract.config, customerVisibility: { ...cfg.customerVisibility, scope: "all" } } as never });
+    const other = listPersonas(rt.raw()).find((p) => p.actor.role === "kommun_handlaggare" && p.actor.userId !== "k-maria")!.actor;
+    const v = await q(bonusPortal, { claimId: SENT3 }, other);
+    expect(v).toMatchObject({ status: "submitted", canDecide: false });
+    expect(await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, other)).toMatchObject({ ok: false, error: "not_found" });
+    expect((await q(kommunStart, {}, other)).bonus).toEqual([]);
+    expect(rt.raw().get("bonus_claims", SENT3)?.status).toBe("submitted");
+  });
+});
+
+describe("ekonomen läser anspråken utan innehållet (D7)", () => {
+  it("minnet speglar bonus_claims_public, och ekonomens frågor och export lämnar aldrig ut innehållet", async () => {
+    const SECRET = "HEMLIGT-UNDERLAG";
+    for (const k of rows("bonus_claims")) rt.store.updateRow("bonus_claims", k.id, { basis: SECRET, decisionNote: k.decidedAt ? SECRET : null, verificationKind: k.verificationKind ? SECRET : null });
+    const repo = new MemoryRepo<Tables>(rt.store, lars(), POLICIES);
+    const k = (await repo.table("bonus_claims").get("bonus-case-260008-3-1"))!;
+    expect({ basis: k.basis, snapshot: k.snapshot, checklist: k.checklist, verificationKind: k.verificationKind, decisionNote: k.decisionNote })
+      .toEqual({ basis: "", snapshot: null, checklist: {}, verificationKind: null, decisionNote: null });
+    expect(k).toMatchObject({ step: 3, status: "approved", decidedAt: expect.any(String) });
+    // Den som arbetar i ärendet läser innehållet.
+    expect((await new MemoryRepo<Tables>(rt.store, amira(), POLICIES).table("bonus_claims").get("bonus-case-260008-3-1"))!.basis).toBe(SECRET);
+    // Ekonomen läser inte kommunens beslut alls.
+    expect(await repo.table("bonus_claim_decisions").list()).toEqual([]);
+    const out = JSON.stringify([
+      await q(ekoStart, {}, lars()), await q(ekoBonus, { month: "2027-01" }, lars()), await q(ekoBonus, { month: "2026-12" }, lars()), await q(ekoRun, { month: "2027-01" }, lars()),
+    ]);
+    expect(out).not.toContain(SECRET);
+    expect(out).not.toMatch(/"snapshot"|"basis"|"checklist"|"decisionNote"/);
+    const x = await cmd(billingExportXlsx, { month: "2027-01" }, lars());
+    const zip = await readZip(base64ToBytes(x.content));
+    expect(zip.map((e) => new TextDecoder().decode(e.data)).join("\n")).not.toContain(SECRET);
   });
 });

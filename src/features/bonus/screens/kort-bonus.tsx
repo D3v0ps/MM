@@ -65,7 +65,7 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
               s.status === "none"
                 ? s.createProblem && v.canAct ? s.createProblem : "Inget anspråk än."
                 : [
-                  s.reachedOn ? `Resultatdatum ${fmtDate(s.reachedOn)}` : null,
+                  s.reachedOn ? `${s.step >= 3 ? "Resultatdatum" : "Datum"} ${fmtDate(s.reachedOn)}` : null,
                   s.submittedAt ? `skickat ${fmtDate(s.submittedAt)}` : null,
                   s.decidedAt ? `beslut ${fmtDate(s.decidedAt)}` : null,
                   s.source === "auto" ? "förslag från reglerna" : s.source === "manual" ? "skapat av Miljonbemanning" : null,

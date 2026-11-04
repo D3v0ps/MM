@@ -124,8 +124,12 @@ export type KomBonusRow = {
   sentAt: string | null;
   status: "submitted" | "approved" | "rejected";
   statusText: string;
-  icon: "send" | "check-circle" | "x-circle";
+  icon: "send" | "check-circle" | "x-circle" | "clock";
   decidedAt: string | null;
+  /** Steg 4 eller 5 som väntar på att bonussteg 3 godkänns – kan inte beslutas än och räknas inte i Att göra. */
+  waitingForStep3: boolean;
+  /** Handläggaren kan besluta nu: skickat, inte väntande, och hen beställde insatsen. */
+  canDecide: boolean;
 };
 export type KomStart = {
   firstName: string;

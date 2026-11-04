@@ -62,8 +62,11 @@ describe("startsidan och listorna – samma siffror som den gamla prototypen", (
     // Kommunens handläggare ser mindre: startsidan har bara Att göra (uppgifterna och bonusanspråken att besluta om – Karims
     // beslut 2026-11-04) och det olästa.
     expect(Object.keys(s).sort()).toEqual(["bonus", "customerName", "firstName", "profileIncomplete", "tasks", "unit", "unreadMessages", "unreadReports"]);
-    // Två bonusanspråk att besluta om i BOT-26-0027 (testdatat): bonussteget och namnet – inga belopp.
-    expect(s.bonus.map((b) => [b.caseNumber, b.step, b.status])).toEqual([["BOT-26-0027", 3, "submitted"], ["BOT-26-0027", 5, "submitted"]]);
+    // Bonusanspråket att besluta om nu i BOT-26-0027 (testdatat): bonussteg 3 – bonussteg 5 beslutas efter bonussteg 3 och räknas
+    // inte i Att göra. Bonussteget och namnet – inga belopp.
+    expect(s.bonus.map((b) => [b.caseNumber, b.step, b.status, b.canDecide])).toEqual([["BOT-26-0027", 3, "submitted", true]]);
+    const d = (await ask(kommunCase, { caseId: "case-260027" }, maria())) as KomCaseDetail;
+    expect(d.bonus.map((b) => [b.step, b.statusText, b.waitingForStep3, b.canDecide])).toEqual([[3, "Skickat till kommunen", false, true], [5, "Beslutas efter bonussteg 3", true, false]]);
     expect(JSON.stringify(s.bonus)).not.toMatch(/Ore|kr\b|amount|price/i);
   });
   it("listan: handläggaren ser 71 egna – inga fält om skyddade personuppgifter, inga belopp", async () => {

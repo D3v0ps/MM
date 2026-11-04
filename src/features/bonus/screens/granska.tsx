@@ -65,7 +65,7 @@ function Review({ v }: { v: BonusReviewView }) {
               ? "Så här ser underlaget ut för kommunen om du skickar nu. Det byggs bara av godkända uppgifter och fryses när du skickar."
               : "Underlaget som kommunen fick. Det ändras inte."}
           </p>
-          <UnderlagPaper u={v.underlag} participantName={v.participantName} draft={v.status === "suggested" ? "Förhandsvisning – inte skickad" : null} />
+          <UnderlagPaper u={v.underlag} participantName={v.participantName} />
         </Card>
         {v.canAct && <SubmitCard v={v} form={form} dirty={dirty} />}
         {(v.canWithdraw || v.canRecordMail) && <Actions v={v} />}

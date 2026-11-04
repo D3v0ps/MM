@@ -4,14 +4,16 @@
 // "BOT-26-0042 · Bonussteg 3", artikeln och priset ur prislistan för bonussteget (price_items med koden i
 // contracts.config.bonus.steps, unit bonus_step) som gällde den dag kommunen beslutade – aldrig ett hårdkodat belopp.
 // Taket per deltagare (bonus.capOre) räknas på alla godkända anspråk i ärendet i beslutsordning (capAmounts i ./bonus.ts): ett
-// anspråk som sänks till 0 kr får ingen rad men visas för ekonomen som "Taket är nått".
+// anspråk som sänks till 0 kr får ingen rad men visas för ekonomen som "Taket är nått". Ett anspråk som redan står på en skapad
+// faktura räknas med det fakturerade beloppet (inte dagens prislista). Ett anspråk utan riktigt pris (saknas, exempelpris eller
+// 0 kr) är en prisrad som stoppar fakturan – och de senare anspråken i ärendet stoppas också (taket kan inte räknas).
 // Samma kedja som de periodiska fakturorna (./billing.ts buildMonthInvoice): beställarreferens och inköpsordernummer per faktura
 // kontrolleras, priserna stoppar fakturan, raderna fryses när fakturan skapas (invoice_lines.bonus_claim_id) och anspråk som
 // godkänns efteråt hamnar på en tilläggsfaktura. Bonus står aldrig på en periodisk faktura (triggern invoice_lines_bonus_check,
 // 0039) och aldrig i resultatfilen, KPI:erna eller rapporterna. Beloppen lämnas bara ut till ekonomen (hidesMoney).
 import type { BonusClaim, Case, Db, InvoiceDraft, PriceItem } from "@/data/schema";
 import {
-  buildMonthInvoice, compareGroup, CREATED_STATUSES, groupingKeyOf, isCreated, isCredited, parseGroupingKey, priceProblemOf, type BillingCheck, type InvoiceLineView,
+  buildMonthInvoice, compareGroup, CREATED_STATUSES, groupingKeyOf, isCreated, isCredited, parseGroupingKey, priceLineCheck, priceProblemOf, type BillingCheck, type InvoiceLineView,
   type MonthInvoice,
 } from "./billing";
 import { capAmounts, type CappedAmount } from "./bonus";
@@ -44,12 +46,25 @@ const approvedClaims = (db: Pick<Db, "bonus_claims">, contractId: string): Bonus
 
 /**
  * Beloppen för ärendenas godkända anspråk med taket (alla månader – taket gäller hela ärendet). Nyckel: anspråkets id. Ett
- * anspråk utan pris i prislistan räknas som 0 kr mot taket (fakturan stoppas av priset).
+ * anspråk på en skapad faktura räknas med det fakturerade beloppet. Ett anspråk utan riktigt pris räknas aldrig som 0 kr: det
+ * stoppar sin egen faktura och de senare anspråken i ärendet (blocked).
  */
-export function bonusAmounts(db: Pick<Db, "bonus_claims" | "price_items">, contractId: string, m: BonusBillingModel): Map<string, CappedAmount & { item: PriceItem | null }> {
+export function bonusAmounts(
+  db: Pick<Db, "bonus_claims" | "price_items" | "invoice_drafts" | "invoice_lines">, contractId: string, m: BonusBillingModel,
+): Map<string, CappedAmount & { item: PriceItem | null }> {
   const claims = approvedClaims(db, contractId);
   const items = new Map(claims.map((k) => [k.id, bonusPriceItem(db.price_items, m, k.step as number, dayOf(k.decidedAt as string), contractId)]));
-  const capped = capAmounts(claims.map((k) => ({ id: k.id, caseId: k.caseId, decidedAt: k.decidedAt as string, priceOre: items.get(k.id)?.priceOre ?? 0 })), m.capOre);
+  // Fakturerat: raderna på skapade bonusfakturor som inte är krediterade.
+  const created = new Set(db.invoice_drafts.filter((d) => d.kind === "bonus" && d.contractId === contractId && isCreated(d.status)).map((d) => d.id));
+  const frozen = new Map<string, number>();
+  for (const l of db.invoice_lines) if (l.bonusClaimId && created.has(l.invoiceDraftId)) frozen.set(l.bonusClaimId, Math.round(l.quantity * l.unitPriceOre));
+  const capped = capAmounts(
+    claims.map((k) => {
+      const item = items.get(k.id) ?? null;
+      return { id: k.id, caseId: k.caseId, decidedAt: k.decidedAt as string, priceOre: priceProblemOf(item) ? null : (item as PriceItem).priceOre, frozenOre: frozen.get(k.id) ?? null };
+    }),
+    m.capOre,
+  );
   return new Map([...capped].map(([id, a]) => [id, { ...a, item: items.get(id) ?? null }]));
 }
 
@@ -73,10 +88,12 @@ export function bonusLineNote(k: Pick<BonusClaim, "step" | "decidedAt">, m: Pick
 function bonusLine(c: Case, k: BonusClaim, a: CappedAmount & { item: PriceItem | null }, month: MonthKey, m: BonusBillingModel): InvoiceLineView {
   const step = k.step as number;
   const capOre = m.capOre;
-  const checks: BillingCheck[] = a.reduced && a.amountOre > 0 ? [capCheck(a, capOre)] : [];
+  const problem = priceProblemOf(a.item) ?? (a.blocked ? "earlier" : null);
+  const checks: BillingCheck[] = [...(problem ? [priceLineCheck(problem)] : []), ...(a.reduced && a.amountOre > 0 ? [capCheck(a, capOre)] : [])];
   return {
     month, contractId: c.contractId, caseId: c.id, caseNumber: c.caseNumber, areaCode: null, weeks: [], quantity: 1, unitPriceOre: a.amountOre, amountOre: a.amountOre,
-    vatRate: a.item?.vatRate ?? 25, articleNo: a.item?.fortnoxArticleNo ?? a.item?.code ?? "", priceItemId: a.item?.id ?? "", priceProblem: priceProblemOf(a.item), caseBuyerReference: c.buyerReference,
+    vatRate: a.item?.vatRate ?? 25, articleNo: a.item?.fortnoxArticleNo ?? a.item?.code ?? "", priceItemId: a.item?.id ?? "",
+    priceProblem: problem, caseBuyerReference: c.buyerReference,
     casePurchaseOrderNumber: c.purchaseOrderNumber || "", orderWeeks: 0, accruedWeeks: 0, remainingWeeks: 0, checks, needsApproval: false,
     lineText: `${c.caseNumber} · Bonussteg ${step}`, bonusClaimId: k.id, bonusStep: step, frozen: false, lineId: null, note: bonusLineNote(k, m, a.reduced),
   };
@@ -125,7 +142,9 @@ export function bonusMonthInvoices(db: BonusBillingDb, contractId: string, month
     if (!c || !a || covered.has(k.id)) continue;
     const base = bonusBaseOf(env.cfg, c.id);
     const g = open.get(base) ?? { lines: [], capped: [] };
-    if (a.amountOre > 0 || !a.item) g.lines.push(bonusLine(c, k, a, month, m));
+    // En rad med belopp, eller en prisrad som stoppar fakturan (pris saknas, exempelpris, 0 kr, ett tidigare steg utan pris).
+    // Bara ett anspråk som taket sänkt till 0 kr står utan rad ("Taket är nått").
+    if (a.amountOre > 0 || priceProblemOf(a.item) || a.blocked) g.lines.push(bonusLine(c, k, a, month, m));
     else g.capped.push({ claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, step: k.step as number, priceOre: a.priceOre });
     open.set(base, g);
   }

@@ -20,7 +20,9 @@
 // avslaget hindrar inte det).
 //
 // Taket: anspråken avräknas aldrig mot varandra (offset "never") – stegen läggs ihop. Per ärende: de godkända anspråken i
-// ordning efter kommunens beslut (decidedAt, sedan id) får beloppet min(pris, max(0, tak − summan av de tidigare)).
+// ordning efter kommunens beslut (decidedAt, sedan id) får beloppet min(pris, max(0, tak − summan av de tidigare)). Ett anspråk
+// som redan står på en skapad faktura räknas med det fakturerade beloppet; ett anspråk utan ett riktigt pris stoppar de senare
+// anspråken i ärendet (taket går inte att räkna).
 import type { BonusClaim, BonusClaimStatus, BonusChecklist, BonusKind, Case, Db, MonthlyAssessment, OutcomeEvent } from "@/data/schema";
 import { BONUS_ACTIVE_STATUSES, BONUS_CHECKLIST_ITEMS } from "@/data/schema";
 import { attendanceStats } from "./attendance";
@@ -252,21 +254,54 @@ export function submitProblems(x: SubmitContext, m: BonusModel): string[] {
 }
 
 // ---------------------------------------------------------------- Taket (aldrig avräkning)
-export type CapClaim = { id: string; caseId: string; decidedAt: LocalDateTime; priceOre: number };
-export type CappedAmount = { amountOre: number; priceOre: number; /** Beloppet är lägre än priset (taket). */ reduced: boolean };
+export type CapClaim = {
+  id: string;
+  caseId: string;
+  decidedAt: LocalDateTime;
+  /** Priset i prislistan den dag kommunen beslutade – null när det inte finns ett riktigt pris (saknas, exempelpris, 0 kr). */
+  priceOre: number | null;
+  /** Beloppet på en skapad (fryst) faktura – det räknas mot taket i stället för dagens prislista. */
+  frozenOre?: number | null;
+};
+export type CappedAmount = {
+  amountOre: number;
+  priceOre: number;
+  /** Beloppet är lägre än priset (taket). */
+  reduced: boolean;
+  /** Ett tidigare anspråk i ärendet saknar ett riktigt pris: taket kan inte räknas, raden stoppar fakturan. */
+  blocked: boolean;
+};
 /**
  * Beloppet per godkänt anspråk med taket per ärende: i ordning efter kommunens beslut (decidedAt, sedan id) får varje anspråk
  * min(pris, max(0, tak − summan av de tidigare)). Inget avräknas (offset "never") – stegen läggs ihop upp till taket.
+ * Ett fryst anspråk räknas med det fakturerade beloppet. Ett anspråk utan riktigt pris får 0 kr (dess egen prisrad stoppar
+ * fakturan) och alla senare anspråk i ärendet blir blocked – de räknas aldrig som om det första vore 0 kr.
  */
 export function capAmounts(claims: readonly CapClaim[], capOre: number): Map<string, CappedAmount> {
   const out = new Map<string, CappedAmount>();
   const sorted = [...claims].sort((a, b) => (a.caseId < b.caseId ? -1 : a.caseId > b.caseId ? 1 : a.decidedAt < b.decidedAt ? -1 : a.decidedAt > b.decidedAt ? 1 : a.id < b.id ? -1 : 1));
   const used = new Map<string, number>();
+  const stopped = new Set<string>();
   for (const k of sorted) {
     const before = used.get(k.caseId) ?? 0;
+    const price = k.priceOre ?? 0;
+    if (k.frozenOre != null) {
+      used.set(k.caseId, before + k.frozenOre);
+      out.set(k.id, { amountOre: k.frozenOre, priceOre: price, reduced: k.priceOre != null && k.frozenOre < k.priceOre, blocked: false });
+      continue;
+    }
+    if (stopped.has(k.caseId)) {
+      out.set(k.id, { amountOre: 0, priceOre: price, reduced: false, blocked: true });
+      continue;
+    }
+    if (k.priceOre == null) {
+      stopped.add(k.caseId);
+      out.set(k.id, { amountOre: 0, priceOre: 0, reduced: false, blocked: false });
+      continue;
+    }
     const amountOre = Math.min(k.priceOre, Math.max(0, capOre - before));
     used.set(k.caseId, before + amountOre);
-    out.set(k.id, { amountOre, priceOre: k.priceOre, reduced: amountOre < k.priceOre });
+    out.set(k.id, { amountOre, priceOre: k.priceOre, reduced: amountOre < k.priceOre, blocked: false });
   }
   return out;
 }

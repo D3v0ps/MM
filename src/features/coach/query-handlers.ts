@@ -2,7 +2,7 @@
 // Port av vyerna i prototyp/src/views/coach.js: samma urval, regler och siffror. Beräkningarna görs med funktionerna i
 // src/core och datat läses via ctx.repo (behörigheten gäller). Registreras via handlers.ts – importeras aldrig av skärmar.
 import { handleQuery, type Ctx } from "@/api/server";
-import { hidesCommercial } from "@/api/tester-access";
+import { hidesCommercial, visibleNotifications } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
@@ -159,7 +159,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       case_area_changes: byCase, user_notifications: { recipientId: me },
     },
   );
-  const all = { ...db, cases };
+  // Bonusnotiserna visas inte för begränsade testare (ett ekonomiskt villkor).
+  const all = { ...db, user_notifications: visibleNotifications(ctx.actor, db.user_notifications), cases };
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
   if (!main) throw new Error("Inget avtal med driftkonfiguration");
   const envs = (await Promise.all(uniq([main.contractId, ...cases.map((c) => c.contractId)]).map(envOf))).filter((e): e is DomainEnv => !!e);

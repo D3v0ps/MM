@@ -9,6 +9,9 @@ const date = (d: string | null | undefined) => (d ? fmtDate(d) : "–");
 const month = (m: MonthKey) => monthName(m).replace(/^./, (c) => c.toUpperCase());
 const pct = (v: number | null) => (v == null ? "Inget registrerat" : `${String(v).replace(".", ",")} procent`);
 
+/** Märkningen på en förhandsvisning av ett anspråk som inte är skickat (HTML och PDF). */
+export const DRAFT_LABEL = "Utkast – inte skickat";
+
 /** Rubriken: "Redovisningsunderlag bonus – bonussteg 3". */
 export const underlagTitle = (u: Pick<BonusUnderlag, "step">) => `Redovisningsunderlag bonus – bonussteg ${u.step}`;
 
@@ -21,7 +24,7 @@ export function underlagSections(u: BonusUnderlag, participantName: string): Und
       ["Bonussteg", `${u.step} · ${u.stepLabel}`],
       ["Deltagare", participantName],
       ["Ärendenummer", u.caseNumber],
-      ["Skickat", `${fmtDateTime(u.createdAt)}${u.sentByName ? ` av ${u.sentByName}` : ""}`],
+      u.draft ? ["Läge", DRAFT_LABEL] : ["Skickat", `${fmtDateTime(u.createdAt)}${u.sentByName ? ` av ${u.sentByName}` : ""}`],
     ],
     text: [u.rule],
   });

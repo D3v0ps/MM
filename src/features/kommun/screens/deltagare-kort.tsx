@@ -316,10 +316,10 @@ function BonusList({ d }: { d: KomCaseDetail }) {
           <ListItem key={b.claimId} title={`Bonussteg ${b.step} · ${b.label}`} sub={b.sentAt ? `Skickat ${fD(b.sentAt)}${b.decidedAt ? ` · beslut ${fD(b.decidedAt)}` : ""}` : undefined}>
             <span className="flex flex-wrap items-center gap-2">
               <Badge tone={b.status === "approved" ? "blue" : b.status === "rejected" ? "red" : "grey"} icon={b.icon}>
-                {b.status === "submitted" ? "Väntar på ditt beslut" : b.statusText}
+                {b.canDecide ? "Väntar på ditt beslut" : b.statusText}
               </Badge>
-              <Button kind={b.status === "submitted" ? "primary" : "ghost"} iconRight="arrow-right" to={`/portal/bonus/${encodeURIComponent(b.claimId)}`}>
-                {b.status === "submitted" ? "Läs och besluta" : "Läs underlaget"} <span className="sr-only">för bonussteg {b.step}</span>
+              <Button kind={b.canDecide ? "primary" : "ghost"} iconRight="arrow-right" to={`/portal/bonus/${encodeURIComponent(b.claimId)}`}>
+                {b.canDecide ? "Läs och besluta" : "Läs underlaget"} <span className="sr-only">för bonussteg {b.step}</span>
               </Button>
             </span>
           </ListItem>

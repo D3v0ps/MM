@@ -86,8 +86,9 @@ handleQuery(kommunStart, { roles: HANDL }, async (ctx) => {
   const unreadAll = reports.filter((r) => !r.openedAt).sort(by((r: Report) => r.deliveredAt ?? "", -1));
   const unreadReports = await Promise.all(unreadAll.map((r) => reportRow(ctx, r, k, caseOf)));
 
-  // Bonusanspråk att besluta om (skickade, inte beslutade) – RLS och policy.ts lämnar bara ut skickade och beslutade anspråk.
-  const bonus = (await bonusRows(ctx, ids, byCase)).filter((b) => b.status === "submitted");
+  // Bonusanspråk att besluta om nu – RLS och policy.ts lämnar bara ut skickade och beslutade anspråk. Bara de som handläggaren
+  // kan besluta om: hen beställde insatsen, och steg 4 och 5 först när bonussteg 3 är godkänt.
+  const bonus = (await bonusRows(ctx, ids, byCase)).filter((b) => b.canDecide);
 
   return {
     firstName: (k.me?.fullName ?? "").split(" ")[0], unit: k.me?.customerUnit ?? null, profileIncomplete: profileIncomplete(k.me), customerName: k.customerName,
@@ -102,14 +103,19 @@ handleQuery(kommunStart, { roles: HANDL }, async (ctx) => {
 async function bonusRows(ctx: Ctx, caseIds: readonly string[], byCase: ReadonlyMap<string, Case>): Promise<KomBonusRow[]> {
   if (!caseIds.length || hidesCommercial(ctx.actor)) return [];
   const claims = await ctx.repo.table("bonus_claims").list({ caseId: { in: [...caseIds] }, status: { in: ["submitted", "approved", "rejected"] } });
+  const statusOf = new Map(claims.map((x) => [x.id, x.status]));
   return claims
     .filter((x) => x.step != null)
     .map((x): KomBonusRow => {
       const st = x.status as KomBonusRow["status"];
       const label = typeof x.snapshot?.stepLabel === "string" ? x.snapshot.stepLabel : `Bonussteg ${x.step}`;
+      // Steg 4 och 5 beslutas först när bonussteg 3 är godkänt (bonusDecisionApplies) – tills dess står de som "Beslutas efter bonussteg 3".
+      const waitingForStep3 = st === "submitted" && x.followsClaimId != null && statusOf.get(x.followsClaimId) !== "approved";
+      const mine = byCase.get(x.caseId)?.referrerId === ctx.actor.userId;
       return {
         claimId: x.id, caseId: x.caseId, caseNumber: byCase.get(x.caseId)?.caseNumber ?? "", step: x.step as number, label, sentAt: x.submittedAt, status: st,
-        statusText: BONUS_STATUS_TEXT[st].text, icon: BONUS_STATUS_TEXT[st].icon as KomBonusRow["icon"], decidedAt: x.decidedAt,
+        statusText: waitingForStep3 ? "Beslutas efter bonussteg 3" : BONUS_STATUS_TEXT[st].text, icon: (waitingForStep3 ? "clock" : BONUS_STATUS_TEXT[st].icon) as KomBonusRow["icon"],
+        decidedAt: x.decidedAt, waitingForStep3, canDecide: st === "submitted" && !waitingForStep3 && mine,
       };
     })
     .sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : a.caseNumber > b.caseNumber ? 1 : a.step - b.step));

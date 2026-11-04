@@ -65,7 +65,9 @@ export const oreToKr = (ore: number): number => ore / 100;
 /** Områdena i klartext: "G", "A och C", "A, C och K". */
 const areaList = (codes: readonly string[]): string => (codes.length <= 1 ? (codes[0] ?? "") : `${codes.slice(0, -1).join(", ")} och ${codes[codes.length - 1]}`);
 
-const PRICE_STOP: Record<string, string> = { example: "exempelpris i prislistan", missing: "pris saknas i prislistan", zero: "priset är 0 kr i prislistan" };
+const PRICE_STOP: Record<string, string> = {
+  example: "exempelpris i prislistan", missing: "pris saknas i prislistan", zero: "priset är 0 kr i prislistan", earlier: "ett tidigare bonussteg i ärendet saknar pris (taket)",
+};
 
 /** Varför fakturan är stoppad, i den ordning ekonomen rättar: beställarreferensen, inköpsordernumret och priserna. */
 export function stopReasons(inv: Pick<MonthInvoice, "checks" | "lines" | "buyerReference">): string[] {
@@ -75,7 +77,7 @@ export function stopReasons(inv: Pick<MonthInvoice, "checks" | "lines" | "buyerR
   if (kinds.has("po")) out.push("inköpsordernumret har fel format");
   if (kinds.has("po_mixed")) out.push("ärendena har olika inköpsordernummer");
   if (kinds.has("price")) {
-    for (const problem of ["example", "missing", "zero"] as const) {
+    for (const problem of ["example", "missing", "zero", "earlier"] as const) {
       const codes = [...new Set(inv.lines.filter((l) => !l.frozen && l.priceProblem === problem).map((l) => l.areaCode ?? "").filter(Boolean))].sort();
       if (inv.lines.some((l) => !l.frozen && l.priceProblem === problem)) out.push(`${PRICE_STOP[problem]}${codes.length ? ` (avtalsområde ${areaList(codes)})` : ""}`);
     }

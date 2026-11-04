@@ -6,14 +6,15 @@ import { pdf } from "@react-pdf/renderer";
 import { Kv, P, PdfDocument, Sec, Small, Table } from "../rapporter/pdf/primitives";
 import { registerPdfFonts } from "../rapporter/pdf/theme";
 import type { BonusUnderlag } from "./api";
-import { underlagSections, underlagTitle } from "./underlag-text";
+import { DRAFT_LABEL, underlagSections, underlagTitle } from "./underlag-text";
 
 export function BonusPdf({ u, participantName }: { u: BonusUnderlag; participantName: string }) {
   const sections = underlagSections(u, participantName);
   return (
     <PdfDocument
-      metaTitle={`${underlagTitle(u)} – ${u.caseNumber}`}
+      metaTitle={`${underlagTitle(u)} – ${u.caseNumber}${u.draft ? ` – ${DRAFT_LABEL.toLowerCase()}` : ""}`}
       title={underlagTitle(u)}
+      label={u.draft ? DRAFT_LABEL : null}
       info={[["Avtal", `${u.contractNumber}, ${u.customerName}`], ["Ärende", u.caseNumber], ["Bonussteg", `${u.step} · ${u.stepLabel}`]]}
     >
       {sections.map((s, i) => (
