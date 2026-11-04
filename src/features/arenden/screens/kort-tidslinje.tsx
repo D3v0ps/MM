@@ -321,13 +321,17 @@ function NoteActions({ note, card, onEdit, headingId }: { note: TimelineNote; ca
 // ---------------------------------------------------------------- Skriv anteckning / Ändra anteckning
 const AUDIENCE_TEXT: Record<CaseNoteAudience, string> = { full: CASE_NOTE_AUDIENCE_LABEL.full, team: "Även teamet (till exempel arbetsgivarmatcharen)" };
 
-function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: TimelineNote | null; onClose: () => void }) {
+/**
+ * Skriv eller ändra en anteckning. Samma dialog från Tidslinje och från Översikt ("Skriv anteckning", UX-genomgången paket 1,
+ * C15) – Översikt förväljer kind "conversation" (Samtal med deltagaren). Datumet är alltid dagens för en ny anteckning.
+ */
+export function NoteDialog({ card, note, onClose, presetKind }: { card: TabProps["card"]; note: TimelineNote | null; onClose: () => void; presetKind?: CaseNoteKind }) {
   const role = useSession().actor.role;
   const save = useCommand(caseNoteSave);
   const today = dayOf(card.now);
   const minDate = dayOf(card.referredAt);
   const team = card.access === "team";
-  const [kind, setKind] = useState<CaseNoteKind | "">(note?.kind ?? "");
+  const [kind, setKind] = useState<CaseNoteKind | "">(note?.kind ?? presetKind ?? "");
   const [date, setDate] = useState(note?.occurredOn ?? today);
   const [body, setBody] = useState(note?.body ?? "");
   const [audience, setAudience] = useState<CaseNoteAudience>(note?.audience ?? (team ? "team" : "full"));

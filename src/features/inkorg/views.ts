@@ -34,7 +34,7 @@ import {
   maskPnrText, meetingDays, plainPnr, sla, sortPending, toRow, visibleCaseIds, type InboxData, type InboxEnv, type Item,
 } from "./model";
 import {
-  dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, OPTIONAL_FIELDS, ORDER_FIELDS, refErrorMB,
+  dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, OPTIONAL_FIELDS, ORDER_FIELDS, plannedEndWarning, refErrorMB,
   whenText, workingDaysText, type DeadlineRow, type OrderFieldKey,
 } from "./texts";
 
@@ -127,8 +127,9 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
     if (cr) return { kind: cr.changed ? "corrected" : "checked", title: `${personName(d.profiles, cr.by)} ${whenText(cr.at, d.e.now)}` };
     const sup = fromSup(k);
     if (sup) return { kind: "supplement", title: `Införd ${whenText(sup.handledAt, d.e.now)}` };
+    // Procenten bara när tolkningen är osäker (under 80 %) – annars ingen anteckning (S13).
     if (s === "low") return { kind: "low", pct: pct(conf[k] as number, 0) };
-    return conf[k] != null && ex[k] !== "" && ex[k] != null ? { kind: "pct", pct: pct(conf[k] as number, 0) } : null;
+    return null;
   };
   const person = c ? d.personById.get(c.personId) ?? null : null;
   // Fälten som inte frågas efter (Miljonbemanning sätter dem, eller bara vid annan tidsperiod) visas bara när mejlet har ett
@@ -149,6 +150,7 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
   return {
     method: m.parseMethod, help: METHOD[m.parseMethod]?.help ?? "", nMissing: all.filter((f) => f.state === "missing").length, nLow: all.filter((f) => f.state === "low").length,
     aiRun: run ? `Tolkat av ${run.provider} på ${Math.max(1, Math.round((run.latencyMs || 0) / 1000))} s.` : null, groups,
+    endWarning: plannedEndWarning(ex),
   };
 }
 
@@ -561,8 +563,14 @@ const alertPhase = (kind: string, key: string): number | null => (kind === "puls
 
 function miniDeadline(x: DeadlineRow & { aggregate?: { count: number } }): MiniDeadline {
   const sub = [x.caseId && !x.aggregate ? x.caseNumber : null, dlDesc(x.kind, x.label)].filter(Boolean).join(" · ") || null;
-  return { id: x.id, kind: x.kind, label: kindLabel(x.kind), sub, dueAt: x.dueAt, sla: x.sla, href: x.href, provisional: x.provisional, count: x.aggregate?.count ?? null };
+  return {
+    id: x.id, kind: x.kind, label: kindLabel(x.kind), sub, dueAt: x.dueAt, sla: x.sla, href: x.href, provisional: x.provisional, count: x.aggregate?.count ?? null,
+    caseId: x.aggregate ? null : x.caseId, caseNumber: x.aggregate ? null : x.caseNumber,
+  };
 }
+
+/** Uppgifter som systemet skapar när någon gör något (kallelsen som inte gick fram, rättelsen efter ändrat startdatum). */
+const SYSTEM_TASK_KINDS: readonly string[] = ["participant_contact", "report_correction"];
 
 export async function buildStart(ctx: Ctx): Promise<StartView> {
   const role = ctx.actor.role;
@@ -588,13 +596,25 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const toStart = d.cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= e.today).sort(by<Case>("firstMeetingAt"));
   const flagText = flagDaysText(e.org.alerts.firstMeetingNotBookedAfterDays);
 
-  const dls = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, role));
+  const dls = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor));
   const reportsHref = hrefFor({ view: "rapporter.lista", params: {} }, role);
   const dlSoon = groupDeadlines(dls.filter((x) => x.bucket !== "week"), reportsHref);
   const dlWeek = groupDeadlines(dls.filter((x) => x.bucket === "week"), reportsHref);
   const cdDue = new Map(deadlineItems(ops, e, visible, 366).filter((x) => x.kind === "atgardsplan").map((x) => [x.id.replace(/^cd:/, ""), x.dueAt]));
 
   const tasks = (await ctx.repo.table("tasks").list({ toRole: role, status: "open" })).sort(by("createdAt", -1));
+  // Uppgifterna att ringa deltagaren: ärendet och personen läses via ctx.repo – telefonnumret följer bara med när rollen redan
+  // får se personen (policyn för persons). Kallelsen har första mötets tid som sista tid (räknas ur ärendet, ingen egen kolumn).
+  const taskCases = new Map<string, Case>();
+  for (const id of uniq(tasks.flatMap((t) => t.caseIds))) {
+    const c = d.caseById.get(id) ?? (await ctx.repo.table("cases").get(id));
+    if (c) taskCases.set(id, c);
+  }
+  const callPersons = new Map<string, Person | null>();
+  for (const t of tasks.filter((x) => x.kind === "participant_contact")) {
+    const c = t.caseIds.length === 1 ? taskCases.get(t.caseIds[0]) : undefined;
+    if (c && !callPersons.has(c.id)) callPersons.set(c.id, await ctx.repo.table("persons").get(c.personId));
+  }
   const cds = (await ctx.repo.table("contract_deviations").list({ contractId: e.contract.id })).filter((x) => x.status !== "closed").sort(by("actionPlanDue"));
   const allCds = await ctx.repo.table("contract_deviations").list({ contractId: e.contract.id });
   // ctx.system: de senaste notiserna om tilldelning (till coacher och team) visas för samordnaren som kvittens.
@@ -633,7 +653,9 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
 
   const alertView = (a: (typeof alerts)[number]): AlertView => ({
     key: a.key, severity: a.severity, title: a.title, text: a.text, when: whenText(a.createdAt, now), phase: alertPhase(a.kind, a.key), href: hrefFor(a.link, role),
+    caseId: a.caseId ?? null, caseNumber: (a.caseId && d.caseById.get(a.caseId)?.caseNumber) || null,
   });
+  const mineRows = dls.filter((x) => x.mine);
   const cdHref = hrefFor({ view: "chef.avvikelser", params: {} }, role);
   const warnings = allCds.filter((x) => x.warningIssued).length;
   const max = e.cfg.warningsBeforeTermination;
@@ -655,6 +677,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     deadlines: {
       soon: dlSoon.map(miniDeadline), week: dlWeek.slice(0, 3).map(miniDeadline), weekGrouped: dlWeek.length, soonCount: dls.filter((x) => x.bucket !== "week").length,
       overdue: dls.filter((x) => x.bucket === "overdue").length, weekCount: dls.filter((x) => x.bucket === "week").length,
+      mine: groupDeadlines(mineRows, reportsHref).map(miniDeadline), mineCount: mineRows.length,
     },
     alerts: alerts.map(alertView),
     acked: acked.map((a) => ({ key: a.key, title: a.title, text: `Kvitterad av ${name(a.ack?.by)} ${whenText(a.ack?.at, now)}. Åtgärd: ${a.ack?.plan ?? ""}` })),
@@ -676,9 +699,19 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     })),
     tasks: tasks.map((t) => {
       const caseId = !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null;
+      const c = t.caseIds.length === 1 ? (taskCases.get(t.caseIds[0]) ?? null) : null;
+      const firstMeeting = t.kind === "participant_contact" && isKallelseTask(t.text);
+      const person = c ? callPersons.get(c.id) : undefined;
+      const fmDue = c && firstMeeting ? firstMeetingDue(c, e.cfg) : null;
       return {
-        id: t.id, text: t.text, sub: `${t.fromId === "system" ? "Skapad automatiskt" : `Från ${name(t.fromId)}`} · ${whenText(t.createdAt, now)}`,
-        emailId: t.emailId, caseId, href: taskHref(t, caseId, role),
+        // Avsändaren: systemet när uppgiften skapas automatiskt (bara visningen – fromId är den som gjorde det som skapade uppgiften).
+        id: t.id, text: t.text, sub: `Från ${t.fromId === "system" || (t.kind && SYSTEM_TASK_KINDS.includes(t.kind)) ? "Systemet" : name(t.fromId)} · ${whenText(t.createdAt, now)}`,
+        emailId: t.emailId, caseId, href: taskHref(t, caseId, role), kind: t.kind, caseNumber: c?.caseNumber ?? null,
+        dueAt: firstMeeting && c?.firstMeetingAt ? c.firstMeetingAt : null,
+        call: t.kind === "participant_contact" ? { phone: person?.phone?.trim() || null, firstMeeting } : null,
+        rebook: firstMeeting && c
+          ? { caseId: c.id, caseNumber: c.caseNumber, due: fmDue ? sla(fmDue, null, now) : null, coachName: name(c.leadCoachId), dueText: fmDue ? fmtWeekday(fmDue) : "–" }
+          : null,
       };
     }),
     deviations: cds.map((x) => {
@@ -719,7 +752,7 @@ export async function buildDeadlines(ctx: Ctx): Promise<DeadlinesView> {
   const e = await inboxEnv(ctx);
   const ops = await loadOps(ctx, e);
   const visible = await visibleCaseIds(ctx, e);
-  const rows = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor.role));
+  const rows = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor));
   const unset = e.cfg.sla.filter((s) => isUnset(s.due) || isUnset(s.within));
   return {
     eyebrow: `${fmtWeekday(e.now)} · ${fmtWeek(e.now)}`,

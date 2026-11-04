@@ -32,14 +32,17 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
   await expect(main(page)).toBeVisible();
 }
 
-/** Per roll: rutornas etiketter, ett avsnitt som ska finnas och menyns grupper. Samordnaren har 11 flaggor och avtalsansvarig
- * inget avsnitt för skyddade avrop sedan 2026-10-07 (skyddade personuppgifter borttagna ur appen). */
+/**
+ * Per roll: rutornas etiketter, ett avsnitt som ska finnas och menyns grupper. Paket 2 (2026-10-31): coach, samordnare,
+ * avtalsansvarig och ekonom har att göra-listan överst och inga rutor; chef och systemadministratör har kvar fyra rutor.
+ * Avtalsansvarig har inget avsnitt för skyddade avrop sedan 2026-10-07 (skyddade personuppgifter borttagna ur appen).
+ */
 const ROLES: [Who, string[], string, string[]][] = [
-  [SARA, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Flaggor (11)", ["Min vardag", "Samordning"]],
-  [JOHAN, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Avtalet: avvikelser och frågor", ["Min vardag", "Avtalet"]],
-  [AMIRA, ["Närvaro att registrera", "Aktiviteter i dag", "Mötesrapporter att granska", "Månads­bedömningar januari"], "Påminnelser", ["Min vardag"]],
+  [SARA, [], "Att göra", ["Min vardag", "Samordning"]],
+  [JOHAN, [], "Varningar och mål", ["Min vardag", "Avtalet"]],
+  [AMIRA, [], "Följ upp", ["Min vardag"]],
   [KARIN, ["Flaggor att hantera", "Förfaller i dag", "Resultatgrad, rullande 6 mån", "Rapporter försenade"], "Tidig uppmärksamhet", ["Min vardag", "Ledning"]],
-  [LARS, ["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"], "Uppgifter till dig", ["Min vardag", "Ekonomi"]],
+  [LARS, [], "Att göra", ["Min vardag", "Ekonomi"]],
   [ROBIN, ["Bakgrundsjobb", "Utskick som inte gick iväg", "Användare", "Avrop@ senast läst"], "Bakgrundsjobb", ["Min vardag", "Administratör"]],
 ];
 
@@ -52,7 +55,7 @@ const kpiLabels = (page: Page) =>
 /** Menyns grupprubriker (versala etiketter i sidopanelen). */
 const groupLabels = (page: Page) => menu(page).locator(":scope > div > div:first-child").allInnerTexts();
 
-test("Min vecka för varje MB-roll: rubrik, fyra rutor, rollens avsnitt och menyn med Min vardag och rollfliken", async ({ page }, info) => {
+test("Min vecka för varje MB-roll: rubrik, rutorna eller att göra-listan, rollens avsnitt och menyn med Min vardag och rollfliken", async ({ page }, info) => {
   test.setTimeout(120_000);
   const errors = await open(page, info, "/min-vecka", SARA);
   for (const [who, kpis, section, groups] of ROLES) {
@@ -85,8 +88,8 @@ test("/start leder vidare till Min vecka – valen i adressen följer med", asyn
   await expect(page).toHaveTitle("Min vecka – Miljonmatch");
   await switchTo(page, info, "/start?x=1", JOHAN);
   await expect.poll(() => here(page, info)).toBe("/min-vecka?x=1");
-  // Avtalsansvarigs tillägg (Skyddade avrop finns inte sedan 2026-10-07).
-  await expect(main(page).getByRole("heading", { name: "Avtalet: avvikelser och frågor" })).toBeVisible();
+  // Avtalsansvarigs egna saker (paket 2). Skyddade avrop finns inte sedan 2026-10-07.
+  await expect(main(page).getByRole("heading", { name: "Varningar och mål" })).toBeVisible();
   await expect(main(page).getByRole("heading", { name: "Skyddade avrop" })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -106,7 +109,7 @@ test("de gamla startsidorna finns kvar under rollens flik – handledarens lista
   expect(errors).toEqual([]);
 });
 
-test("Min vecka leder vidare: rutorna, rubrikerna och knappen i sidhuvudet", async ({ page }, info) => {
+test("Min vecka leder vidare: listan, rubrikerna och knappen i sidhuvudet", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", KARIN);
   await main(page).getByRole("link", { name: "Öppna Ledningsvyn" }).click();
   await expect.poll(() => here(page, info)).toBe("/ledning");
@@ -114,9 +117,12 @@ test("Min vecka leder vidare: rutorna, rubrikerna och knappen i sidhuvudet", asy
   await main(page).getByRole("link", { name: "Öppna körningen januari" }).click();
   await expect.poll(() => here(page, info)).toBe("/ekonomi/2027-01");
   await switchTo(page, info, "/min-vecka", SARA);
-  // Rutan "Första möten ej bokade" leder till avsnittet på sidan (fokus på rubriken).
-  await main(page).getByRole("button", { name: /Första möten ej bokade/ }).click();
-  await expect(page.locator("#mv-forsta-moten-rubrik")).toBeFocused();
+  // Att göra-listan leder vidare: "Allt som förfaller" (Förfaller) och knappen i sidhuvudet till avropsinkorgen.
+  await main(page).getByRole("link", { name: "Allt som förfaller" }).click();
+  await expect.poll(() => here(page, info)).toBe("/forfaller");
+  await switchTo(page, info, "/min-vecka", SARA);
+  await main(page).getByRole("link", { name: "Öppna avropsinkorgen" }).click();
+  await expect.poll(() => here(page, info)).toMatch(/^\/inkorg/);
   expect(errors).toEqual([]);
 });
 

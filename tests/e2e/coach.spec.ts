@@ -56,6 +56,11 @@ async function switchUser(page: Page, info: TestInfo, as: { userId: string; role
     await page.goto(to);
   }
 }
+/** Närvaron: filtren (vecka, visa, dag, yrkesområde, nivå, tagg) ligger bakom knappen Filtrera (paket 1, C5). */
+async function showFilters(page: Page) {
+  const b = page.getByRole("button", { name: /^(Filtrera|Dölj filtren)$/ });
+  if ((await b.getAttribute("aria-expanded")) !== "true") await b.click();
+}
 /** Registrera närvaro för en rad och vänta tills valet syns som sparat. */
 async function registerRow(row: Locator, label: string) {
   await btn(row, label).click();
@@ -67,51 +72,101 @@ async function registerWeek4(page: Page) {
   await expect(rows).toHaveCount(6);
   await btn(rows.nth(0), "Giltig frånvaro").click();
   await btn(page.getByRole("group", { name: "Orsak till giltig frånvaro" }), "Sjukdom").click();
-  await expect(rows.nth(0)).toContainText("Giltig frånvaro · Sjukdom");
+  await expect(rows.nth(0)).toContainText("Orsak: Sjukdom");
   await registerRow(rows.nth(1), "Ogiltig frånvaro");
   for (let i = 2; i < 6; i++) await registerRow(rows.nth(i), i === 2 ? "Sen" : "Närvarande");
 }
 
 // ================================================================ Min vecka
-test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvaron", async ({ page }, info) => {
+/** Raderna i en att göra-lista på Min vecka (paket 2). */
+const todo = (page: Page, name = "Att göra i dag") => main(page).getByRole("list", { name, exact: true }).locator(":scope > li");
+
+test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ upp, kalendern bakom en knapp och länk till närvaron", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", COACH);
   await expect(page.getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
   await noBadText(page);
-  await expect(main(page)).toContainText(/Närvaro att registrera\s*6\s*Kräver åtgärd/i);
-  // "Förslag/ej fastställt" står en gång på sidan: brickan i månadsavsnittet (förklaringen som verktygstips), inte i tre till rader.
+  // Överst: närvaron med sista tid i dag 10.00 och regeln om automatisk närvaro i en rad.
+  const first = todo(page).first();
+  await expect(first).toContainText("Närvaro att registrera – vecka 4");
+  await expect(first).toContainText(/Senast i dag kl\. 10\.00\s*48 min kvar/);
+  await expect(first).toContainText("6 tillfällen saknar närvaro");
+  await expect(first).toContainText("registreras automatiskt som närvarande");
+  // "Förslag/ej fastställt" står en gång på sidan: i månadsbedömningarnas rad (förklaringen som verktygstips).
   await expect(page.getByText(/^Förslag: senast /).first()).toBeVisible();
   await expect(page.getByTitle("Sista dag ej fastställd – förslag 5:e arbetsdagen")).toHaveCount(1);
   await expect(page.getByText("Förslag – ej fastställt")).toHaveCount(0);
   const text = await main(page).innerText();
   expect(text).not.toMatch(/deadline/i);
   expect(text).not.toMatch(/\b1 (godkända|granskade|tillfällen|olästa)\b/);
-  await expect(main(page)).toContainText(/Månads\u00adbedömningar januari\s*4 av 15/i);
-  await expect(page.getByRole("link", { name: "Bedöm", exact: true })).toHaveCount(5);
-  // Marias olästa meddelande från 1 februari 08.15 syns (samma räkning som deltagarkortets olästa) – överst på sidan.
-  const msgs = card(page, "Meddelanden från kommunen");
-  await expect(msgs).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
-  await expect(msgs).toContainText("Från Maria Ekdahl");
-  await expect(msgs.getByRole("link", { name: /Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
+  // Månadsbedömningarna: en rad – nästa att bedöma som knapp, resten bakom Visa alla.
+  const manad = todo(page).filter({ hasText: "Månadsbedömningar januari 2027" });
+  await expect(manad).toContainText("4 av 15 godkända – 11 kvar att gå igenom");
+  await expect(manad).toContainText("Månadsrapporterna byggs av bedömningarna: 14 st · 11 väntar på din bedömning · 3 godkända, ska levereras");
+  await expect(manad.getByRole("link", { name: /^Bedöm / })).toHaveCount(1);
+  await manad.getByRole("button", { name: "Visa alla 11" }).click();
+  await expect(manad.getByRole("list", { name: "Månadsbedömningar som återstår" }).locator("li")).toHaveCount(10);
+  // Svara kommunen: Marias olästa meddelande från 1 februari 08.15 (samma räkning som deltagarkortets olästa).
+  // Samma ärende en rad: meddelandet står på Nadias mötesrad (nästa möte) med Läs och svara som textknapp.
+  const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  await expect(msg).toHaveCount(1);
+  await expect(msg).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
+  await expect(msg).toContainText("från Maria Ekdahl");
+  await expect(msg).toContainText("Nästa");
+  await expect(msg.getByRole("link", { name: /^Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
+  await expect(todo(page).filter({ has: page.getByRole("link", { name: /^Nadia Warsame\s*BOT-26-0143/ }) })).toHaveCount(1);
+  await expect(msg.getByRole("button", { name: /^Läs och svara/ })).toBeVisible();
 
   await page.setViewportSize({ width: 400, height: 860 });
-  const bb = await page.getByRole("link", { name: "Bedöm", exact: true }).first().boundingBox();
+  const bb = await manad.getByRole("link", { name: /^Bedöm / }).boundingBox();
   const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(bb && bb.x >= 0 && bb.x + bb.width <= 400).toBeTruthy();
   expect(over).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1280, height: 900 });
 
+  // Mötesrapporten att granska och Följ upp: Yusuf har en påminnelse och en flagga – en rad.
+  await expect(page.getByRole("link", { name: /^Granska/ })).toHaveCount(1);
+  await expect(todo(page).filter({ hasText: "Mötesrapport att granska" })).toContainText("Mehmet Kaya");
+  const follow = todo(page, "Följ upp");
+  await expect(follow.filter({ hasText: "Yusuf Abdi" })).toHaveCount(1);
+  await expect(follow.filter({ hasText: "Yusuf Abdi" })).toContainText("Påminnelse: ingen progression 3 veckor i rad – inget möte dokumenterat (v. 4 2027).");
+  await expect(follow.filter({ hasText: "Yusuf Abdi" })).toContainText("Upprepad ogiltig frånvaro");
+  await expect(follow.filter({ hasText: "Amal Hassan" })).toContainText("Fastnat i fas 1");
+  await expect(main(page).getByRole("link", { name: "4 olästa notiser" })).toBeVisible();
+  // Rapporter som förfaller har inget eget kort (de står i listan). Att kartlägga: Amal saknar nivå.
+  await expect(card(page, "Rapporter som förfaller")).toHaveCount(0);
+  await expect(card(page, "Att kartlägga (1)")).toContainText("Amal Hassan");
+  // Veckokalendern bakom "Visa hela veckan".
+  await expect(page.getByTestId("kalender-dag")).toHaveCount(0);
+  await page.getByRole("button", { name: /Visa hela veckan/ }).click();
   await expect(page.getByTestId("kalender-dag")).toHaveCount(5);
-  await expect(page.getByRole("link", { name: "Granska" })).toHaveCount(1);
-  await expect(card(page, "Mötesrapporter att granska")).toContainText("Mehmet Kaya");
-  await expect(page.getByRole("link", { name: "Öppna notiser" })).toBeVisible();
-  await expect(card(page, "Egna flaggor")).toContainText("Fastnat i fas 1");
-  await expect(card(page, "Egna flaggor")).toContainText("Upprepad ogiltig frånvaro");
-  await expect(card(page, "Påminnelser")).toContainText("Ingen progression 3 veckor i rad: inget möte dokumenterat (v. 4 2027).");
-  await expect(card(page, "Rapporter som förfaller")).toContainText("Månadsrapporter januari 2027: 14 st");
-  await expect(card(page, "Rapporter som förfaller")).toContainText("Väntar på din bedömning: 11 · Godkända, ska levereras: 3");
-  await page.getByRole("link", { name: "Registrera närvaro för vecka 4" }).click();
+  await first.getByRole("link", { name: "Registrera närvaro för vecka 4" }).click();
   await expect.poll(() => currentPath(page, info)).toBe("/narvaro?vecka=forra");
   await expect(page.getByRole("heading", { level: 1, name: "Närvaro" })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Min vecka (C17): bara nästa möte har en svart knapp – övriga möten är textlänkar med ikon", async ({ page }, info) => {
+  const errors = await open(page, info, "/min-vecka", COACH);
+  const list = main(page).getByRole("list", { name: "Att göra i dag", exact: true });
+  await expect(list).toBeVisible();
+  const black = await list.evaluate((el) => [...el.querySelectorAll("a, button")].filter((b) => b.classList.contains("bg-antracit")).map((b) => (b.textContent ?? "").trim()));
+  expect(black).toEqual(["Spela in mötet med Nadia Warsame"]);
+  const next = todo(page).filter({ hasText: "Nästa" });
+  await expect(next).toContainText("Nadia Warsame");
+  await expect(next.getByRole("link", { name: "Spela in mötet med Nadia Warsame" })).toHaveAttribute("href", isDemo(info) ? `#/avstamning/${SC.nadia}?spela=1` : `/avstamning/${SC.nadia}?spela=1`);
+  await expect(todo(page).filter({ hasText: "Habiba Karlsson" }).getByRole("link", { name: "Spela in mötet med Habiba Karlsson" })).toBeVisible();
+  // Klara möten (närvaro och godkänd mötesrapport) står i listans fot.
+  await expect(main(page)).toContainText("Klart i dag: 09.00 Jonna Osman, 09.00 Guled Farah.");
+  expect(errors).toEqual([]);
+});
+
+test("Min vecka visar att vecka 4 är klar när närvaron är registrerad", async ({ page }, info) => {
+  const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
+  await registerWeek4(page);
+  await go(page, info, "/min-vecka");
+  await expect(page.getByText("Närvaron för vecka 4 är registrerad.", { exact: false })).toBeVisible();
+  await expect(todo(page).filter({ hasText: "Närvaro att registrera" })).toHaveCount(0);
+  await noBadText(page);
   expect(errors).toEqual([]);
 });
 
@@ -119,6 +174,12 @@ test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvar
 test("Närvaro: snabbregistrering vecka 4 publicerar veckorapporterna automatiskt", async ({ page }, info) => {
   const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
   await noBadText(page);
+  // Ingressen säger regeln med klockslaget från den automatiska närvarons inställning (paket 1, C4).
+  await expect(main(page)).toContainText("Registrera bara frånvaro och sen ankomst, senast kl. 18.00 samma dag. Övriga blir Närvarande automatiskt.");
+  await expect(page.getByTestId("narvaro-regel")).toContainText("Kl. 18.00 blir passerade tillfällen utan registrering Närvarande automatiskt");
+  // Listan först – filtren bakom Filtrera, de valda som text.
+  await expect(page.getByTestId("narvaro-filtertext")).toHaveText("Visar: Förra veckan (v. 4) · Ej registrerade · Hela veckan");
+  await expect(page.getByRole("group", { name: "Vecka" })).toBeHidden();
   await expect(page.getByTestId("narvaro-raknare")).toContainText("6 tillfällen kvar – senast måndag 10.00");
   const rows = page.getByTestId("narvaro-rad");
   await expect(rows).toHaveCount(6);
@@ -126,7 +187,10 @@ test("Närvaro: snabbregistrering vecka 4 publicerar veckorapporterna automatisk
   await btn(rows.nth(0), "Giltig frånvaro").click();
   await expect(page.getByRole("group", { name: "Orsak till giltig frånvaro" })).toBeVisible();
   await btn(page.getByRole("group", { name: "Orsak till giltig frånvaro" }), "Sjukdom").click();
-  await expect(rows.nth(0)).toContainText("Giltig frånvaro · Sjukdom");
+  // Statusen en gång per rad (paket 1, C5): knappgruppen visar valet, raden orsaken.
+  await expect(btn(rows.nth(0), "Giltig frånvaro")).toHaveAttribute("aria-pressed", "true");
+  await expect(rows.nth(0)).toContainText("Orsak: Sjukdom");
+  await expect(rows.nth(0).getByText("Giltig frånvaro", { exact: true })).toHaveCount(1);
   // Elif onsdag: ogiltig frånvaro
   await registerRow(rows.nth(1), "Ogiltig frånvaro");
   await expect(rows.nth(1)).toContainText("Frånvaronotis samma dag: tillval som inte är fastställt");
@@ -155,17 +219,17 @@ test("Närvaro: rollen handledare finns inte – Petra (coach utan egna ärenden
   expect(errors).toEqual([]);
 });
 
-test("Närvaro: 'Markera alla som närvarande' per dag – bekräftelse med namnen, ett kommando, enskilda rättas efteråt och chefen ser loggraden", async ({ page }, info) => {
+test("Närvaro: 'Markera övriga som närvarande' för hela den visade listan – bekräftelse med namnen, ett kommando per dag, enskilda rättas efteråt och chefen ser loggraderna", async ({ page }, info) => {
   const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
   await expect(page.getByTestId("narvaro-raknare")).toContainText("6 tillfällen kvar – senast måndag 10.00");
   // Smal skärm (390 px): knappen är minst 44 px hög och sidan skrollar inte i sidled.
   await page.setViewportSize({ width: 390, height: 844 });
-  const wedButton = page.getByRole("button", { name: "Markera alla som närvarande (3)" }).first();
-  await expect(wedButton).toBeVisible();
-  expect((await wedButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  const markButton = page.getByRole("button", { name: "Markera övriga som närvarande (6)" });
+  await expect(markButton).toBeVisible();
+  expect((await markButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await page.setViewportSize({ width: 1280, height: 900 });
-  // Appen: ett kommando för hela dagen (inte ett per tillfälle).
+  // Appen: ett kommando per dag (inte ett per tillfälle).
   const commands: string[] = [];
   page.on("request", (r) => {
     if (!r.url().includes("/api/rpc")) return;
@@ -176,48 +240,54 @@ test("Närvaro: 'Markera alla som närvarande' per dag – bekräftelse med namn
       /* ignoreras */
     }
   });
-  // Onsdag: bekräftelsen räknar upp de tre och vad som inte ändras.
-  await page.getByRole("button", { name: "Markera alla som närvarande (3)" }).first().click();
+  // Bara onsdagen visas (Dag under Filtrera): knappen gäller den visade listan.
+  await showFilters(page);
+  await page.getByRole("group", { name: "Dag" }).getByRole("button", { name: /^ons 27 jan/ }).click();
+  await expect(page.getByTestId("narvaro-filtertext")).toContainText("onsdag 27 januari");
+  await page.getByRole("button", { name: "Markera övriga som närvarande (3)" }).click();
   const dialog = page.getByRole("dialog", { name: "Markera 3 som närvarande?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Närvarande registreras ons 27 jan för:");
-  await expect(dialog).toContainText("Nadia Warsame (BOT-26-0143)");
+  await expect(dialog).toContainText("Närvarande registreras för:");
+  await expect(dialog).toContainText("Nadia Warsame (BOT-26-0143) · ons 27 jan");
   await expect(dialog).toContainText("Elif Yilmaz (BOT-27-0003)");
   await expect(dialog).toContainText("Amal Hassan (BOT-27-0012)");
   await expect(dialog).toContainText("Tillfällen som redan är registrerade ändras inte.");
   await dialog.getByRole("button", { name: "Markera 3 som närvarande" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByText("3 tillfällen markerade som närvarande.")).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "3 av 3 tillfällen ons 27 jan markerade som närvarande" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "3 av 3 tillfällen markerade som närvarande" })).toBeVisible();
   await expect(page.getByTestId("narvaro-raknare")).toContainText("3 tillfällen kvar – senast måndag 10.00");
   // De tre raderna står kvar med sina knappar: Närvarande valt – rättas med samma knappar som förut.
   const rows = page.getByTestId("narvaro-rad");
-  await expect(rows).toHaveCount(6);
+  await expect(rows).toHaveCount(3);
   for (let i = 0; i < 3; i++) await expect(btn(rows.nth(i), "Närvarande")).toHaveAttribute("aria-pressed", "true");
   if (!isDemo(info)) expect(commands).toEqual(["coach.attendanceSetAll"]);
-  // Torsdag: allt registrerat – veckorapporterna publiceras som vid enskild registrering.
-  await page.getByRole("button", { name: "Markera alla som närvarande (3)" }).click();
+  // Hela veckan: de tre på torsdagen – allt registrerat, veckorapporterna publiceras som vid enskild registrering.
+  await page.getByRole("group", { name: "Dag" }).getByRole("button", { name: /^Hela veckan/ }).click();
+  await page.getByRole("button", { name: "Markera övriga som närvarande (3)" }).click();
   await page.getByRole("dialog", { name: "Markera 3 som närvarande?" }).getByRole("button", { name: "Markera 3 som närvarande" }).click();
   await expect(page.getByTestId("narvaro-raknare")).toContainText("Alla passerade tillfällen vecka 4 är registrerade");
-  await expect(page.getByText("Veckorapporten för v. 4 2027 till Linda Karlsson publicerades automatiskt.")).toBeVisible();
-  await expect(page.getByText("Veckorapporten för v. 4 2027 till Maria Ekdahl publicerades automatiskt.")).toBeVisible();
+  const status = page.getByRole("status").filter({ hasText: "3 av 3 tillfällen markerade som närvarande" });
+  await expect(status).toContainText("Veckorapporten för v. 4 2027 till Linda Karlsson publicerades automatiskt.");
+  await expect(status).toContainText("Veckorapporten för v. 4 2027 till Maria Ekdahl publicerades automatiskt.");
   const reports = card(page, "Veckorapporter – vecka 4");
   await expect(reports).toContainText(/Maria Ekdahl[\s\S]*?Publicerad 1 feb/);
   await expect(reports).toContainText(/Linda Karlsson[\s\S]*?Publicerad 1 feb/);
-  await expect(page.getByRole("button", { name: /^Markera alla som närvarande/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Markera övriga som närvarande/ })).toHaveCount(0);
+  if (!isDemo(info)) expect(commands).toEqual(["coach.attendanceSetAll", "coach.attendanceSetAll"]);
   // Rätta en enskild: Elif onsdag blir ogiltig frånvaro med radens knappar.
   const elif = rows.filter({ hasText: "BOT-27-0003" }).first();
   await registerRow(elif, "Ogiltig frånvaro");
-  await expect(elif).toContainText("Ogiltig frånvaro");
-  await expect(btn(rows.nth(0), "Närvarande")).toHaveAttribute("aria-pressed", "true");
+  await expect(btn(elif, "Ogiltig frånvaro")).toHaveAttribute("aria-pressed", "true");
   // Omladdning: allt kvar (prototypen spelar upp loggen igen).
   await page.reload();
   if (!isDemo(info)) await loaded(page);
   await expect(page.getByTestId("narvaro-raknare")).toContainText("Alla passerade tillfällen vecka 4 är registrerade");
+  await showFilters(page);
   await page.getByRole("button", { name: /^Alla \(/ }).click();
-  await expect(page.getByTestId("narvaro-rad").filter({ hasText: "BOT-27-0003" }).filter({ hasText: "ons" })).toContainText("Ogiltig frånvaro");
-  await expect(page.getByTestId("narvaro-rad").filter({ hasText: "BOT-26-0143" }).filter({ hasText: "ons" })).toContainText("Närvarande");
-  await expect(page.getByTestId("narvaro-rad").filter({ hasText: "BOT-27-0012" }).filter({ hasText: "tor" })).toContainText("Närvarande");
+  const after = page.getByTestId("narvaro-rad");
+  await expect(btn(after.filter({ hasText: "BOT-27-0003" }).filter({ hasText: "ons" }), "Ogiltig frånvaro")).toHaveAttribute("aria-pressed", "true");
+  await expect(btn(after.filter({ hasText: "BOT-26-0143" }).filter({ hasText: "ons" }), "Närvarande")).toHaveAttribute("aria-pressed", "true");
+  await expect(btn(after.filter({ hasText: "BOT-27-0012" }).filter({ hasText: "tor" }), "Närvarande")).toHaveAttribute("aria-pressed", "true");
   // Chefen: kortets Historik visar en loggrad per dag med antalet – inga namn i raden.
   await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
   const table = page.getByRole("table", { name: "Revisionslogg" });
@@ -228,16 +298,6 @@ test("Närvaro: 'Markera alla som närvarande' per dag – bekräftelse med namn
   await expect(bulkRows).toHaveCount(2);
   await expect(bulkRows.first()).toContainText("3 tillfällen");
   await expect(bulkRows.first()).toContainText("Amira Haddad");
-  expect(errors).toEqual([]);
-});
-
-test("Min vecka visar att vecka 4 är klar när närvaron är registrerad", async ({ page }, info) => {
-  const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
-  await registerWeek4(page);
-  await go(page, info, "/min-vecka");
-  await expect(page.getByText("Allt är registrerat för vecka 4")).toBeVisible();
-  await expect(main(page)).toContainText(/Närvaro att registrera\s*0/i);
-  await noBadText(page);
   expect(errors).toEqual([]);
 });
 
@@ -480,8 +540,19 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   }
   await expect(main(page)).toContainText(/Från mötesrapporten \d+ \w+/);
   await expect(main(page).getByText(/^Ifyllt automatiskt/).first()).toBeVisible();
-  // Godkänn går inte att trycka på förrän rutan är ikryssad.
-  await expect(btn(page, "Godkänn bedömningen")).toHaveAttribute("aria-disabled", "true");
+  // Godkänn är inte avstängd (paket 1, C10): utan kryss står felet vid kryssrutan och den får fokus.
+  const approve = btn(page, "Godkänn bedömningen");
+  await expect(approve).not.toHaveAttribute("aria-disabled", "true");
+  await approve.click();
+  const reviewed = page.getByRole("checkbox", { name: "Jag har gått igenom bedömningen" });
+  await expect(reviewed).toBeFocused();
+  await expect(reviewed).toHaveAttribute("aria-invalid", "true");
+  await expect(main(page)).toContainText("Kryssa i att du har gått igenom bedömningen innan du godkänner.");
+  // Kryssrutan och Godkänn ligger i en knapprad som följer med längst ned när man skrollar (som i mötet), klickytan minst 44 px.
+  const bar = page.getByTestId("manad-knapprad");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(bar).toBeInViewport();
+  expect((await page.locator("label[for=cm-reviewed]").boundingBox())!.height).toBeGreaterThanOrEqual(44);
   // Godta alla AI-förslag: nivån och AI:s observation – coachens val, märkt "Godtaget".
   await btn(page, /^Godta alla AI-förslag \(\d+\)$/).click();
   await expect(page.getByText(/AI-förslag är godtag/).first()).toBeVisible();
@@ -498,8 +569,8 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   await selects.nth(auto).selectOption("2");
   // Den automatiska texten är inget belägg: fältet töms när coachen väljer en nivå över 0.
   await expect(rows.nth(auto).locator("textarea")).toHaveValue("");
-  await page.getByRole("checkbox", { name: "Jag har gått igenom bedömningen" }).check();
-  await expect(btn(page, "Godkänn bedömningen")).not.toHaveAttribute("aria-disabled", "true");
+  await reviewed.check();
+  await expect(main(page)).not.toContainText("Kryssa i att du har gått igenom bedömningen innan du godkänner.");
   await btn(page, "Godkänn bedömningen").click();
   await expect(page.getByText(/Skriv en konkret observation/).first()).toBeVisible();
   // Fokus på det som saknas: observationen (nivån är vald).
@@ -559,7 +630,17 @@ test("Kartläggning: yrkesspår och nivå krävs och diagnoser stoppas (Amal)", 
   await noBadText(page);
   await expect(page.getByText(/Fastnat i fas 1/)).toBeVisible();
   await btn(page, "Godkänn kartläggningen").click();
-  await expect(page.getByText("Välj yrkesspår.")).toBeVisible();
+  // Felsammanfattningen överst får fokus och länkar till fälten – också yrkesspåret och nivån (paket 1, C7).
+  const summary = page.locator("#ia-fel");
+  await expect(summary).toBeFocused();
+  await expect(summary).toContainText("Kartläggningen kan inte godkännas ännu");
+  await expect(summary.getByRole("link", { name: "Välj yrkesspår." })).toBeVisible();
+  await expect(summary.getByRole("link", { name: "Välj nivå innan du godkänner kartläggningen." })).toBeVisible();
+  const box = await summary.boundingBox();
+  expect(box!.y).toBeLessThan(400);
+  await summary.getByRole("link", { name: "Välj yrkesspår." }).click();
+  await expect(group(page, "Valt yrkesspår").getByRole("button").first()).toBeFocused();
+  await expect(page.getByText("Välj yrkesspår.").first()).toBeVisible();
   await page.locator("#ia-adapt").fill("Har diagnosen ADHD");
   await expect(page.getByText("Det ser ut som en diagnos")).toBeVisible();
   await page.locator("#ia-adapt").fill("Behöver tydlig struktur och schema i förväg");
@@ -573,9 +654,18 @@ test("Kartläggning: yrkesspår och nivå krävs och diagnoser stoppas (Amal)", 
   await expect(levels.locator("[data-grouping-status]")).toHaveText(/Sparat \d\d\.\d\d/);
   await btn(page, "Godkänn kartläggningen").click();
   await expect(page.getByText("Kartläggningen är godkänd", { exact: true })).toBeVisible();
+  // Rutan överst får fokus – ingen kvittens täcker Spara ändringar.
+  await expect(page.locator("#ia-godkand")).toBeFocused();
   await expect(main(page)).toContainText("L Övrigt · Individuellt spår");
   await expect(main(page)).toContainText("Godkänd 1 feb 2027");
-  await expect(btn(page, "Spara ändringar")).toBeVisible();
+  const saveBtn = btn(page, "Spara ändringar");
+  await expect(saveBtn).toBeVisible();
+  await saveBtn.scrollIntoViewIfNeeded();
+  expect(await saveBtn.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && el.contains(hit);
+  })).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -647,14 +737,15 @@ test("Meddelande från kommunen syns i Min vecka och räknas som läst efteråt"
   await page.getByRole("button", { name: "Skicka meddelandet" }).click();
   await expect(page.getByText("Tiden passar bra. Vi ses på torsdag.").first()).toBeVisible();
   await switchUser(page, info, COACH, "/min-vecka");
-  const msgCard = card(page, "Meddelanden från kommunen");
-  await expect(msgCard).toContainText("Tiden passar bra");
-  await expect(msgCard).toContainText("BOT-26-0143");
-  await expect(msgCard).toContainText("Från Maria Ekdahl");
-  await btn(msgCard, "Läs och svara").click();
+  const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  await expect(msg).toContainText("Tiden passar bra");
+  await expect(msg).toContainText("BOT-26-0143");
+  await expect(msg).toContainText("från Maria Ekdahl");
+  await msg.getByRole("button", { name: /^Läs och svara/ }).click();
   await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${SC.nadia}?flik=meddelanden`);
   await go(page, info, "/min-vecka");
-  await expect(card(page, "Meddelanden från kommunen").getByText("Inga olästa meddelanden")).toBeVisible();
+  await expect(todo(page).first()).toBeVisible();
+  await expect(todo(page).filter({ hasText: "Svara kommunen" })).toHaveCount(0);
   await noBadText(page);
   expect(errors).toEqual([]);
 });

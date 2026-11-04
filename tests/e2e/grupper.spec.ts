@@ -40,16 +40,25 @@ test("kartläggningen: coachen sätter nivå och Vill arbeta – gruppen är yrk
   await expect(btn(c.getByRole("group", { name: "Vill arbeta" }), "Deltid")).toHaveAttribute("aria-pressed", "true");
   await expect(status).toHaveText(/Sparat \d\d\.\d\d/);
   await expect(c.getByTestId("nivahistorik")).toContainText("Nivå 2 från");
-  // En rad till coacherna blir en anteckning.
-  await c.getByLabel("En rad till coacherna (valfritt)").fill("Vill börja med lager. Behöver stöd med CV.");
-  await btn(c, "Spara raden").click();
-  await expect(page.getByText("Raden är sparad som en anteckning i deltagarkortet.")).toBeVisible();
+  // "En rad till coacherna" är borttagen (paket 1, C15) – anteckningen skrivs på deltagarkortets Översikt.
+  await expect(c.getByLabel("En rad till coacherna (valfritt)")).toHaveCount(0);
 
   await go(page, info, `/arenden/${SC.amal}`);
   const row = page.locator("[data-grouping-row]");
   await expect(row).toContainText("Nivå 2 – Behöver stöd för att komma igång");
   await expect(row).toContainText("L – Övrigt");
   await expect(row).toContainText("Vill arbeta: Deltid");
+  // Skriv anteckning på Översikt: samma dialog som Tidslinje, förvald Samtal med deltagaren och dagens datum.
+  await btn(main(page), "Skriv anteckning").click();
+  const note = page.getByRole("dialog", { name: "Skriv anteckning" });
+  await expect(note.getByLabel("Vad gäller anteckningen?")).toHaveValue("conversation");
+  await expect(note.getByLabel("Datum")).toHaveValue("2027-02-01");
+  await note.locator("#note-body").fill("Vill börja med lager. Behöver stöd med CV.");
+  await btn(note, "Spara anteckningen").click();
+  await expect(note).toHaveCount(0);
+  await expect(page.getByText("Anteckningen är sparad.")).toBeVisible();
+  await page.getByRole("tab", { name: /^Tidslinje/ }).click();
+  await expect(main(page)).toContainText("Vill börja med lager. Behöver stöd med CV.");
   expect(relevant(errors)).toEqual([]);
 });
 
@@ -68,16 +77,8 @@ test("deltagarkortet: Höj nivå ett steg och Ändra öppnar samma val; ärendel
   await expect(btn(dialog, "Nivå 5 – Redo för arbete")).toHaveAttribute("aria-pressed", "true");
   await expect(dialog.getByTestId("nivahistorik")).toContainText("Nivå 3 från");
   await expect(dialog.getByTestId("nivahistorik")).toContainText("Nivå 4 från");
-  // En osparad rad till coacherna kastas inte tyst: Klar frågar först.
-  await dialog.getByLabel("En rad till coacherna (valfritt)").fill("Vill prova lagerjobb.");
-  await btn(dialog, "Klar").click();
-  const ask = page.getByRole("dialog", { name: "Vill du slänga det du skrivit?" });
-  await expect(ask).toContainText("Det du har skrivit i rutan sparas inte.");
-  await btn(ask, "Fortsätt skriva").click();
-  await expect(ask).toHaveCount(0);
-  await expect(dialog.getByLabel("En rad till coacherna (valfritt)")).toHaveValue("Vill prova lagerjobb.");
-  await btn(dialog, "Spara raden").click();
-  await expect(page.getByText("Raden är sparad som en anteckning i deltagarkortet.")).toBeVisible();
+  // Raden till coacherna finns inte längre i dialogen (paket 1, C15).
+  await expect(dialog.getByLabel("En rad till coacherna (valfritt)")).toHaveCount(0);
   await btn(dialog, "Klar").click();
   await expect(dialog).toHaveCount(0);
 
@@ -98,18 +99,32 @@ test("deltagarkortet: Höj nivå ett steg och Ändra öppnar samma val; ärendel
 
   // Coachens Närvaro: samma filter (Nadia har yrkesområde G, inte F).
   await go(page, info, "/narvaro?vecka=forra");
+  await page.getByRole("button", { name: "Filtrera" }).click();
   await page.getByRole("button", { name: /^Alla \(\d+\)$/ }).click();
   await expect(main(page)).toContainText("Nadia Warsame");
   await page.getByLabel("Yrkesområde", { exact: true }).selectOption("F");
   await expect(main(page)).not.toContainText("Nadia Warsame");
+  // Det valda filtret står som text bredvid Filtrera.
+  await expect(page.getByTestId("narvaro-filtertext")).toContainText("Lokalvård");
   await expect(page.getByTestId("narvaro-rad").first()).toBeVisible();
   expect(relevant(errors)).toEqual([]);
 });
 
-test("Grupper och nivåer: yrkesområdena med månadens träff eller Planera, nivåerna med deltagare och återkommande aktiviteter, de utan nivå", async ({ page }, info) => {
+test("Grupper och nivåer: de utan nivå överst, yrkesområdena med månadens träff eller Planera, nivåerna med deltagare och återkommande aktiviteter", async ({ page }, info) => {
   const errors = await open(page, info, "/grupper", COACH);
   await expect(page.getByRole("heading", { level: 1, name: "Grupper och nivåer" })).toBeVisible();
+  // Coachen når sidan i menyn under Min vardag (paket 1, C2).
+  await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: "Grupper och nivåer" })).toBeVisible();
+  // Utan nivå – att kartlägga står överst, med antalet i rubriken.
+  const headings = await main(page).locator("h2").allInnerTexts();
+  expect(headings[0]).toMatch(/^Utan nivå – att kartlägga \(\d+\)$/i);
   const areas = card(page, "Yrkesområden");
+  // Tolv yrkesområden: listan är ihopfälld med en sammanfattning tills Visa yrkesområdena trycks.
+  await expect(areas.getByRole("heading", { name: "Yrkesområden (12)" })).toBeVisible();
+  await expect(areas.getByTestId("omraden-summa")).toContainText("av 12 yrkesområden har en träff planerad i februari");
+  await expect(areas.getByTestId("yrkesomrade").first()).toBeHidden();
+  await btn(areas, "Visa yrkesområdena (12)").click();
+  await expect(btn(areas, "Dölj yrkesområdena")).toHaveAttribute("aria-expanded", "true");
   const g = areas.getByTestId("yrkesomrade").filter({ hasText: "G – Lager och logistik" });
   await expect(g).toContainText("aktiva deltagare");
   await expect(g).toContainText("Yrkesområdesträff: lager och logistik");
@@ -119,6 +134,9 @@ test("Grupper och nivåer: yrkesområdena med månadens träff eller Planera, ni
   // Nivåns avsnitt efter rubriken (Nivå 3:s avsnitt nämner också Nivå 4 – i Höj nivå till nästa nivå).
   const n4 = levels.getByRole("region", { name: "Nivå 4 – Nära arbete", exact: true });
   await expect(n4).toContainText("Jobbsök och CV – måndag och onsdag 13.30");
+  // Många deltagare på nivån: listan är ihopfälld, antalet står på knappen.
+  await expect(n4.getByRole("link", { name: /Nadia Warsame/ })).toBeHidden();
+  await btn(n4, /^Visa deltagarna \(\d+\)/).click();
   await expect(n4.getByRole("link", { name: /Nadia Warsame/ })).toBeVisible();
   await expect(card(page, "Utan nivå – att kartlägga").getByTestId("utan-niva").filter({ hasText: "BOT-27-0012" })).toHaveCount(1);
   for (const word of ["Måndagsgruppen", "Lagergruppen", "Höstgruppen", "Ny grupp"]) await expect(main(page)).not.toContainText(word);
@@ -129,6 +147,9 @@ test("Grupper och nivåer: yrkesområdena med månadens träff eller Planera, ni
   await expect(page.getByRole("tab", { name: "Yrkesområde" })).toHaveAttribute("aria-selected", "true");
   // Fliken och valet heter båda Yrkesområde (flikpanelen är märkt med fliken) – valet är rullistan.
   await expect(page.getByRole("combobox", { name: "Yrkesområde", exact: true })).toHaveValue("E");
+  // Namnet och typen som månadens träffar har (paket 1, C12).
+  await expect(page.locator("#ny-akt-namn")).toHaveValue("Yrkesområdesträff: transport och åkeri");
+  await expect(page.locator("#ny-akt-typ")).toHaveValue("annat");
   await expect(main(page).getByRole("status").filter({ hasText: "just nu" })).toHaveText("4 deltagare just nu. De som tillkommer bjuds in automatiskt fram till aktiviteten.");
   expect(relevant(errors)).toEqual([]);
 });
@@ -137,6 +158,7 @@ test("Grupper och nivåer: Höj nivå kan ångras och fokus stannar på Ångra; 
   const errors = await open(page, info, "/grupper", COACH);
   const levels = card(page, "Nivåer");
   const n4 = levels.getByRole("region", { name: "Nivå 4 – Nära arbete", exact: true });
+  await btn(n4, /^Visa deltagarna \(\d+\)/).click();
   await btn(n4, /^Höj nivå för Nadia Warsame/).click();
   const last = page.getByTestId("senaste-hojning");
   await expect(last).toContainText("Nadia Warsame är nu på Nivå 5");
@@ -184,6 +206,23 @@ test("massanteckningar för ett yrkesområde: en anteckning per ifylld rad, tomm
   await save.click();
   await expect(page.getByText("2 anteckningar är sparade.")).toBeVisible();
   await expect(save).toHaveText("Spara 0 anteckningar");
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("massanteckningar: samordnaren börjar med Ett yrkesområde och sidan säger vad hon ska välja (paket 1, S18)", async ({ page }, info) => {
+  const errors = await open(page, info, "/anteckningar", SARA);
+  await expect(page.getByLabel("Visa", { exact: true })).toHaveValue("omrade");
+  await expect(main(page)).toContainText("Välj ett yrkesområde");
+  await expect(main(page)).toContainText("Välj yrkesområde i rutan Yrkesområde ovanför");
+  await page.getByLabel("Yrkesområde", { exact: true }).selectOption("G");
+  await expect(page.locator("[data-mass-note-row]").first()).toBeVisible();
+  // Coachen börjar som förut med Mina ärenden.
+  if (isDemo(info)) await open(page, info, "/anteckningar", COACH);
+  else {
+    await switchPersona(page, COACH);
+    await page.goto("/anteckningar");
+  }
+  await expect(page.getByLabel("Visa", { exact: true })).toHaveValue("mina");
   expect(relevant(errors)).toEqual([]);
 });
 

@@ -24,12 +24,16 @@ Har du flera roller väljer du roll i rullistan **Roll** i sidopanelens huvud, u
 
 ## Min vecka – startsidan
 
-Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver göra den här veckan, mest brådskande först, och till höger påminnelser, flaggor och notiser. Varje roll har en egen Min vecka med sina egna uppgifter.
+Alla på Miljonbemanning börjar på **Min vecka**. Varje roll har en egen Min vecka med sina egna uppgifter.
+
+Överst står listan **Att göra** (coachen: **Att göra i dag**). Den är sorterad på sista tid – det som är försenat och det som ska göras snart står först. Varje sak står en gång med sin knapp, och knappen säger vad den gäller, till exempel **Acceptera BOT-27-0048**. Har ett ärende flera saker står de på samma rad. Siffran vid **Min vecka** i menyn är dina öppna uppgifter.
+
+Coachen har under listan **Följ upp** (påminnelser, egna flaggor och olästa notiser – ett ärende en gång) och **Att kartlägga** när någon av dina deltagare saknar nivå. Veckokalendern visas när du trycker på **Visa hela veckan**.
 
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
-- Gruppen **Min vardag** med **Min vecka** och de sidor din roll har, alltid i samma ordning: **Närvaro** (coachen), **Aktiviteter** (alla utom ekonomen), **Ärenden** (coachen ser **Mina ärenden**), **Anteckningar** (samordnaren, avtalsansvarig och coachen), **Rapporter** och **Arbetsgivare och praktik**.
+- Gruppen **Min vardag** med **Min vecka** och de sidor din roll har, alltid i samma ordning: **Närvaro** (coachen), **Aktiviteter** (alla utom ekonomen), **Ärenden** (coachen ser **Mina ärenden**), **Anteckningar** (samordnaren, avtalsansvarig och coachen), **Grupper och nivåer** (alla utom ekonomen), **Rapporter** och **Arbetsgivare och praktik**.
 - Högst en rollflik, till exempel **Samordning**, **Ekonomi** eller **Ledning**.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
@@ -61,13 +65,13 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 2. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde i beställningen är det redan ifyllt. Välj eventuellt **Alternativt område (valfritt)**.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare (valfritt)** och **SYV/metodstöd (valfritt)** om de ska vara med i teamet.
 4. Fyll i **Första möte – datum** och **Första möte – tid**. Första mötet ska bokas inom den tid som står i avtalet.
-5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren och ärendet dyker upp hos coachen under **Insatser att starta**. Deltagaren får en kallelse med e-post eller SMS.
+5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren. När första mötet har varit står ärendet i coachens lista **Att göra i dag** med knappen **Starta insatsen**. Deltagaren får en kallelse med e-post eller SMS.
 
-Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du vad som förfaller i dag och den här veckan.
+Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du det som är ditt ansvar och förfaller i dag och den här veckan. Tryck på **Alla** för att se allt i avtalet.
 
 ### Ring deltagaren
 
-Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Ring deltagaren och tryck på **Markera som klar**.
+Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift i listan **Att göra** på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Sista tiden är första mötets tid. Telefonnumret står i raden. Tryck på **Kopiera numret** och ring från din telefon. När du har ringt trycker du på **Ringt – kallad**. Ska mötet ha en annan tid trycker du på **Boka om**.
 
 ### Avbrott via mejl
 
@@ -84,7 +88,7 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 
 ### Starta insatsen
 
-1. Öppna ärendet från **Insatser att starta** på Min vecka, eller från **Mina ärenden**.
+1. Tryck på **Starta insatsen** i listan **Att göra i dag** på Min vecka, eller öppna ärendet från **Mina ärenden**.
 2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
@@ -104,7 +108,7 @@ Det här händer:
 - Flyttar du startdatumet senare tas tillfällena före det nya datumet bort, om de inte har registrerad närvaro eller bara har automatisk närvaro. Den automatiska närvaron tas bort med tillfället.
 - Har ett tillfälle före det nya datumet närvaro som någon har registrerat, eller finns en godkänd mötesrapport före det nya datumet, går det inte att ändra. Meddelandet säger vilket startdatum som går.
 - Får en månad för få dagar för en månadsrapport med det nya startdatumet tas de automatiska utkasten till månadsrapport och månadsbedömning för den månaden bort. Planen för nästa månad ligger kvar. Är månadsrapporten redan godkänd eller lämnad till kommunen, är månadsbedömningen godkänd eller har coachen sparat månadsbedömningen, går det inte att ändra. Det coachen skrivit tas aldrig bort. Meddelandet säger vilket startdatum som går.
-- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i Min vecka att rätta dem. Uppgiften leder till ärendets rapporter. Ändras startdatumet igen stängs den gamla uppgiften av sig själv, och en ny skapas bara om något fortfarande behöver rättas.
+- Är veckorapporter eller månadsrapporter för dagarna som ändras redan lämnade till kommunen får samordnaren en uppgift i listan **Att göra** på Min vecka att rätta dem. Uppgiften leder till ärendets rapporter. Ändras startdatumet igen stängs den gamla uppgiften av sig själv, och en ny skapas bara om något fortfarande behöver rättas.
 - Flyttar du startdatumet tidigare skapas inga tillfällen bakåt. Lägg till tillfällena som hände med **Lägg till tillfälle** och registrera närvaron direkt. En hel vecka utan tillfällen måste ekonomen godkänna innan den faktureras.
 - Planerat slut ändras inte.
 - Är månaden redan fakturerad, eller har ekonomen godkänt månadens faktura, går det inte att ändra. Kontakta ekonomen. En fakturerad månad behöver krediteras först.
@@ -151,7 +155,7 @@ Den som kartlägger väljer deltagarens nivå och taggar i kortet **Nivå och yr
 1. Välj **Nivå**: en av fem nivåer, från **Nivå 1 – Långt från arbete** till **Nivå 5 – Redo för arbete**. En deltagare har alltid exakt en nivå.
 2. Välj **Vill arbeta**: **Heltid**, **Deltid** eller **Vet inte än**. Det är deltagarens eget svar.
 3. Valen sparas direkt. Deltagaren bjuds in automatiskt till nivåns aktiviteter.
-4. Vill du skriva något till coacherna? Skriv i **En rad till coacherna (valfritt)** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet med dagens datum.
+4. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. **Samtal med deltagaren** och dagens datum är förvalda.
 
 Går deltagaren framåt? I deltagarkortets huvud står nivån, yrkesområdet och taggarna. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
 
@@ -169,21 +173,21 @@ Deltagaren bjuds direkt in till det nya yrkesområdets kommande träffar och tas
 
 ### Grupper och nivåer
 
-Under **Grupper och nivåer** ser du:
+Öppna **Grupper och nivåer** i menyn under **Min vardag**. Där ser du:
 
-- **Yrkesområden**: hur många som är aktiva och om yrkesområdet har en träff den här och nästa månad. Står det **Ingen träff planerad**, tryck på **Planera** för att skapa träffen.
-- **Nivåer**: deltagarna på varje nivå och nivåns återkommande aktiviteter. Här finns också **Höj nivå** och **Byt nivå**. Blev det fel efter **Höj nivå**? Tryck på **Ångra** överst under Nivåer.
-- **Utan nivå – att kartlägga**: insatser som saknar nivå. Coachen trycker på **Öppna kartläggningen**. Samordnaren och avtalsansvarig trycker på **Välj nivå**.
+- **Utan nivå – att kartlägga** överst, med antalet i rubriken: insatser som saknar nivå. Coachen trycker på **Öppna kartläggningen**. Samordnaren och avtalsansvarig trycker på **Välj nivå**.
+- **Yrkesområden**: hur många som är aktiva och om yrkesområdet har en träff den här och nästa månad. Är listan lång är den ihopfälld – tryck på **Visa yrkesområdena**. Står det **Ingen träff planerad**, tryck på **Planera** för att skapa träffen. Namnet, till exempel ”Yrkesområdesträff: lager och logistik”, typen, yrkesområdet och dagen är redan ifyllda.
+- **Nivåer**: nivåns återkommande aktiviteter och deltagarna på varje nivå. Har nivån många deltagare är listan ihopfälld – tryck på **Visa deltagarna**. Här finns också **Höj nivå** och **Byt nivå**. Blev det fel efter **Höj nivå**? Tryck på **Ångra** överst under Nivåer.
 - **Taggar**: byt namn, arkivera och lägg till nya.
 
-Du når sidan från **Anteckningar**. Systemadministratören har den i sin flik. Inget raderas – en arkiverad tagg kan inte väljas för fler deltagare.
+Inget raderas – en arkiverad tagg kan inte väljas för fler deltagare.
 
 ### Anteckningar för flera deltagare
 
 Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en gruppträff.
 
 1. Öppna **Anteckningar**.
-2. Välj vilka deltagare som ska visas under **Visa**: **Mina ärenden**, **En nivå**, **Ett yrkesområde** eller **En tagg**. Bara pågående ärenden visas.
+2. Välj vilka deltagare som ska visas under **Visa**: **Mina ärenden**, **En nivå**, **Ett yrkesområde** eller **En tagg**. Coachen börjar med **Mina ärenden**. Samordnaren och avtalsansvarig börjar med **Ett yrkesområde** – välj yrkesområdet i rutan under. Bara pågående ärenden visas.
 3. Kontrollera **Typ** och **Datum**. I dag är förvalt. Det finns ingen tid.
 4. Skriv en rad för varje deltagare du vill skriva om. Tomma rader sparas inte.
 5. Tryck på knappen som visar antalet, till exempel **Spara 3 anteckningar**. Varje rad blir en vanlig anteckning i deltagarens kort. Står det något som ser ut som ett personnummer på en rad sparas ingenting, och felet visas vid raden.
@@ -198,7 +202,7 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
 5. Tryck på **Skapa aktiviteten**.
 
-Ändrar du tid eller plats, tar bort en deltagare eller ställer in aktiviteten kan deltagarna få ett meddelande om det. Rutan är förvald.
+I aktiviteten står **Bjud in deltagare** och **Ändra** överst. **Ställ in** och övriga val finns under **Fler val**. Ändrar du tid eller plats, tar bort en deltagare eller ställer in aktiviteten kan deltagarna få ett meddelande om det. Rutan är förvald.
 
 Samordnaren, avtalsansvarig och coachen skapar aktiviteter och tar närvaro. Chefen och systemadministratören kan bara läsa.
 
@@ -216,13 +220,13 @@ Nivåaktiviteterna är samma tid varje vecka, till exempel tisdag och torsdag kl
 
 Har någon i nivån redan ett annat tillfälle vid samma tid bjuds hen inte in till det tillfället. Det står i tillfället vilka det gäller. Är det deltagarens eget tillfälle kan du trycka på **Bjud in och ersätt deras egna tillfällen**. Du ser vilket tillfälle som ersätts för varje deltagare. Rutan **Skicka inbjudan till deltagarna** är förvald om aktiviteten har meddelandet påslaget.
 
-Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle kan du trycka på **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Dag, tid och längd ändras inte efteråt – avsluta och skapa en ny i stället. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen.
+Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle trycker du på **Fler val** för att välja **Ändra alla kommande tillfällen**, **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Dag, tid och längd ändras inte efteråt – avsluta och skapa en ny i stället. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen.
 
-Yrkesområdena träffas en gång i månaden. Träffen är en vanlig aktivitet för yrkesområdet. Planera den från **Grupper och nivåer**.
+Yrkesområdena träffas en gång i månaden. Träffen är en vanlig aktivitet för yrkesområdet. Planera den från **Grupper och nivåer** – namnet, typen, yrkesområdet och dagen är redan ifyllda.
 
 ### Ta närvaro i aktiviteten
 
-1. Öppna aktiviteten under **Aktiviteter** eller från **Dagens aktiviteter** på Min vecka. Alla inbjudna står i en lista.
+1. Öppna aktiviteten under **Aktiviteter** eller från listan **Att göra i dag** på Min vecka. Alla inbjudna står i en lista.
 2. Markera de som kom sent eller var frånvarande med knapparna på deras rad.
 3. Tryck på **Markera övriga som närvarande** och bekräfta namnen. Närvaro eller frånvaro som redan är registrerad ändras aldrig.
 4. Har aktiviteten ett gruppmål står alla som **Klarade** med märket **Automatiskt**. Tryck på **Klarade inte** för den som inte klarade målet. Du kan ändra tillbaka.
@@ -232,15 +236,16 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 ### Närvaro
 
-1. Öppna **Närvaro**.
-2. Registrera närvaro per dag: **Närvarande**, **Sen**, **Giltig frånvaro** eller **Ogiltig frånvaro**. Rutan **Saknar registrering** visar vad som återstår.
-3. Registrera frånvaro samma dag. Klockan 18.00 registreras tillfällen som har passerat och saknar närvaro som närvarande. De märks **Automatiskt registrerad**.
-4. Var deltagaren inte där? Ändra raden till frånvaro. Märket försvinner och raden blir en vanlig registrering.
-5. Närvaron ligger till grund för veckorapporten till kommunen, närvarograden och fakturan. Ändras närvaron efter att veckorapporten har gått ut: öppna rapporten under **Rapporter** och tryck på **Rätta**.
+1. Öppna **Närvaro**. Överst står regeln: registrera bara frånvaro och sen ankomst, senast klockan 18.00 samma dag. Övriga blir **Närvarande** automatiskt.
+2. Listan visar förra veckans tillfällen som saknar registrering. Vill du se en annan vecka, en dag, alla tillfällen eller ett yrkesområde, en nivå eller en tagg? Tryck på **Filtrera**. Det du har valt står bredvid knappen.
+3. Tryck på **Närvarande**, **Sen**, **Giltig frånvaro** eller **Ogiltig frånvaro** på raden. Rutan överst i listan visar hur många som är kvar och hur många som registrerades automatiskt.
+4. Var alla andra där? Tryck på **Markera övriga som närvarande** och bekräfta namnen. Det gäller alla tillfällen i listan som saknar registrering. Närvaro eller frånvaro som redan är registrerad ändras aldrig. Rätta en enskild rad med knapparna på raden.
+5. Klockan 18.00 registreras tillfällen som har passerat och saknar närvaro som närvarande. De märks **Automatiskt registrerad**. Var deltagaren inte där? Ändra raden till frånvaro. Märket försvinner och raden blir en vanlig registrering.
+6. Närvaron ligger till grund för veckorapporten till kommunen, närvarograden och fakturan. Ändras närvaron efter att veckorapporten har gått ut: öppna rapporten under **Rapporter** och tryck på **Rätta**.
 
 ### Möte med inspelning och AI-förslag
 
-1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens aktiviteter** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**. Datumet är ifyllt, och du behöver inte fylla i någon tid.
+1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från listan **Att göra i dag** på Min vecka – nästa möte har en svart knapp. Vill du skriva själv väljer du **Nytt möte utan inspelning**. Datumet är ifyllt, och du behöver inte fylla i någon tid.
 2. Inspelning kräver ett registrerat samtycke. Saknas det visas **Samtycke saknas** – tryck på **Registrera samtycke** innan du spelar in.
 3. Spela in medan ni pratar. När du stoppar laddas ljudet upp, texten skrivs ut och ett utkast till mötesrapport fylls i. Det tar vanligtvis en till två minuter.
 4. Varje förslag visas med citat och tidpunkt ur samtalet. Tryck på **Acceptera**, **Ändra** eller **Avvisa** för varje förslag. Det som inte framgår av samtalet står som **Framgår inte** – fyll i det själv.
@@ -256,7 +261,7 @@ Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och
 3. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 4. AI kan föreslå progressionsnivå 1–3, men bara med ett citat ur underlaget. Tryck på **Godta** vid ett förslag, eller **Godta alla AI-förslag**. Ett förslag gäller först när du godtar det.
 5. Kontrollera varje område. Välj en annan progressionsnivå där det behövs och skriv en **Konkret observation**.
-6. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**. Månadsrapporten till kommunen byggs av den.
+6. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**. Båda ligger längst ned på skärmen och följer med när du skrollar. Har du glömt kryssrutan står det vid rutan. Månadsrapporten till kommunen byggs av den.
 7. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
 
 Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
@@ -272,6 +277,8 @@ SYV/metodstöd ingår i teamet för ett ärende och stöttar coachen med metod o
 ## Ekonom
 
 Fliken **Ekonomi** har **Fakturering**, **Fakturakörning** för förra månaden och **Prislista**. Ekonomen är den enda rollen som ser belopp.
+
+På Min vecka står en rad per faktura med allt som behöver göras – till exempel att beställarreferensen saknas, att veckor utan närvaro ska godkännas eller att veckor snart preskriberas – och en knapp. Dina uppgifter står på egna rader.
 
 1. Öppna **Fakturering**. Där ser du fakturakörningar per månad, stoppade fakturor och öppna uppgifter.
 2. Öppna månadens fakturakörning. Det blir en faktura per avtal och månad, med ett ärende per rad.
@@ -299,11 +306,11 @@ Fliken **Ledning** har **Ledningsvy**, **Avtalsavvikelser**, **Förfaller**, **B
 
 ## Avtalsansvarig
 
-Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, **Kommunanvändare** och **Bygg rapport**. Avtalsansvarig godkänner sammanfattningen i rapporter till kommunen (**Sammanfattning – avtalsansvarig godkänner**) och bjuder in kommunens handläggare under **Bjud in kommunens handläggare**.
+Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, **Kommunanvändare** och **Bygg rapport**. Min vecka börjar med det som är ditt: beställarrapporten att godkänna, åtgärdsplanerna, varningarna och målen. Inkorgen är samordnarens och står som en rad. Flaggorna står under dina egna saker. Avtalsansvarig godkänner sammanfattningen i rapporter till kommunen (**Sammanfattning – avtalsansvarig godkänner**) och bjuder in kommunens handläggare under **Bjud in kommunens handläggare**.
 
 ## Systemadministratör
 
-Fliken **Administratör** har **Användare och roller**, **Underbiträden och integrationer**, **Mallar och utskick**, **Grupper och nivåer** och **Revisionslogg**. I ärendena kan systemadministratören bara läsa och ändra kontaktvägen.
+Fliken **Administratör** har **Användare och roller**, **Underbiträden och integrationer**, **Mallar och utskick** och **Revisionslogg**. **Grupper och nivåer** finns under **Min vardag**. I ärendena kan systemadministratören bara läsa och ändra kontaktvägen.
 
 ### Lägga till en kollega
 

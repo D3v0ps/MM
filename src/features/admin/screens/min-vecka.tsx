@@ -1,5 +1,6 @@
 "use client";
-// Min vecka för systemadministratören (beslut 2026-10-06) i coachens stil (src/ui/vecka.tsx): bakgrundsjobben, utskick som
+// Min vecka för systemadministratören (beslut 2026-10-06) i coachens stil (src/ui/vecka.tsx): bakgrundsjobben (bara de som
+// avviker och en rad "N jobb går som de ska" – UX-genomgången, paket 1, A2), utskick som
 // inte gick iväg, användarna och – bara för testare i testmiljön – synpunkterna. Sidorna under fliken Administratör finns
 // kvar. Frågor som rollen redan har: admin.integrations (begränsade testare får inte underbiträdena – här läses bara jobben
 // och avrop@), admin.users, admin.templates (bara läge, tid, kanal, mall och ärendenummer – aldrig mottagare eller text) och
@@ -12,13 +13,15 @@ import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import type { FeedbackView } from "@/features/synpunkter/api";
 import { useWeekToday } from "@/features/vecka/today";
 import { useQuery } from "@/shell/backend";
+import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  BuildPhase, Button, Card, DemoNote, DoneLine, ErrorNotice, focusSection, Icon, Kpi, Kv, List, ListItem, Loading, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
+  Button, Card, DemoNote, DoneLine, ErrorNotice, focusSection, Icon, Kpi, Kv, List, ListItem, Loading, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
-import { adminIntegrations, adminTemplates, adminUsers, type IntegrationsView, type JobRow, type TemplatesView, type UsersView } from "../api";
+import { adminIntegrations, adminTemplates, adminUsers, type IntegrationsView, type TemplatesView, type UsersView } from "../api";
+import { jobHealth } from "../jobs";
 import { CHANNEL_LABEL } from "../templates";
-import { JOB_STATUS } from "./parts";
+import { JobStatusBadge } from "./parts";
 
 /** Avtal och konfiguration – inte i menyn (beslut 2026-10-06), länkas från Användare och roller och härifrån. */
 const CONTRACT_PATH = "/admin/avtal";
@@ -28,8 +31,6 @@ const CONTRACT_PATH = "/admin/avtal";
  * för alltid efter ett enda fel.
  */
 const SEND_DAYS = 7;
-/** Jobb som inte är klara först (fel, väntar, inte aktiverade), sedan de klara – i övrigt samma ordning som på integrationssidan. */
-const JOB_ORDER: Record<JobRow["status"], number> = { failed: 0, waiting: 1, disabled: 2, ok: 3 };
 
 export function AdminMinVeckaScreen() {
   const today = useWeekToday();
@@ -67,10 +68,8 @@ export function AdminMinVeckaScreen() {
 
 function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: TemplatesView; today: LocalDate }) {
   const { hidesCommercial } = useSession();
-  const jobs = i.jobs.map((j, idx) => ({ j, idx })).sort((a, b) => JOB_ORDER[a.j.status] - JOB_ORDER[b.j.status] || a.idx - b.idx).map((x) => x.j);
-  const okJobs = i.jobs.filter((j) => j.status === "ok").length;
-  const waiting = i.jobs.filter((j) => j.status === "waiting").length;
-  const disabled = i.jobs.filter((j) => j.status === "disabled").length;
+  // Bara jobb som avviker, och en rad för resten (UX-genomgången, paket 1, A2). Samma räkning som integrationssidan.
+  const health = jobHealth(i.jobs, useRuntime() === "demo");
   const failedJobs = i.jobs.filter((j) => j.status === "failed").length;
   const since = addDays(today, -(SEND_DAYS - 1));
   const failedSends = t.sendLog.filter((n) => n.status === "failed" && dayOf(n.at) >= since);
@@ -85,10 +84,10 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
           onClick={() => focusSection("mv-jobb")}
           actionHint="Visa"
           label="Bakgrundsjobb"
-          value={`${okJobs} av ${i.jobs.length}`}
+          value={`${health.ok.length} av ${i.jobs.length}`}
           tone={failedJobs ? "watch" : undefined}
           statusText={plural(failedJobs, "jobb med fel", "jobb med fel")}
-          sub={`klara · ${waiting} väntar · ${plural(disabled, "inte aktiverat", "inte aktiverade")}`}
+          sub={`går som de ska${health.deviating.length ? ` · ${plural(health.deviating.length, "avviker", "avviker")}` : ""}`}
         />
         <Kpi
           className={WEEK_KPI_SM}
@@ -132,16 +131,14 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
             }
           >
             <List>
-              {jobs.map((j) => (
-                <ListItem key={j.key} title={j.name} sub={`${j.schedule}${j.last ? ` · senast ${fmtDateTime(j.last)}` : ""}`} side={JOB_STATUS[j.status]}>
+              {health.deviating.map((j) => (
+                <ListItem key={j.key} title={j.name} sub={`${j.schedule}${j.last ? ` · senast ${fmtDateTime(j.last)}` : ""}`} side={<JobStatusBadge j={j} />}>
                   <span>{j.result}</span>
-                  {j.phase && (
-                    <span>
-                      <BuildPhase fas={j.phase} />
-                    </span>
-                  )}
                 </ListItem>
               ))}
+              {health.ok.length > 0 && (
+                <ListItem icon="check" title={`${plural(health.ok.length, "jobb går", "jobb går")} som de ska`} sub={health.ok.map((j) => j.name).join(", ")} />
+              )}
             </List>
           </Card>
 

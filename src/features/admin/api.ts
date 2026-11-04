@@ -206,7 +206,8 @@ export const adminSetStaffActive = command("admin.setStaffActive", z.object({ us
 }).returns<Result<object, "not_found" | "self">>();
 
 // ================================================================ Underbiträden och integrationer (/admin/integrationer)
-export type JobStatusView = "ok" | "waiting" | "disabled" | "failed";
+/** Jobbets läge (ett åt gången – src/features/admin/jobs.ts): not_run = påslaget men inte kört än. */
+export type JobStatusView = "ok" | "not_run" | "waiting" | "disabled" | "failed";
 export type JobRow = {
   key: string;
   name: string;

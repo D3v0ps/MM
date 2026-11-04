@@ -15,6 +15,7 @@ import {
 } from "./api";
 import { messageRead, messageSend } from "@/features/arenden/api";
 import { notifRead } from "@/features/notiser/api";
+import { groupingOverview } from "@/features/grupper/api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -77,6 +78,24 @@ describe("Min vecka", () => {
   it("är bara för coachen", async () => {
     await expect(q(minVecka, {}, dormantSupervisor())).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("Att kartlägga (paket 2): samma urval som Grupper och nivåer-sidans Utan nivå – för coachens egna ärenden", async () => {
+    const v = await q(minVecka, {}, amira());
+    const overview = await q(groupingOverview, {}, amira());
+    const mine = new Set(rt.store.rows("cases").filter((c) => c.leadCoachId === "u-amira").map((c) => c.id));
+    const expected = (overview?.unplaced ?? []).filter((m) => mine.has(m.caseId));
+    expect(v.toMap.map((m) => [m.caseId, m.intake])).toEqual(expected.map((m) => [m.caseId, m.intake]));
+    expect(v.toMap.map((m) => m.caseNumber)).toContain("BOT-27-0012");
+  });
+
+  it("Följ upp (paket 2): notiserna och flaggorna har ärendet, så att samma ärende står en gång", async () => {
+    const v = await q(minVecka, {}, amira());
+    expect(v.unread.items).toHaveLength(v.unread.count);
+    expect(v.unread.items.filter((n) => n.kind === "progress_reminder").map((n) => n.caseNumber).sort()).toEqual(v.reminders.map((r) => r.caseNumber).sort());
+    expect(v.flags.find((f) => f.kind === "stuck")).toMatchObject({ caseId: SC.amal, caseNumber: "BOT-27-0012", name: "Amal Hassan" });
+    // Automatisk närvaro: klockslaget i regeln (organisationens inställning, standard 18.00).
+    expect(v.autoPresentAt).toBe("18:00");
+  });
 });
 
 describe("Närvaro", () => {
@@ -89,6 +108,13 @@ describe("Närvaro", () => {
     expect(v.sameDayText).toBe("Frånvaronotis samma dag: tillval som inte är fastställt – ingen notis skickas.");
     expect(v.absenceReasons).toEqual(["Sjukdom", "Vård av barn", "Myndighetsbesök", "Annat giltigt skäl"]);
     expect(v.repeatedRule).toEqual({ absentInvalid: 2, withinDays: 14 });
+    // Klockslaget för den automatiska närvaron kommer från samma källa som jobbet auto_attendance (paket 1, C4).
+    expect(v.autoAttendance).toEqual({ on: true, at: "18:00" });
+    const org = rt.store.rows("org_settings")[0];
+    rt.store.updateRow("org_settings", org.id, { settings: { ...org.settings, attendance: { autoPresent: true, autoPresentAt: "16:30" } } });
+    expect((await q(narvaroView, {}, amira())).autoAttendance).toEqual({ on: true, at: "16:30" });
+    rt.store.updateRow("org_settings", org.id, { settings: { ...org.settings, attendance: { autoPresent: false, autoPresentAt: "16:30" } } });
+    expect((await q(narvaroView, {}, amira())).autoAttendance).toEqual({ on: false, at: "16:30" });
     expect(w.reports.slice(0, 2).map((r) => [r.name, r.mine, r.left, r.publishedAt])).toEqual([["Maria Ekdahl", 4, 4, null], ["Linda Karlsson", 2, 2, null]]);
     expect(w.reports.filter((r) => r.publishedAt).map((r) => r.publishedAt)).toEqual(["2027-02-01T07:00", "2027-02-01T07:00"]);
   });

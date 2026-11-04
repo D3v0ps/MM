@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Min vecka för alla MB-roller (beslut 2026-10-06): rätt skärm per roll, samma sidhuvud (MIN VECKA, "Namn · Titel",
-// veckoingressen) och fyra rutor – och varje roll anropar bara frågor den redan har (inga nya vägar till data). Hela vägen
+// veckoingressen) – coach, samordnare, avtalsansvarig och ekonom med att göra-listan överst (paket 2), chef och
+// systemadministratör med fyra rutor – och varje roll anropar bara frågor den redan har (inga nya vägar till data). Hela vägen
 // genom hanterarna i minnesläget med testdatat (demoklockan 1 februari 2027 kl. 09.12).
 import { cleanup, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -99,50 +100,148 @@ const KPI_LABELS = () => KPI_TILES().map((t) => t.querySelector(":scope > div:fi
 const KPI_LINKS = () => Object.fromEntries(KPI_TILES().filter((t) => t.tagName === "A").map((t) => [t.querySelector(":scope > div:first-child")?.textContent ?? "", t.getAttribute("href")]));
 
 describe("Min vecka per roll", () => {
-  it("samordnaren: dagens startsida i Min veckas stil – inkorgen, flaggor, första möten och uppgifter", async () => {
+  it("samordnaren: att göra-listan överst – sorterad på sista tid, varje ärende en gång med sin knapp (paket 2, S1)", async () => {
     const { keys, user } = setup("samordnare");
-    const h = await headings("Avropsinkorg");
+    const h = await headings("Att göra");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Min vecka");
     expect(screen.getByText(`${user.name} · ${user.title}`)).toBeTruthy();
     expect(screen.getByText(/^Måndag 1 februari · vecka 5\. Det här behöver du göra/)).toBeTruthy();
-    expect(KPI_LABELS()).toEqual(["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"]);
-    // Rutor som leder till en annan sida är länkar; rutor som leder till ett avsnitt på sidan är knappar.
-    const links = KPI_LINKS();
-    expect(Object.keys(links)).toEqual(["Att hantera i inkorgen", "Förfaller i dag"]);
-    expect(links["Att hantera i inkorgen"]).toMatch(/^#\/inkorg(\/[\w-]+)?$/);
-    expect(links["Förfaller i dag"]).toBe("#/forfaller");
-    // Den röda rutan har undertexten som vanlig text (som coachens) – inget rött märke i rutan.
-    const inbox = KPI_TILES()[0];
-    expect(inbox.textContent).toContain("Närmast: 53 min kvar");
-    expect(inbox.querySelectorAll(".rounded-full")).toHaveLength(0);
-    // 11 flaggor: flaggan för skyddat avrop (em-104) finns inte sedan 2026-10-07.
-    for (const t of ["Avropsinkorg", "Flaggor (11)", "Första möten som inte är bokade", "Förfaller snart", "Avtalsavvikelser", "Tilldelning ger notis", "Olästa notiser"]) {
-      expect(h, t).toContain(t);
-    }
-    expect(h.some((x) => x.startsWith("Öppna uppgifter ("))).toBe(true);
-    // Ingen "Öppna"-knapp i listraderna – rubriken är länken.
-    expect(screen.queryAllByRole("link", { name: "Öppna" })).toHaveLength(0);
+    // Inga rutor – listan står överst. Borttaget: Ärenden utan coach (samma som inkorgen), Tilldelning ger notis och tomma block.
+    expect(KPI_TILES()).toHaveLength(0);
+    expect(h[0]).toBe("Att göra");
+    for (const t of ["Ärenden utan coach", "Tilldelning ger notis", "Förfaller snart", "Olästa notiser"]) expect(h, t).not.toContain(t);
+    expect(h.some((x) => x.startsWith("Öppna uppgifter ("))).toBe(false);
+    expect(h).toContain("Avtalsavvikelser");
+    // Varje ärende en gång: BOT-27-0039 (första mötet, flaggan och förfallotiden) och BOT-27-0049 (avropet och kompletteringen).
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')];
+    const titled = (n: string) => rows.filter((r) => (r.querySelector("a")?.textContent ?? "").includes(n));
+    expect(titled("BOT-27-0039")).toHaveLength(1);
+    expect(titled("BOT-27-0049")).toHaveLength(1);
+    // Knapparna säger vad de gäller.
+    expect(screen.getByRole("button", { name: "Acceptera BOT-27-0048" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Boka första mötet för BOT-27-0039" })).toBeTruthy();
+    // Sorterat på sista tid: den försenade slutrapporten först, sedan avropet som brådskar.
+    expect(rows[0].textContent).toContain("Försenad");
+    expect(rows[1].textContent).toContain("BOT-27-0048");
     for (const k of keys) expect(ALLOWED.samordnare, k).toContain(k);
   });
 
-  it("avtalsansvarig: Avtalet: avvikelser och frågor – inget kort för skyddade avrop (borttaget 2026-10-07)", async () => {
+  it("samordnaren: Ring deltagaren visar numret som markerbar text med Kopiera numret – ingen tel:-länk (CLAUDE.md punkt 2)", async () => {
+    const c = rt.store.rows("cases").find((x) => x.status === "confirmed" && !!x.firstMeetingAt);
+    if (!c) throw new Error("Inget bekräftat ärende med första möte i testdatat");
+    rt.store.updateRow("persons", c.personId, { phone: "070-000 00 00" });
+    rt.store.insertRow("tasks", {
+      id: "task-ring-test", toRole: "samordnare", toId: null, fromId: "system", createdAt: "2027-02-01T08:00", status: "open", kind: "participant_contact",
+      caseIds: [c.id], text: `Ring deltagaren och kalla till första mötet – ärende ${c.caseNumber}, Alby. Kallelsen kunde inte skickas.`,
+      deviationId: null, emailId: null, responseId: null, month: null, doneAt: null, doneBy: null, doneNote: null,
+    });
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      setup("samordnare");
+      const btn = await screen.findByRole("button", { name: `Kopiera numret till deltagaren i ${c.caseNumber}` }, { timeout: 8000 });
+      const row = btn.closest("li") as HTMLElement;
+      expect(row.textContent).toContain("Ring deltagaren och kalla till första mötet");
+      expect(row.querySelector("[data-phone]")?.textContent).toBe("070-000 00 00");
+      // Inga personuppgifter i URL:er: ingen tel:-, sms:- eller mailto:-länk någonstans på sidan.
+      expect(document.querySelectorAll('a[href^="tel:"], a[href^="sms:"], a[href^="mailto:"]')).toHaveLength(0);
+      btn.click();
+      expect(writeText).toHaveBeenCalledWith("070-000 00 00");
+      // Utan urklipp (osäker sida, ingen behörighet): numret markeras så att det kan kopieras med tangentbordet.
+      writeText.mockRejectedValueOnce(new Error("NotAllowedError"));
+      btn.click();
+      await vi.waitFor(() => expect(window.getSelection()?.toString()).toBe("070-000 00 00"));
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("samordnaren: ett ärende med flera saker behåller alla knappar – Ringt – kallad finns kvar bredvid Starta insatsen", async () => {
+    // Ett bekräftat ärende vars första möte hölls i morse: insatsen ska startas – och kallelsen ligger kvar som uppgift.
+    const c = rt.store.rows("cases").find((x) => x.status === "confirmed" && !!x.firstMeetingAt);
+    if (!c) throw new Error("Inget bekräftat ärende med första möte i testdatat");
+    rt.store.updateRow("cases", c.id, { firstMeetingAt: `${DEMO_START.slice(0, 10)}T08:00` });
+    rt.store.insertRow("tasks", {
+      id: "task-ring-flera", toRole: "samordnare", toId: null, fromId: "system", createdAt: "2027-02-01T08:00", status: "open", kind: "participant_contact",
+      caseIds: [c.id], text: `Ring deltagaren och kalla till första mötet – ärende ${c.caseNumber}, Alby. Kallelsen kunde inte skickas.`,
+      deviationId: null, emailId: null, responseId: null, month: null, doneAt: null, doneBy: null, doneNote: null,
+    });
+    setup("samordnare");
+    const ringt = await screen.findByRole("button", { name: `Ringt – kallad ${c.caseNumber}` }, { timeout: 8000 });
+    const row = ringt.closest("li") as HTMLElement;
+    // Ärendet står en gång – och båda åtgärderna finns i samma rad.
+    expect(within(row).getByRole("link", { name: `Starta insatsen ${c.caseNumber}` })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: `Ringt – kallad ${c.caseNumber}` })).toHaveLength(1);
+  });
+
+  it("avtalsansvarig: hans egna saker först – beställarrapporten, åtgärdsplanerna, varningarna och målen; inkorgen är en rad (S5)", async () => {
     const { keys } = setup("avtalsansvarig");
-    const h = await headings("Avropsinkorg");
+    const h = await headings("Att göra");
     expect(h).not.toContain("Skyddade avrop");
-    expect(h).toContain("Avtalet: avvikelser och frågor");
+    expect(h.slice(0, 3)).toEqual(["Att göra", "Varningar och mål", "Flaggor (11)"]);
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')].map((r) => r.textContent ?? "");
+    expect(rows.some((r) => r.includes("Beställarrapport januari 2027 att godkänna"))).toBe(true);
+    expect(rows.filter((r) => r.includes("Åtgärdsplan"))).toHaveLength(2);
+    expect(rows.some((r) => /BOT-27-0048/.test(r))).toBe(false);
+    expect(screen.getByRole("link", { name: "6 i inkorgen" }).getAttribute("href")).toBe("#/inkorg");
+    expect(screen.getByText(/Skriftliga varningar: 0 av 3/)).toBeTruthy();
     expect(screen.queryByText(/väntar på telefonsamtal/)).toBeNull();
     for (const k of keys) expect(ALLOWED.avtalsansvarig, k).toContain(k);
   });
 
-  it("coachen: förebilden är oförändrad (samma rubriker och rutor)", async () => {
+  it("coachen: Att göra i dag överst, Följ upp (samma ärende en gång), Att kartlägga och veckan bakom en knapp (C1, C17)", async () => {
     const { keys } = setup("coach");
-    const h = await headings("Dagens aktiviteter");
-    expect(KPI_LABELS()).toEqual(["Närvaro att registrera", "Aktiviteter i dag", "Mötesrapporter att granska", "Månads­bedömningar januari"]);
-    expect(KPI_LINKS()).toEqual({});
-    for (const t of ["Påminnelser", "Olästa notiser"]) expect(h, t).toContain(t);
-    expect(h.some((x) => x.startsWith("Närvaro att registrera – vecka 4"))).toBe(true);
-    expect(h.some((x) => x.startsWith("Veckokalender – vecka 5"))).toBe(true);
+    const h = await headings("Att göra i dag");
+    expect(KPI_TILES()).toHaveLength(0);
+    expect(h[0]).toBe("Att göra i dag");
+    for (const t of ["Följ upp", "Att kartlägga (1)"]) expect(h, t).toContain(t);
+    // Borttaget för coachen: Rapporter som förfaller (de står i listan) och de tre korten i högerkolumnen.
+    for (const t of ["Rapporter som förfaller", "Påminnelser", "Egna flaggor", "Olästa notiser", "Meddelanden från kommunen"]) expect(h, t).not.toContain(t);
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra i dag"] > li')];
+    // Närvaron först (sista tid i dag 10.00) med regeln om automatisk närvaro i en rad.
+    expect(rows[0].textContent).toContain("Närvaro att registrera – vecka 4");
+    expect(rows[0].textContent).toContain("registreras automatiskt som närvarande");
+    // C17: bara nästa möte har en svart knapp.
+    const list = document.querySelector('ol[aria-label="Att göra i dag"]') as HTMLElement;
+    const black = [...list.querySelectorAll<HTMLElement>("a, button")].filter((b) => b.classList.contains("bg-antracit"));
+    expect(black.map((b) => b.textContent)).toEqual(["Spela in mötet med Nadia Warsame"]);
+    // Samma ärende en rad: Nadias möte kl. 10.00 och meddelandet från kommunen står på mötets rad – den andra åtgärden som
+    // textknapp under anmärkningarna.
+    const titled = (n: string) => rows.filter((r) => (r.querySelector("div.min-h-11.font-bold a")?.textContent ?? "").includes(n));
+    expect(titled("Nadia Warsame")).toHaveLength(1);
+    const nadia = titled("Nadia Warsame")[0];
+    expect(nadia.textContent).toContain("Svara kommunen");
+    expect(within(nadia).getByRole("button", { name: /^Läs och svara/ }).classList.contains("bg-antracit")).toBe(false);
+    for (const r of rows) {
+      const n = r.querySelector("div.min-h-11.font-bold a")?.textContent;
+      if (n) expect(titled(n), n).toHaveLength(1);
+    }
+    // Följ upp: Yusuf har en påminnelse, en flagga och en oläst notis – en rad.
+    const follow = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Följ upp"] > li')];
+    expect(follow.filter((r) => (r.querySelector("a")?.textContent ?? "").includes("Yusuf Abdi"))).toHaveLength(1);
+    // Veckokalendern bakom "Visa hela veckan".
+    expect(h.some((x) => x.startsWith("Veckokalender"))).toBe(false);
+    screen.getByRole("button", { name: /Visa hela veckan/ }).click();
+    await screen.findByRole("heading", { name: /Veckokalender – vecka 5/ });
     for (const k of keys) expect(ALLOWED.coach, k).toContain(k);
+  });
+
+  it("coachen: ett AI-utkast från dagens möte står på mötets rad – samma möte en gång, inte två rader", async () => {
+    // Dagens möte med en påbörjad mötesrapport blir ett AI-utkast (som efter en inspelning): utkastet ska inte stå på en egen rad.
+    const today = DEMO_START.slice(0, 10);
+    const draft = rt.store.rows("check_ins").find((x) => x.status === "draft" && !!x.ai);
+    const ci = rt.store.rows("check_ins").find((x) => x.heldAt.startsWith(today));
+    if (!draft?.ai || !ci) throw new Error("Testdatat saknar ett AI-utkast eller ett möte i dag");
+    rt.store.updateRow("check_ins", ci.id, { status: "draft", ai: draft.ai });
+    const c = rt.raw().get("cases", ci.caseId);
+    setup("coach");
+    await headings("Att göra i dag");
+    // Raderna om ärendets möte och mötesrapport (månadsbedömningarnas utfällbara lista nämner också ärendet).
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra i dag"] > li')]
+      .filter((r) => (r.textContent ?? "").includes(c?.caseNumber ?? "?") && /mötesrapport|möte /i.test(r.textContent ?? "") && !(r.textContent ?? "").includes("Månadsbedömningar"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("mötesrapport att granska – utkast från AI");
+    expect(within(rows[0]).getByRole("link", { name: /^Granska mötesrapporten med / }).getAttribute("href")).toBe(`#/avstamning/${ci.caseId}?avstamning=${ci.id}`);
   });
 
   it("den vilande rollen handledare har ingen Min vecka (Karims beslut 2026-10-09): ingenting visas och inga frågor körs", async () => {
@@ -171,15 +270,22 @@ describe("Min vecka per roll", () => {
     expect(document.body.textContent ?? "").not.toMatch(/\d\s?kr(?![a-zåäö])/i);
   });
 
-  it("ekonomen: fakturakörningen, uppgifterna och referenserna – samma kort som Fakturering", async () => {
+  it("ekonomen: en rad per faktura med alla anmärkningar och en knapp – varje siffra på ett ställe (E2)", async () => {
     const { keys } = setup("ekonom");
-    const h = await headings("Uppgifter till dig");
-    expect(KPI_LABELS()).toEqual(["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"]);
-    expect(KPI_LINKS()).toEqual({ "Januari att fakturera": "#/ekonomi/2027-01", "Stoppade fakturor": "#/ekonomi/2027-01", "Senast i Fortnox": "#/ekonomi/2027-01" });
-    // En faktura per avtal och månad (beslut 2026-10-07): referensen fylls i per faktura.
-    for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera", "Olästa notiser"]) {
-      expect(h, t).toContain(t);
-    }
+    const h = await headings("Att göra");
+    expect(KPI_TILES()).toHaveLength(0);
+    expect(h[0]).toBe("Att göra");
+    // Fakturering behåller månadsöversikten och historiken – Min vecka har bara listan.
+    for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera"]) expect(h, t).not.toContain(t);
+    const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')].map((r) => r.textContent ?? "");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toContain("Faktura januari 2027");
+    expect(rows[0]).toContain("Beställarreferens saknas");
+    expect(rows[0]).toContain("3 veckor utan närvaro att godkänna");
+    expect(rows[1]).toContain("Tilläggsfaktura 2 · december 2026");
+    expect(rows[1]).toContain("Returnerad av kommunen");
+    expect(rows[1]).toContain("Preskriptionsrisk BOT-26-0117");
+    expect(rows[2]).toContain("Uppgift från Johan Berg");
     expect(screen.getByRole("link", { name: "Öppna körningen januari" }).getAttribute("href")).toBe("#/ekonomi/2027-01");
     for (const k of keys) expect([...ALLOWED.ekonom, "session.ping"], k).toContain(k);
   });

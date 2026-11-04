@@ -3,7 +3,7 @@
 //   VoiceNotesRow      i deltagarkortets huvud (/arenden/:caseId): en rad som fäller ut rutan med inspelningslänken (skicka via
 //                      deltagarens kontaktväg, länkens läge) och röstmeddelandena – markera som granskat eller använd texten
 //                      som underlag i avstämningen
-//   VoiceNotesInbox    på Min vecka: nya röstmeddelanden att granska i coachens ärenden
+//   (Min vecka: nya röstmeddelanden står i coachens att göra-lista – src/features/coach/screens/min-vecka.tsx, rost.pendingNotes)
 //   VoiceNotesForCheckIn  i veckoavstämningen: texten som underlag (coachen väljer själv om den ska in i anteckningen)
 // Texten är AI-transkriberad (och AI-översatt till svenska när deltagaren talade ett annat språk) och märks så. Visningen
 // loggas i revisionsloggen. I testmiljön (simulerad AI) står det att texten är påhittad (beslut 2026-10-07).
@@ -13,9 +13,9 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, cn, DoneLine, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, SimulatedAiNotice, Stack, toast, useAuditView,
+  AiTag, Badge, BuildPhase, Button, Card, cn, Field, Icon, Modal, Notice, PerspectiveLink, Row, Select, SimulatedAiNotice, Stack, toast, useAuditView,
 } from "@/ui";
-import { caseVoice, linkSend, noteReview, notesSeen, pendingNotes, type CaseVoiceView, type RostLang, type VoiceNoteView } from "../api";
+import { caseVoice, linkSend, noteReview, notesSeen, type CaseVoiceView, type RostLang, type VoiceNoteView } from "../api";
 
 const LINK_STATE: Record<"open" | "used" | "expired", { text: string; tone: "bluetone" | "blue" | "grey"; icon: "clock" | "check" | "x-circle" }> = {
   open: { text: "Inte använd ännu", tone: "bluetone", icon: "clock" },
@@ -324,51 +324,6 @@ function SendLinkModal({ v, onClose, onSent }: { v: CaseVoiceView; onClose: () =
         )}
       </Stack>
     </Modal>
-  );
-}
-
-// ================================================================ Min vecka
-export function VoiceNotesInbox() {
-  const q = useQuery(pendingNotes, {});
-  const rows = q.data ?? [];
-  // Inget att göra = en rad (DoneLine), som de andra avsnitten i Min vecka.
-  if (rows.length === 0) {
-    return (
-      <DoneLine id="mv-rost" title="Deltagarnas röstmeddelanden" icon="mic">
-        Inga nya röstmeddelanden. När en deltagare spelar in via länken hamnar det här.
-      </DoneLine>
-    );
-  }
-  return (
-    <Card title="Deltagarnas röstmeddelanden" icon="mic" actions={<BuildPhase fas={2} />} flush>
-      {(
-        <List>
-          {rows.map((r) => (
-            <ListItem
-              key={r.id}
-              lead={
-                <Badge tone="red" icon="bell">
-                  Nytt
-                </Badge>
-              }
-              title={
-                <>
-                  {r.name} <span className="font-normal text-text-muted tabular-nums">{r.caseNumber}</span>
-                </>
-              }
-              sub={`${fmtDateTime(r.createdAt)} · ${r.translated ? `talat på ${r.languageName}, AI-översättning` : "AI-transkribering"}`}
-              side={
-                <Button kind="primary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(r.caseId)}?visa=rost`}>
-                  Läs röstmeddelandet
-                </Button>
-              }
-            >
-              <span className="text-small">{r.excerpt}</span>
-            </ListItem>
-          ))}
-        </List>
-      )}
-    </Card>
   );
 }
 

@@ -406,6 +406,8 @@ export type CalendarActivity = {
 };
 export type MinVeckaView = {
   now: LocalDateTime;
+  /** Automatisk närvaro (Karims beslut 2026-10-09): klockslaget då saknad närvaro registreras som närvarande, "18:00". null = avstängd. */
+  autoPresentAt: string | null;
   /** Förra veckan: veckonummer och måndag. */
   lastWeek: { no: number; mon: LocalDate };
   /** Registrering av förra veckans närvaro: förfallotid och status, "måndag 10.00", publicering "måndag 16.00". */
@@ -444,11 +446,21 @@ export type MinVeckaView = {
    */
   messages: { notificationId: string | null; caseId: string; caseNumber: string; name: string; createdAt: LocalDateTime; from: string | null; excerpt: string | null; count: number }[];
   reminders: { caseId: string; caseNumber: string; name: string; streak: number; reason: string; weekKey: WeekKey }[];
-  flags: { key: string; kind: string; severity: "critical" | "warning" | "info"; title: string; text: string; caseId: string | null; href: string | null }[];
-  unread: { count: number; latest: { id: string; title: string; caseNumber: string | null }[] };
+  /** Egna flaggor. caseNumber och name när flaggan gäller ett av coachens ärenden (Följ upp slår ihop per ärende). */
+  flags: { key: string; kind: string; severity: "critical" | "warning" | "info"; title: string; text: string; caseId: string | null; href: string | null; caseNumber: string | null; name: string | null }[];
+  /**
+   * Olästa notiser (högst 20, nyast först) – Följ upp på Min vecka slår ihop dem med påminnelser och flaggor i samma ärende.
+   * caseId bara när coachen har ärendet (annars null). kind = notisens typ (message visas under Svara kommunen).
+   */
+  unread: { count: number; items: { id: string; kind: string; title: string; caseId: string | null; caseNumber: string | null; name: string | null }[] };
+  /**
+   * Att kartlägga (paket 2): coachens pågående och bekräftade insatser utan nivå – samma urval som Grupper och nivåer-sidans
+   * "Utan nivå – att kartlägga" (grupper.oversikt, unplaced), begränsat till coachens egna ärenden. intake = kartläggningens läge.
+   */
+  toMap: { caseId: string; caseNumber: string; name: string; intake: "none" | "draft" | "approved" }[];
   due: {
     monthly: { count: number; byStatus: Partial<Record<ReportStatus, number>>; dueAt: LocalDateTime; sla: CoachSla } | null;
-    other: { id: string; label: string; caseNumber: string | null; name: string | null; dueAt: LocalDateTime; sla: CoachSla; provisional: boolean; href: string | null }[];
+    other: { id: string; label: string; caseId: string | null; caseNumber: string | null; name: string | null; dueAt: LocalDateTime; sla: CoachSla; provisional: boolean; href: string | null }[];
   };
   calendar: { mon: LocalDate; activities: CalendarActivity[] };
 };
@@ -492,6 +504,12 @@ export type NarvaroView = {
   sameDayText: string;
   absenceReasons: string[];
   repeatedRule: { absentInvalid: number; withinDays: number };
+  /**
+   * Automatisk närvaro (Karims beslut 1, 2026-10-09): på eller av och klockslaget då dagen räknas som slut ("18:00") – samma
+   * källa som jobbet auto_attendance (organisationens inställningar, autoAttendanceOf). Sidans ingress och "Så fungerar
+   * registreringen" bygger på den – klockslaget hårdkodas aldrig.
+   */
+  autoAttendance: { on: boolean; at: string };
   caseCount: number;
   /** Pågående ärenden som tillfällen kan läggas till i (beslut 2026-10-08). */
   cases: { caseId: string; caseNumber: string; name: string; location: string }[];

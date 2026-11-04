@@ -115,31 +115,45 @@ Props: `title?`, `sub?`, `side?` (högerkolumn; under 620 px på egen rad), `ico
 `to?` (hela raden är en länk) eller `onClick?` (hela raden är en knapp), `chevron?`, `marked?` (röd vänsterkant, t.ex. oläst), `aria-label?`.
 Lägg inte knappar i `side` på en rad som själv har `to`/`onClick` (nästlade interaktiva element).
 
-### Min vecka (`src/ui/vecka.tsx`) – alla MB-rollers startsida (beslut 2026-10-06)
-Coachens Min vecka är förebilden; alla MB-roller har en Min vecka i samma stil med sina egna uppgifter (SPEC §7.0). Delarna:
+### Min vecka (`src/ui/vecka.tsx`) – alla MB-rollers startsida (beslut 2026-10-06, paket 2 2026-10-31)
+Coachens Min vecka är förebilden; alla MB-roller har en Min vecka i samma stil med sina egna uppgifter (SPEC §7.0). Sedan paket 2
+står **att göra-listan** överst (coach, samordnare, avtalsansvarig och ekonom – chef och systemadministratör har kvar rutorna):
 ```tsx
-<WeekPage today={today} actions={<Button kind="primary" icon="inbox" to="/inkorg">Öppna avropsinkorgen</Button>}>
-  <WeekKpis>
-    <Kpi className={WEEK_KPI_SM} onClick={() => focusSection("mv-flaggor")} actionHint="Visa" label="Flaggor att kvittera" value="12" tone="watch" statusText="Kritiska flaggor" sub="3 kritiska" />
-    …fyra rutor…
-  </WeekKpis>
-  <Split wide>
-    <Stack>…det som ska göras, mest brådskande först…</Stack>
-    <Stack>…påminnelser, flaggor, notiser, i korthet…</Stack>
-  </Split>
+const rows = todoRows(parts);                 // src/core/todo.ts: sorterat på sista tid, samma ärende (group) en gång
+const sum = todoSummary(rows, now);
+<WeekPage today={today} actions={<Button icon="plus" to="/aktiviteter/ny">Ny aktivitet</Button>}>
+  <TodoList
+    id="mv-att-gora" title="Att göra i dag" icon="check-square"
+    summary={`${sum.total} saker · ${sum.late} försenade`}
+    items={rows.map((r) => ({ key: r.key, when: `Senast ${whenText(r.dueAt, now)}`, status: { text: "48 min kvar", tone: "urgent" },
+      icon: "check-square", title: <CaseName big … />, notes: ["…", "…"], action: <Button …>Registrera närvaro</Button> }))}
+    empty="Inget att göra just nu." foot="Klart i dag: …" initial={12}
+  />
+  <TodoList id="mv-folj-upp" title="Följ upp" icon="bell" items={…} />   {/* utan tid: ingen tidskolumn */}
+  <WeekMore label="Visa hela veckan" hideLabel="Dölj veckan">…veckokalendern…</WeekMore>
 </WeekPage>
 ```
 - `WeekPage` – `Page` med rubriken MIN VECKA, ögonbrynet "Namn · Titel" och ingressen "Måndag 1 februari · vecka 5. Det här behöver du göra …"
-  (`weekLead(today)`; `today` = dagens datum eller `null` medan klockan hämtas). Props: `today`, `actions?` (en primär knapp), `className?`.
-- `WeekKpis` – fyra rutor, två kolumner under 620 px. `WEEK_KPI_SM` på varje `Kpi` (mindre utfyllnad och siffror på smal skärm).
+  (`weekLead(today)`; `today` = dagens datum eller `null` medan klockan hämtas). Props: `today`, `actions?`, `className?`.
+- `TodoList` – kortet med listan (`<ol aria-label={title}>`). Props: `id?` (rubriken `id-rubrik` kan ta emot fokus), `title`, `icon?`,
+  `summary?` (kortets huvud, t.ex. "18 saker · 1 försenad"), `items: TodoItem[]`, `empty?` (tom lista = `DoneLine`), `foot?`, `initial?`
+  (visa de första raderna och knappen "Visa alla N"). `TodoItem`: `key`, `when?` (tiden: "10.00" eller "Senast i dag kl. 10.00"), `status?`
+  (`TodoStatus` – text och ikon: `late` röd varningsikon, `urgent` röd klocka, `soon`/`plain` klocka, `next` nästa möte, `done` klart),
+  `icon?`, `title`, `notes?` (16 px), `action?` (en knapp – eller en textlänk), `children?`, `marked?` (röd vänsterkant = nästa möte),
+  `muted?`, `id?`, `testId?`. Kitet har ingen klocka och sorterar inte: skärmen ordnar raderna med `todoRows` (`src/core/todo.ts`).
+- `WeekMore` – ett avsnitt som är stängt från början bakom en knapp (`aria-expanded`), t.ex. veckokalendern bakom "Visa hela veckan".
+- `WeekKpis` – fyra rutor (chef och systemadministratör), två kolumner under 620 px. `WEEK_KPI_SM` på varje `Kpi`.
   Rutor som leder till ett avsnitt: `onClick={() => focusSection("mv-…")}` (knapp); rutor som leder till en annan sida:
   `to="/sökväg"` (en riktig länk – ny flik med ctrl/cmd-klick, mittenklick och länkmenyn), aldrig `onClick` med `nav.push`.
   `Kpi dataAttrs` för data-*-attribut.
 - `DoneLine` – ett avsnitt utan något att göra blir en rad (rubriken kan ta emot fokus). `id`, `title`, `icon`, text.
-- `TitleLink` – radens rubrik som länk (44 px klickyta) i stället för en Öppna-knapp. `CaseName` (namn + ärendenummer som länk), `CaseNo`, `SlaText`.
+- `TitleLink` – radens rubrik som länk (44 px klickyta) i stället för en Öppna-knapp. `CaseName` (namn + ärendenummer som länk; `big` = 16 px),
+  `CaseNo`, `SlaText`.
 
-Stilregler: ett rött ämne per sida (rutan och kortet för samma sak), ingen röd text, högst en knapp per listrad och bara när det finns en åtgärd,
-meningar minst 16 px (14 px bara för datum, tider, ärendenummer och annan metadata), 24 px mellan avsnitten (`Page`), kolumnerna 2:1 med 20 px.
+Stilregler: varje sak står en gång med sin knapp (samma ärende en rad), sorterat på sista tid; knappen säger vad den gäller
+("Acceptera BOT-27-0048", eller synlig kort text + `<span className="sr-only">` – lägg mellanslaget före spannet, inte i det);
+bara nästa möte har en svart knapp (`kind="primary"`), övriga åtgärder är vita knappar eller textlänkar med ikon; tomma block visas
+inte (eller blir en `DoneLine`); ett rött ämne per sida, ingen röd text; text och metarader i listan minst 16 px; 24 px mellan avsnitten (`Page`).
 
 ---
 
@@ -227,9 +241,23 @@ Alla kontroller tar `value` + `onValueChange(value)` (kryssrutan `checked` + `on
 - **`DateInput`** (`'YYYY-MM-DD'`), **`TimeInput`** (`'HH:mm'`), **`DateTimeInput`** (`'YYYY-MM-DDTHH:mm'` = `LocalDateTime`).
 - **`Select`**: inbyggd `<select>` (bäst för skärmläsare). `options: ({ value, label, disabled? } | string)[]`, `placeholder?` (tomt första val).
 - **`TextArea`**: `rows?` (3).
-- **`Check`**: kryssruta med etikett, hela raden klickbar (44 px). `checked`, `onCheckedChange`, `disabled?`, `id?`.
+- **`Check`**: kryssruta med etikett, hela raden klickbar (44 px). `checked`, `onCheckedChange`, `disabled?`, `id?`, `invalid?` (felmarkering utan `Field`).
 - **`Seg`**: knappgrupp för snabba val (`aria-pressed`). `options: (V | { value, label, icon?, tone?: "green" | "yellow" | "red", lang?, dir?, disabled? })[]`,
   `multi` = flerval (`value` är en lista). `ariaLabel?` – inuti ett `Field` namnges gruppen av fältets etikett.
+- **`ErrorSummary`** (`items`, `title?`, `id?`) och **`focusErrorSummary(id)`** – GOV.UK-mönstret: efter ett misslyckat försök visas sammanfattningen
+  överst med länkar till fälten och får fokus (`id` gör den fokuserbar). Används i kartläggningen; mötet visar den vid knapparna.
+
+### Hopfällbart och Fler val (`src/ui/disclosure.tsx`)
+```tsx
+<Disclosure label={`Visa deltagarna (${n})`} openLabel="Dölj deltagarna" defaultOpen={n <= 8} aside={<span>Visar: …</span>}>…</Disclosure>
+<MoreActions><Button kind="ghost" icon="x" onClick={…}>Ställ in</Button>…</MoreActions>
+```
+- **`Disclosure`** – en knapp med `aria-expanded`/`aria-controls` som visar och döljer ett avsnitt. `label`, `openLabel?`, `defaultOpen?`, `kind?`
+  (standard `ghost`), `summary?` (bara när det är ihopfällt), `aside?` (alltid bredvid knappen – t.ex. de valda filtren som text, Närvaro).
+  Förvalt ihopfällt när listan är lång (Grupper och nivåer).
+- **`MoreActions`** – "Fler val": de mindre vanliga åtgärderna bakom en knapp, så att sidan visar högst två knappar överst (aktivitetsvyn).
+  Disclosure-mönstret, inte en meny: knapparna nås med Tab. Fokus på första valet när panelen öppnas; Esc och klick utanför stänger och lämnar
+  fokus på Fler val; ett val stänger panelen och lämnar fokus på Fler val innan åtgärden körs (en dialog ger sedan tillbaka fokus dit).
 
 ---
 
@@ -253,7 +281,10 @@ Piltangenter, Home och End byter flik. `count` 0 eller null visas inte. Flikval 
 - **`useConfirm()`** – ersätter `MM.confirm` (aldrig `window.confirm`):
   `if (await confirm({ title: "Avböj avropet?", body: "…", confirmLabel: "Avböj", tone: "danger" })) …` → `true`/`false`. (`confirmDialog` = samma utan hook.)
 - **`toast(text, tone?)`** / **`useToast()`** – `tone`: `"ok"` (blå kant, standard) eller `"error"` (röd kant). Prototypens `MM.toast(x, 'blue')` → `toast(x)`, `'red'` → `toast(x, "error")`.
-  Visas 5,2 s, läses upp (`role=status`). Texten får aldrig innehålla personuppgifter som inte redan syns på skärmen.
+  Visas 5,2 s, läses upp (`role=status`). Högst två åt gången – en ny ersätter den äldsta – och varje har en stängknapp ("Stäng kvittensen").
+  De ligger överst (uppe till höger på dator, under den fasta toppraden på smal skärm), så att de aldrig täcker dialogernas knappar eller en
+  fast knapprad längst ned. Visa inte flera kvittenser efter varandra för samma åtgärd – samla dem i en statusrad (Närvaro gör så). Texten får
+  aldrig innehålla personuppgifter som inte redan syns på skärmen.
 - **`useDownload()`** – `await download("fakturaunderlag-2027-01.csv", csv, mime?)`. Riktiga appen: Blob + tillfällig länk (textfiler får BOM för Excel).
   Binärt går också: `await download("Manadsrapport_BOT-26-0143_2027-01_v1.pdf", blob, "application/pdf")` (Blob eller Uint8Array, orört).
   Prototypen byter implementation med `<DownloadProvider impl={…}>` (artefaktens nedladdning – tar binärt direkt – annars `showText` för text). Skärmar använder aldrig `<a download>`.
@@ -266,7 +297,7 @@ Värdarna (`Toaster`, `ConfirmHost`, `TextDialogHost`) ligger redan i layouten �
 
 ## 8. Meddelanden och laddning
 
-- **`Notice`** – `tone`: `info` (blå, standard) · `warn` (grå, antracit kant) · `critical` (röd, `role=alert`) · `ok`. `title?`, `icon?`.
+- **`Notice`** – `tone`: `info` (blå, standard) · `warn` (grå, antracit kant) · `critical` (röd, `role=alert`) · `ok`. `title?`, `icon?`, `id?` och `tabIndex?` (en kvittens som får fokus i stället för en toast, t.ex. "Kartläggningen är godkänd").
 - **`DemoNote`** – förklaring som **bara visas i prototypen** ("Prototyp: …", streckad ram). Allt annat är likadant i appen.
 - **`Empty`** – `icon?`, `title`, `children?`, `action?`.
 - **`Loading`** – "Hämtar…" (syns efter 250 ms så att snabba svar inte blinkar). `label?`.

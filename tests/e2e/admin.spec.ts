@@ -257,6 +257,12 @@ test("användare: avtalsansvarig bjuder in och spärrar en kommunanvändare", as
   const t = await text(page);
   expect(t).toContain("Påminnelser om utebliven progression: coach");
   expect(t).toContain("Eskaleringar: chef/controller – syns inte för coachen");
+  // Matrisen stämmer med verkligheten (paket 1, A1): bara ekonomen ser belopp, coachen alla ärenden, chefen signerar loggkontrollen.
+  const cells = async (key: string) => (await main(page).locator(`[data-matrix-row="${key}"] td`).allInnerTexts()).map((x) => x.trim());
+  expect(await cells("billing")).toEqual(["Nej", "Nej", "Nej", "Nej", "Nej", "Ja", "Nej"]);
+  expect((await cells("cases"))[3]).toBe("Alla");
+  expect(await cells("logcheck")).toEqual(["Nej", "Nej", "Nej", "Nej", "Ja", "Nej", "Nej"]);
+  expect((await cells("alerts"))[4]).toBe("Ja");
   await expect(page.getByRole("tab", { name: /Miljonbemanning/ })).toHaveCount(0);
 
   // Inbjudan skickas utan personuppgifter i texten och loggas
@@ -286,6 +292,14 @@ test("integrationer: underbiträden, regioner och bakgrundsjobb", async ({ page 
   // Veckorapportjobbets tid läses från avtalet (veckorapport_publicering 16:00)
   expect(t).toContain("senast 16.00 enligt avtalet");
   expect(t).toContain("17 påminnelser till coacher, 3 eskaleringar till chef");
+  // Ett läge per jobb (paket 1, A2): automatisk närvaro är Inte körd än – inte Klar; jobben i fas 2 är inte Klar i prototypen.
+  const auto = page.getByRole("row", { name: /Registrera närvaro automatiskt/ });
+  await expect(auto).toContainText("Inte körd än");
+  await expect(auto).not.toContainText("Klar");
+  if (isDemo(info)) {
+    for (const row of await page.getByRole("row").filter({ hasText: "Byggs i fas" }).all()) await expect(row).not.toContainText("Klar");
+  }
+  await expect(main(page)).toContainText(/Bakgrundsjobb\s*\d+ av 9\s*går som de ska/i);
   await expect(page.getByRole("row", { name: /Gallring enligt PUB-avtalet/ }).getByRole("button", { name: /Kör nu/ })).toBeDisabled();
   await page.getByRole("row", { name: /Läs avrop@-inkorgen/ }).getByRole("button", { name: /Kör nu/ }).click();
   await expect(page.getByRole("row", { name: /Läs avrop@-inkorgen/ })).toContainText("Manuellt av dig");
@@ -294,6 +308,20 @@ test("integrationer: underbiträden, regioner och bakgrundsjobb", async ({ page 
   await page.locator("#log-action").selectOption("job.run_manual");
   await expect(main(page)).toContainText("Poster (1)");
   await expect(main(page)).toContainText("Läs avrop@-inkorgen");
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("Min vecka: bara bakgrundsjobb som avviker och en rad för de som går som de ska (paket 1, A2)", async ({ page }, info) => {
+  const errors = await open(page, info, "/min-vecka", ROBIN);
+  const jobs = main(page).locator("#mv-jobb");
+  await expect(jobs).toContainText("Registrera närvaro automatiskt");
+  await expect(jobs).toContainText("Inte körd än");
+  await expect(jobs).toContainText(/\d+ jobb går som de ska/);
+  // Inga Klar-märken i listan – de klara jobben står på en rad.
+  await expect(jobs.getByText("Klar", { exact: true })).toHaveCount(0);
+  // Rutan räknar samma sak: x av 9 går som de ska.
+  const n = Number((await jobs.getByText(/\d+ jobb går som de ska/).innerText()).match(/\d+/)?.[0]);
+  await expect(main(page)).toContainText(new RegExp(`Bakgrundsjobb\\s*${n} av 9\\s*`, "i"));
   expect(relevant(errors)).toEqual([]);
 });
 

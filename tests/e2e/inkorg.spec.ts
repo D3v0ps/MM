@@ -117,28 +117,96 @@ async function declineEm106(page: Page, total = 231) {
 }
 
 // ---------------------------------------------------------------- Förfaller
-test("förfaller: grupper, filter per typ och sammanslagna månadsrapporter", async ({ page }, info) => {
+test("förfaller: Mitt ansvar först, Alla, grupper, filter per typ och sammanslagna månadsrapporter (paket 2, S7)", async ({ page }, info) => {
   const errors = await open(page, info, "/forfaller", KARIN);
   const m = main(page);
+  // Förvalet är det som är chefens ansvar: slutrapporten som eskalerats till chefen.
+  await expect(m.getByRole("button", { name: "Mitt ansvar (1)" })).toHaveAttribute("aria-pressed", "true");
+  await expect(m.getByRole("heading", { name: "Försenat (1)" })).toBeVisible();
+  await expect(m.getByRole("heading", { name: "Denna vecka (0)" })).toBeVisible();
+  await m.getByRole("button", { name: "Alla (96)" }).click();
   for (const t of ["Försenat (1)", "I dag (5)", "Denna vecka (90)"]) await expect(m.getByRole("heading", { name: t })).toBeVisible();
-  await expect(m.getByText("Ej fastställd med Botkyrka").first()).toBeVisible();
-  await expect(m.getByText("81 ärenden")).toBeVisible();
-  await expect(m.getByText("Leila Nouri 20 · Erik Sjöberg 17 · Sofia Grahn 16 · Mats Holm 14 · Amira Haddad 14")).toBeVisible();
-  await expect(m.getByRole("button", { name: "Alla (96)" })).toBeVisible();
+  // Regler som inte är fastställda: en fotnot (ingen egen ruta).
+  await expect(m.getByText(/^Ej fastställd med Botkyrka \(86 förfallotider\)/)).toBeVisible();
+  await expect(m.getByText("Ej fastställda", { exact: true })).toHaveCount(0);
+  await expect(m.getByText("81 ärenden").first()).toBeVisible();
+  await expect(m.getByText("Leila Nouri 20 · Erik Sjöberg 17 · Sofia Grahn 16 · Mats Holm 14 · Amira Haddad 14").first()).toBeVisible();
+  await expect(m.getByRole("button", { name: "Alla typer (96)" })).toBeVisible();
   await m.getByRole("button", { name: /^Svar på avrop \(3\)/ }).click();
   await expect(m).not.toContainText("Månadsrapport januari");
   await expect(m.locator("tbody tr").filter({ hasText: "Svar på avrop" })).toHaveCount(3);
   await expect(m).toContainText(/Samordnare(\s|\S)*Chef/);
   // Chefen kan inte öppna inkorgen – ingen knapp för avropen.
   await expect(m.locator("tbody tr").filter({ hasText: "Svar på avrop" }).getByRole("link", { name: "Öppna" })).toHaveCount(0);
-  await m.getByRole("button", { name: /^Alla \(/ }).click();
+  await m.getByRole("button", { name: /^Alla typer \(/ }).click();
   await expect(m.locator("tbody tr").first()).toContainText("Försenad 2 dagar");
   await expect(m.locator("tbody tr").first()).toContainText("Chef (eskalerat)");
+  // Mobil: korten i stället för tabellen som klipps – ingen sidledsrullning.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(m.getByRole("list", { name: "Det som förfaller" }).first()).toBeVisible();
+  await expect(m.locator("table").first()).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+  expect(errors).toEqual([]);
+});
+
+test("förfaller (samordnaren): Mitt ansvar är samordnarens egna och de eskalerade – menyn räknar samma", async ({ page }, info) => {
+  const errors = await open(page, info, "/forfaller", SARA);
+  const m = main(page);
+  await expect(m.getByRole("button", { name: "Mitt ansvar (7)" })).toHaveAttribute("aria-pressed", "true");
+  await expect(m).not.toContainText("Närvaroregistrering");
+  // Menyn: försenat och i dag som är mitt ansvar (1 + 4).
+  await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Förfaller/ })).toContainText("5");
+  await m.getByRole("button", { name: "Alla (96)" }).click();
+  await expect(m).toContainText("Närvaroregistrering");
+  expect(errors).toEqual([]);
+});
+
+// ---------------------------------------------------------------- UX-genomgången, paket 1 (S9 och S13)
+test("smal skärm: adressen till en post visar bara posten med Till listan – listan utan nyckeltalsrutor (S9)", async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await open(page, info, "/inkorg/em-106", SARA);
+  const m = main(page);
+  const back = m.getByRole("button", { name: "Till listan" });
+  await expect(back).toBeVisible();
+  await expect(m.locator("[data-inkorg-row]").first()).toBeHidden();
+  await expect(m.locator("[data-inkorg-summary]")).toBeHidden();
+  await back.click();
+  // Listan: posten som visades har fokus, posten själv är dold.
+  await expect(m.locator('[data-inkorg-row][aria-current="true"]')).toBeFocused();
+  await expect(back).toBeHidden();
+  await expect(m.locator("[data-inkorg-summary]")).toBeHidden();
+  // En rad i listan: bara posten igen.
+  await m.locator("[data-inkorg-row]").nth(1).click();
+  await expect(m.getByRole("button", { name: "Till listan" })).toBeVisible();
+  await expect(m.locator("[data-inkorg-row]").first()).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  // ?arende= pekar också på en post.
+  await open(page, info, "/inkorg?arende=case-270049", SARA);
+  await expect(main(page).getByRole("button", { name: "Till listan" })).toBeVisible();
+  await expect(main(page).locator("[data-inkorg-row]").first()).toBeHidden();
+  // Bred skärm: listan, nyckeltalen och posten bredvid varandra som förut.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(main(page).locator("[data-inkorg-summary]")).toBeVisible();
+  await expect(main(page).locator("[data-inkorg-row]").first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("tolkat avrop: procent bara under 80 % och varning när slutdatumet inte stämmer med omfattningen (S13)", async ({ page }, info) => {
+  const errors = await open(page, info, "/inkorg/em-106", SARA);
+  const parsed = main(page).locator("section").filter({ has: page.locator("h2", { hasText: "Tolkat formulär" }) });
+  await expect(page.getByTestId("slutdatum-varning")).toContainText("Slutdatumet 2 apr 2027 stämmer inte med 12 månader och används inte.");
+  await expect(parsed).not.toContainText(/99\s%/);
+  await open(page, info, "/inkorg/em-102", SARA);
+  const ai = main(page).locator("section").filter({ has: page.locator("h2", { hasText: "Tolkat formulär" }) });
+  await expect(ai.getByText(/^Osäker \d+\s%$/).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 
 // ---------------------------------------------------------------- Min vecka (samordnarens och avtalsansvarigs startsida)
-test("inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar samma tal", async ({ page }, info) => {
+/** Raderna i en att göra-lista på Min vecka. */
+const todo = (page: Page, name = "Att göra") => main(page).getByRole("list", { name, exact: true }).locator(":scope > li");
+
+test("inkorgens antal: menyn, fliken och startsidan visar samma avrop – samma ärende en gång i att göra-listan", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg", SARA);
   const m = main(page);
   const n = "6"; // prototypens MM.sel.inboxToHandle().length vid demostart
@@ -150,89 +218,94 @@ test("inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar sam
   // Avrop att besvara, kompletteringar och övrigt. em-104 är en vanlig fråga (Övrigt) sedan 2026-10-07 – ingen skyddad grupp.
   expect(parts).toEqual(["3", "1", "2"]);
   await goAs(page, info, SARA, "/min-vecka");
-  await expect(m.locator("[data-inkorg-tile]").first()).toContainText(new RegExp(`Att hantera i inkorgen\\s*${n}(?!\\d)`, "i"));
+  // Sex poster i inkorgen, fem rader: BOT-27-0049 (avropet och kompletteringen) står en gång.
+  await expect(m.getByRole("button", { name: /^Acceptera BOT-27-00(48|50)$/ })).toHaveCount(2);
+  await expect(todo(page).filter({ hasText: "BOT-27-0049" })).toHaveCount(1);
+  await expect(todo(page).filter({ hasText: "BOT-27-0049" })).toContainText("Komplettering");
+  await expect(todo(page).filter({ hasText: "BOT-27-0049" })).toContainText("Beställning");
   expect(errors).toEqual([]);
 });
 
-test("startsidan: SLA-märket överlappar inte rubriken (1280 och 1024 px), status med text i rutor", async ({ page }, info) => {
+test("startsidan: tiden och rubriken överlappar inte (1280, 1024 och 390 px), status med text och ikon, ingen sidledsrullning", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", SARA);
-  for (const [who, w] of [[SARA, 1280], [JOHAN, 1280], [SARA, 1024]] as const) {
+  for (const [who, w] of [[SARA, 1280], [JOHAN, 1280], [SARA, 1024], [SARA, 390]] as const) {
     await page.setViewportSize({ width: w, height: 900 });
     await goAs(page, info, who, "/min-vecka");
     await expect(main(page).getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
-    await expect(main(page).locator("[data-mini-row]").first()).toBeVisible();
+    await expect(todo(page).first()).toBeVisible();
     const over = await page.evaluate(() =>
-      [...document.querySelectorAll("[data-mini-row]")].map((r) => {
-        const l = r.querySelector("[data-mini-left]");
-        const m = r.querySelector("[data-mini-main]");
-        if (!l || !m) return null;
-        const a = (l.firstElementChild ?? l).getBoundingClientRect();
-        const b = m.getBoundingClientRect();
-        return a.right > b.left + 1 && a.left < b.right - 1 && a.bottom > b.top + 1 && a.top < b.bottom - 1 ? `${(l as HTMLElement).innerText.trim()} / ${(m as HTMLElement).innerText.split("\n")[0]}` : null;
+      [...document.querySelectorAll('#main ol[aria-label="Att göra"] > li')].map((r) => {
+        const [a, b] = [...r.children].map((x) => x.getBoundingClientRect());
+        if (!a || !b) return null;
+        return a.right > b.left + 1 && a.left < b.right - 1 && a.bottom > b.top + 1 && a.top < b.bottom - 1 ? (r as HTMLElement).innerText.split("\n")[0] : null;
       }).filter(Boolean));
     expect(over, `${who.role} ${w}: överlapp`).toEqual([]);
-    const noState = await page.evaluate(() => [...document.querySelectorAll("#main [data-inkorg-tile][data-tone]")].filter((k) => !k.querySelector("[data-tile-state]")).length);
-    expect(noState, "Rutor med röd/mörk ram ska ha statustext med ikon").toBe(0);
-    if (isDemo(info)) {
-      const inside = await page.evaluate(() => {
-        const b = [...document.querySelectorAll("#main button")].find((x) => /notiser/.test((x as HTMLElement).innerText) && x.closest("section"));
-        const c = b?.closest("section");
-        return !!b && !!c && Math.round(b.getBoundingClientRect().right) <= Math.round(c.getBoundingClientRect().right);
-      });
-      expect(inside, "Knappen till coachens notiser ska ligga inom kortet").toBe(true);
-    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${who.role} ${w}`).toBeLessThanOrEqual(1);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
+  // Status med text och ikon: den försenade slutrapporten står först.
+  await goAs(page, info, SARA, "/min-vecka");
+  await expect(todo(page).first()).toContainText("Försenad 2 dagar");
+  await expect(todo(page).first().locator("svg").first()).toBeVisible();
   await expect(main(page)).not.toContainText(/deadline/i);
   expect(errors).toEqual([]);
 });
 
-test("startsidan (avtalsansvarig): inga skyddade avrop och beställarrapporten lämnas utanför Miljonmatch (beslut 2026-10-07)", async ({ page }, info) => {
+test("startsidan (avtalsansvarig): hans egna saker först, inkorgen en rad, inga skyddade avrop (S5, beslut 2026-10-07)", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", JOHAN);
   const m = main(page);
-  await expect(m.getByRole("heading", { name: "Öppna uppgifter (0)" })).toBeVisible();
   await expect(m.getByRole("heading", { name: "Skyddade avrop" })).toHaveCount(0);
   await expect(m).not.toContainText(/skyddade personuppgifter|väntar på telefonsamtal/i);
-  // Omars mejl (em-104) är en vanlig fråga i inkorgen.
-  await expect(m.getByRole("link", { name: "Fråga om startdatum" })).toBeVisible();
-  await expect(m.getByText("Beställarrapport januari 2027 att godkänna", { exact: false })).toBeVisible();
+  // Inkorgen är samordnarens: en rad med länk – inga avrop i hans lista.
+  await expect(m.getByRole("link", { name: "6 i inkorgen" })).toBeVisible();
+  await expect(m.getByRole("link", { name: "Fråga om startdatum" })).toHaveCount(0);
+  await expect(todo(page).filter({ hasText: "Beställarrapport januari 2027 att godkänna" })).toHaveCount(1);
   await expect(m.getByText("Lämnas till kommunen utanför Miljonmatch.", { exact: false })).toBeVisible();
   await expect(m.getByText("3 varningar kan leda till uppsägning.", { exact: false })).toBeVisible();
+  // Flaggorna under hans egna saker.
+  const heads = await m.getByRole("heading", { level: 2 }).allInnerTexts();
+  expect(heads.map((x) => x.trim().toUpperCase()).slice(0, 3)).toEqual(["ATT GÖRA", "VARNINGAR OCH MÅL", "FLAGGOR (11)"]);
+  // Tomma block visas inte.
+  await expect(m.getByRole("heading", { name: /Öppna uppgifter/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
 test("startsidan: översikt, kvittera flagga med åtgärdsplan", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", SARA);
   const m = main(page);
-  for (const t of ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera", "Avrop besvarade inom en arbetsdag", "Första möte inom en vecka", "Tilldelning ger notis", "Öppna uppgifter (0)"]) {
+  for (const t of ["Att göra", "Avrop besvarade inom en arbetsdag", "Första möte inom en vecka"]) {
     await expect(m.getByText(t, { exact: false }).first()).toBeVisible();
   }
-  // 11 flaggor: flaggan om skyddade avrop finns inte sedan 2026-10-07.
-  await expect(m.getByRole("heading", { name: "Flaggor (11)" })).toBeVisible();
-  await m.getByRole("button", { name: "Kvittera", exact: true }).first().click();
+  // Borttaget (S1): Ärenden utan coach (samma som inkorgen), Tilldelning ger notis och tomma block.
+  for (const t of ["Ärenden utan coach", "Tilldelning ger notis", "Öppna uppgifter (0)"]) await expect(m.getByText(t)).toHaveCount(0);
+  await expect(todo(page).filter({ hasText: "Fastnat i fas 3" })).toHaveCount(1);
+  await m.getByRole("button", { name: /^Kvittera BOT-26-0128/ }).click();
   await dialog(page).getByRole("button", { name: "Kvittera", exact: true }).click();
   await expect(dialog(page).getByText("Skriv en kort åtgärdsplan")).toBeVisible();
   await page.fill("#ink-ack-plan", "Sara ringer handläggaren i dag före kl. 12.");
   await dialog(page).getByRole("button", { name: "Kvittera", exact: true }).click();
   await expect(dialog(page)).toHaveCount(0);
   await expect(toastWith(page, "Flaggan är kvitterad. Åtgärdsplanen är sparad i revisionsloggen.")).toBeVisible();
-  await expect(m.getByRole("heading", { name: "Flaggor (10)" })).toBeVisible();
+  await expect(todo(page).filter({ hasText: "Fastnat i fas 3" })).toHaveCount(0);
   await m.getByRole("button", { name: "Visa kvitterade (1)" }).click();
   await expect(m.getByText(/Kvitterad av Sara Lindqvist i dag kl\. \d\d\.\d\d\. Åtgärd: Sara ringer handläggaren/)).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("startsidan: boka första möte för ärende utan bokat möte", async ({ page }, info) => {
+test("startsidan: boka första möte för ärende utan bokat möte – ärendet står en gång med knappen", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", SARA);
   const m = main(page);
-  await expect(m.getByRole("link", { name: "BOT-27-0039" })).toBeVisible();
-  await m.getByRole("button", { name: "Boka", exact: true }).first().click();
+  // BOT-27-0039: första mötet, flaggan och förfallotiden – en rad med knappen Boka första mötet.
+  const row = todo(page).filter({ hasText: "BOT-27-0039" });
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText("Första möte inte bokat");
+  await row.getByRole("button", { name: "Boka första mötet för BOT-27-0039" }).click();
   await expect(dialog(page).getByText("Huvudcoach: Sofia Grahn. Mötet ska vara bokat senast tisdag 2 februari (inom en vecka från avropet).")).toBeVisible();
   await dialog(page).getByRole("button", { name: "Boka mötet" }).click();
   await expect(dialog(page)).toHaveCount(0);
   // Kallelsen (beslut 2026-10-09): e-post när adressen finns; deltagaren har valt brev, så ett brev skickas också för hand.
   await expect(toastWith(page, "Första mötet för BOT-27-0039 är bokat tisdag 2 februari kl. 10.00. Kallelsen skickas med e-post. Ett brev skickas också för hand.")).toBeVisible();
-  await expect(m.getByText("Alla första möten är bokade")).toBeVisible();
+  await expect(m.getByRole("button", { name: /^Boka första mötet/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -418,10 +491,12 @@ test("hela flödet: alla avrop hanteras – flikar, ?arende=, tom startsida och 
   await expect(m.getByRole("heading", { name: "Ny deltagare till er – kök" })).toBeVisible();
   await expect(m.getByRole("tab", { name: "Alla" })).toHaveAttribute("aria-selected", "true");
 
-  // Startsidan efter flödena: inkorgen tom, uppgiften klar.
+  // Startsidan efter flödena: inga avrop att acceptera och inga öppna uppgifter.
   await goAs(page, info, SARA, "/min-vecka");
-  await expect(m.getByText("Inkorgen är tom")).toBeVisible();
-  await expect(m.getByText("Inga öppna uppgifter")).toBeVisible();
+  await expect(m.getByRole("heading", { name: "Att göra" })).toBeVisible();
+  await expect(m.getByRole("button", { name: /^Acceptera BOT-/ })).toHaveCount(0);
+  await expect(m.getByRole("button", { name: /^(Markera som klar|Ringt)/ })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Min vecka/ })).not.toContainText(/\d/);
 
   // Åtgärderna spelas upp igen efter omladdning (deterministiska): samma inkorg och samma klocka.
   await goAs(page, info, SARA, "/inkorg");

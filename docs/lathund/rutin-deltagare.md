@@ -21,7 +21,7 @@ Vem: samordnaren eller avtalsansvarig, inom den tid som står i avtalet.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare** och **SYV/metodstöd** om de ska vara med i teamet.
 4. Boka första mötet med datum och tid. Mötet ska ligga inom den tid som står i avtalet.
 5. Tryck på **Acceptera**. Orderbekräftelsen går till handläggaren. Deltagaren får en kallelse med e-post eller SMS. Kallelsen innehåller bara tid, plats och vårt telefonnummer.
-6. Gick kallelsen inte att skicka? Då får samordnaren uppgiften **Ring deltagaren och kalla till första mötet** på Min vecka. Ring deltagaren och tryck sedan på **Markera som klar**.
+6. Gick kallelsen inte att skicka? Då får samordnaren uppgiften **Ring deltagaren och kalla till första mötet** på Min vecka. Numret står i raden – tryck på **Kopiera numret** och ring deltagaren. Tryck sedan på **Ringt – kallad**.
 
 ### 3. Första mötet
 
@@ -29,7 +29,7 @@ Vem: huvudcoachen eller den som kartlägger (i dag Adam).
 
 1. Kontrollera deltagarens telefonnummer och e-postadress. Fråga hur deltagaren vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och spara.
 2. Ska möten spelas in, eller ska AI få skriva utkast? Berätta vad det innebär och fråga deltagaren. Säger deltagaren ja: tryck på **Registrera samtycke**. Ett nej får inga följder.
-3. Tryck på **Starta insatsen** i deltagarkortet eller under **Insatser att starta** på Min vecka. Välj startdatum och veckoplan. Tillfällena skapas från startdatumet.
+3. Tryck på **Starta insatsen** i deltagarkortet eller i listan **Att göra i dag** på Min vecka. Välj startdatum och veckoplan. Tillfällena skapas från startdatumet.
 4. Blev startdatumet fel? Tryck på **Ändra startdatum** i deltagarkortets huvud och skriv en kort motivering. Det går i en pågående eller pausad insats. Tillfällen före det nya datumet tas bort om de saknar registrerad närvaro eller bara har automatisk närvaro. Inga tillfällen skapas bakåt – lägg till dem som hände och registrera närvaron. Planerat slut ändras inte. Är månaden redan fakturerad eller godkänd av ekonomen går det inte att ändra – kontakta ekonomen. Läs mer under **Ändra startdatum** i lathunden för kollegor.
 
 ### 4. Kartläggning med nivå
@@ -39,8 +39,8 @@ Vem: den som kartlägger. Kartläggningen kräver rollen coach.
 1. Öppna deltagarkortet, välj fliken **Kartläggning** och tryck på **Påbörja kartläggningen**.
 2. Fyll i erfarenhet, utbildning, mål och yrkesspår. Beskriv behov av anpassning med vad deltagaren behöver – aldrig med diagnoser.
 3. Längst ned finns kortet **Nivå och yrkesområde**. Välj en nivå och **Vill arbeta**. Vill arbeta är deltagarens eget svar. Valen sparas direkt. Yrkesområdet står redan där – det kommer från beställningen.
-4. Vill du skriva något till coacherna? Skriv i **En rad till coacherna** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet.
-5. Tryck på **Godkänn kartläggningen**. Det går bara när nivån är vald. Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter och yrkesområdets träffar.
+4. Tryck på **Godkänn kartläggningen**. Det går bara när nivån är vald. Saknas något står det överst på sidan, med en länk till varje fält. Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter och yrkesområdets träffar.
+5. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. Anteckningen hamnar i deltagarkortet.
 
 ### 5. Aktiviteter och inbjudan
 
@@ -60,7 +60,7 @@ Nivåaktiviteterna återkommer varje vecka: kryssa i **Upprepa varje vecka**, v�
 
 Vem: coachen som håller i aktiviteten.
 
-1. Öppna aktiviteten under **Aktiviteter** eller från **Dagens aktiviteter** på Min vecka.
+1. Öppna aktiviteten under **Aktiviteter** eller från listan **Att göra i dag** på Min vecka.
 2. Markera de som kom sent eller var frånvarande med knapparna på deras rad.
 3. Tryck på **Markera övriga som närvarande** och bekräfta namnen.
 4. Har aktiviteten ett gruppmål står alla som **Klarade** med märket **Automatiskt**. Tryck på **Klarade inte** för den som inte klarade målet.
@@ -87,7 +87,7 @@ Vem: alla som arbetar i ärendet.
 - Skriv anteckningar för flera deltagare under **Anteckningar**. Välj en nivå, ett yrkesområde eller en tagg och skriv en rad per deltagare. Tryck på knappen med antalet, till exempel **Spara 3 anteckningar**.
 - Går deltagaren framåt? Tryck på **Höj nivå** vid nivån i deltagarkortets huvud, eller **Ändra** för att byta till en annan nivå. Deltagaren flyttas till den nya nivåns aktiviteter automatiskt.
 - Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen trycker på **Ändra** vid nivån och yrkesområdet i deltagarkortet, sedan på **Byt yrkesområde**, och skriver en kort motivering. Deltagaren flyttas direkt till det nya yrkesområdets träffar. Fakturan räknas på det nya yrkesområdet från och med månaden efter.
-- Upprepad ogiltig frånvaro ger en flagga på Min vecka. Håll ett uppföljningsmöte och gör en plan.
+- Upprepad ogiltig frånvaro ger en flagga under **Följ upp** på Min vecka. Håll ett uppföljningsmöte och gör en plan.
 - Röd samlad status blir en avvikelse automatiskt. Fyll i åtgärd, ansvarig och datum för uppföljning. Behöver kommunen besluta något: tryck på **Kalla kommunen till uppföljning**.
 - Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Händelser och utfall**. En praktik läggs in med **Ny praktik** under fliken **Praktik**.
 - Vill deltagaren bli kontaktad på ett annat sätt? Tryck på **Ändra** vid **Kontaktväg**.

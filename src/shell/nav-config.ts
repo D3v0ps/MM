@@ -14,7 +14,7 @@ export type NavItem = {
   to: string;
   label: string;
   icon: IconName;
-  /** Räknare till höger. "inbox" visas neutral, övriga med röd ring (kräver åtgärd). */
+  /** Räknare till höger. "inbox" och "tasks" visas neutrala, övriga med röd ring (kräver åtgärd). */
   count?: NavCountKey;
 };
 export type NavGroup = { label: string; items: NavItem[] };
@@ -36,8 +36,13 @@ const BYGG: NavItem = { to: "/rapportbyggare", label: "Bygg rapport", icon: "cha
 const PRAKTIK: NavItem = { to: "/praktik", label: "Arbetsgivare och praktik", icon: "briefcase" };
 const AVVIKELSER: NavItem = { to: "/avtalsavvikelser", label: "Avtalsavvikelser", icon: "flag" };
 const LOGG: NavItem = { to: "/admin/logg", label: "Revisionslogg", icon: "book" };
-/** Massanteckningar (coachmötet 2026-10-09). Grupper och nivåer nås därifrån – systemadministratören har dem i sin flik. */
+/** Massanteckningar (coachmötet 2026-10-09). */
 const ANTECKNINGAR: NavItem = { to: "/anteckningar", label: "Anteckningar", icon: "edit" };
+/**
+ * Grupper och nivåer (UX-genomgången, paket 1): i Min vardag för alla som läser sidan (GROUPING_READERS utom den vilande rollen
+ * handledare) – coachen, samordnaren och avtalsansvarig arbetar där varje vecka. Tidigare bara i systemadministratörens flik.
+ */
+const GRUPPER: NavItem = { to: "/grupper", label: "Grupper och nivåer", icon: "layers" };
 
 /** Förra månadens fakturakörning ("Fakturakörning januari" den 1 februari). */
 const fakturakorning = ({ now }: NavContext): NavItem | null => {
@@ -52,7 +57,8 @@ const fakturakorning = ({ now }: NavContext): NavItem | null => {
  * visar aldrig något som rollen inte når. Behörigheterna ändras inte här.
  */
 export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: SupplierRole) => NavItem }[] = [
-  { roles: STAFF_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar" }) },
+  // Räknaren (paket 2, S2): öppna uppgifter till rollen – de står i att göra-listan på Min vecka (samordnare, avtalsansvarig, ekonom).
+  { roles: STAFF_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar", count: "tasks" }) },
   // Räknaren (oregistrerade tillfällen) gäller coachens egna ärenden.
   { roles: ["coach"], item: () => ({ to: "/narvaro", label: "Närvaro", icon: "check-square", count: "unregistered" }) },
   // Gruppaktiviteterna (coachmötet 2026-10-09): alla på Miljonbemanning utom ekonomen ("alla ser alla").
@@ -61,6 +67,8 @@ export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: Supplier
   { roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], item: (r) => (r === "coach" ? { ...ARENDEN, label: "Mina ärenden" } : ARENDEN) },
   // Massanteckningar (coachmötet 2026-10-09): en rad per deltagare i en grupp, nivå eller tagg. Samma roller som rutten.
   { roles: ["samordnare", "avtalsansvarig", "coach"], item: () => ANTECKNINGAR },
+  // Samma roller som rutten (GROUPING_READERS utom den vilande rollen handledare).
+  { roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], item: () => GRUPPER },
   { roles: ["samordnare", "avtalsansvarig", "coach", "chef"], item: () => RAPPORTER },
   { roles: ["samordnare", "avtalsansvarig", "coach"], item: () => PRAKTIK },
 ];
@@ -80,7 +88,6 @@ const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
       { to: "/admin/anvandare", label: "Användare och roller", icon: "users" },
       { to: "/admin/integrationer", label: "Underbiträden och integrationer", icon: "database" },
       { to: "/admin/mallar", label: "Mallar och utskick", icon: "mail" },
-      { to: "/grupper", label: "Grupper och nivåer", icon: "layers" },
       LOGG,
     ],
   },

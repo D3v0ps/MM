@@ -7,7 +7,7 @@ import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
 import { phaseSince, stuck } from "@/core/cases";
-import { isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
+import { autoAttendanceOf, isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
@@ -219,9 +219,22 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   }
   const monthDue = monthDueFor(main.cfg, pm);
 
+  // Att kartlägga (paket 2): samma urval som Grupper och nivåer-sidans "Utan nivå – att kartlägga" (grupper.oversikt) – pågående
+  // och bekräftade insatser utan nivå – för coachens egna ärenden. Bara läsning via ctx.repo (policyn för grouping_members).
+  const mapCandidates = cases.filter((c) => c.status === "active" || c.status === "confirmed");
+  const placed = mapCandidates.length
+    ? new Set((await ctx.repo.table("grouping_members").list({ caseId: { in: mapCandidates.map((c) => c.id) }, kind: "level", removedAt: { isNull: true } })).map((m) => m.caseId))
+    : new Set<string>();
+  const toMap = mapCandidates.filter((c) => !placed.has(c.id) && !!person(c)).sort((a, b) => nameOf(person(a)).localeCompare(nameOf(person(b)), "sv") || a.caseNumber.localeCompare(b.caseNumber));
+  const intakeOf = new Map(
+    toMap.length ? (await ctx.repo.table("intake_assessments").pick(["caseId", "status"], { caseId: { in: toMap.map((c) => c.id) } })).map((x) => [x.caseId, x.status]) : [],
+  );
+
   const row = (c: Case) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person(c)) });
+  const auto = autoAttendanceOf(main.org);
   return {
     now,
+    autoPresentAt: auto.autoPresent ? auto.autoPresentAt : null,
     lastWeek: { no: isoWeek(lastMon).week, mon: lastMon },
     reg: {
       dueAt: regDue ?? `${addDays(lastMon, 7)}T00:00`, sla: regDue ? sla(regDue, main) : { label: "Ej fastställt", tone: "ok" },
@@ -273,17 +286,27 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       })
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0)),
     reminders: reminders.map((w) => ({ ...row(w.case), streak: w.streak, reason: w.weeks[w.weeks.length - 1].reason, weekKey: w.weeks[w.weeks.length - 1].key })),
-    flags: flagList.map((a) => ({ key: a.key, kind: a.kind, severity: a.severity, title: a.title, text: a.text, caseId: a.caseId ?? null, href: coachHref(a) })),
+    flags: flagList.map((a) => {
+      const c = a.caseId ? caseById.get(a.caseId) : undefined;
+      return {
+        key: a.key, kind: a.kind, severity: a.severity, title: a.title, text: a.text, caseId: a.caseId ?? null, href: coachHref(a),
+        caseNumber: c?.caseNumber ?? null, name: c ? nameOf(person(c)) : null,
+      };
+    }),
     unread: {
       count: notifs.length,
-      latest: notifs.slice(0, 3).map((n) => ({ id: n.id, title: n.title, caseNumber: (n.caseId && caseById.get(n.caseId)?.caseNumber) || (n.caseId ? null : null) })),
+      items: notifs.slice(0, 20).map((n) => {
+        const c = n.caseId ? caseById.get(n.caseId) : undefined;
+        return { id: n.id, kind: n.kind, title: n.title, caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null, name: c ? nameOf(person(c)) : null };
+      }),
     },
+    toMap: toMap.map((c) => ({ ...row(c), intake: (intakeOf.get(c.id) as "draft" | "approved" | undefined) ?? "none" })),
     due: {
       monthly: dueMonthly.length ? { count: dueMonthly.length, byStatus, dueAt: dueMonthly[0].dueAt, sla: { label: dueMonthly[0].sla.label, tone: dueMonthly[0].sla.tone } } : null,
       other: due.filter((x) => x.kind !== "manadsrapport").map((x) => {
         const c = x.caseId ? caseById.get(x.caseId) : undefined;
         return {
-          id: x.id, label: x.label, caseNumber: c?.caseNumber ?? null, name: c ? nameOf(person(c)) : null, dueAt: x.dueAt, sla: { label: x.sla.label, tone: x.sla.tone },
+          id: x.id, label: x.label, caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null, name: c ? nameOf(person(c)) : null, dueAt: x.dueAt, sla: { label: x.sla.label, tone: x.sla.tone },
           provisional: !!x.provisional, href: coachHref(x),
         };
       }),
@@ -369,6 +392,8 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
     sameDayText: `Frånvaronotis samma dag: ${isUnset(same) ? "tillval som inte är fastställt – ingen notis skickas." : same ? "skickas till handläggaren." : "används inte."}`,
     absenceReasons: [...ABSENCE_REASONS],
     repeatedRule: { ...main.cfg.attendance.repeatedAbsenceRule },
+    // Samma källa som jobbet auto_attendance (organisationens inställningar, src/features/_shared/auto-attendance.ts).
+    autoAttendance: (({ autoPresent, autoPresentAt }) => ({ on: autoPresent, at: autoPresentAt }))(autoAttendanceOf(main.org)),
     caseCount: cases.length,
     cases: cases.filter((c) => c.status === "active").map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), location: c.location })),
     weeks: { last: await week(lastMon), this: await week(thisMon) },

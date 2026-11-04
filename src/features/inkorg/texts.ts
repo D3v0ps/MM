@@ -1,7 +1,7 @@
 // Texter, etiketter och små rena hjälpare för området inkorg – samma som den gamla prototypens views/inkorg.js.
 // Isomorf och utan dataåtkomst: används både av hanterarna (vy-modellerna) och av skärmarna.
 import type { EmailClassification, OrderField } from "@/data/schema";
-import { addDays, dayOf, fmtDateShort, fmtTime, weekday, WEEKDAYS_SHORT } from "@/core/time";
+import { fmtDate, orderPeriodEnd } from "@/core/time";
 import type { IconName } from "@/ui/icons";
 
 export const NUMWORD: Record<number, string> = { 1: "en", 2: "två", 3: "tre", 4: "fyra", 5: "fem", 6: "sex", 7: "sju" };
@@ -13,25 +13,35 @@ export const meetingDaysText = (n: number): string => (n % 7 === 0 ? `${NUMWORD[
 /** "tre dagar" – intern regel för när ett obokat första möte flaggas. */
 export const flagDaysText = (n: number | null | undefined): string => (n ? `${NUMWORD[n] ?? n} ${n === 1 ? "dag" : "dagar"}` : "en tid");
 
-/** "i dag kl. 08.41", "i går kl. 15.20", "i morgon", "fre 29 jan kl. 10.05" – relativt demoklockan/serverns tid. */
-export function whenText(s: string | null | undefined, now: string): string {
-  if (!s) return "–";
-  const day = dayOf(s);
-  const t = s.includes("T") ? ` kl. ${fmtTime(s)}` : "";
-  const today = dayOf(now);
-  if (day === today) return `i dag${t}`;
-  if (day === addDays(today, -1)) return `i går${t}`;
-  if (day === addDays(today, 1)) return `i morgon${t}`;
-  return `${WEEKDAYS_SHORT[weekday(s)]} ${fmtDateShort(s)}${t}`;
-}
+/** "i dag kl. 08.41", "i går kl. 15.20", "i morgon", "fre 29 jan kl. 10.05" – relativt demoklockan/serverns tid (src/core/todo.ts). */
+export { whenText } from "@/core/todo";
 
 /** "a, b och c" */
 export const listJoin = (xs: readonly string[]): string => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}`);
 /** Liten begynnelsebokstav utom för förkortningar (SYV). */
 export const lc = (x: string): string => (/^[A-ZÅÄÖ]{2}/.test(x) ? x : x.charAt(0).toLowerCase() + x.slice(1));
 
-/** Konfidens under detta markeras som osäker. */
+/** Konfidens under detta markeras som osäker – och bara då visas procenten (UX-genomgången, paket 1, S13). */
 export const LOW = 0.8;
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * Handläggarens slutdatum när omfattningen är ett antal månader (S13, bara visning): slutdatumet används inte – det räknas fram ur
+ * omfattningen från första mötets dag vid accept (orderPeriodFrom). Varningen visas när datumet inte stämmer med omfattningen
+ * räknat från det önskade startdatumet, eller när startdatumet saknas. Annan tidsperiod (ex.orderPeriod "annan"): ingen varning –
+ * då är slutdatumet kommunens. Tolkningen och acceptlogiken ändras inte.
+ */
+export function plannedEndWarning(ex: { orderPeriod?: unknown; desiredStart?: unknown; plannedEnd?: unknown }): string | null {
+  const end = typeof ex.plannedEnd === "string" && ISO_DAY.test(ex.plannedEnd) ? ex.plannedEnd : null;
+  const period = String(ex.orderPeriod ?? "").trim();
+  if (!end || !/^\d+$/.test(period) || Number(period) <= 0) return null;
+  const months = Number(period);
+  const start = typeof ex.desiredStart === "string" && ISO_DAY.test(ex.desiredStart) ? ex.desiredStart : null;
+  if (start && orderPeriodEnd(start, months) === end) return null;
+  return start
+    ? `Slutdatumet ${fmtDate(end)} stämmer inte med ${months} månader och används inte. Slutdatumet räknas fram ur omfattningen från första mötets dag.`
+    : `Slutdatumet ${fmtDate(end)} används inte. Med ${months} månader räknas slutdatumet fram ur omfattningen från första mötets dag.`;
+}
 
 /**
  * Feltext om beställarreferensen, skriven till Miljonbemanning (kärnans text i src/core/validation är skriven till kommunen).
@@ -133,6 +143,8 @@ export const DL_KIND: Record<DeadlineKindKey, { label: string; icon: IconName; c
 export type ChainKey = "coach" | "samordnare" | "avtalsansvarig" | "ekonom";
 export const CHAIN: Record<ChainKey, string[]> = { coach: ["Coach", "Samordnare", "Chef"], samordnare: ["Samordnare", "Chef"], avtalsansvarig: ["Avtalsansvarig", "Chef"], ekonom: ["Ekonom", "Chef"] };
 export const kindLabel = (k: string): string => DL_KIND[k as DeadlineKindKey]?.label ?? k;
+/** Rollens namn i eskaleringsvägen (CHAIN) – för "Mitt ansvar". */
+export const CHAIN_LABEL_OF: Partial<Record<string, string>> = { coach: "Coach", samordnare: "Samordnare", chef: "Chef", avtalsansvarig: "Avtalsansvarig", ekonom: "Ekonom" };
 
 /** Beskrivning utan att upprepa typen ("Svar på avrop (acceptera eller avböj)" → "Acceptera eller avböj"). */
 export function dlDesc(kind: string, label: string): string | null {
@@ -173,6 +185,11 @@ export type DeadlineRow = {
   href: string | null;
   /** Månadsrapporter: huvudcoachens namn (för sammanslagna rader). */
   coachName: string | null;
+  /**
+   * Användarens eget ansvar (Förfallers förval "Mitt ansvar", paket 2): användaren är ägaren, rollen äger förfallotiden, eller
+   * den har eskalerats till användarens roll (eskaleringsvägens nuvarande steg).
+   */
+  mine: boolean;
 };
 export type DeadlineGroupRow = DeadlineRow & { aggregate?: { count: number; byCoach: string; href: string | null } };
 

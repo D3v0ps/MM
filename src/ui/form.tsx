@@ -198,6 +198,7 @@ export function Check({
   disabled,
   children,
   className,
+  invalid,
   "aria-describedby": describedBy,
 }: {
   id?: string;
@@ -206,6 +207,8 @@ export function Check({
   disabled?: boolean;
   children?: ReactNode;
   className?: string;
+  /** Felmarkering utan Field (t.ex. "Jag har gått igenom bedömningen" i månadsbedömningen). */
+  invalid?: boolean;
   "aria-describedby"?: string;
 }) {
   const auto = useId();
@@ -219,7 +222,7 @@ export function Check({
         checked={!!checked}
         disabled={disabled}
         aria-describedby={[f?.describedBy, describedBy].filter(Boolean).join(" ") || undefined}
-        aria-invalid={f?.invalid || undefined}
+        aria-invalid={f?.invalid || invalid || undefined}
         onChange={(e) => onCheckedChange?.(e.target.checked)}
         className="mt-px size-[22px] flex-none accent-antracit"
       />
@@ -330,14 +333,32 @@ export function focusFirstError(container?: HTMLElement | null): void {
 
 export type ErrorSummaryItem = { id: string; text: ReactNode };
 
+/** Flytta fokus till felsammanfattningen (ErrorSummary med id) när den har ritats, och skrolla den i bild. */
+export function focusErrorSummary(id: string): void {
+  if (typeof window === "undefined") return;
+  requestAnimationFrame(() => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView?.({ block: "start" });
+  });
+}
+
 /**
  * Sammanfattning av felen överst (eller vid knapparna) med länkar till fälten. Läses upp (role="alert"). Länkarna flyttar
- * fokus till fältet – de navigerar inte (adressen ändras inte).
+ * fokus till fältet – de navigerar inte (adressen ändras inte). id: rutan kan ta emot fokus (tabIndex -1) – GOV.UK-mönstret,
+ * där skärmen flyttar fokus till sammanfattningen överst efter ett misslyckat försök (focusErrorSummary).
  */
-export function ErrorSummary({ items, title = "Rätta det här innan du går vidare", className }: { items: ErrorSummaryItem[]; title?: ReactNode; className?: string }) {
+export function ErrorSummary({ items, title = "Rätta det här innan du går vidare", className, id }: { items: ErrorSummaryItem[]; title?: ReactNode; className?: string; id?: string }) {
   if (!items.length) return null;
   return (
-    <div role="alert" className={cn("flex flex-col gap-1.5 rounded-mb border-2 border-rod bg-vit px-4 py-3 text-ui portal:text-portal", className)}>
+    <div
+      role="alert"
+      id={id}
+      tabIndex={id ? -1 : undefined}
+      data-error-summary=""
+      className={cn("flex flex-col gap-1.5 rounded-mb border-2 border-rod bg-vit px-4 py-3 text-ui portal:text-portal", className)}
+    >
       <div className="flex items-center gap-1.5 font-bold">
         <Icon name="alert-circle" className="text-rod" />
         {title}

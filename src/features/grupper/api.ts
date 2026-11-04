@@ -203,6 +203,11 @@ export const MASS_NOTE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig",
 /** Urvalen: mina ärenden, en nivå, ett yrkesområde (gruppen – Karims beslut 2026-10-22) eller en tagg. */
 export const MASS_NOTE_SCOPES = ["mina", "niva", "omrade", "tagg"] as const;
 export type MassNoteScope = (typeof MASS_NOTE_SCOPES)[number];
+/**
+ * Förvalt urval (UX-genomgången, paket 1, S18): coachen har egna ärenden och börjar med Mina ärenden. Samordnaren och
+ * avtalsansvarig har sällan egna – de börjar med Ett yrkesområde (och sidan säger vad de ska välja).
+ */
+export const defaultMassNoteScope = (role: Role): MassNoteScope => (role === "coach" || role === "handledare" ? "mina" : "omrade");
 export type MassNoteRow = {
   caseId: string;
   caseNumber: string;

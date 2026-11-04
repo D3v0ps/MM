@@ -18,6 +18,8 @@ export type GroupingFilterState = {
   active: boolean;
   /** Ärendet stämmer med valen (alltid sant utan val). */
   matches: (caseId: string) => boolean;
+  /** De valda värdena som text ("G – Lager och logistik", "Nivå 2 – …") – när filtren ligger bakom en knapp (närvaron). */
+  labels: string[];
 };
 
 export function useGroupingFilter(query: URLSearchParams): GroupingFilterState {
@@ -52,5 +54,8 @@ export function useGroupingFilter(query: URLSearchParams): GroupingFilterState {
         )}
       </>
     ) : null;
-  return { fields, active, matches };
+  const labels = [
+    area ? d?.areas.find((a) => a.code === area)?.name : null, level ? d?.levels.find((g) => g.id === level)?.name : null, tag ? d?.tags.find((g) => g.id === tag)?.name : null,
+  ].filter((x): x is string => !!x);
+  return { fields, active, matches, labels };
 }

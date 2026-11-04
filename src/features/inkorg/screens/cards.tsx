@@ -72,6 +72,13 @@ export function ParsedCard({ p }: { p: ParsedView }) {
         <span className="inline-flex items-center gap-1.5"><Icon name="alert-circle" /><b>{p.nLow}</b> osäkra (under {pct(LOW, 0)})</span>
         {p.aiRun && <span>{p.aiRun}</span>}
       </Legend>
+      {p.endWarning && (
+        <div className="border-b border-ljusgra px-[18px] py-3" data-testid="slutdatum-varning">
+          <Notice tone="warn" icon="calendar" title="Slutdatumet används inte">
+            {p.endWarning}
+          </Notice>
+        </div>
+      )}
       <div className="@container">
         {p.groups.map((g) => (
           <div key={g.title}>

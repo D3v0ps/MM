@@ -84,10 +84,11 @@ export const inboxList = query("inkorg.list", z.object({})).returns<InboxList>()
 
 /** Maskerat personnummer för ett ärende. hidden = rollen får inte se numret. caseId = för "Visa" (inkorgRevealPnr). */
 export type PnrView = { caseId: string | null; masked: string | null; hidden: boolean };
+/** Procenten visas bara när tolkningen är osäker (low, under 80 %) – UX-genomgången, paket 1, S13. */
 export type FieldNote =
   | { kind: "missing" }
   | { kind: "corrected" | "checked" | "supplement"; title: string }
-  | { kind: "low" | "pct"; pct: string };
+  | { kind: "low"; pct: string };
 export type FormField = { key: string; label: string; value: string | null; pnr?: PnrView; state: "ok" | "low" | "missing"; note: FieldNote | null };
 export type FieldGroup = { title: string; fields: FormField[] };
 
@@ -104,7 +105,8 @@ export type OriginalView = {
   mayReveal: boolean;
   attachments: string[];
 };
-export type ParsedView = { method: ParseMethod; help: string; nMissing: number; nLow: number; aiRun: string | null; groups: FieldGroup[] };
+/** endWarning: handläggarens slutdatum stämmer inte med omfattningen i månader och används inte (plannedEndWarning, bara visning). */
+export type ParsedView = { method: ParseMethod; help: string; nMissing: number; nLow: number; aiRun: string | null; groups: FieldGroup[]; endWarning: string | null };
 /** Beställningens uppgifter när de inte kommer ur en tolkning: portalen, telefon eller registrerad av Miljonbemanning (beslut 4a). */
 export type CaseFieldsView = { title: string; method: "portal" | "phone" | "registered"; groups: FieldGroup[] };
 export type AckView =
@@ -352,8 +354,27 @@ export const inboxRegister = command("inkorg.register", z.object({
 >();
 
 // ---------------------------------------------------------------- Startsidan
-export type MiniDeadline = { id: string; kind: string; label: string; sub: string | null; dueAt: string; sla: SlaView; href: string | null; provisional: boolean; count: number | null };
-export type AlertView = { key: string; severity: "critical" | "warning" | "info"; title: string; text: string; when: string; phase: number | null; href: string | null };
+export type MiniDeadline = {
+  id: string; kind: string; label: string; sub: string | null; dueAt: string; sla: SlaView; href: string | null; provisional: boolean; count: number | null;
+  /** Ärendet (null för avtalets egna och sammanslagna rader) – Min veckas att göra-lista slår ihop samma ärende. */
+  caseId: string | null;
+  caseNumber: string | null;
+};
+/** caseId och caseNumber: flaggan gäller ett ärende (Min veckas att göra-lista slår ihop samma ärende). */
+export type AlertView = {
+  key: string; severity: "critical" | "warning" | "info"; title: string; text: string; when: string; phase: number | null; href: string | null; caseId: string | null; caseNumber: string | null;
+};
+/**
+ * En öppen uppgift till rollen på Min vecka. dueAt = sista tid räknad ur ärendet (kallelsen: första mötets tid – ingen egen
+ * kolumn). call = uppgiften att ringa deltagaren (participant_contact): telefonnumret bara när rollen redan får se personen
+ * (läst via ctx.repo – policyn för persons), rebook = underlaget för "Boka om" (kallelsen till första mötet).
+ */
+export type StartTask = {
+  id: string; text: string; sub: string; emailId: string | null; caseId: string | null; href: string | null;
+  kind: string | null; caseNumber: string | null; dueAt: string | null;
+  call: { phone: string | null; firstMeeting: boolean } | null;
+  rebook: { caseId: string; caseNumber: string; due: SlaInfo | null; coachName: string; dueText: string } | null;
+};
 export type KpiCardView = {
   key: string;
   label: string;
@@ -375,8 +396,12 @@ export type StartView = {
     rows: { caseId: string; caseNumber: string; due: SlaInfo | null; sub: string; coachName: string; dueText: string }[];
     flagged: number;
   };
-  /** soon = försenat och i dag, week = de tre första denna vecka (sammanslagna); weekGrouped = antal rader denna vecka efter sammanslagning. */
-  deadlines: { soon: MiniDeadline[]; week: MiniDeadline[]; weekGrouped: number; soonCount: number; overdue: number; weekCount: number };
+  /**
+   * soon = försenat och i dag, week = de tre första denna vecka (sammanslagna); weekGrouped = antal rader denna vecka efter sammanslagning.
+   * mine = det som är användarens eget ansvar inom sju dagar (ägaren eller eskalerat till rollen – samma urval som Förfallers
+   * "Mitt ansvar"), sammanslaget som på Förfaller; mineCount = antal rader före sammanslagningen.
+   */
+  deadlines: { soon: MiniDeadline[]; week: MiniDeadline[]; weekGrouped: number; soonCount: number; overdue: number; weekCount: number; mine: MiniDeadline[]; mineCount: number };
   alerts: AlertView[];
   acked: { key: string; title: string; text: string }[];
   notifyEmail: boolean;
@@ -390,7 +415,7 @@ export type StartView = {
   /** Klockan nu (dagens gruppaktiviteter: passerade visar närvaron). */
   now: string;
   /** Öppna uppgifter till rollen. href = uppgiftens länk (mejlet, ärendets avrop eller – för en rättelse – ärendets rapporter). */
-  tasks: { id: string; text: string; sub: string; emailId: string | null; caseId: string | null; href: string | null }[];
+  tasks: StartTask[];
   deviations: { id: string; description: string; sub: string; due: SlaInfo | null; href: string | null }[];
   deviationsHref: string | null;
   summaryReport: { id: string; title: string; due: SlaInfo | null; href: string | null } | null;
@@ -438,7 +463,7 @@ export const inboxCorrect = command("inkorg.correct", z.object({
 
 /** Markera en uppgift till rollen som klar (prototypens ink.taskDone). */
 // inkorg.confirmation: en klarmarkerad uppgift att ringa deltagaren (participant_contact) försvinner ur bekräftelsens kallelse.
-export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "inkorg.confirmation", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
+export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "inkorg.confirmation", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Visa personnummer (tyst, loggas som pnr.revealed i revisionsloggen): i mejltexten (emailId) eller för ärendets person (caseId).
