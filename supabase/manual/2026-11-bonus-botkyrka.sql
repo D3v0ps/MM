@@ -1,6 +1,6 @@
 -- Incitamentsmodellen med bonussteg 1–5 i Botkyrkaavtalet (Karims beslut 2026-11-04, SPEC §7.17).
 --
--- KÖRS FÖR HAND av Karim i SQL Editor – aldrig av en agent och aldrig automatiskt. Ingen migration: filen ändrar data i
+-- KÖRS EN GÅNG FÖR HAND i produktionen efter Karims ja – aldrig automatiskt. Ingen migration: filen ändrar data i
 -- ett befintligt avtal (prislistan och avtalskonfigurationen), inte schemat.
 --
 -- Ordning (docs/DRIFT.md, "Bonus – incitamentsmodellen"):
