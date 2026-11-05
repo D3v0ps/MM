@@ -278,15 +278,19 @@ describe("Min vecka per roll", () => {
     // Fakturering behåller månadsöversikten och historiken – Min vecka har bara listan.
     for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera"]) expect(h, t).not.toContain(t);
     const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra"] > li')].map((r) => r.textContent ?? "");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows[0]).toContain("Faktura januari 2027");
     expect(rows[0]).toContain("Beställarreferens saknas");
     expect(rows[0]).toContain("3 veckor utan närvaro att godkänna");
     expect(rows[1]).toContain("Tilläggsfaktura 2 · december 2026");
     expect(rows[1]).toContain("Returnerad av kommunen");
     expect(rows[1]).toContain("Preskriptionsrisk BOT-26-0117");
-    expect(rows[2]).toContain("Uppgift från Johan Berg");
+    // Januaris bonusfaktura (Karims beslut 2026-11-04): en egen rad med knappen till bonusfakturan.
+    expect(rows[2]).toContain("Bonusfaktura januari 2027");
+    expect(rows[2]).toContain("2 bonussteg godkända av kommunen");
+    expect(rows[3]).toContain("Uppgift från Johan Berg");
     expect(screen.getByRole("link", { name: "Öppna körningen januari" }).getAttribute("href")).toBe("#/ekonomi/2027-01");
+    expect(screen.getByRole("link", { name: /^Öppna bonusfakturan/ }).getAttribute("href")).toBe("#/ekonomi/bonus/2027-01");
     for (const k of keys) expect([...ALLOWED.ekonom, "session.ping"], k).toContain(k);
   });
 

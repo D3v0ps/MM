@@ -47,10 +47,15 @@ export function findCaseNumber(text: string | null | undefined): string | null {
 }
 
 // ---------------------------------------------------------------- Pris och ordervärde
-/** Prisraden för ett område som gäller ett visst datum. */
+/**
+ * Prisraden per deltagarvecka för ett område som gäller ett visst datum. Bara enheten participant_week – bonusstegens prisrader
+ * (unit bonus_step, utan område) räknas aldrig i veckofaktureringen (src/core/bonus-billing.ts läser dem).
+ */
 export function priceItem(priceItems: readonly PriceItem[], areaCode: string | null | undefined, date: LocalDate, contractId?: string): PriceItem | null {
   return (
-    priceItems.find((p) => p.areaCode === areaCode && (!contractId || p.contractId === contractId) && p.validFrom <= date && (!p.validTo || p.validTo >= date)) ?? null
+    priceItems.find(
+      (p) => p.unit === "participant_week" && p.areaCode === areaCode && (!contractId || p.contractId === contractId) && p.validFrom <= date && (!p.validTo || p.validTo >= date),
+    ) ?? null
   );
 }
 /** Pris per deltagarvecka i öre (0 om inget pris finns). */

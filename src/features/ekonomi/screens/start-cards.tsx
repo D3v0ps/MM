@@ -249,7 +249,7 @@ export function ReturnedCard({ v, a }: { v: BillingStartView; a: BillingActions 
                     <InvStatus status={inv.status} />
                   </div>
                   <span className="text-small">
-                    {plural(inv.lines, "rad", "rader")} ({inv.caseNumbers.join(", ")}) · {plural(inv.quantity, "vecka", "veckor")} · {kr(inv.amountOre)}
+                    {plural(inv.lines, "rad", "rader")} ({inv.caseNumbers.join(", ")}) · {inv.bonus ? plural(inv.quantity, "bonussteg", "bonussteg") : plural(inv.quantity, "vecka", "veckor")} · {kr(inv.amountOre)}
                   </span>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-small">Beställarreferens:</span>
@@ -257,8 +257,8 @@ export function ReturnedCard({ v, a }: { v: BillingStartView; a: BillingActions 
                   </div>
                   <div>
                     {cr
-                      ? `Krediterad och fakturerad på nytt ${fmtDateTime(cr.at)} med referens ${cr.reference}. ${pl(inv.quantity, "Veckan", "Veckorna")} räknas nu som ${pl(inv.quantity, "fakturerad", "fakturerade")}.`
-                      : `${plural(inv.quantity, "vecka faktureras", "veckor faktureras")} om på en ny faktura (raderna räknas på nytt från dagens underlag). ${inv.refOk ? "Referensen är rättad. Kreditera den returnerade fakturan och skapa en ny." : "Fakturan returnerades eftersom beställarreferensen inte finns hos kommunen. Fyll i rätt referens först."}`}
+                      ? `Krediterad och fakturerad på nytt ${fmtDateTime(cr.at)} med referens ${cr.reference}.${inv.bonus ? "" : ` ${pl(inv.quantity, "Veckan", "Veckorna")} räknas nu som ${pl(inv.quantity, "fakturerad", "fakturerade")}.`}`
+                      : `${inv.bonus ? `${plural(inv.quantity, "bonussteg faktureras", "bonussteg faktureras")} om på en ny faktura med samma belopp.` : `${plural(inv.quantity, "vecka faktureras", "veckor faktureras")} om på en ny faktura (raderna räknas på nytt från dagens underlag).`} ${inv.refOk ? "Referensen är rättad. Kreditera den returnerade fakturan och skapa en ny." : "Fakturan returnerades eftersom beställarreferensen inte finns hos kommunen. Fyll i rätt referens först."}`}
                   </div>
                   {a.canAct && !cr && (
                     <div className="flex flex-wrap items-center gap-1.5">

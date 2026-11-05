@@ -6,6 +6,8 @@ import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { attendanceStats } from "@/core/attendance";
+import { BONUS_STATUS_TEXT } from "@/core/bonus";
+import { hidesCommercial } from "@/api/tester-access";
 import { duplicateActive } from "@/core/cases";
 import { isUnset } from "@/core/config";
 import { avropDue, firstMeetingDays } from "@/core/sla";
@@ -19,7 +21,7 @@ import { pnrSearchHash, revealPnr } from "../_shared/pnr";
 import {
   kommunCase, kommunCaseList, kommunCaseSeen, kommunDuplicate, kommunOrderForm, kommunProfile, kommunProfileSave, kommunReceipt, kommunReports,
   kommunRevealPnr, kommunStart, kommunTaskDone,
-  type KomCaseDetail, type KomCaseRow, type KomReportRow, type KomTask, type KomThread,
+  type KomBonusRow, type KomCaseDetail, type KomCaseRow, type KomReportRow, type KomTask, type KomThread,
 } from "./api";
 import { deliveredOk, komCase, komContext, komMessage, komPhase, reportRow, senderLabel, viewerFor, visibleCases } from "./load";
 // "Tala in" (röstinspelning): beställningens bakgrundsinformation och meddelanden.
@@ -84,11 +86,40 @@ handleQuery(kommunStart, { roles: HANDL }, async (ctx) => {
   const unreadAll = reports.filter((r) => !r.openedAt).sort(by((r: Report) => r.deliveredAt ?? "", -1));
   const unreadReports = await Promise.all(unreadAll.map((r) => reportRow(ctx, r, k, caseOf)));
 
+  // Bonusanspråk att besluta om nu – RLS och policy.ts lämnar bara ut skickade och beslutade anspråk. Bara de som handläggaren
+  // kan besluta om: hen beställde insatsen, och steg 4 och 5 först när bonussteg 3 är godkänt.
+  const bonus = (await bonusRows(ctx, ids, byCase)).filter((b) => b.canDecide);
+
   return {
     firstName: (k.me?.fullName ?? "").split(" ")[0], unit: k.me?.customerUnit ?? null, profileIncomplete: profileIncomplete(k.me), customerName: k.customerName,
-    tasks, unreadMessages, unreadReports,
+    tasks, unreadMessages, unreadReports, bonus,
   };
 });
+
+/**
+ * Bonusanspråken i ärendena (beslut 2026-11-04): bara skickade och beslutade (RLS och policy.ts). Namnet på steget ur det frysta
+ * underlaget. Inga belopp – anspråket har inga. Bonus är ett ekonomiskt villkor: begränsade testare ser det inte.
+ */
+async function bonusRows(ctx: Ctx, caseIds: readonly string[], byCase: ReadonlyMap<string, Case>): Promise<KomBonusRow[]> {
+  if (!caseIds.length || hidesCommercial(ctx.actor)) return [];
+  const claims = await ctx.repo.table("bonus_claims").list({ caseId: { in: [...caseIds] }, status: { in: ["submitted", "approved", "rejected"] } });
+  const statusOf = new Map(claims.map((x) => [x.id, x.status]));
+  return claims
+    .filter((x) => x.step != null)
+    .map((x): KomBonusRow => {
+      const st = x.status as KomBonusRow["status"];
+      const label = typeof x.snapshot?.stepLabel === "string" ? x.snapshot.stepLabel : `Bonussteg ${x.step}`;
+      // Steg 4 och 5 beslutas först när bonussteg 3 är godkänt (bonusDecisionApplies) – tills dess står de som "Beslutas efter bonussteg 3".
+      const waitingForStep3 = st === "submitted" && x.followsClaimId != null && statusOf.get(x.followsClaimId) !== "approved";
+      const mine = byCase.get(x.caseId)?.referrerId === ctx.actor.userId;
+      return {
+        claimId: x.id, caseId: x.caseId, caseNumber: byCase.get(x.caseId)?.caseNumber ?? "", step: x.step as number, label, sentAt: x.submittedAt, status: st,
+        statusText: waitingForStep3 ? "Beslutas efter bonussteg 3" : BONUS_STATUS_TEXT[st].text, icon: (waitingForStep3 ? "clock" : BONUS_STATUS_TEXT[st].icon) as KomBonusRow["icon"],
+        decidedAt: x.decidedAt, waitingForStep3, canDecide: st === "submitted" && !waitingForStep3 && mine,
+      };
+    })
+    .sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : a.caseNumber > b.caseNumber ? 1 : a.step - b.step));
+}
 
 // ================================================================ kommun.bestallning (formulärets förval och avtalets regler)
 // Inga priser och ingen beställarreferens (synpunkt #4, #10 och #11, beslut 2026-10-07). Yrkesområdena är avtalets aktiva
@@ -240,6 +271,7 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
     messages: msgs,
     canWrite: c.referrerId === me,
     coachChanges,
+    bonus: await bonusRows(ctx, [c.id], byCase),
     // Orderbekräftelsen – inget ordervärde, inget pris och ingen beställarreferens (synpunkt #10 och #11).
     order: { coachName: c.leadCoachId ? k.name(c.leadCoachId) : null, ocReportId: oc?.id ?? null },
     attendance,

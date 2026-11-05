@@ -62,6 +62,13 @@ async function priceRows(ctx: Ctx, c: Contract): Promise<PriceRow[]> {
     .map((p) => ({ id: p.id, areaName: areaName(areas, p.areaCode), fortnoxArticleNo: p.fortnoxArticleNo, unit: p.unit, priceOre: p.priceOre, vatRate: p.vatRate, validFrom: p.validFrom, validTo: p.validTo }));
 }
 
+/** Bonusavsnittet utan taket i öre (belopp – bara för ekonomen). */
+function withoutCap<B extends { capOre?: number }>(b: B): Omit<B, "capOre"> {
+  const { capOre: _cap, ...rest } = b;
+  void _cap;
+  return rest;
+}
+
 // ---------------------------------------------------------------- admin.contract
 handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p) => {
   const all = await contractList(ctx);
@@ -85,12 +92,14 @@ handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p
   }
   // Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07): prislistan och vitenas belopp lämnas inte ut här.
   // Prislistan finns i stället under Ekonomi (/ekonomi/prislista). Att avtalet har viten visas, utan belopp.
+  // Bonusens tak per deltagare (bonus.capOre, beslut 2026-11-04) är också ett belopp – det tas bort på samma sätt.
   const hideMoney = hidesMoney(ctx.actor);
   const { penalties, ...withoutPenalties } = c.config;
+  const withoutMoney = withoutPenalties.bonus ? { ...withoutPenalties, bonus: withoutCap(withoutPenalties.bonus) } : withoutPenalties;
   return {
     contracts: all.map((x) => summaryOf(x, orgName(x.customerId))),
     contract: await factsOf(ctx, c),
-    config: hideMoney ? withoutPenalties : c.config,
+    config: hideMoney ? withoutMoney : c.config,
     penaltiesHidden: hideMoney && !!penalties,
     yearShort: dayOf(ctx.now()).slice(2, 4),
     stuckCount,

@@ -151,7 +151,7 @@ function invoicesPerMonth(db: Db, invoiceStatus: ProtoInvoiceStatus): void {
           id: `${id}:${l.caseId}`, invoiceDraftId: id, caseId: l.caseId, priceItemId: l.priceItemId, quantity: l.quantity, unitPriceOre: l.unitPriceOre,
           vatRate: l.vatRate, description: l.lineText, isoWeeks: l.weeks.map((w) => w.key), zeroAttendanceWeeks: l.weeks.filter((w) => w.zeroAttendance).map((w) => w.key),
           // Testdatats historiska rader har ingen sparad anmärkning – förhandsvisningen räknar fram den.
-          note: "",
+          note: "", bonusClaimId: null,
         });
       }
     }

@@ -266,6 +266,18 @@ Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och
 
 Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
 
+### Bonus
+
+Bonus begärs per bonussteg (1–5). Reglerna står i kortet **Bonus** under deltagarkortets flik **Händelser och utfall**. Inga belopp syns – bara ekonomen ser belopp.
+
+1. Miljonmatch föreslår ett bonusanspråk när reglerna är uppfyllda, till exempel när arbete med verifiering är registrerat. Förslaget står på Min vecka som **Bonus att granska**. Du kan också trycka på **Skapa bonusanspråk** i kortet **Bonus**.
+2. Tryck på **Öppna bonusförslaget** eller **Granska och skicka**.
+3. Fyll i vilken verifiering som finns och verifieringens datum. För bonussteg 1 bockar du av checklistan och skriver var underlaget finns. Skriv aldrig personnummer.
+4. Läs förhandsvisningen av redovisningsunderlaget. Tryck på **Spara**.
+5. Tryck på **Skicka till kommunen**. Underlaget låses och handläggaren får ett mejl med bara ärendenumret.
+
+Ett skickat anspråk kan du återta med **Återta anspråket** tills kommunen beslutat. När kommunen beslutat får huvudcoachen en notis. Har kommunen svarat med mejl registrerar samordnaren eller avtalsansvarig beslutet med **Registrera beslutet**.
+
 ## Arbetsgivarmatchare
 
 Arbetsgivarmatcharen ingår i teamet för ett ärende och arbetar under **Arbetsgivare och praktik**: arbetsgivarkontakter, placeringar och praktik. Praktik avslutas med **Avsluta praktik**.
@@ -276,7 +288,7 @@ SYV/metodstöd ingår i teamet för ett ärende och stöttar coachen med metod o
 
 ## Ekonom
 
-Fliken **Ekonomi** har **Fakturering**, **Fakturakörning** för förra månaden och **Prislista**. Ekonomen är den enda rollen som ser belopp.
+Fliken **Ekonomi** har **Fakturering**, **Fakturakörning** för förra månaden, **Bonusfakturor** och **Prislista**. Ekonomen är den enda rollen som ser belopp.
 
 På Min vecka står en rad per faktura med allt som behöver göras – till exempel att beställarreferensen saknas, att veckor utan närvaro ska godkännas eller att veckor snart preskriberas – och en knapp. Dina uppgifter står på egna rader.
 
@@ -297,6 +309,8 @@ När Fortnox inte är kopplat skapar du fakturan i Fortnox själv. Excel-filen h
 5. Fliken **Fakturarader** har en rad per ärende: artikelnummer, benämning, antal veckor, à-pris, moms och radens anmärkning. Kolumnen **Anmärkningar för ekonomen** är bara för dig och står inte på fakturan.
 6. Skicka fakturan som e-faktura (Peppol).
 7. Tillbaka i Miljonmatch: tryck på **Markera som manuellt fakturerad** och skriv fakturanumret från Fortnox.
+
+**Bonusfakturor:** bonus faktureras på en egen faktura per månad, skild från månadens faktura. Varje bonussteg som kommunen godkänt är en rad. Taket per deltagare räknas automatiskt – en sänkt rad har en anmärkning. Fyll i beställarreferensen, godkänn och skapa fakturan i Fortnox eller markera den som manuellt fakturerad, som för månadens faktura. Bonusfakturan finns också i Excel-filen.
 
 Fliken **Om underlaget** förklarar reglerna och kolumnerna. Filen har bara ärendenummer – inga namn eller personnummer. Varje export sparas i revisionsloggen. CSV-filen finns kvar för den som vill ha en enkel textfil.
 

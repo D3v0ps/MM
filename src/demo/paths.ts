@@ -49,6 +49,8 @@ const VIEWS: readonly ViewDef[] = [
   { view: "eko.start", pattern: "/ekonomi", to: () => "/ekonomi" },
   { view: "eko.arende", pattern: "/ekonomi/arende/:caseId", to: (p) => (str(p.caseId) ? seg("/ekonomi/arende", p.caseId) : "/ekonomi") },
   { view: "eko.prislista", pattern: "/ekonomi/prislista", to: () => "/ekonomi/prislista" },
+  // Bonusfakturorna (beslut 2026-11-04) fanns inte i den gamla prototypen – står här så att /ekonomi/bonus inte tolkas som en månad.
+  { view: "eko.bonus", pattern: "/ekonomi/bonus/:month?", to: (p) => seg("/ekonomi/bonus", p.month) },
   {
     view: "eko.faktura",
     pattern: "/ekonomi/:month/faktura/:caseId",

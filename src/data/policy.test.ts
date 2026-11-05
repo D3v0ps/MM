@@ -217,19 +217,25 @@ describe("kommunen har bara rollen handläggare (beslut 2026-10-07)", () => {
     expect(await repoFor(MARIA, s).table("reports").get(rep.id)).toBeNull();
     await expect(repoFor(MARIA, s).table("reports").update(rep.id, { openedAt: "2027-02-01T09:00", openedBy: MARIA.userId })).rejects.toBeInstanceOf(PolicyError);
   });
-  it("inga bonusbelopp för kommunen: bonusanspråken läses inte av kommunen (beslut 5)", async () => {
+  it("inga bonusbelopp för kommunen: bara skickade och beslutade anspråk i egna ärenden, och ett anspråk har aldrig ett belopp (0039)", async () => {
     const s = new MemoryStore<Tables>(createSeed());
-    const c = s.raw().all("cases").find((x) => x.referrerId === MARIA.userId && x.status === "active")!;
-    s.insertRow("bonus_claims", {
-      id: "bc-test", caseId: c.id, kind: "work", basis: "Påhittat", evidencePaths: [], submittedAt: null, customerDecision: null, decidedBy: null, decidedAt: null,
-      amountOre: 500000, invoiceDraftId: null,
-    });
-    expect(await repoFor(MARIA, s).table("bonus_claims").count()).toBe(0);
-    expect(await repoFor(LARS, s).table("bonus_claims").count()).toBe(1);
+    const claims = s.raw().all("bonus_claims");
+    expect(claims.length).toBeGreaterThan(0);
+    expect(claims.every((k) => k.amountOre == null)).toBe(true);
+    const own = new Set(s.raw().all("cases").filter((c) => c.referrerId === MARIA.userId).map((c) => c.id));
+    const visible = await repoFor(MARIA, s).table("bonus_claims").list();
+    expect(visible.map((k) => k.id).sort()).toEqual(claims.filter((k) => own.has(k.caseId) && ["submitted", "approved", "rejected"].includes(k.status)).map((k) => k.id).sort());
+    expect(visible.some((k) => k.status === "suggested" || k.status === "withdrawn")).toBe(false);
+    // Ekonomen läser alla anspråk i avtalet (bonusfakturan) – utan belopp.
+    expect(await repoFor(LARS, s).table("bonus_claims").count()).toBe(claims.length);
+    // Ingen kan skriva ett belopp på ett anspråk (check i 0039) – inte heller den som arbetar i ärendet.
+    const sug = claims.find((k) => k.status === "suggested" && k.caseId === "case-260043" && k.step === 3)!;
+    await expect(repoFor(AMIRA, s).table("bonus_claims").update(sug.id, { amountOre: 600000 })).rejects.toBeInstanceOf(PolicyError);
   });
   it("inga priser för kommunen: prislistan läses bara av Miljonbemanning (synpunkt #11)", async () => {
     for (const a of KOMMUN()) expect([a.userId, await count(a, "price_items")]).toEqual([a.userId, 0]);
-    expect(await count(JOHAN, "price_items")).toBe(12);
+    // Tolv veckopriser (avtalsområde A–L) och fem bonussteg (beslut 2026-11-04).
+    expect(await count(JOHAN, "price_items")).toBe(17);
   });
 });
 
@@ -239,10 +245,12 @@ describe("ekonomen ser inga coachanteckningar", () => {
     // Tillfällena i testdatat inklusive deltagarnas rader i nivåaktiviteterna och yrkesområdesträffarna (Karims beslut 2026-10-22).
     expect(await count(LARS, "activities")).toBe(4108);
     expect(await count(LARS, "attendance")).toBe(3590);
-    expect(await count(LARS, "price_items")).toBe(12);
+    // Tolv veckopriser och fem bonussteg (Karims beslut 2026-11-04).
+    expect(await count(LARS, "price_items")).toBe(17);
     expect(await count(LARS, "billing_runs")).toBe(5);
-    // En faktura per avtal och månad (beslut 2026-10-07): september–december, varav december med en tilläggsfaktura.
-    expect(await count(LARS, "invoice_drafts")).toBe(5);
+    // En faktura per avtal och månad (beslut 2026-10-07): september–december, varav december med en tilläggsfaktura – plus
+    // december månads bonusfaktura (Karims beslut 2026-11-04).
+    expect(await count(LARS, "invoice_drafts")).toBe(6);
     expect(await count(LARS, "invoice_lines")).toBeGreaterThan(0);
     expect(await count(LARS, "buyer_references")).toBe(4);
     for (const n of [...NOTE_TABLES, "persons", "reports", "messages", "pulse_invites", "pulse_responses", "case_status_history", "outcome_events", "placements", "ai_runs", "inbound_emails", "audit_log"] as const) {
@@ -335,9 +343,10 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
   });
   it("revisionsloggen: admin och chef", async () => {
     // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07); plus
-    // testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20.
-    expect(await count(ROBIN, "audit_log")).toBe(20);
-    expect(await count(KARIN, "audit_log")).toBe(20);
+    // testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20; plus testdatats
+    // bonusanspråk och december månads bonusfaktura (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts) = 41.
+    expect(await count(ROBIN, "audit_log")).toBe(41);
+    expect(await count(KARIN, "audit_log")).toBe(41);
     for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.role, await count(a, "audit_log")]).toEqual([a.role, 0]);
   });
   it("utskick: admin och samordnare", async () => {

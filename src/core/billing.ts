@@ -245,7 +245,9 @@ export function invoiceRefProblem(ref: string | null | undefined, db: Pick<Db, "
 
 // ---------------------------------------------------------------- Fakturarader (underlaget per ärende och månad)
 export type BillingCheckKind =
-  | "buyer_ref" | "po" | "po_mixed" | "price" | "zero_week" | "missing_reg" | "too_many" | "over_order" | "overlap" | "paused" | "partial" | "not_billable";
+  | "buyer_ref" | "po" | "po_mixed" | "price" | "zero_week" | "missing_reg" | "too_many" | "over_order" | "overlap" | "paused" | "partial" | "not_billable"
+  // Bonusfakturan: beloppet är sänkt av taket per deltagare (src/core/bonus-billing.ts).
+  | "bonus_cap";
 export type BillingCheckSeverity = "blocking" | "needs_approval" | "approved" | "warning" | "info";
 export type ZeroWeekApproval = { by: UserId; at: LocalDateTime; note: string };
 export type BillingCheck = {
@@ -287,6 +289,9 @@ export type BillingLine = {
   needsApproval: boolean;
   /** Radtext: "BOT-26-0072 · v. 1, 3–4 2027" (ärendenumret är faktureringsobjekt – inga namn). */
   lineText: string;
+  /** Bonusfakturans rad (src/core/bonus-billing.ts): anspråket och bonussteget. Saknas på periodiska rader. */
+  bonusClaimId?: string;
+  bonusStep?: number;
 };
 
 export type BillingDb = Pick<
@@ -301,7 +306,8 @@ export type BillingDb = Pick<
  * (example – price_items.example_only) eller priset 0 kr (zero). Fakturan stoppas tills priserna är rätt, som när
  * beställarreferensen saknas – ett fel pris fryses annars på fakturan när den skapas.
  */
-export type PriceProblem = "missing" | "example" | "zero";
+/** earlier = bonusfakturan: ett tidigare godkänt bonussteg i ärendet saknar ett riktigt pris, så taket går inte att räkna. */
+export type PriceProblem = "missing" | "example" | "zero" | "earlier";
 export function priceProblemOf(item: Pick<PriceItem, "exampleOnly" | "priceOre"> | null): PriceProblem | null {
   if (!item) return "missing";
   if (item.exampleOnly) return "example";
@@ -312,7 +318,11 @@ const PRICE_LINE: Record<PriceProblem, { label: string; text: string }> = {
   missing: { label: "Pris saknas", text: "Prislistan har inget pris för ärendets avtalsområde den här månaden." },
   example: { label: "Exempelpris", text: "Priset i prislistan är ett exempelpris, inte avtalets pris." },
   zero: { label: "Pris 0 kr", text: "Priset i prislistan är 0 kr." },
+  earlier: { label: "Taket kan inte räknas", text: "Ett tidigare godkänt bonussteg i ärendet saknar ett riktigt pris i prislistan. Taket per deltagare räknas när det priset finns." },
 };
+
+/** Radens varning för ett pris som inte går att fakturera (samma text på månadens faktura och bonusfakturan). */
+export const priceLineCheck = (p: PriceProblem): BillingCheck => ({ kind: "price", severity: "warning", ...PRICE_LINE[p] });
 
 /** Områdena i klartext: "A", "A och C", "A, C och K". */
 const areaList = (codes: readonly string[]): string => (codes.length <= 1 ? (codes[0] ?? "") : `${codes.slice(0, -1).join(", ")} och ${codes[codes.length - 1]}`);
@@ -331,6 +341,7 @@ export function priceStopCheck(lines: readonly Pick<BillingLine, "priceProblem" 
     part("example", (r, a) => `${r} har exempelpris${a}.`),
     part("missing", (r, a) => `${r} saknar pris${a}.`),
     part("zero", (r, a) => `${r} har priset 0 kr${a}.`),
+    part("earlier", (r) => `${r} väntar på priset för ett tidigare bonussteg i ärendet (taket).`),
   ].filter(Boolean);
   return {
     kind: "price", severity: "blocking", label: "Priserna är inte klara",
@@ -453,6 +464,13 @@ export type MonthInvoice = {
   number: number;
   /** Raden finns i invoice_drafts. */
   stored: boolean;
+  /** periodic = månadens faktura (veckor), bonus = bonusfakturan (godkända bonusanspråk, src/core/bonus-billing.ts). */
+  kind: InvoiceDraft["kind"];
+  /**
+   * Bonusfakturan: godkända anspråk i månaden som inte ger någon rad eftersom taket per deltagare redan är nått ("Taket är nått").
+   * Tom för periodiska fakturor.
+   */
+  capped: { claimId: string; caseId: string; caseNumber: string; step: number; priceOre: number }[];
   /** Fakturans egen status (draft, approved, fortnox_created …). */
   storedStatus: InvoiceStatus;
   /** Som storedStatus, men "blocked" när en stoppande kontroll gäller en faktura som inte är skapad. */
@@ -639,46 +657,8 @@ export function monthInvoices(db: BillingDb, month: MonthKey, env: Pick<DomainEn
       open.set(base, list);
     }
 
-    const build = (draft: InvoiceDraft | null, groupingKey: string, lines: InvoiceLineView[]): MonthInvoice => {
-      const storedStatus: InvoiceStatus = draft?.status ?? "draft";
-      const isCreatedInv = isCreated(storedStatus);
-      const sorted = lines.slice().sort(by<InvoiceLineView>("caseNumber"));
-      const checks: BillingCheck[] = [];
-      // En faktura per ärende (invoicePer "case_and_month"): ärendets referens – den som Miljonbemanning fyllde i när
-      // beställningen togs emot (beslut 3) – gäller tills ekonomen anger en annan. Kontrolleras som alla referenser nedan.
-      const caseRefs = new Set(sorted.map((l) => (l.caseBuyerReference ?? "").trim()));
-      const caseRef = cfg.invoicePer === "case_and_month" && caseRefs.size === 1 ? [...caseRefs][0] || null : null;
-      const buyerReference = draft?.buyerReference ?? caseRef;
-      const { po, mixed } = invoicePo(draft, sorted);
-      // Referensen och inköpsordernumret kontrolleras innan fakturan skapas – och på en returnerad faktura innan den görs om.
-      if (!isCreatedInv || storedStatus === "returned") {
-        const refProblem = invoiceRefProblem(buyerReference, db, env.cfg);
-        if (cfg.buyerReference.required && refProblem) checks.push({ kind: "buyer_ref", severity: "blocking", label: "Beställarreferens saknas eller är fel", text: refProblem });
-        if (po && !poNumberValid(po, env.cfg)) checks.push({ kind: "po", severity: "blocking", label: "Inköpsordernumret har fel format", text: poNumberError(po, env.cfg) ?? "" });
-        if (mixed && !isCreatedInv) {
-          checks.push({
-            kind: "po_mixed", severity: "blocking", label: "Olika inköpsordernummer",
-            text: "Ärendena på fakturan har olika inköpsordernummer, men en faktura kan bara ha ett. Ange fakturans inköpsordernummer, eller lämna fältet tomt.",
-          });
-        }
-        // Exempelpris, pris 0 kr eller inget pris på någon rad: fakturan stoppas (priset fryses annars när den skapas).
-        const priceStop = isCreatedInv ? null : priceStopCheck(sorted.filter((l) => !l.frozen));
-        if (priceStop) checks.push(priceStop);
-      }
-      const blocked = checks.some((x) => x.severity === "blocking");
-      const needsApproval = !isCreatedInv && sorted.some((l) => l.needsApproval);
-      const amountOre = sum(sorted, (l) => l.amountOre);
-      const vat = vatBreakdown(sorted);
-      const id = draft?.id ?? invoiceIdOf(contractId, month, groupingKey);
-      return {
-        id, contractId, month, groupingKey, number: parseGroupingKey(groupingKey).n, stored: !!draft, storedStatus,
-        status: blocked && !isCreatedInv ? "blocked" : storedStatus, created: isCreatedInv, lines: sorted, quantity: sum(sorted, (l) => l.quantity), amountOre, vat,
-        vatOre: sum(vat, (v) => v.vatOre), buyerReference, purchaseOrderNumber: po, checks, blocked, needsApproval, approvedAt: draft?.approvedAt ?? null,
-        // Bara det lagrade numret (satt av porten när fakturan skapades) – aldrig ett framräknat i vyn.
-        approvedBy: draft?.approvedBy ?? null, fortnoxNo: FORTNOX_STATUSES.includes(storedStatus) ? (draft?.fortnoxDocumentNumber ?? null) : null,
-        manualInvoiceNo: draft?.manualInvoiceNo ?? null, fortnoxIdempotencyKey: draft?.fortnoxIdempotencyKey ?? null, fortnoxCreatedAt: draft?.fortnoxCreatedAt ?? null,
-      };
-    };
+    const build = (draft: InvoiceDraft | null, groupingKey: string, lines: InvoiceLineView[]): MonthInvoice =>
+      buildMonthInvoice(db, env, { contractId, month, kind: "periodic" }, draft, groupingKey, lines);
 
     for (const d of created) invoices.push(build(d, d.groupingKey, createdLines.get(d.id) ?? []));
     for (const [base, lines] of open) {
@@ -696,7 +676,59 @@ export function monthInvoices(db: BillingDb, month: MonthKey, env: Pick<DomainEn
   };
 }
 
-function compareGroup(a: string, b: string): number {
+/**
+ * En faktura av raderna (den periodiska och bonusfakturan, src/core/bonus-billing.ts): fakturans egna kontroller – beställar-
+ * referensen, inköpsordernumret och priserna (stoppar fakturan) – summorna och momsen per sats. Raderna sorteras på
+ * ärendenummer (och på bonussteget för bonusfakturan).
+ */
+export function buildMonthInvoice(
+  db: Pick<Db, "buyer_references">, env: Pick<DomainEnv, "cfg">, at: { contractId: string; month: MonthKey; kind: InvoiceDraft["kind"] }, draft: InvoiceDraft | null, groupingKey: string,
+  lines: readonly InvoiceLineView[],
+): MonthInvoice {
+  const cfg = env.cfg.billing;
+  const { contractId, month } = at;
+  const storedStatus: InvoiceStatus = draft?.status ?? "draft";
+  const isCreatedInv = isCreated(storedStatus);
+  const sorted = lines.slice().sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : a.caseNumber > b.caseNumber ? 1 : (a.bonusStep ?? 0) - (b.bonusStep ?? 0)));
+  const checks: BillingCheck[] = [];
+  // En faktura per ärende (invoicePer "case_and_month"): ärendets referens – den som Miljonbemanning fyllde i när
+  // beställningen togs emot (beslut 3) – gäller tills ekonomen anger en annan. Kontrolleras som alla referenser nedan.
+  const caseRefs = new Set(sorted.map((l) => (l.caseBuyerReference ?? "").trim()));
+  const caseRef = cfg.invoicePer === "case_and_month" && caseRefs.size === 1 ? [...caseRefs][0] || null : null;
+  const buyerReference = draft?.buyerReference ?? caseRef;
+  const { po, mixed } = invoicePo(draft, sorted);
+  // Referensen och inköpsordernumret kontrolleras innan fakturan skapas – och på en returnerad faktura innan den görs om.
+  if (!isCreatedInv || storedStatus === "returned") {
+    const refProblem = invoiceRefProblem(buyerReference, db, env.cfg);
+    if (cfg.buyerReference.required && refProblem) checks.push({ kind: "buyer_ref", severity: "blocking", label: "Beställarreferens saknas eller är fel", text: refProblem });
+    if (po && !poNumberValid(po, env.cfg)) checks.push({ kind: "po", severity: "blocking", label: "Inköpsordernumret har fel format", text: poNumberError(po, env.cfg) ?? "" });
+    if (mixed && !isCreatedInv) {
+      checks.push({
+        kind: "po_mixed", severity: "blocking", label: "Olika inköpsordernummer",
+        text: "Ärendena på fakturan har olika inköpsordernummer, men en faktura kan bara ha ett. Ange fakturans inköpsordernummer, eller lämna fältet tomt.",
+      });
+    }
+    // Exempelpris, pris 0 kr eller inget pris på någon rad: fakturan stoppas (priset fryses annars när den skapas).
+    const priceStop = isCreatedInv ? null : priceStopCheck(sorted.filter((l) => !l.frozen));
+    if (priceStop) checks.push(priceStop);
+  }
+  const blocked = checks.some((x) => x.severity === "blocking");
+  const needsApproval = !isCreatedInv && sorted.some((l) => l.needsApproval);
+  const amountOre = sum(sorted, (l) => l.amountOre);
+  const vat = vatBreakdown(sorted);
+  const id = draft?.id ?? invoiceIdOf(contractId, month, groupingKey);
+  return {
+    id, contractId, month, groupingKey, number: parseGroupingKey(groupingKey).n, stored: !!draft, storedStatus, kind: at.kind,
+    status: blocked && !isCreatedInv ? "blocked" : storedStatus, created: isCreatedInv, lines: sorted, quantity: sum(sorted, (l) => l.quantity), amountOre, vat,
+    vatOre: sum(vat, (v) => v.vatOre), buyerReference, purchaseOrderNumber: po, checks, blocked, needsApproval, approvedAt: draft?.approvedAt ?? null,
+    // Bara det lagrade numret (satt av porten när fakturan skapades) – aldrig ett framräknat i vyn.
+    approvedBy: draft?.approvedBy ?? null, fortnoxNo: FORTNOX_STATUSES.includes(storedStatus) ? (draft?.fortnoxDocumentNumber ?? null) : null,
+    manualInvoiceNo: draft?.manualInvoiceNo ?? null, fortnoxIdempotencyKey: draft?.fortnoxIdempotencyKey ?? null, fortnoxCreatedAt: draft?.fortnoxCreatedAt ?? null,
+    capped: [],
+  };
+}
+
+export function compareGroup(a: string, b: string): number {
   const x = parseGroupingKey(a);
   const y = parseGroupingKey(b);
   return x.base < y.base ? -1 : x.base > y.base ? 1 : x.n - y.n;

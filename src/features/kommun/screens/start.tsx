@@ -38,7 +38,8 @@ function StartContent({ d }: { d: KomStart }) {
   const doneTask = useTaskDone();
   const items = [...d.unreadMessages.map((m) => ({ key: m.id, msg: m, rep: null })), ...d.unreadReports.map((r) => ({ key: r.id, msg: null, rep: r }))];
   const shown = items.slice(0, 3);
-  const nothing = d.tasks.length + items.length === 0;
+  const todo = d.tasks.length + d.bonus.length;
+  const nothing = todo + items.length === 0;
   const allUnread = path("/portal/rapporter", { filter: "olasta", flik: d.unreadReports.length === 0 ? "meddelanden" : null });
   return (
     <KomPage>
@@ -53,9 +54,30 @@ function StartContent({ d }: { d: KomStart }) {
           </span>
         </Notice>
       )}
-      {d.tasks.length > 0 && (
-        <Card title={`Att göra (${d.tasks.length})`} icon="flag" tone="red" flush>
+      {todo > 0 && (
+        <Card title={`Att göra (${todo})`} icon="flag" tone="red" flush>
           <List>
+            {/* Bonusanspråk att besluta om (beslut 2026-11-04) – en rad per bonussteg, inga belopp. */}
+            {d.bonus.map((b) => (
+              <ListItem
+                key={b.claimId}
+                lead={<LeadIcon name="award" />}
+                title={
+                  <TitleRow>
+                    <span>Bonus att besluta om – {b.caseNumber}</span>
+                    <Badge tone="dark">Ny</Badge>
+                  </TitleRow>
+                }
+                sub={`Bonussteg ${b.step} · ${b.label}`}
+              >
+                <SubLine>Från Miljonbemanning{b.sentAt ? ` · ${fDT(b.sentAt)}` : ""}</SubLine>
+                <span className="mt-2 flex flex-wrap items-center gap-3">
+                  <Button kind="primary" icon="file" to={`/portal/bonus/${encodeURIComponent(b.claimId)}`}>
+                    Läs och besluta <span className="sr-only">om bonussteg {b.step} för {b.caseNumber}</span>
+                  </Button>
+                </span>
+              </ListItem>
+            ))}
             {d.tasks.map((t) => (
               <ListItem
                 key={t.id}

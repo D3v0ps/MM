@@ -31,6 +31,7 @@ import { ensureReports, type ReportScheduleState } from "@/features/rapporter/en
 import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
 import { finishStartChanges } from "@/features/arenden/start-finish";
+import { ensureBonusClaims } from "@/features/bonus/ensure";
 import { nextDayEnd } from "@/core/auto-attendance";
 import { isSystemSendTime } from "@/core/group-series";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
@@ -213,6 +214,12 @@ export function createMemoryRuntime(opts: {
           await finishStartChanges(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
         } catch (e) {
           console.error("ändra startdatum: kunde inte göras klart", e instanceof Error ? e.name : typeof e);
+        }
+        // Förslagen till bonusanspråk (beslut 2026-11-04) – samma steg som jobbet, med samma golv (testdatat har sina anspråk).
+        try {
+          await ensureBonusClaims(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+        } catch (e) {
+          console.error("bonusförslag: kunde inte skapas", e instanceof Error ? e.name : typeof e);
         }
         checkedAt = now;
       }

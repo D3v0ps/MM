@@ -46,9 +46,10 @@ describe("avtal och konfiguration", () => {
     // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag".
     // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – 10 värden. Gallringen av
     // bilagorna (2026-10-07) togs bort igen 2026-10-08 (beslut 5: bilagor gallras inte automatiskt) – fortfarande 10 värden.
+    // Incitamentsmodellen är fastställd (Karims beslut 2026-11-04, fråga 13) – 9 värden.
     expect(findUnset(d.config).map((u) => u.path)).toEqual([
       "customerVisibility.scope", "result.definition", "result.excludedFromDenominator", "kpis.narvarograd.internalTarget", "kpis.nojdhet.internalTarget",
-      "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention",
+      "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "retention",
     ]);
     expect(d.stuckCount).toBe(2);
     expect(d.bonusCandidates).toBe(31);
@@ -57,7 +58,10 @@ describe("avtal och konfiguration", () => {
     expect(d).not.toHaveProperty("priceItems");
     expect(d.config).not.toHaveProperty("penalties");
     expect(d.penaltiesHidden).toBe(true);
-    expect(JSON.stringify(d)).not.toMatch(/priceOre|deviationOre|insufficientInformationOre/);
+    // Bonusens tak per deltagare är ett belopp – bara modellens regler lämnas ut (beslut 2026-11-04).
+    expect(d.config.bonus).toMatchObject({ enabled: true, speedWeeks: 10 });
+    expect(d.config.bonus).not.toHaveProperty("capOre");
+    expect(JSON.stringify(d)).not.toMatch(/priceOre|deviationOre|insufficientInformationOre|capOre/);
   });
 
   it("ett nytt kommunavtal i utkast (påhittat): avtalsväljaren, inga driftavsnitt, texterna ur konfigurationen", async () => {
@@ -475,20 +479,27 @@ describe("revisionslogg och loggkontroll", () => {
     const d = await rt.query(adminAuditLog, {}, robin());
     // 19: utskicket av den generiska mottagningsbekräftelsen till em-104 finns inte längre (beslut 2026-10-07).
     // Plus testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20.
-    expect(d.rows).toHaveLength(20);
+    // Plus testdatats bonusanspråk (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts): förslag, skickat, beslut och
+    // december månads bonusfaktura = 41.
+    expect(d.rows).toHaveLength(41);
     expect([d.views, d.exports, d.byTester]).toEqual([2, 0, 0]);
     const details = d.rows.map((r) => r.detailText).join("\n");
     for (const s of ["Tolkning: Word-mall", "Tolkning: AI", "Period: rullande 6 månader", "Typ: tolka mejl", "Typ: transkribering och utkast"]) {
       expect(details).toContain(s);
     }
-    expect(details).not.toMatch(/Tolkning: template|Kanal: email|Typ: parse_email|rolling_6m|Mall: generisk_/);
+    expect(details).not.toMatch(/Tolkning: template|Kanal: email|Typ: parse_email|rolling_6m|Mall: generisk_|approved|rejected|: auto\b|Via: portal\b/);
+    // Bonusanspråken: steg och beslut i klarspråk – aldrig underlaget eller belopp.
+    expect(d.rows.find((r) => r.action === "bonus_claim.decided" && r.caseNumber === "BOT-26-0064")).toMatchObject({
+      actionLabel: "Registrerade kommunens beslut om bonus", entityLabel: "Bonusanspråk", actorName: "Maria Ekdahl", detailText: expect.stringMatching(/^Steg: 3 · Beslut: avslaget · Via: portalen/),
+    });
+    expect(details).not.toMatch(/Ore|kr\b/);
     expect(d.rows[0]).toMatchObject({ at: "2027-02-01T09:05", actorName: "Lars Nyström", actionLabel: "Visade fakturaunderlag", entityLabel: "Fakturakörning", entityText: "Januari 2027" });
     expect(d.rows.find((r) => r.action === "email.linked")).toMatchObject({ entityLabel: "Mejl", caseNumber: "BOT-27-0049", caseId: "case-270049", detailText: "Via: ärendenummer i ämnesraden" });
     // Testdatats ändring av startdatum: datumen i klarspråk, aldrig motiveringen.
     expect(d.rows.find((r) => r.action === "case.start_date_changed")).toMatchObject({
       actorName: "Amira Haddad", caseNumber: "BOT-27-0031", detailText: "Ändring: csc-seed-0031 · Anteckning med motivering: note-startdatum-0031 · Ändringens nummer: 1 · Från: 1 feb 2027 · Till: 26 jan 2027",
     });
-    expect(d.actors.map((a) => a.label)).toEqual(["Amira Haddad", "Karin Wallin", "Lars Nyström", "Maria Ekdahl", "Miljonmatch (automatiskt)", "Sara Lindqvist"]);
+    expect(d.actors.map((a) => a.label)).toEqual(["Amira Haddad", "Erik Sjöberg", "Karin Wallin", "Lars Nyström", "Maria Ekdahl", "Miljonmatch (automatiskt)", "Sara Lindqvist"]);
     expect(d.logCheck).toMatchObject({ month: "2027-01", canSign: false, done: null });
     await forbidden(rt.query(adminAuditLog, {}, sara()));
   });
@@ -509,14 +520,15 @@ describe("revisionslogg och loggkontroll", () => {
   it("chefens stickprov är samma poster som i den gamla prototypen – plus testdatats ändring av startdatum – och kräver anteckning vid avvikelse", async () => {
     const d = await rt.query(adminAuditLog, {}, karin());
     expect(d.logCheck.canSign).toBe(true);
-    // Testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) är januaris enda post som inte
-    // finns i den gamla prototypen – den kommer med i stickprovet i stället för prototypens sista post.
+    // Testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) och testdatats bonusanspråk
+    // (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts) är januaris poster som inte finns i den gamla prototypen – de
+    // kommer med i stickprovet (var n:e post efter visningarna) i stället för prototypens poster.
     expect(d.logCheck.sample.map((s) => [s.actionLabel, s.at, s.actorName, s.entityLabel, s.caseNumber])).toEqual([
       ["Visade rapport", "2027-01-29T16:10", "Karin Wallin", "Rapport", ""],
-      ["Ändrade startdatum", "2027-01-28T10:05", "Amira Haddad", "Ärende", "BOT-27-0031"],
-      ["Tog emot mejl", "2027-01-29T10:05", "Miljonmatch (automatiskt)", "Mejl", ""],
-      ["Skapade ärende", "2027-01-29T10:07", "Miljonmatch (automatiskt)", "Ärende", "BOT-27-0048"],
-      ["Skickade e-post", "2027-01-29T10:07", "Miljonmatch (automatiskt)", "Ärende", "BOT-27-0048"],
+      ["Föreslog bonussteg automatiskt", "2027-01-02T06:00", "Miljonmatch (automatiskt)", "Bonusanspråk", "BOT-26-0043"],
+      ["Skickade bonusanspråk till kommunen", "2027-01-11T09:40", "Amira Haddad", "Bonusanspråk", "BOT-26-0008"],
+      ["Föreslog bonussteg automatiskt", "2027-01-17T06:00", "Miljonmatch (automatiskt)", "Bonusanspråk", "BOT-26-0008"],
+      ["Skickade bonusanspråk till kommunen", "2027-01-28T13:40", "Erik Sjöberg", "Bonusanspråk", "BOT-26-0027"],
     ]);
     const items = d.logCheck.sample.map((s, i) => ({ logId: s.id, verdict: i === 0 ? "avvikelse" : "ok" }));
     expect(await rt.command(adminLogCheck, { month: "2027-01", items, note: " " }, karin())).toMatchObject({ ok: false, error: "note" });

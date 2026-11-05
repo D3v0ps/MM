@@ -86,7 +86,10 @@ describe("antal rader per tabell", () => {
   it("är prototypens antal (mappat till nya tabellnamn)", () => {
     // Deltagarnas rader i nivåaktiviteterna och yrkesområdesträffarna (Karims beslut 2026-10-22) finns inte i prototypen –
     // de räknas för sig nedan.
-    const n = (name: keyof Tables) => name === "activities" ? seed.activities.filter((a) => a.groupActivityId == null).length : (seed[name] as unknown[]).length;
+    // Bonusstegens prisrader (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts) finns inte heller i prototypen.
+    const n = (name: keyof Tables) =>
+      name === "activities" ? seed.activities.filter((a) => a.groupActivityId == null).length :
+      name === "price_items" ? seed.price_items.filter((p) => p.unit !== "bonus_step").length : (seed[name] as unknown[]).length;
     const samples = fs.existsSync(SAMPLES_FILE) ? (JSON.parse(fs.readFileSync(SAMPLES_FILE, "utf8")) as { counts: Record<string, number> }).counts : null;
     // [nytt tabellnamn, prototypens namn, antal i nuvarande prototyp]. Avvikelse: prototypen har två avtal – Miljonmatch har
     // bara kommunavtal, och det andra avtalet (med dess organisation och medlemskap) är borttaget ur testdatat (beslut 2026-10-06).
@@ -100,7 +103,8 @@ describe("antal rader per tabell", () => {
       // Beslut 2026-10-07 (seed/decisions-2026-10-07.ts): em-104 är en vanlig fråga – utskicket av den generiska
       // mottagningsbekräftelsen, dess loggrad och uppgiften till avtalsansvarig finns inte (prototypen: 20, 8 och 2).
       // Karims beslut 2026-10-29 (seed/decisions-2026-10-29.ts): revisionsloggens rad för testdatats ändring av startdatum (prototypen: 19).
-      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 20],
+      // Karims beslut 2026-11-04 (seed/decisions-2026-11-04.ts): 21 rader för testdatats bonusanspråk och december månads bonusfaktura.
+      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 41],
       ["outbound_messages", "notifications", 7], ["tasks", "tasks", 1],
     ];
     for (const [table, , count] of rows) expect([table, n(table)]).toEqual([table, count]);
@@ -230,19 +234,27 @@ describe("stickprov mot data-samples.json", () => {
     expect(runs).toEqual(S!.billingRuns);
     // Beslut 2026-10-07 (synpunkt #13, seed/decisions-2026-10-07.ts): en faktura per avtal och månad med frysta rader. Prototypens
     // status per månad (default) blir månadens faktura; de ärenden som hade en annan status (december: de två returnerade)
-    // står på en tilläggsfaktura. Januari är underlag och har ingen rad.
-    const inv = seed.invoice_drafts.map((i) => [i.month, i.groupingKey, i.status, i.caseId, i.buyerReference]);
+    // står på en tilläggsfaktura. Januari är underlag och har ingen rad. Plus december månads bonusfaktura (Karims beslut
+    // 2026-11-04, seed/decisions-2026-11-04.ts) – manuellt fakturerad, med decemberfakturans referens.
+    const inv = seed.invoice_drafts.map((i) => [i.month, i.kind, i.groupingKey, i.status, i.caseId, i.buyerReference]);
     expect(inv).toEqual([
-      ["2026-09", "avtal", "paid", null, "55102938"], ["2026-10", "avtal", "paid", null, "55102938"], ["2026-11", "avtal", "paid", null, "55102938"],
-      ["2026-12", "avtal", "sent", null, "55102938"], ["2026-12", "avtal-tillagg-2", "returned", null, "55102983"],
+      ["2026-09", "periodic", "avtal", "paid", null, "55102938"], ["2026-10", "periodic", "avtal", "paid", null, "55102938"], ["2026-11", "periodic", "avtal", "paid", null, "55102938"],
+      ["2026-12", "periodic", "avtal", "sent", null, "55102938"], ["2026-12", "periodic", "avtal-tillagg-2", "returned", null, "55102983"],
+      ["2026-12", "bonus", "bonus", "manual", null, "55102938"],
     ]);
     const proto = S!.invoiceStatus_example as Json;
     expect((proto["2026-12"] as Json).default).toBe("sent");
     const returnedCases = Object.entries(proto["2026-12"] as Json).filter(([k, v]) => k !== "default" && v === "returned").map(([k]) => k).sort();
     const suppId = seed.invoice_drafts.find((i) => i.groupingKey === "avtal-tillagg-2")!.id;
     expect(seed.invoice_lines.filter((l) => l.invoiceDraftId === suppId).map((l) => l.caseId).sort()).toEqual(returnedCases);
-    // Varje fryst rad har veckor, ett ärendenummer i radtexten och inga namn.
+    // Varje fryst rad har veckor, ett ärendenummer i radtexten och inga namn. Bonusfakturans rader (ett bonussteg per rad, inga
+    // veckor) har ärendenumret och bonussteget och pekar på anspråket.
     for (const l of seed.invoice_lines) {
+      if (l.bonusClaimId) {
+        expect([l.quantity, l.isoWeeks], l.id).toEqual([1, []]);
+        expect(l.description, l.id).toMatch(/^BOT-\d{2}-\d{4} · Bonussteg [1-5]$/);
+        continue;
+      }
       expect(l.isoWeeks.length, l.id).toBe(l.quantity);
       expect(l.description, l.id).toMatch(/^BOT-\d{2}-\d{4} · v\. /);
     }

@@ -20,6 +20,7 @@
 //   gen-group-activities.ts  återkommande nivåaktiviteter och månadens yrkesområdesträffar (Karims beslut 2026-10-22)
 //   decisions-2026-10-29.ts  Karims beslut 2026-10-29: filer på deltagarkortet (CV, personligt brev, intyg – bara Miljonbemanning)
 //                    och en ändring av startdatum (med motivering)
+//   decisions-2026-11-04.ts  incitamentsmodellen (beslut 2026-11-04): bonusstegens priser och bonusanspråk i olika lägen
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -34,6 +35,7 @@ import { addGroupings } from "./gen-groupings";
 import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
 import { applyDecisions20261022 } from "./decisions-2026-10-22";
 import { applyDecisions20261029 } from "./decisions-2026-10-29";
+import { applyDecisions20261104 } from "./decisions-2026-11-04";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -79,6 +81,8 @@ export function createSeed(): MemoryData<Tables> {
   // Efter januaris automatiska månadsbedömningar: motiveringen till ändringen av startdatum är en anteckning i januari, men aldrig
   // underlag.
   applyDecisions20261029(db);
+  // Incitamentsmodellen (beslut 2026-11-04): bonusstegens prisrader och ett urval bonusanspråk i olika lägen.
+  applyDecisions20261104(db);
   return db;
 }
 

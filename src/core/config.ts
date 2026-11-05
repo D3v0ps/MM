@@ -6,6 +6,7 @@
 // "ATT_FASTSTÄLLA" = värdet ska bekräftas med kunden (SPEC §13). Värdet får ha en förklaring efter, t.ex.
 // "ATT_FASTSTÄLLA (förslag: 5 arbetsdagar)". En regel med det värdet ska inte aktiveras – visa "Ej fastställt".
 import { z } from "zod";
+import { OUTCOME_EVENT_KINDS } from "@/data/schema";
 
 // ---------------------------------------------------------------- ATT_FASTSTÄLLA
 export const UNSET = "ATT_FASTSTÄLLA" as const;
@@ -67,9 +68,15 @@ export type DataRole = z.infer<typeof DataRoleSchema>;
 /** Beställningskanaler (samma värden som cases.source). */
 export const OrderChannelSchema = z.enum(["email", "portal", "phone"]);
 export type OrderChannel = z.infer<typeof OrderChannelSchema>;
-/** Prisenhet (price_items.unit, SPEC §6.1). Kommunavtalen faktureras per deltagare och vecka. */
-export const PriceUnitSchema = z.enum(["participant_week"]);
+/**
+ * Prisenhet (price_items.unit, SPEC §6.1). Kommunavtalen faktureras per deltagare och vecka. bonus_step = ett bonussteg i
+ * incitamentsmodellen (§7.17, beslut 2026-11-04): en prisrad per bonussteg, utan avtalsområde. Veckofaktureringen läser bara
+ * participant_week (src/core/cases.ts priceItem) – bonusstegen faktureras bara på bonusfakturan (src/core/bonus-billing.ts).
+ */
+export const PriceUnitSchema = z.enum(["participant_week", "bonus_step"]);
 export type PriceUnit = z.infer<typeof PriceUnitSchema>;
+/** Avtalets enhet för den periodiska faktureringen (billing.unit): bara deltagarvecka. */
+export const BillingUnitSchema = z.enum(["participant_week"]);
 /** Vilka ärenden kommunens handläggare ser: egna, enhetens eller alla. */
 export const VisibilityScopeSchema = z.enum(["own", "unit", "all"]);
 export type VisibilityScope = z.infer<typeof VisibilityScopeSchema>;
@@ -222,7 +229,7 @@ const ActivitiesSchema = z.strictObject({
 
 const PatternRuleSchema = z.strictObject({ required: z.boolean(), pattern: RegexSchema });
 const BillingSchema = z.strictObject({
-  unit: PriceUnitSchema,
+  unit: BillingUnitSchema,
   /** Debiterbar vecka = varje ISO-vecka med minst en inskriven dag, utom pausade veckor (SPEC §3.1). */
   billableWeekRule: z.enum(["every_iso_week_with_at_least_one_enrolled_day_excluding_paused_weeks"]),
   flagZeroAttendanceWeeks: z.boolean(),
@@ -247,7 +254,59 @@ const BillingSchema = z.strictObject({
   fallback: z.array(z.string().min(1)),
 });
 
-const BonusSchema = z.strictObject({ enabled: z.boolean(), model: z.string().min(1), separateInvoice: z.boolean() });
+// ---- Bonus: incitamentsmodellen (SPEC §7.17, beslut 2026-11-04 – Botkyrka har godtagit modellen)
+/** Bonusstegen 1–5 (aldrig "nivå" – deltagarna har redan nivåer 1–5). */
+export const BONUS_STEPS = [1, 2, 3, 4, 5] as const;
+export type BonusStep = (typeof BONUS_STEPS)[number];
+const BonusStepSchema = z.strictObject({
+  step: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
+  /** Bonusstegets namn, t.ex. "Arbete eller studier". */
+  label: z.string().min(1).max(80),
+  /** Prisradens kod i price_items (unit bonus_step) – beloppet står i prislistan, aldrig i konfigurationen. */
+  priceItemCode: z.string().min(1).max(40),
+});
+/**
+ * Bonus (fas 3). Äldre form (produktionen före beslutet): { enabled: false, model, separateInvoice } – den validerar fortfarande.
+ * När enabled är true krävs hela modellen (superRefine): taket per deltagare i öre (capOre – det enda beloppet i
+ * konfigurationen; stegens belopp står i prislistan), att stegen aldrig avräknas (offset "never"), närvarogränsen för steg 1,
+ * snabbhetspremiens veckor, hållbarhetens månader, fönstret efter insatsen och händelsetyperna för steg 2 och 3, och exakt
+ * stegen 1–5 en gång var. Modellen får inte vara ATT_FASTSTÄLLA när bonus är påslagen.
+ */
+const BonusSchema = z
+  .strictObject({
+    enabled: z.boolean(),
+    model: z.string().min(1),
+    separateInvoice: z.boolean(),
+    /** Taket per deltagare (ärende), öre exkl. moms. */
+    capOre: z.int().min(1).optional(),
+    /** "never" = tidigare steg avräknas aldrig: stegen läggs ihop upp till taket (Karims beslut 2026-11-04). */
+    offset: z.enum(["never"]).optional(),
+    /** Steg 1: minsta närvarograd i procent (från start till i dag eller slutdatum). */
+    attendanceMinPercent: z.int().min(1).max(100).optional(),
+    /** Steg 5: steg 3 nås senast så här många veckor från start. */
+    speedWeeks: PosInt.optional(),
+    /** Steg 4: arbetet eller studierna kvarstår så här många månader efter resultatdatum. */
+    sustainMonths: PosInt.optional(),
+    /** Steg 3: "i anslutning till insatsen" = under insatsen eller högst så här många månader efter slutdatum. */
+    resultWindowMonthsAfterEnd: z.int().min(0).optional(),
+    /** Händelsetyper som ger förslag till steg 2 (under insatsen). */
+    step2EventKinds: z.array(z.enum(OUTCOME_EVENT_KINDS)).min(1).optional(),
+    /** Händelsetyper som ger förslag till steg 3 (med registrerad verifiering). */
+    step3EventKinds: z.array(z.enum(OUTCOME_EVENT_KINDS)).min(1).optional(),
+    /** Stegen 1–5, exakt en gång var. */
+    steps: z.array(BonusStepSchema).optional(),
+  })
+  .superRefine((b, ctx) => {
+    if (!b.enabled) return;
+    if (isUnset(b.model)) ctx.addIssue({ code: "custom", message: "Bonus kan inte slås på medan modellen inte är fastställd", path: ["model"] });
+    const required = ["capOre", "offset", "attendanceMinPercent", "speedWeeks", "sustainMonths", "resultWindowMonthsAfterEnd", "step2EventKinds", "step3EventKinds", "steps"] as const;
+    for (const k of required) if (b[k] === undefined) ctx.addIssue({ code: "custom", message: `Bonus är påslagen men ${k} saknas`, path: [k] });
+    if (b.steps) {
+      const nos = b.steps.map((s) => s.step).sort((x, y) => x - y);
+      if (nos.join(",") !== BONUS_STEPS.join(",")) ctx.addIssue({ code: "custom", message: "Bonusstegen ska vara 1–5, exakt en gång var", path: ["steps"] });
+      if (new Set(b.steps.map((s) => s.priceItemCode)).size !== b.steps.length) ctx.addIssue({ code: "custom", message: "Prisradernas koder måste vara unika", path: ["steps"] });
+    }
+  });
 const PulseSchema = z.strictObject({
   occasions: z.array(PulseOccasionSchema),
   periodicEveryDays: PosInt,
@@ -494,6 +553,47 @@ export type AttendanceConfig = OperationalConfig["attendance"];
 /** Veckoplanen (valfritt avsnitt). */
 export type ActivitiesConfig = NonNullable<ContractConfig["activities"]>;
 export type BillingConfig = OperationalConfig["billing"];
+/** Bonusavsnittet som det står i konfigurationen (äldre form eller hela modellen). */
+export type BonusSection = OperationalConfig["bonus"];
+/**
+ * Bonusmodellen när bonus är påslagen (alla regler finns – superRefine i BonusSchema). Taket i öre (capOre) är valfritt här:
+ * kommunens version av avtalet saknar det (mm.customer_safe_config, customerSafeConfig nedan) – bara faktureringen behöver det
+ * (BonusBillingModel).
+ */
+export type BonusModel = Required<Omit<BonusSection, "capOre">> & { enabled: true; capOre?: number };
+/** Bonusmodellen med taket – för faktureringen och prislistan (bara ekonomen, som läser hela avtalet). */
+export type BonusBillingModel = BonusModel & { capOre: number };
+const BONUS_RULE_KEYS = ["offset", "attendanceMinPercent", "speedWeeks", "sustainMonths", "resultWindowMonthsAfterEnd", "step2EventKinds", "step3EventKinds", "steps"] as const;
+/**
+ * Bonusmodellen om bonus är påslagen i avtalet, annars null (avstängd, äldre form eller avsnittet saknas). Läses av allt som
+ * rör bonus – inget värde i modellen hårdkodas (CLAUDE.md punkt 4). Fungerar också på kommunens version av avtalet (utan taket).
+ */
+export function bonusModel(cfg: Pick<ContractConfig, "bonus"> | null | undefined): BonusModel | null {
+  const b = cfg?.bonus;
+  if (!b || !b.enabled) return null;
+  return BONUS_RULE_KEYS.every((k) => b[k] !== undefined) ? (b as BonusModel) : null;
+}
+/** Bonusmodellen med taket per deltagare, annars null – faktureringen räknar aldrig bonus utan taket. */
+export function bonusBillingModel(cfg: Pick<ContractConfig, "bonus"> | null | undefined): BonusBillingModel | null {
+  const m = bonusModel(cfg);
+  return m && typeof m.capOre === "number" ? (m as BonusBillingModel) : null;
+}
+/** Bonusstegets namn ur konfigurationen ("Arbete eller studier"), eller "Bonussteg n" om det saknas. */
+export const bonusStepLabel = (m: Pick<BonusModel, "steps"> | null | undefined, step: number): string => m?.steps.find((s) => s.step === step)?.label ?? `Bonussteg ${step}`;
+
+/**
+ * Avtalet som kommunen får läsa (spegel av mm.customer_safe_config, 0026 och 0039): utan de interna målen och mottagarna för
+ * KPI-varningarna (internalTarget, notify), med tomma viten (penalties – belopp i öre) och utan bonusens tak i öre
+ * (bonus.capOre). Kommunen ser aldrig belopp (beslut 2026-10-07). Används av testerna som jämför med vyn contracts_public; i
+ * minnesläget läser kommunens hanterare inga av fälten.
+ */
+export function customerSafeConfig<C extends ContractConfig>(cfg: C): C {
+  const out = JSON.parse(JSON.stringify(cfg)) as Record<string, unknown>;
+  if (Array.isArray(out.kpis)) out.kpis = (out.kpis as Record<string, unknown>[]).map((k) => { const { internalTarget: _i, notify: _n, ...rest } = k; void _i; void _n; return rest; });
+  if (out.penalties && typeof out.penalties === "object") out.penalties = {};
+  if (out.bonus && typeof out.bonus === "object") delete (out.bonus as Record<string, unknown>).capOre;
+  return out as C;
+}
 export type PulseConfig = OperationalConfig["pulse"];
 export type EscalationStep = OperationalConfig["escalationLadder"][number];
 /** AI-avsnittet (leverantör, inspelningsflöden, maxlängd, språk, länkens giltighet). */
@@ -804,7 +904,29 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
       format: "peppol_bis_3_via_fortnox",
       fallback: ["export_xlsx_pdf", "botkyrka_fakturaportal"],
     },
-    bonus: { enabled: false, model: "ATT_FASTSTÄLLA enligt incitamentsmodellen", separateInvoice: true },
+    // Incitamentsmodellen (beslut 2026-11-04, Botkyrka har godtagit modellen): fem bonussteg som läggs ihop utan avräkning upp
+    // till taket 12 000 kr per deltagare. Stegens belopp står i prislistan (price_items, unit bonus_step, artiklarna
+    // BOT-BONUS-1 … BOT-BONUS-5) – bara taket är ett belopp här. Produktionen slås på med supabase/manual/2026-11-bonus-botkyrka.sql.
+    bonus: {
+      enabled: true,
+      model: "Miljonbemannings incitamentsmodell med bonussteg 1–5, godtagen av Botkyrka kommun",
+      separateInvoice: true,
+      capOre: 1200000,
+      offset: "never",
+      attendanceMinPercent: 80,
+      speedWeeks: 10,
+      sustainMonths: 3,
+      resultWindowMonthsAfterEnd: 3,
+      step2EventKinds: ["praktik_startad", "validering_uppnadd", "yrkesbevis", "intervju_arbetsgivarkontakt"],
+      step3EventKinds: ["arbete_paborjat", "studier_paborjade"],
+      steps: [
+        { step: 1, label: "Dokumenterad progression", priceItemCode: "BOT-BONUS-1" },
+        { step: 2, label: "Stark progression", priceItemCode: "BOT-BONUS-2" },
+        { step: 3, label: "Arbete eller studier", priceItemCode: "BOT-BONUS-3" },
+        { step: 4, label: "Hållbart resultat", priceItemCode: "BOT-BONUS-4" },
+        { step: 5, label: "Snabbhetspremie", priceItemCode: "BOT-BONUS-5" },
+      ],
+    },
     pulse: { occasions: ["week2", "exit"], periodicEveryDays: 30, languages: ["sv", "en", "ar", "so"], minNForAggregate: 5 },
     statistics: { onRequestMaxPerYear: 2, free: true },
     termination: { returnDataWithinDays: 31, deleteAfterReturn: true },

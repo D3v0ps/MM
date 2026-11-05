@@ -9,7 +9,7 @@
 // utan ärendenummer (period, arbetsuppgifter och de fyra rätten) – så att registret visar hur arbetsgivaren används.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CASES, START, COACH, PORTAL, REPORTS, MGMT, BILLING, INBOX, CASE_STATS, AKTIVITETER } from "@/api/invalidation";
+import { AKTIVITETER, BILLING, BONUS, CASE_STATS, CASES, COACH, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS, START } from "@/api/invalidation";
 import type { FourRights, PlacementStatus } from "@/data/schema";
 import { IdSchema, LocalDateSchema, ShortText } from "../_shared/schemas";
 
@@ -104,8 +104,8 @@ export const praktikEmployerAdd = command("praktik.employerAdd", z.object({
 }), { invalidates: ["praktik.", "coach.eventsPage", "arenden.kortPraktik", ...LOG] }).returns<Result<{ employerId: string }, "name" | "orgNr" | "email" | "duplicate" | "areas">>();
 
 export const RIGHT_KEYS = ["uppgift", "handledning", "timing", "uppfoljning"] as const;
-export const praktikSetRight = command("praktik.setRight", z.object({ placementId: IdSchema, right: z.enum(RIGHT_KEYS), value: z.boolean() }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, ...LOG] }).returns<Result<object, "not_found">>();
-export const praktikAddFollowUp = command("praktik.addFollowUp", z.object({ placementId: IdSchema, date: LocalDateSchema }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, ...LOG] }).returns<Result<object, "not_found" | "date">>();
+export const praktikSetRight = command("praktik.setRight", z.object({ placementId: IdSchema, right: z.enum(RIGHT_KEYS), value: z.boolean() }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, BONUS, ...LOG] }).returns<Result<object, "not_found">>();
+export const praktikAddFollowUp = command("praktik.addFollowUp", z.object({ placementId: IdSchema, date: LocalDateSchema }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, BONUS, ...LOG] }).returns<Result<object, "not_found" | "date">>();
 
 // ---- Ny praktik och avslutad praktik (beslut 2026-10-08, skarp drift: inga placeringar kunde skapas i appen)
 /**
@@ -128,7 +128,7 @@ export const placementCreate = command("praktik.placementCreate", z.object({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   durationMin: z.number().int().min(60).max(600),
   tasks: z.string().max(2000).optional(),
-}), { invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
+}), { invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] }).returns<
   /** groupActivities: gruppaktiviteter som deltagaren är inbjuden till på praktikdagarna – de ligger kvar (ändras i aktivitetsvyn). */
   Result<{ placementId: string; employerId: string; days: number; groupActivities: number }, "not_found" | "forbidden" | "wrong_status" | "employer" | "period" | "weekdays" | "email">
 >();
@@ -138,5 +138,5 @@ export const placementCreate = command("praktik.placementCreate", z.object({
  * Utfallet (arbete, erbjudande …) registreras som en händelse i ärendet. Logg placement.ended.
  */
 export const placementEnd = command("praktik.placementEnd", z.object({ placementId: IdSchema, endsOn: LocalDateSchema }), {
-  invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, ...LOG],
+  invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG],
 }).returns<Result<{ removed: number }, "not_found" | "forbidden" | "date" | "wrong_status">>();

@@ -74,6 +74,12 @@ export const ACTION_LABEL: Record<string, string> = {
   "group_activity.audience_synced": "Ändrade inbjudan automatiskt (nivå eller yrkesområde)",
   "group_activity_series.created": "Skapade återkommande aktivitet", "group_activity_series.updated": "Ändrade återkommande aktivitet",
   "group_activity_series.ended": "Avslutade återkommande aktivitet", "group_activity_series.occurrences_created": "Skapade tillfällen i återkommande aktivitet",
+  // Bonusstegen (Karims beslut 2026-11-04). Loggen har id:n, steg, beslut och vilka fält som ändrades – aldrig underlagets text
+  // eller belopp. Prisraderna och avtalets bonusavsnitt läggs in med supabase/manual/2026-11-bonus-botkyrka.sql.
+  "bonus_claim.suggested": "Föreslog bonussteg automatiskt", "bonus_claim.created": "Skapade förslag till bonusanspråk", "bonus_claim.saved": "Sparade bonusanspråk",
+  "bonus_claim.submitted": "Skickade bonusanspråk till kommunen", "bonus_claim.withdrawn": "Återtog bonusanspråk", "bonus_claim.decided": "Registrerade kommunens beslut om bonus",
+  "bonus_claim.underlag_viewed": "Visade redovisningsunderlag för bonus", "bonus_claim.underlag_downloaded": "Laddade ner redovisningsunderlag för bonus",
+  "price_item.created": "Lade till prisrad", "contract.config_updated": "Ändrade avtalets konfiguration",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -85,6 +91,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
   saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
   grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg", group_activity_series: "Återkommande aktivitet",
+  bonus_claim: "Bonusanspråk", price_item: "Prisrad",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -130,6 +137,8 @@ const DETAIL_KEY: Record<string, string> = {
   removedAssessmentIds: "Borttagna bedömningsutkast", removedPlanIds: "Borttagna planutkast", correctionReportIds: "Rapporter att rätta", taskId: "Uppgift",
   draftMonths: "Månader där utkasten togs bort", keptAssessmentIds: "Bedömningar som coachen sparat (låg kvar)", closedTaskIds: "Stängda uppgifter",
   finishedBy: "Gjordes klar av", failed: "Avbröts", error: "Felkod",
+  // Bonusstegen (Karims beslut 2026-11-04): steg, beslut och id:n.
+  decision: "Beslut", decisionId: "Beslutets id", wasSubmitted: "Var skickat till kommunen", section: "Avsnitt", steps: "Antal bonussteg", code: "Kod", frozen: "Skickat underlag",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -138,6 +147,7 @@ const FIELD_WORD: Record<string, string> = {
   backgroundInfo: "bakgrund", aiConsent: "AI-samtycke", meetingDay: "mötesdag", meetingTime: "mötestid", location: "plats", ordererContact: "beställarens kontaktuppgifter",
   referrerId: "handläggare", leadCoachId: "huvudcoach", phase: "fas", tags: "taggar", pausedWeeks: "pausade veckor", firstMeetingAt: "första möte", team: "team", status: "status",
   area: "avtalsområde", unit: "enhet", contactName: "kontaktperson", contactPhone: "telefon", contactEmail: "e-post", person: "deltagare",
+  basis: "underlag", reachedOn: "dag då steget nåddes", verificationKind: "verifiering", verificationOn: "verifieringens datum", checklist: "checklista",
   primaryAreaCode: "avtalsområde", secondaryAreaCode: "andra avtalsområde", referrerUnit: "beställarens enhet", events: "händelser", weeks: "veckor",
   endReason: "avslutsorsak", resultClass: "resultatklass", resultVerified: "verifiering", resultVerifiedAt: "verifieringsdatum", caseNumber: "ärendenummer",
   // Ändra kontaktväg på deltagarkortet (person.contact_changed, coachmötet 2026-10-09): fälten hos personen.
@@ -150,12 +160,13 @@ export const fieldWord = (code: string): string => FIELD_WORD[code] ?? code;
 const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", since_start: "sedan avtalsstart", month: "per månad", rolling_3m: "rullande 3 månader" };
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },
-  source: { email: "e-post", portal: "portalen", phone: "telefon", manual: "manuellt" },
+  source: { email: "e-post", portal: "portalen", phone: "telefon", manual: "manuellt", auto: "automatiskt (regeln)" },
+  decision: { approved: "godkänt", rejected: "avslaget" },
   channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev", outside_portal: "utanför Miljonmatch", phone: "telefon", other: "annan väg" },
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
-  via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare" },
+  via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare", portal: "portalen", mejl: "mejl (registrerat av Miljonbemanning)" },
   weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
   fileKind: { order: "bilaga till beställningen", participant: "fil på deltagarkortet" },
   mimeType: {
@@ -170,7 +181,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   format: { csv: "CSV", xlsx: "Excel", pdf: "PDF", sie: "SIE", peppol: "Peppol" },
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
   reason: {
-    columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
+    step3_rejected: "kommunen avslog bonussteg 3", columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
     unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
@@ -265,7 +276,8 @@ const COUNTED: Record<string, [string, string]> = {
 const GROUP_ENTITIES = new Set(["group_activity", "group_activity_series"]);
 const AUDIENCE_WORD: Record<string, string> = { level: "nivå", area: "yrkesområde", manual: "inbjudna för hand" };
 const keyLabel = (k: string, a: AuditEntryLike): string =>
-  k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : k === "changeId" && a.action === "case.start_date_changed" ? "Ändring" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k);
+  k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : k === "changeId" && a.action === "case.start_date_changed" ? "Ändring" :
+  k === "source" && a.entity === "bonus_claim" ? "Skapat" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k);
 
 /**
  * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället
@@ -327,4 +339,8 @@ export const JOB_KEYS = ["inbox", "auto_attendance", "weekly", "att_remind", "pr
 export type JobKey = (typeof JOB_KEYS)[number];
 
 /** Visningar och exporter som chef/controller stickprovar i första hand (SPEC §10). */
-export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed", "group_activity.view"] as const;
+export const VIEW_ACTIONS = [
+  "case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed", "group_activity.view",
+  // Redovisningsunderlaget för bonus (Karims beslut 2026-11-04) – visning och nedladdning.
+  "bonus_claim.underlag_viewed", "bonus_claim.underlag_downloaded",
+] as const;

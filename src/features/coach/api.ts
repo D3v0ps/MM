@@ -1,7 +1,7 @@
 // Kontrakt för området coach (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Fail, type Result } from "@/api/contract";
-import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, START, INBOX, CASE_STATS, CASE_FACTS, GRUPPER } from "@/api/invalidation";
+import { BONUS, CASE_FACTS, CASE_STATS, CASES, COACH, GRUPPER, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS, START } from "@/api/invalidation";
 import type { SlaTone } from "@/core/sla";
 import type { ProgressionRuleText } from "@/core/config";
 import {
@@ -140,7 +140,7 @@ export const checkinSave = command("coach.checkinSave", z.object({
     changed: z.boolean().optional(),
   })).max(20).optional(),
   ...AutosaveFields,
-}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
+}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, GRUPPER, BONUS, ...LOG] }).returns<
   Result<{ checkInId: string; deviationId: string | null; rawTranscriptDeletedAt: string | null } & SavedInfo, "not_found" | "forbidden" | "deviation_required" | "ai_not_allowed" | "invalid" | "approved" | "conflict">
 >();
 
@@ -226,7 +226,7 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
   /** "Jag har gått igenom bedömningen" – krävs för att godkänna. */
   reviewed: z.boolean().optional(),
   ...AutosaveFields,
-}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, ...START, "admin.contract", NAV, ...LOG] }).returns<
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, ...START, "admin.contract", NAV, BONUS, ...LOG] }).returns<
   | Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict" | "not_reviewed" | "not_needed">
   | (Fail<"incomplete"> & { missing: string[] })
 >();
@@ -265,7 +265,7 @@ export const eventAdd = command("coach.eventAdd", z.object({
   /** Filnamn/sökväg till underlaget i privat lagring. */
   verificationFile: ShortText.nullable().optional(),
   note: z.string().max(4000).optional(),
-}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, "praktik.", "admin.contract", ...LOG] }).returns<Result<{ eventId: string }, "not_found" | "forbidden">>();
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, "praktik.", "admin.contract", BONUS, ...LOG] }).returns<Result<{ eventId: string }, "not_found" | "forbidden">>();
 
 /**
  * Verifiera resultatet (arbete/studier) med underlag (prototypens result.verify). finalDelivered = ärendets slutrapport är
@@ -276,7 +276,7 @@ export const resultVerify = command("coach.resultVerify", z.object({
   caseId: IdSchema,
   verificationKind: ShortText,
   file: ShortText.nullable().optional(),
-}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, GRUPPER, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, GRUPPER, BONUS, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
 /** Visas när verifieringen registreras efter att slutrapporten levererats (se resultVerify). */
 export const FINAL_DELIVERED_VERIFY_TEXT =
   "Slutrapporten är redan levererad till kommunen. Rätta slutrapporten så att verifieringen kommer med i rapporten och i kommunens resultatfil.";
@@ -458,6 +458,12 @@ export type MinVeckaView = {
    * "Utan nivå – att kartlägga" (grupper.oversikt, unplaced), begränsat till coachens egna ärenden. intake = kartläggningens läge.
    */
   toMap: { caseId: string; caseNumber: string; name: string; intake: "none" | "draft" | "approved" }[];
+  /**
+   * Bonus att granska (beslut 2026-11-04): förslag till bonusanspråk i coachens egna ärenden – från reglerna eller skapade av
+   * någon. sustain = hållbart resultat (bonussteg 4, en ny verifiering behövs). Inga belopp. Tom för begränsade testare.
+   * Kommunens beslut kommer som en notis (kind bonus_decision) under Följ upp.
+   */
+  bonus: { claimId: string; caseId: string; caseNumber: string; name: string; step: number; label: string; sustain: boolean }[];
   due: {
     monthly: { count: number; byStatus: Partial<Record<ReportStatus, number>>; dueAt: LocalDateTime; sla: CoachSla } | null;
     other: { id: string; label: string; caseId: string | null; caseNumber: string | null; name: string | null; dueAt: LocalDateTime; sla: CoachSla; provisional: boolean; href: string | null }[];

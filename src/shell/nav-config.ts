@@ -80,7 +80,11 @@ const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
   avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG] },
   chef: { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER, BYGG, LOGG] },
   // Ekonomi bara för ekonomen (beslut 5, 2026-10-07: belopp syns bara för rollen ekonom). Prislistan har flyttat hit från avtalssidan.
-  ekonom: { label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning, { to: "/ekonomi/prislista", label: "Prislista", icon: "list" }] },
+  // Bonusfakturorna (Karims beslut 2026-11-04) – egna fakturor, skilda från månadens faktura.
+  ekonom: {
+    label: "Ekonomi",
+    items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning, { to: "/ekonomi/bonus", label: "Bonusfakturor", icon: "award" }, { to: "/ekonomi/prislista", label: "Prislista", icon: "list" }],
+  },
   // Avtal och konfiguration (/admin/avtal) ligger inte i menyn (beslut 2026-10-06) – sidan nås från Användare och roller och Min vecka.
   admin: {
     label: "Administratör",

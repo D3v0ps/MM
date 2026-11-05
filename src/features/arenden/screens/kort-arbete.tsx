@@ -14,6 +14,7 @@ import { EndPlacementModal, PlacementModal } from "@/features/praktik/screens/pl
 import { caseDeviations, caseEvents, casePlacements, type CaseDeviationRow, type CaseDeviations } from "../api";
 import { canOpen, caseLink, clip, fd, FOUR, Label, MiniList, PLACEMENT, PNR_ERROR, PNR_RE, TabQuery, withDot } from "./common";
 import { CustSwitch, type TabProps } from "./kort";
+import { BonusCard } from "@/features/bonus/screens/kort-bonus";
 
 // ---------------------------------------------------------------- Händelser och utfall
 const eventIcon = (kind: string): IconName =>
@@ -104,16 +105,19 @@ export function TabHandelser({ card }: TabProps) {
                         {ev.possibleBonus && (
                           <>
                             <Badge tone="outline" icon="star">Möjligt bonusunderlag</Badge>
-                            <BuildPhase fas={3} off />
+                            {!e.bonusEnabled && <BuildPhase fas={3} off />}
                           </>
                         )}
                       </span>
-                      {ev.possibleBonus && !e.bonusEnabled && <span className="text-small text-text-muted">Bonus: avstängd – modellen ej fastställd. Underlaget samlas in.</span>}
+                      {ev.possibleBonus && !e.bonusEnabled && <span className="text-small text-text-muted">Bonus är avstängd i avtalet. Underlaget samlas in.</span>}
                     </ListItem>
                   ))}
                 </List>
               )}
             </Card>
+            {/* Bonusstegen (beslut 2026-11-04): inte för teamet – bonus är ett ekonomiskt villkor. Kortet döljer sig självt när bonus är
+                avstängd eller aktören inte får se bonus (begränsade testare). */}
+            {!team && <BonusCard caseId={card.caseId} />}
           </Stack>
         );
       }}

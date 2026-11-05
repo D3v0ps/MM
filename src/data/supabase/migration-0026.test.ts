@@ -34,9 +34,9 @@ beforeAll(async () => {
   await db.exec(SUPABASE_STUB_SQL);
   for (const f of files.slice(0, at)) await db.exec(readFileSync(f, "utf8"));
   // Seeden tömmer också tabeller från senare migrationer (role_choices, 0027) – bara de som finns här. Grupperna (0031), de
-  // återkommande aktiviteterna (0035), bytena av yrkesområde (0036) och ändringarna av startdatum (0038) behövs inte i testet och
-  // läses inte in.
-  await loadSeedForExistingTables(db, undefined, { later: ["groupings", "grouping_members", "group_activity_series", "group_activities", "case_area_changes", "case_start_changes"] });
+  // återkommande aktiviteterna (0035), bytena av yrkesområde (0036), ändringarna av startdatum (0038) och bonusanspråken med
+  // kommunens beslut (0039) behövs inte i testet och läses inte in.
+  await loadSeedForExistingTables(db, undefined, { later: ["groupings", "grouping_members", "group_activity_series", "group_activities", "case_area_changes", "case_start_changes", "bonus_claims", "bonus_claim_decisions"] });
 
   // Raderna som fanns före beslutet.
   const maria = data.profiles.find((p) => p.id === "k-maria")!;
@@ -61,12 +61,12 @@ beforeAll(async () => {
   await db.query("insert into auth.users (id, email) values ($1, 'chef.tva@example.invalid')", [CHEF2_AUTH]);
   await db.query("update public.profiles set auth_user_id = $1 where id = 'k-x-chef2'", [CHEF2_AUTH]);
   await db.exec(insertSql("memberships", { id: "ms-x-chef2", userId: "k-x-chef2", contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten" }));
-  // Ett bonusanspråk med belopp i Marias ärende (fas 3, påhittat).
+  // Ett bonusanspråk med belopp i Marias ärende (fas 3, påhittat) – med kolumnerna från 0007 (0039 lägger till bonusstegen).
   const mariaCase = data.cases.find((c) => c.referrerId === "k-maria" && c.status === "active")!;
-  await db.exec(insertSql("bonus_claims", {
-    id: "bc-x-1", caseId: mariaCase.id, kind: "work", basis: "Påhittat underlag", evidencePaths: [], submittedAt: null, customerDecision: null, decidedBy: null,
-    decidedAt: null, amountOre: 500000, invoiceDraftId: null,
-  }));
+  await db.query(
+    "insert into public.bonus_claims (id, case_id, kind, basis, evidence_paths, submitted_at, customer_decision, decided_by, decided_at, amount_ore, invoice_draft_id) values ('bc-x-1', $1, 'work', 'Påhittat underlag', '{}', null, null, null, null, 500000, null)",
+    [mariaCase.id],
+  );
   await db.query("insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, 'k-x-chef', 'kommun_chef')", [TESTER_AUTH]);
 
   try {

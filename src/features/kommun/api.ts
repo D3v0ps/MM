@@ -111,6 +111,26 @@ export type KomMessage = {
 
 // ================================================================ Startsidan (/portal, handläggaren)
 export type KomUnreadMessage = { id: string; caseId: string; caseNumber: string; meeting: boolean; senderLabel: string; createdAt: string };
+/**
+ * Bonusanspråk (beslut 2026-11-04) som Miljonbemanning har skickat i handläggarens ärenden: bonussteget, namnet och när det
+ * skickades. decided = kommunen har beslutat (bara på deltagarens sida). Inga belopp och inga dokument.
+ */
+export type KomBonusRow = {
+  claimId: string;
+  caseId: string;
+  caseNumber: string;
+  step: number;
+  label: string;
+  sentAt: string | null;
+  status: "submitted" | "approved" | "rejected";
+  statusText: string;
+  icon: "send" | "check-circle" | "x-circle" | "clock";
+  decidedAt: string | null;
+  /** Steg 4 eller 5 som väntar på att bonussteg 3 godkänns – kan inte beslutas än och räknas inte i Att göra. */
+  waitingForStep3: boolean;
+  /** Handläggaren kan besluta nu: skickat, inte väntande, och hen beställde insatsen. */
+  canDecide: boolean;
+};
 export type KomStart = {
   firstName: string;
   unit: string | null;
@@ -124,6 +144,8 @@ export type KomStart = {
    * kommunens handläggare"): startsidan har inga händelser och inga siffror under knapparna – bara Att göra och det olästa.
    */
   unreadReports: KomReportRow[];
+  /** Bonusanspråk att besluta om (skickade, inte beslutade) – räknas i Att göra. Tom för begränsade testare. */
+  bonus: KomBonusRow[];
 };
 export const kommunStart = query("kommun.start", z.object({})).returns<KomStart>();
 
@@ -227,6 +249,8 @@ export type KomCaseDetail = {
   participant: { pnrMasked: string | null; canReveal: boolean };
   seesCoachNotes: boolean;
   reports: KomReportRow[];
+  /** Skickade och beslutade bonusanspråk i ärendet. Tom för begränsade testare. */
+  bonus: KomBonusRow[];
 };
 export type KomCaseResult = KomCaseDetail | { kind: "not_found" } | { kind: "denied" };
 export const kommunCase = query("kommun.deltagare", z.object({ caseId: IdSchema })).returns<KomCaseResult>();

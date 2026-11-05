@@ -23,7 +23,7 @@ export const OPEN_QUESTIONS: [number, string, string, string, QStatus][] = [
   [10, "Säker rutin för personer med skydd", "Botkyrka", "Stängd: hanteras utanför Miljonmatch (beslut 2026-10-07)", "done"],
   [11, "Gallring under avtalstiden", "Botkyrka", "Öppen", "open"],
   [12, "Progressionsområden: räcker tillägget språk, eller vill kommunen också följa hälsa och livskvalitet?", "Botkyrka + MB", "Öppen", "open"],
-  [13, "Incitamentsmodell: vilken modell gäller och när kan bonus begäras?", "Botkyrka + MB", "Öppen", "open"],
+  [13, "Incitamentsmodell: vilken modell gäller och när kan bonus begäras?", "Botkyrka + MB", "Besvarad: bonussteg 1–5 med tak per deltagare, egen bonusfaktura (beslut 2026-11-04)", "done"],
   [14, "Beställarrapportens innehåll och frekvens", "Botkyrka", "Öppen", "open"],
   [15, "Ingår Fortnox Integration och e-faktura i vårt paket? Vem godkänner API-kopplingen?", "MB ekonomi", "Öppen", "open"],
   [16, "Vem är systemägare och vem administrerar DNS hos one.com?", "MB", "Öppen", "open"],

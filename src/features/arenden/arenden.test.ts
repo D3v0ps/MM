@@ -249,7 +249,8 @@ describe("deltagarkortets flikar", () => {
     const ci = (await q(caseCheckIns, { caseId: YUSUF }, amira()))!.checkIns;
     expect(ci[0]).toMatchObject({ heldAt: "2027-01-18T11:00", goalStatus: "no", overallStatus: "yellow", approved: true });
     const ev = (await q(caseEvents, { caseId: YUSUF }, amira()))!;
-    expect(ev).toMatchObject({ checkInContacts: 1, resultDefinitionUnset: true, bonusEnabled: false, result: null });
+    // Bonus är påslagen sedan Karims beslut 2026-11-04 (incitamentsmodellen med bonussteg 1–5).
+    expect(ev).toMatchObject({ checkInContacts: 1, resultDefinitionUnset: true, bonusEnabled: true, result: null });
     const pl = (await q(casePlacements, { caseId: NADIA }, amira()))!;
     expect(pl.placements[0]).toMatchObject({ employerName: "Hallunda Lagerservice AB", status: "ongoing", fourRights: { uppfoljning: false } });
   });

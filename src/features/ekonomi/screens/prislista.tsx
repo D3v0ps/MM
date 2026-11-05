@@ -88,6 +88,33 @@ export function PrislistaScreen() {
           ]}
         />
       </Card>
+      {d.bonus && (
+        <Card
+          title="Bonussteg – per deltagare"
+          icon="award"
+          flush
+          foot={
+            <span className="text-small text-text-muted">
+              Incitamentsmodellen (beslut 2026-11-04): stegen läggs ihop utan avräkning upp till taket <b className="text-antracit">{kr(d.bonus.capOre)}</b> per deltagare. Bonus
+              faktureras på en egen faktura, skild från månadens faktura. Bara ekonomen ser beloppen.
+            </span>
+          }
+        >
+          <Table
+            caption={`Bonussteg ${d.customerName}`}
+            rows={d.bonus.items}
+            rowKey="id"
+            empty="Prislistan har inga priser för bonusstegen."
+            columns={[
+              { key: "step", label: "Bonussteg", render: (p) => p.label },
+              { key: "art", label: "Artikelnummer", render: (p) => <span className="tabular-nums tracking-[0.01em]">{p.fortnoxArticleNo ?? "–"}</span> },
+              { key: "price", label: "Pris exkl. moms", num: true, nowrap: true, render: (p) => (p.exampleOnly ? <>{kr(p.priceOre)} <Badge tone="plan" icon="alert-circle">Exempelpris</Badge></> : kr(p.priceOre)) },
+              { key: "vat", label: "Moms", num: true, render: (p) => `${p.vatRate} %` },
+              { key: "valid", label: "Giltig", nowrap: true, render: (p) => `${fmtDate(p.validFrom)} – ${p.validTo ? fmtDate(p.validTo) : "tills vidare"}` },
+            ]}
+          />
+        </Card>
+      )}
     </Page>
   );
 }

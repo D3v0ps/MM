@@ -45,7 +45,7 @@ const by = (dueAt: string, now: string) => `Senast ${whenText(dueAt, now)}`;
  * Ordningen vid samma tid och för det som saknar tid (C1: närvaro, möten, mötesrapporter, månadsbedömningar, kommunen) – och
  * vilken del i ett ärende som ger raden dess rubrik och knapp (lägre först): dagens möte går före det som förfaller i ärendet.
  */
-const W = { narvaro: 10, mote: 12, starta: 15, forfaller: 18, manad: 30, utkast: 40, kommunen: 50, rost: 55 } as const;
+const W = { narvaro: 10, mote: 12, starta: 15, forfaller: 18, manad: 30, utkast: 40, kommunen: 50, rost: 55, bonus: 60 } as const;
 
 function MinVecka({ v }: { v: MinVeckaView }) {
   const nav = useNav();
@@ -317,6 +317,33 @@ function MinVecka({ v }: { v: MinVeckaView }) {
     });
   }
 
+  // Bonus att granska (beslut 2026-11-04): förslag till bonusanspråk i coachens ärenden – ingen tidsgräns, inga belopp.
+  for (const b of v.bonus) {
+    const to = `/bonus/${encodeURIComponent(b.claimId)}`;
+    parts.push({
+      key: `bonus:${b.claimId}`, group: b.caseId, dueAt: null, weight: W.bonus,
+      rest: {
+        action: (
+          <Button kind="ghost" iconRight="arrow-right" to={to}>
+            Öppna bonusförslaget <span className="sr-only">bonussteg {b.step} för {b.name} {b.caseNumber}</span>
+          </Button>
+        ),
+      },
+      item: {
+        icon: "award", title: <CaseName big caseId={b.caseId} name={b.name} caseNumber={b.caseNumber} />,
+        notes: [
+          `Bonus att granska – ${b.caseNumber} · bonussteg ${b.step} (${b.label})`,
+          b.sustain ? "Hållbart resultat: registrera en ny verifiering innan du skickar till kommunen." : "Granska underlaget och skicka till kommunen – eller återta förslaget.",
+        ],
+        action: (
+          <Button kind="secondary" iconRight="arrow-right" to={to}>
+            Öppna bonusförslaget <span className="sr-only">bonussteg {b.step} för {b.name} {b.caseNumber}</span>
+          </Button>
+        ),
+      },
+    });
+  }
+
   const rows = todoRows(parts);
   const sum = todoSummary(rows, now);
   // Samma ärende en rad: de andra delarna i ärendet blir anmärkningar med sin åtgärd som textknapp under raden.
@@ -463,15 +490,22 @@ function FollowUp({ v }: { v: MinVeckaView }) {
   for (const n of v.unread.items) {
     if (n.kind === "message") continue; // Svara kommunen i Att göra i dag
     if (n.kind === "progress_reminder" && n.caseId && reminded.has(n.caseId)) continue; // samma sak som påminnelsen
+    // Kommunen har beslutat om bonus (beslut 2026-11-04): står kvar tills notisen är läst – länk till kortet Bonus.
+    const bonus = n.kind === "bonus_decision" && n.caseId;
     parts.push({
       key: `n:${n.id}`, group: n.caseId, dueAt: null, weight: 40,
       title: n.caseId && n.name && n.caseNumber ? caseTitle(n.caseId, n.name, n.caseNumber) : n.title,
       note: (
         <span className="inline-flex items-center gap-1.5">
-          <Icon name="bell" className="flex-none" />
-          Oläst notis: {n.title}
+          <Icon name={bonus ? "award" : "bell"} className="flex-none" />
+          {bonus ? n.title : `Oläst notis: ${n.title}`}
         </span>
       ),
+      action: bonus ? (
+        <Button kind="secondary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(n.caseId as string)}?flik=handelser`}>
+          Visa bonus <span className="sr-only">– {n.name ?? n.caseNumber}</span>
+        </Button>
+      ) : undefined,
     });
   }
   const rows = todoRows(parts);

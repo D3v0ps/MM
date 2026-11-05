@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   AI_PROVIDER_LABEL,
   BOTKYRKA_CONFIG,
+  bonusBillingModel,
+  bonusModel,
+  bonusStepLabel,
+  customerSafeConfig,
   ContractConfigSchema,
   DEFAULT_ORG_SETTINGS,
   OperationalConfigSchema,
@@ -94,14 +98,17 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     // gallring) togs bort 2026-10-08 (beslut 5): bilagor gallras inte automatiskt.
     // Avvikelse (beslut 2026-10-07, synpunkt #13): en faktura per avtal och månad (billing.invoicePer, collectiveInvoiceAllowed).
     // Tillägg (beslut 2026-10-08, skarp drift): activities.defaultWeekPlan – se testet för veckoplanen nedan.
-    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, billing, activities, ...rest } = BOTKYRKA_CONFIG;
+    // Avvikelse (Karims beslut 2026-11-04): bonus är påslagen med incitamentsmodellen (bonussteg 1–5) – se testerna för bonus nedan.
+    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, billing, activities, bonus, ...rest } = BOTKYRKA_CONFIG;
     void reportSchedule;
     void activities;
     void orderPeriods;
     void selfRegistration;
-    const { ai: protoAi, customerVisibility: protoVisibility, progression: protoProgression, orderWeeks: protoOrderWeeks, billing: protoBilling, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
+    const { ai: protoAi, customerVisibility: protoVisibility, progression: protoProgression, orderWeeks: protoOrderWeeks, billing: protoBilling, bonus: protoBonus, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
     void protoOrderWeeks;
     expect(rest).toStrictEqual(protoRest);
+    expect(protoBonus).toStrictEqual({ enabled: false, model: "ATT_FASTSTÄLLA enligt incitamentsmodellen", separateInvoice: true });
+    expect(bonus.separateInvoice).toBe(true);
     expect({ ...billing, invoicePer: "case_and_month", collectiveInvoiceAllowed: false }).toStrictEqual(protoBilling);
     const { clearFromLevel, anyFromLevel, ...prog } = progression;
     const { statDefinition, ...protoProg } = protoProgression as { statDefinition: { clear: string; any: string } };
@@ -292,6 +299,57 @@ describe("zod-scheman", () => {
   });
 });
 
+describe("bonus – incitamentsmodellen (Karims beslut 2026-11-04)", () => {
+  const OLD = { enabled: false, model: "ATT_FASTSTÄLLA enligt incitamentsmodellen", separateInvoice: true };
+  const withBonus = (b: unknown) => ({ ...BOTKYRKA_CONFIG, bonus: b });
+  it("Botkyrka: bonussteg 1–5 med taket, inga avräkningar och artiklarna BOT-BONUS-1 … 5", () => {
+    const m = bonusModel(BOTKYRKA_CONFIG)!;
+    expect(m).not.toBeNull();
+    expect(m.steps.map((s) => [s.step, s.label, s.priceItemCode])).toEqual([
+      [1, "Dokumenterad progression", "BOT-BONUS-1"], [2, "Stark progression", "BOT-BONUS-2"], [3, "Arbete eller studier", "BOT-BONUS-3"],
+      [4, "Hållbart resultat", "BOT-BONUS-4"], [5, "Snabbhetspremie", "BOT-BONUS-5"],
+    ]);
+    expect([m.offset, m.attendanceMinPercent, m.speedWeeks, m.sustainMonths, m.resultWindowMonthsAfterEnd]).toEqual(["never", 80, 10, 3, 3]);
+    expect(bonusBillingModel(BOTKYRKA_CONFIG)?.capOre).toBe(1200000);
+    expect(bonusStepLabel(m, 3)).toBe("Arbete eller studier");
+    expect(bonusStepLabel(null, 3)).toBe("Bonussteg 3");
+  });
+  it("den äldre formen (produktionen före beslutet) parsar fortfarande – då är bonus avstängd", () => {
+    const cfg = parseContractConfig(withBonus(OLD));
+    expect(cfg.bonus).toEqual(OLD);
+    expect(bonusModel(cfg)).toBeNull();
+    expect(bonusBillingModel(cfg)).toBeNull();
+    // Avstängd med en fastställd modell och några fält: fortfarande av.
+    expect(bonusModel(parseContractConfig(withBonus({ ...BOTKYRKA_CONFIG.bonus, enabled: false })))).toBeNull();
+  });
+  it("påslagen kräver hela modellen, en fastställd modell och exakt stegen 1–5 med unika koder", () => {
+    const b = BOTKYRKA_CONFIG.bonus;
+    expect(() => parseContractConfig(withBonus({ ...OLD, enabled: true }))).toThrow(/modellen inte är fastställd/);
+    expect(() => parseContractConfig(withBonus({ ...b, model: "ATT_FASTSTÄLLA" }))).toThrow(/modellen inte är fastställd/);
+    for (const k of ["capOre", "offset", "attendanceMinPercent", "speedWeeks", "sustainMonths", "resultWindowMonthsAfterEnd", "step2EventKinds", "step3EventKinds", "steps"] as const) {
+      const { [k]: _gone, ...rest } = b;
+      void _gone;
+      expect(() => parseContractConfig(withBonus(rest)), k).toThrow(new RegExp(`${k} saknas`));
+    }
+    expect(() => parseContractConfig(withBonus({ ...b, steps: b.steps!.slice(0, 4) }))).toThrow(/1–5, exakt en gång/);
+    expect(() => parseContractConfig(withBonus({ ...b, steps: [...b.steps!.slice(0, 4), { ...b.steps![0], step: 1 }] }))).toThrow(/1–5, exakt en gång/);
+    expect(() => parseContractConfig(withBonus({ ...b, steps: b.steps!.map((s) => ({ ...s, priceItemCode: "BOT-BONUS" })) }))).toThrow(/unika/);
+    expect(() => parseContractConfig(withBonus({ ...b, offset: "previous" }))).toThrow();
+    expect(() => parseContractConfig(withBonus({ ...b, step3EventKinds: ["finns_inte"] }))).toThrow();
+    expect(() => parseContractConfig(withBonus({ ...b, attendanceMinPercent: 120 }))).toThrow();
+    expect(() => parseContractConfig(withBonus({ ...b, extra: 1 }))).toThrow();
+  });
+  it("kommunens version av avtalet saknar taket men har reglerna – bonusModel fungerar, faktureringen inte", () => {
+    const safe = customerSafeConfig(BOTKYRKA_CONFIG);
+    expect(safe.bonus).not.toHaveProperty("capOre");
+    expect(JSON.stringify(safe)).not.toMatch(/capOre|internalTarget|deviationOre/);
+    expect(bonusModel(safe)?.speedWeeks).toBe(10);
+    expect(bonusBillingModel(safe)).toBeNull();
+    // Originalet ändras inte.
+    expect(BOTKYRKA_CONFIG.bonus.capOre).toBe(1200000);
+  });
+});
+
 describe("ATT_FASTSTÄLLA", () => {
   it("isUnset känner igen värdet med och utan förklaring", () => {
     expect(isUnset("ATT_FASTSTÄLLA")).toBe(true);
@@ -312,7 +370,8 @@ describe("ATT_FASTSTÄLLA", () => {
     expect(unsetHint(slaRule(BOTKYRKA_CONFIG, "manadsrapport")?.due)).toBe("Förslag: 5:e arbetsdagen efter månadsskiftet");
     expect(unsetHint(BOTKYRKA_CONFIG.customerVisibility.scope)).toBe("Alternativ: egna ärenden, enhetens ärenden eller alla");
     expect(unsetHint(BOTKYRKA_CONFIG.retention)).toBe("Fastställs enligt PUB-avtalet");
-    expect(unsetHint(BOTKYRKA_CONFIG.bonus.model)).toBe("Fastställs enligt incitamentsmodellen");
+    expect(unsetHint(BOTKYRKA_CONFIG.bonus.model)).toBeNull(); // fastställd 2026-11-04
+    expect(unsetHint("ATT_FASTSTÄLLA enligt incitamentsmodellen")).toBe("Fastställs enligt incitamentsmodellen");
     expect(unsetHint("ATT_FASTSTÄLLA (Berget AI eller Gemini via Vertex AI EU – väljs genom test)")).toBe("Berget AI eller Gemini via Vertex AI EU");
     expect(unsetHint(BOTKYRKA_CONFIG.ai.provider)).toBeNull(); // fastställd 2026-09-30
     expect(unsetHint(BOTKYRKA_CONFIG.result.definition)).toBeNull();
@@ -328,7 +387,6 @@ describe("ATT_FASTSTÄLLA", () => {
       "sla[manadsrapport].due",
       "sla[slutrapport].within",
       "attendance.sameDayNoticeOnInvalidAbsence",
-      "bonus.model",
       "retention",
     ]);
     expect(unsetPaths(DRAFT)).toEqual([]);

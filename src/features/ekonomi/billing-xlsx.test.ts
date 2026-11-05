@@ -15,7 +15,7 @@ import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START, decodeTestPnr, normalizePnr } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
-import { billingApproveZeroWeek, billingExportXlsx, ekoPreview, ekoRun, invoiceSetBuyerRef } from "./api";
+import { billingApproveZeroWeek, billingExportXlsx, ekoBonus, ekoPreview, ekoRun, invoiceSetBuyerRef } from "./api";
 import { LINE_COLUMNS, oreToKr } from "./billing-xlsx";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -99,7 +99,8 @@ describe("Excel-filen med fakturaunderlaget", () => {
     const f = await exportFile("2027-01");
     expect(f.filename).toBe("fakturaunderlag-2027-01.xlsx");
     expect(f.mime).toBe(XLSX_MIME);
-    expect([f.invoices, f.rows]).toEqual([1, 124]);
+    // Månadens faktura (124 rader) och januaris bonusfaktura (Karims beslut 2026-11-04): BOT-26-0008 bonussteg 3 och 5.
+    expect([f.invoices, f.rows]).toEqual([2, 126]);
     const { names, sheets, all } = f.wb;
     expect(names).toEqual(["Faktura", "Fakturarader", "Om underlaget"]);
     // Ingen formel någonstans – text är alltid text.
@@ -113,9 +114,10 @@ describe("Excel-filen med fakturaunderlaget", () => {
       "Anmärkningar för ekonomen",
     ]);
     expect(lines.xml).toContain('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>');
-    expect(lines.xml).toContain('<autoFilter ref="A1:L125"/>');
-    const data = lines.grid.slice(1);
-    expect(data).toHaveLength(124);
+    expect(lines.xml).toContain('<autoFilter ref="A1:L127"/>');
+    const all126 = lines.grid.slice(1);
+    expect(all126).toHaveLength(126);
+    const data = all126.slice(0, 124);
     const inv = run.invoices[0];
     // Raderna i samma ordning som fakturan, med artikel, benämning (radtext + avtalsområde), veckor, à-pris och belopp i kronor.
     data.forEach((r, i) => {
@@ -144,9 +146,29 @@ describe("Excel-filen med fakturaunderlaget", () => {
     expect(remarks.some((x) => x.includes("Närvaro saknas"))).toBe(true);
     expect(data.find((r) => String(r[4]).startsWith("BOT-26-0143 "))).toBeTruthy();
 
-    // Faktura: ett block med fälten som i Fortnox och summorna.
+    // Bonusfakturans rader sist: ett bonussteg per rad (Antal 1, Enhet st), artikeln ur prislistan och anmärkningen (BT-127) med
+    // bonussteget och beslutsdagen – inga veckor och inga namn.
+    const bonus = (await qry(ekoBonus, { month: "2027-01" })).invoices;
+    expect(bonus).toHaveLength(1);
+    const bonusRows = all126.slice(124);
+    expect(bonusRows.map((r) => [r[0], r[3], r[4], r[5], r[6], r[8]])).toEqual([
+      ["Bonusfaktura januari 2027", "BOT-BONUS-3", "BOT-26-0008 · Bonussteg 3", 1, "st", 25],
+      ["Bonusfaktura januari 2027", "BOT-BONUS-5", "BOT-26-0008 · Bonussteg 5", 1, "st", 25],
+    ]);
+    expect(bonusRows.map((r) => String(r[10]))).toEqual([
+      expect.stringMatching(/^Bonussteg 3 \(Arbete eller studier\) enligt incitamentsmodellen, godkänt av kommunen 12 jan 2027\.$/),
+      expect.stringMatching(/^Bonussteg 5 \(Snabbhetspremie\) enligt incitamentsmodellen, godkänt av kommunen 12 jan 2027\.$/),
+    ]);
+    expect(bonusRows.reduce((s, r) => s + Math.round((r[9] as number) * 100), 0)).toBe(bonus[0].amountOre);
+
+    // Faktura: ett block per faktura med fälten som i Fortnox och summorna – bonusfakturan sist, med antal bonussteg i stället för veckor.
     const g = sheets.Faktura.grid;
-    expect(blockStarts(g)).toEqual([0]);
+    const starts = blockStarts(g);
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toBe(0);
+    expect(valueOf(g, "Faktura", starts[1])).toBe("Bonusfaktura januari 2027");
+    expect(valueOf(g, "Bonussteg", starts[1])).toBe(2);
+    expect(valueOf(g, "Summa exkl. moms", starts[1])).toBe(oreToKr(bonus[0].amountOre));
     expect(valueOf(g, "Faktura")).toBe("Faktura januari 2027");
     expect(valueOf(g, "Avtal")).toBe("332026110 (dnr AVN/2026:00048)");
     expect(valueOf(g, "Period")).toBe("Januari 2027 · v. 1–4 2027 (4 jan 2027 – 31 jan 2027)");
@@ -169,11 +191,12 @@ describe("Excel-filen med fakturaunderlaget", () => {
     const sumRow = g.findIndex((r) => r?.[0] === "Summa exkl. moms") + 1;
     expect(sheets.Faktura.styles.get(`B${sumRow}`)).toBe("4");
 
-    // Om underlaget: avtalet, månaden, reglerna och hur filen används i Fortnox.
+    // Om underlaget: avtalet, månaden, reglerna och hur filen används i Fortnox – och bonusfakturan.
     const about = sheets["Om underlaget"].grid.map((r) => r.filter((x) => x !== null).join(" | ")).join("\n");
     for (const s of [
       "Fakturaunderlag januari 2027", "332026110 (dnr AVN/2026:00048), Botkyrka kommun", "Januari 2027: v. 1–4 2027", "Debiterbar vecka", "Torsdagsregeln", "En faktura per avtal och månad",
       "Er referens = beställarreferensen", "Ert ordernummer lämnas tomt", "Peppol", "Markera som manuellt fakturerad", "Anmärkningar för ekonomen",
+      "Bonusfaktura", "utan avräkning upp till taket",
     ]) {
       expect(about, s).toContain(s);
     }
@@ -187,7 +210,7 @@ describe("Excel-filen med fakturaunderlaget", () => {
     const log = rows("audit_log").slice(before);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ action: "export.billing", entity: "billing_run", entityId: "2027-01", actorId: "u-lars", contractId: "c-bot" });
-    expect(log[0].details).toEqual({ format: "xlsx", invoices: 1, rows: 124 });
+    expect(log[0].details).toEqual({ format: "xlsx", invoices: 2, rows: 126 });
   });
 
   it("bara ekonomen får exportera: alla andra roller nekas på servern och ingenting loggas", async () => {
@@ -224,15 +247,19 @@ describe("Excel-filen med fakturaunderlaget", () => {
     expect(sheets.Fakturarader.grid.slice(1).some((r) => /Ingen närvaro v\. \d+ 2027 \(godkänd\)/.test(String(r[11])))).toBe(true);
   });
 
-  it("december: fakturan som är skickad och tilläggsfakturan som returnerades – ett block per faktura och fakturanumret", async () => {
+  it("december: fakturan som är skickad, tilläggsfakturan som returnerades och bonusfakturan – ett block per faktura och fakturanumret", async () => {
     const run = await qry(ekoRun, { month: "2026-12" });
+    const bonus = (await qry(ekoBonus, { month: "2026-12" })).invoices;
+    const invs = [...run.invoices, ...bonus];
     const { sheets } = (await exportFile("2026-12")).wb;
     const g = sheets.Faktura.grid;
     const starts = blockStarts(g);
-    expect(starts).toHaveLength(run.invoices.length);
-    expect(starts.map((i) => g[i][1])).toEqual(run.invoices.map((x) => x.title));
-    expect(run.invoices.map((x) => x.title)).toContain("Tilläggsfaktura 2 · december 2026");
-    run.invoices.forEach((inv, k) => {
+    expect(starts).toHaveLength(invs.length);
+    expect(starts.map((i) => g[i][1])).toEqual(invs.map((x) => x.title));
+    expect(invs.map((x) => x.title)).toEqual(["Faktura december 2026", "Tilläggsfaktura 2 · december 2026", "Bonusfaktura december 2026"]);
+    // Bonusfakturan i december är manuellt fakturerad (testdatat) med fakturanumret.
+    expect(String(valueOf(g, "Status", starts[2]))).toMatch(/20261299/);
+    invs.forEach((inv, k) => {
       expect(valueOf(g, "Summa exkl. moms", starts[k])).toBe(oreToKr(inv.amountOre));
       expect(valueOf(g, "Antal rader", starts[k])).toBe(inv.lines.length);
     });
@@ -241,7 +268,7 @@ describe("Excel-filen med fakturaunderlaget", () => {
     expect(statuses.some((s) => s.startsWith("Returnerad av kommunen") && s.includes("krediteras och görs om") && s.includes("beställarreferensen är fel eller spärrad"))).toBe(true);
     // Raderna: alla fakturornas rader, med fakturans namn på varje rad.
     const data = sheets.Fakturarader.grid.slice(1);
-    expect(data).toHaveLength(run.invoices.reduce((n, x) => n + x.lines.length, 0));
+    expect(data).toHaveLength(invs.reduce((n, x) => n + x.lines.length, 0));
     expect(data.filter((r) => r[0] === "Tilläggsfaktura 2 · december 2026")).toHaveLength(run.invoices.find((x) => x.number === 2)!.lines.length);
   });
 

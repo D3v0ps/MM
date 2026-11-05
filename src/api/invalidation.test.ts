@@ -43,6 +43,10 @@ const SAMPLES: Record<string, Sample[]> = {
   "admin.contract": one("u-robin"), "admin.orgRules": one("u-robin"), "admin.users": one("u-robin"),
   "admin.integrations": one("u-robin"), "admin.templates": one("u-robin"), "admin.auditLog": [...one("u-robin"), ...one("u-karin")],
   "admin.auditDetail": one("u-robin", { id: "__first_log__" }),
+  // Bonusstegen (Karims beslut 2026-11-04): BOT-26-0008 (Amira) har alla slags anspråk, BOT-26-0027 ett skickat till Maria.
+  "bonus.kort": [...one("u-amira", { caseId: "case-260008" }), ...one("u-sara", { caseId: "case-260008" })],
+  "bonus.granska": [...one("u-amira", { claimId: "bonus-case-260008-4-1" }), ...one("u-erik", { claimId: "bonus-case-260027-3-1" })],
+  "bonus.portal": one("k-maria", { claimId: "bonus-case-260027-3-1" }), "ekonomi.bonus": [...one("u-lars"), ...one("u-lars", { month: "2026-12" })],
   "arenden.lista": [...one("u-sara"), ...one("u-amira"), ...one("u-petra")], "arenden.kort": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })],
   // Översikt med kortet Filer (Karims beslut 2026-10-29): Nadia har ett CV, ett personligt brev och ett intyg i testdatat.
   "arenden.kortOversikt": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })], "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
@@ -185,6 +189,12 @@ const WRITES: Record<string, string[]> = {
   "arenden.andraStartdatum": [
     "case_notes", "case_start_changes", "cases", "activities", "attendance", "reports", "monthly_assessments", "monthly_plans", "outbound_messages", "tasks", AUDIT_CASE, AUDIT,
   ],
+  // Bonusstegen (Karims beslut 2026-11-04): anspråket, kommunens beslut (som ändrar anspråket i samma transaktion), mejlet till
+  // handläggaren och notisen till huvudcoachen.
+  "bonus.skapa": ["bonus_claims", AUDIT_CASE, AUDIT], "bonus.spara": ["bonus_claims", AUDIT_CASE, AUDIT],
+  "bonus.skicka": ["bonus_claims", "outbound_messages", AUDIT_CASE, AUDIT], "bonus.aterta": ["bonus_claims", AUDIT_CASE, AUDIT],
+  "bonus.besluta": ["bonus_claim_decisions", "bonus_claims", "user_notifications", AUDIT_CASE, AUDIT],
+  "bonus.registreraMejl": ["bonus_claim_decisions", "bonus_claims", "user_notifications", AUDIT_CASE, AUDIT], "bonus.underlag": [AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -204,7 +214,7 @@ const AUDIT_READS: Record<string, string[]> = {
  * (chefens Historik, revisionsloggen) hämtas om vid nästa sidvisning. Hämtningen av en bilaga (arenden.bilagaHamta) likaså.
  */
 const SILENT_NONE = ["arenden.visaPersonnummer", "arenden.bilagaHamta", "inkorg.revealPnr", "kommun.visaPersonnummer", "rapporter.snapshot", "rapporter.download",
-  "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.resultatfilExport", "rost.notesSeen", "session.auditView"];
+  "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.resultatfilExport", "rost.notesSeen", "session.auditView", "bonus.underlag"];
 
 /**
  * Tabeller som inte räknas automatiskt (avgränsning 2): namn, åtkomst och avtalskonfiguration som nästan varje fråga läser

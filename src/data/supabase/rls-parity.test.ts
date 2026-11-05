@@ -5,9 +5,10 @@
 import { readFileSync } from "node:fs";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { SYSTEM_ACTOR } from "@/api/roles";
 import { accessIndex, caseAccessIn } from "@/core/access";
 import { defaultGroupings } from "@/core/groupings";
-import { requireOperational } from "@/core/config";
+import { customerSafeConfig, requireOperational } from "@/core/config";
 import { startChangeLock, startChangeMonths, startChangeReportLock } from "@/core/start-date";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
@@ -61,9 +62,28 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     acknowledgedBy: null, acknowledgedAt: null, actionPlan: null,
   });
   const deadline = (id: string, contractId: string, caseId: string | null): Tables["deadlines"] => ({ id, contractId, caseId, reportId: null, kind: "forsta_mote", dueAt: at, metAt: null, status: "open" });
-  const bonus = (id: string, caseId: string): Tables["bonus_claims"] => ({
-    id, caseId, kind: "work", basis: "Anställningsbevis", evidencePaths: [], submittedAt: at, customerDecision: null, decidedBy: null, decidedAt: null, amountOre: null, invoiceDraftId: null,
+  // Bonusanspråk (0039) i alla lägen: förslag (Marias ärende), skickat (Amiras), godkänt (det skyddade ärendet), återtaget
+  // (Petras), avslaget och skickat (Marias) – med kommunens beslut för de beslutade. Stegen är lediga i ärendena (Amiras ärende
+  // BOT-26-0008 har testdatats anspråk för steg 2–5).
+  const bonus = (id: string, caseId: string, step: number, status: Tables["bonus_claims"]["status"], by = "u-amira"): Tables["bonus_claims"] => {
+    const sent = status === "submitted" || status === "approved" || status === "rejected";
+    const decided = status === "approved" || status === "rejected";
+    return {
+      id, caseId, contractId: "c-bot", step, kind: step <= 2 ? "progression" : "work", status, source: "manual", basis: "Kommentar", evidencePaths: [], outcomeEventId: null,
+      followsClaimId: null, reachedOn: "2027-01-20", verificationKind: step >= 2 ? "anställningsbevis" : null, verificationOn: step >= 2 ? "2027-01-18" : null, checklist: {},
+      snapshot: sent ? { v: 1, claimId: id } : null, createdBy: by, createdAt: at, submittedAt: sent ? at : null, submittedBy: sent ? by : null,
+      withdrawnBy: status === "withdrawn" ? by : null, withdrawnAt: status === "withdrawn" ? at : null, customerDecision: decided ? status : null,
+      decidedBy: decided ? "k-maria" : null, decidedAt: decided ? at : null, decisionNote: null, amountOre: null, invoiceDraftId: null,
+    };
+  };
+  const bonusDecision = (claim: Tables["bonus_claims"], decidedBy: string): Tables["bonus_claim_decisions"] => ({
+    id: `bcd-${claim.id}`, claimId: claim.id, caseId: claim.caseId, contractId: claim.contractId, decision: claim.status as "approved" | "rejected", note: null, via: "portal",
+    decidedBy, recordedBy: decidedBy, decidedAt: at,
   });
+  const bonusRows = [
+    bonus("bc-1", mariaCase.id, 1, "suggested"), bonus("bc-2", amiraCase.id, 1, "submitted"), { ...bonus("bc-3", protectedCase.id, 2, "approved"), decidedBy: protectedCase.referrerId },
+    bonus("bc-4", petraCase.id, 3, "withdrawn", "u-petra"), bonus("bc-5", mariaCase.id, 3, "rejected"), bonus("bc-6", mariaCase.id, 2, "submitted"),
+  ];
   const cdev = (id: string, caseId: string | null): Tables["contract_deviations"] => ({
     ...data.contract_deviations[0], id, caseId,
   });
@@ -174,12 +194,13 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       { id: "kpi-1", contractId: "c-bot", kpiKey: "resultatgrad", window: "rolling_6m", value: 0.34, numerator: 17, denominator: 50, computedAt: at },
       { id: "kpi-2", contractId: "c-ny", kpiKey: "resultatgrad", window: "month", value: null, numerator: 0, denominator: 0, computedAt: at },
     ],
-    bonus_claims: [bonus("bc-1", mariaCase.id), bonus("bc-2", amiraCase.id), bonus("bc-3", protectedCase.id), bonus("bc-4", petraCase.id)],
+    bonus_claims: bonusRows,
+    bonus_claim_decisions: [bonusDecision(bonusRows[2], protectedCase.referrerId!), bonusDecision(bonusRows[4], "k-maria")],
     contract_deviations: [cdev("cd-x1", mariaCase.id), cdev("cd-x2", protectedCase.id)],
     invoice_drafts: [draft],
     invoice_lines: [{
       id: `${draft.id}:${draftCase.id}`, invoiceDraftId: draft.id, caseId: draftCase.id, priceItemId: "pi-G", quantity: 4, unitPriceOre: 350000, vatRate: 25,
-      description: `${draftCase.caseNumber} · v. 1–4 2027`, isoWeeks: ["2027-W01", "2027-W02", "2027-W03", "2027-W04"], zeroAttendanceWeeks: [], note: "",
+      description: `${draftCase.caseNumber} · v. 1–4 2027`, isoWeeks: ["2027-W01", "2027-W02", "2027-W03", "2027-W04"], zeroAttendanceWeeks: [], note: "", bonusClaimId: null,
     }],
     billing_week_approvals: [{ id: `${draftCase.id}:2026-W45`, contractId: "c-bot", month: "2026-11", caseId: draftCase.id, weekKey: "2026-W45", approvedBy: "u-lars", approvedAt: at, note: "" }],
     invoice_credits: [{ id: "ic-1", contractId: "c-bot", month: "2026-12", invoiceDraftId: returnedInvoice.id, caseId: null, creditedAt: at, creditedBy: "u-lars", buyerReference: "55102938" }],
@@ -276,7 +297,7 @@ const chooseRole = (userId: string, role: string) => async (tx: Tx) => {
 };
 
 /** Tabellen som RLS-läsningen görs mot: avtal och ärenden läses via vyerna contracts_public och cases_public (se supabase/README.md). */
-const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t);
+const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t === "bonus_claims" ? "bonus_claims_public" : t);
 const COUNT_SQL = TABLE_NAMES.map((t) => `select '${t}' as t, count(*)::int as n from public.${readSource(t)}`).join(" union all ");
 
 async function pgCounts(tx: Tx): Promise<Record<string, number>> {
@@ -625,6 +646,10 @@ describe("avtal: kommunen läser aldrig de interna målen", () => {
     expect(got.view.map((c) => c.id)).toEqual(["c-bot"]);
     const cfg = got.view[0].config;
     expect(JSON.stringify(cfg)).not.toMatch(/internalTarget|belowInternal/);
+    // Bonusens tak per deltagare är ett belopp (0039, Karims beslut 2026-11-04): reglerna finns, taket inte – samma som customerSafeConfig.
+    expect(cfg.bonus).toMatchObject({ enabled: true, speedWeeks: 10 });
+    expect(cfg.bonus).not.toHaveProperty("capOre");
+    expect(cfg).toEqual(JSON.parse(JSON.stringify(customerSafeConfig(data.contracts.find((c) => c.id === "c-bot")!.config))));
     expect(() => requireOperational(cfg as never)).not.toThrow();
     const original = data.contracts.find((c) => c.id === "c-bot")!.config;
     expect((cfg.kpis as { key: string; contractTarget?: number }[]).map((k) => [k.key, k.contractTarget ?? null]))
@@ -813,6 +838,14 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
     if (row.fortnoxIdempotencyKey) c.fortnoxIdempotencyKey = `${row.fortnoxIdempotencyKey}:kopia`;
   }
   if (t === "invoice_lines") c.caseId = data.cases.find((x) => !data.invoice_lines.some((l) => l.invoiceDraftId === row.invoiceDraftId && l.caseId === x.id))?.id;
+  // Bonusanspråk (0039): högst ett som räknas per ärende och steg – kopian får ett ledigt steg 1–3 (de bygger inte på steg 3) och
+  // aktuell tid (testklockan). Utan ledigt steg blir kopian återtagen – den kan då ingen skapa.
+  if (t === "bonus_claims") {
+    const taken = new Set(data.bonus_claims.filter((k) => k.caseId === row.caseId && ["suggested", "submitted", "approved"].includes(k.status)).map((k) => k.step));
+    const free = [1, 2, 3].find((s) => !taken.has(s));
+    Object.assign(c, { step: free ?? 1, kind: (free ?? 1) <= 2 ? "progression" : "work", followsClaimId: null, createdAt: "2027-02-01T09:12" });
+    if (free == null) Object.assign(c, { status: "withdrawn", withdrawnAt: "2027-02-01T09:12", withdrawnBy: row.createdBy });
+  }
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
     c.userId = data.profiles.map((p) => p.id).find((u) => !taken.has(`${u}|${row.contractId}|${row.role}`));
@@ -1764,7 +1797,7 @@ describe("fakturan per avtal och månad (0023): frysta rader – samma regler i 
   const caseWithout = (draftId: string) => data.cases.find((c) => c.startDate && !data.invoice_lines.some((l) => l.invoiceDraftId === draftId && l.caseId === c.id))!;
   const line = (draftId: string, caseId: string): Tables["invoice_lines"] => ({
     id: `${draftId}:${caseId}`, invoiceDraftId: draftId, caseId, priceItemId: "pi-G", quantity: 1, unitPriceOre: 139800, vatRate: 25, description: "BOT-26-0001 · v. 1 2027",
-    isoWeeks: ["2027-W01"], zeroAttendanceWeeks: [], note: "",
+    isoWeeks: ["2027-W01"], zeroAttendanceWeeks: [], note: "", bonusClaimId: null,
   });
 
   it("testdatat: en faktura per avtal och månad, tilläggsfakturan i december och frysta rader; körningen har ingen standardstatus längre", async () => {
@@ -1775,6 +1808,8 @@ describe("fakturan per avtal och månad (0023): frysta rader – samma regler i 
       { month: "2026-09", grouping_key: "avtal", status: "paid", case_id: null }, { month: "2026-10", grouping_key: "avtal", status: "paid", case_id: null },
       { month: "2026-11", grouping_key: "avtal", status: "paid", case_id: null }, { month: "2026-12", grouping_key: "avtal", status: "sent", case_id: null },
       { month: "2026-12", grouping_key: "avtal-tillagg-2", status: "returned", case_id: null },
+      // Bonusfakturan för december (beslut 2026-11-04): egen faktura, skild från den periodiska.
+      { month: "2026-12", grouping_key: "bonus", status: "manual", case_id: null },
     ]);
     const cols = await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_name = 'billing_runs'");
     expect(cols.rows.map((c) => c.column_name)).not.toContain("default_invoice_status");
@@ -3407,5 +3442,408 @@ describe("ändra startdatum (0038): läsning och skrivning – samma regler i RL
     expect(res!.after).toEqual(res!.before);
     expect(res!.policies).toBe(2);
     expect(res!.triggers).toBe(4);
+  });
+});
+
+// ================================================================ Bonusstegen (0039, Karims beslut 2026-11-04)
+describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och beslut – samma regler i RLS, triggrarna och policy.ts", () => {
+  // Testklockan (mm.app_now()) står på 09.12 när blocket börjar – se beforeEach. Raderna i EXTRA: bc-1 förslag och bc-6 skickat
+  // (steg 2) i Marias ärende, bc-5 avslaget, bc-2 skickat i Amiras ärende (också Marias), bc-3 godkänt i det skyddade ärendet, bc-4 återtaget.
+  const at = "2027-02-01T09:12";
+  const clocked: RawAccess<Tables> = { ...raw, now: () => at };
+  const claim = (id: string) => data.bonus_claims.find((k) => k.id === id)!;
+  const memRead = (t: "bonus_claims" | "bonus_claim_decisions", key: string) =>
+    (data[t] as { id: string }[]).filter((x) => canReadRow(t, x as never, actorOf(findPersona(key)), raw)).map((x) => x.id).sort();
+  const pgRead = (t: "bonus_claims" | "bonus_claim_decisions", key: string) =>
+    asPersona(findPersona(key), async (tx) => (await tx.query<{ id: string }>(`select id from public.${t} order by id`)).rows.map((r) => r.id));
+  const memUpdate = (id: string, patch: Partial<Tables["bonus_claims"]>, key: string) => {
+    const cur = claim(id);
+    const a = actorOf(findPersona(key));
+    return canReadRow("bonus_claims", cur, a, raw) && canWriteRow("bonus_claims", { ...cur, ...patch }, a, clocked);
+  };
+  const lit = (v: unknown) => (v === null ? "null" : typeof v === "object" ? `'${JSON.stringify(v)}'::jsonb` : `'${String(v)}'`);
+  const setSql = (patch: Record<string, unknown>) => Object.entries(patch).map(([k, v]) => `${quoteIdent(snakeCase(k))} = ${lit(v)}`).join(", ");
+  const pgUpdate = async (id: string, patch: Partial<Tables["bonus_claims"]>, key: string) =>
+    allowed(await asPersona(findPersona(key), (tx) => attempt(tx, `update public.bonus_claims set ${setSql(patch)} where id = '${id}'`)));
+  const decision = (claimId: string, by: string, patch: Partial<Tables["bonus_claim_decisions"]> = {}): Tables["bonus_claim_decisions"] => {
+    const k = claim(claimId);
+    return { id: `bcd-t-${claimId}-${by}`, claimId, caseId: k.caseId, contractId: k.contractId, decision: "approved", note: null, via: "portal", decidedBy: by, recordedBy: by, decidedAt: at, ...patch };
+  };
+  const memDecide = (d: Tables["bonus_claim_decisions"], key: string) => canWriteRow("bonus_claim_decisions", d, actorOf(findPersona(key)), clocked);
+  const pgDecide = async (d: Tables["bonus_claim_decisions"], key: string) =>
+    allowed(await asPersona(findPersona(key), (tx) => attempt(tx, insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>))));
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
+
+  it("läsning: Miljonbemanning i avtalet (också ekonomen) läser alla; kommunen bara skickade och beslutade i sina ärenden – aldrig förslag eller återtagna", async () => {
+    for (const key of ["u-amira", "u-sara", "u-lars", "u-karin", "k-maria", "k-omar", "deltagare"]) {
+      for (const t of ["bonus_claims", "bonus_claim_decisions"] as const) expect(await pgRead(t, key), `${key} ${t}`).toEqual(memRead(t, key));
+    }
+    expect(memRead("bonus_claims", "k-maria").filter((id) => id.startsWith("bc-"))).toEqual(["bc-2", "bc-5", "bc-6"]);
+    expect(data.bonus_claims.filter((k) => memRead("bonus_claims", "k-maria").includes(k.id)).every((k) => ["submitted", "approved", "rejected"].includes(k.status))).toBe(true);
+    expect(memRead("bonus_claims", "u-lars")).toEqual(data.bonus_claims.map((k) => k.id).sort());
+  });
+
+  it("ekonomen läser anspråken utan innehållet (bonus_claims_public) – underlaget, kommentaren och motiveringen bara för den som arbetar i ärendet och kommunen", async () => {
+    type Row = { id: string; status: string; step: number; basis: string; snapshot: unknown; checklist: unknown; verification_kind: string | null; decision_note: string | null };
+    const view = (key: string) =>
+      asPersona(findPersona(key), async (tx) =>
+        (await tx.query<Row>("select id, status, step, basis, snapshot, checklist, verification_kind, decision_note from public.bonus_claims_public where id in ('bc-5', 'bc-6') order by id")).rows);
+    const lars = await view("u-lars");
+    expect(lars.map((r) => [r.id, r.status, r.step])).toEqual([["bc-5", "rejected", 3], ["bc-6", "submitted", 2]]);
+    for (const r of lars) expect({ basis: r.basis, snapshot: r.snapshot, checklist: r.checklist, verification_kind: r.verification_kind, decision_note: r.decision_note }).toEqual({ basis: "", snapshot: null, checklist: {}, verification_kind: null, decision_note: null });
+    // Den som arbetar i ärendet och kommunen (skickade och beslutade) läser innehållet.
+    for (const key of ["u-amira", "k-maria"]) {
+      const rows = await view(key);
+      expect(rows.map((r) => [r.id, r.basis, (r.snapshot as { v?: number } | null)?.v ?? null]), key).toEqual([["bc-5", "Kommentar", 1], ["bc-6", "Kommentar", 1]]);
+    }
+    // Direkt i tabellen: bara id, ärende, avtal, steg och läge – aldrig innehållet, för någon inloggad.
+    for (const key of ["u-lars", "u-amira", "k-maria"]) {
+      const got = await asPersona(findPersona(key), async (tx) => ({
+        ok: await attempt(tx, "select id, case_id, contract_id, step, status from public.bonus_claims"),
+        snapshot: await attempt(tx, "select snapshot from public.bonus_claims"),
+        basis: await attempt(tx, "select basis from public.bonus_claims"),
+      }));
+      expect([got.ok.ok, got.snapshot.ok, got.basis.ok], key).toEqual([true, false, false]);
+      expect(got.snapshot, key).toMatchObject({ code: "42501" });
+    }
+  });
+
+  it("beloppet står aldrig på anspråket och inga dokument – för någon, också servern", async () => {
+    expect(data.bonus_claims.every((k) => k.amountOre === null && k.evidencePaths.length === 0)).toBe(true);
+    expect({ pg: await pgUpdate("bc-1", { amountOre: 150000 }, "u-amira"), mem: memUpdate("bc-1", { amountOre: 150000 }, "u-amira") }).toEqual({ pg: false, mem: false });
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.bonus_claims set amount_ore = 150000 where id = 'bc-1'"), { role: "service_role" });
+    expect(service).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("övergångar: förslag ändras och skickas av den som arbetar i ärendet i eget namn – aldrig godkänt direkt, aldrig efter beslut", async () => {
+    const send = { status: "submitted" as const, snapshot: { v: 1, claimId: "bc-1", step: 1 }, submittedAt: at, submittedBy: "u-amira" };
+    const cases: [string, string, Partial<Tables["bonus_claims"]>, boolean][] = [
+      ["kommentar i förslaget", "bc-1", { basis: "Ny kommentar" }, true],
+      ["skicka i eget namn", "bc-1", send, true],
+      ["skicka i någon annans namn", "bc-1", { ...send, submittedBy: "u-erik" }, false],
+      ["skicka utan underlag", "bc-1", { ...send, snapshot: null }, false],
+      ["skicka med gammal tid", "bc-1", { ...send, submittedAt: "2027-01-31T09:12" }, false],
+      ["godkänna direkt", "bc-6", { status: "approved", customerDecision: "approved", decidedBy: "u-amira", decidedAt: at }, false],
+      ["ändra ett skickat anspråks kommentar", "bc-6", { basis: "Ändrad" }, false],
+      ["återta ett skickat", "bc-6", { status: "withdrawn", withdrawnAt: at, withdrawnBy: "u-amira" }, true],
+      ["ändra ett avslaget", "bc-5", { basis: "Ändrad" }, false],
+      ["återta ett avslaget", "bc-5", { status: "withdrawn", withdrawnAt: at, withdrawnBy: "u-amira" }, false],
+      ["återuppliva ett återtaget", "bc-4", { status: "suggested", withdrawnAt: null, withdrawnBy: null }, false],
+    ];
+    for (const [label, id, patch, want] of cases) expect({ pg: await pgUpdate(id, patch, "u-amira"), mem: memUpdate(id, patch, "u-amira") }, label).toEqual({ pg: want, mem: want });
+    // Bara den som arbetar i ärendet: inte ekonomen, chefen, admin eller kommunen.
+    for (const key of ["u-lars", "u-karin", "u-robin", "k-maria"]) {
+      expect({ pg: await pgUpdate("bc-1", { basis: "X" }, key), mem: memUpdate("bc-1", { basis: "X" }, key) }, key).toEqual({ pg: false, mem: false });
+    }
+  });
+
+  it("kommunens beslut i portalen: eget skickat anspråk, en gång, i eget namn och med aktuell tid – och anspråket ändras i samma steg", async () => {
+    const ok = decision("bc-6", "k-maria");
+    expect({ pg: await pgDecide(ok, "k-maria"), mem: memDecide(ok, "k-maria") }).toEqual({ pg: true, mem: true });
+    const cases: [string, Tables["bonus_claim_decisions"], string, boolean][] = [
+      ["ett förslag", decision("bc-1", "k-maria"), "k-maria", false],
+      ["ett redan beslutat", decision("bc-5", "k-maria"), "k-maria", false],
+      ["en annan handläggares ärende", decision("bc-6", "k-omar"), "k-omar", false],
+      ["i någon annans namn", decision("bc-6", "k-maria", { decidedBy: "k-omar", recordedBy: "k-maria" }), "k-maria", false],
+      ["med gammal tid", decision("bc-6", "k-maria", { decidedAt: "2027-01-30T09:12" }), "k-maria", false],
+      ["coachen i portalen", decision("bc-6", "u-amira"), "u-amira", false],
+      ["ekonomen", decision("bc-6", "u-lars"), "u-lars", false],
+    ];
+    for (const [label, d, key, want] of cases) expect({ pg: await pgDecide(d, key), mem: memDecide(d, key) }, label).toEqual({ pg: want, mem: want });
+    // Anspråket ändras av triggern – och ett andra beslut nekas (en rad per anspråk).
+    const after = await asPersona(findPersona("k-maria"), async (tx) => {
+      await tx.query(insertSql("bonus_claim_decisions", ok as unknown as Record<string, unknown>));
+      const k = (await tx.query<{ status: string; customer_decision: string; decided_by: string }>("select status, customer_decision, decided_by from public.bonus_claims_public where id = 'bc-6'")).rows[0];
+      const again = await attempt(tx, insertSql("bonus_claim_decisions", { ...ok, id: "bcd-t-igen", decision: "rejected" } as unknown as Record<string, unknown>));
+      return { k, again };
+    });
+    expect(after.k).toEqual({ status: "approved", customer_decision: "approved", decided_by: "k-maria" });
+    expect(after.again.ok).toBe(false);
+    // Samma i minnet: beslutet ändrar anspråket (afterInsert) och ett andra beslut stoppas.
+    const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    mem.clock = () => at;
+    const repo = new MemoryRepo<Tables>(mem, actorOf(findPersona("k-maria")), POLICIES);
+    await repo.table("bonus_claim_decisions").insert(ok);
+    expect(mem.raw().get("bonus_claims", "bc-6")).toMatchObject({ status: "approved", customerDecision: "approved", decidedBy: "k-maria" });
+    await expect(repo.table("bonus_claim_decisions").insert({ ...ok, id: "bcd-t-igen", decision: "rejected" })).rejects.toBeTruthy();
+  });
+
+  it("beslut som kom med mejl: registreras bara av samordnare och avtalsansvarig, utan beslutsfattare och med anteckning", async () => {
+    const mail = (by: string, patch: Partial<Tables["bonus_claim_decisions"]> = {}) => decision("bc-6", by, { via: "mejl", decidedBy: null, recordedBy: by, note: "Mejl från handläggaren.", ...patch });
+    const cases: [string, Tables["bonus_claim_decisions"], string, boolean][] = [
+      ["samordnaren", mail("u-sara"), "u-sara", true],
+      ["avtalsansvarig", mail("u-johan"), "u-johan", true],
+      ["coachen", mail("u-amira"), "u-amira", false],
+      ["chefen", mail("u-karin"), "u-karin", false],
+      ["utan anteckning", mail("u-sara", { note: null }), "u-sara", false],
+      ["med beslutsfattare", mail("u-sara", { decidedBy: "u-sara" }), "u-sara", false],
+      ["kommunen via mejl", mail("k-maria"), "k-maria", false],
+    ];
+    for (const [label, d, key, want] of cases) expect({ pg: await pgDecide(d, key), mem: memDecide(d, key) }, label).toEqual({ pg: want, mem: want });
+  });
+
+  it("beslutsloggen ändras och tas aldrig bort – för någon", async () => {
+    for (const key of ["k-maria", "u-sara", "u-robin", "u-lars"]) {
+      const got = await asPersona(findPersona(key), async (tx) => ({
+        upd: await attempt(tx, "update public.bonus_claim_decisions set note = 'x' where id = 'bcd-bc-5'"),
+        del: await attempt(tx, "delete from public.bonus_claim_decisions where id = 'bcd-bc-5'"),
+      }));
+      expect([allowed(got.upd), allowed(got.del)], key).toEqual([false, false]);
+    }
+  });
+
+  it("ekonomen läser inte kommunens beslut (D1) och vyn speglas i minnet (D7): samma kolumner som bonus_claims_public för varje roll", async () => {
+    expect(await pgRead("bonus_claim_decisions", "u-lars")).toEqual([]);
+    expect(memRead("bonus_claim_decisions", "u-lars")).toEqual([]);
+    type Cols = { id: string; basis: string; snapshot: unknown; checklist: unknown; verification_kind: string | null; decision_note: string | null };
+    for (const key of ["u-lars", "u-amira", "k-maria"]) {
+      const pg = await asPersona(findPersona(key), async (tx) =>
+        (await tx.query<Cols>("select id, basis, snapshot, checklist, verification_kind, decision_note from public.bonus_claims_public order by id")).rows);
+      const mem = (await new MemoryRepo<Tables>(store, actorOf(findPersona(key)), POLICIES).table("bonus_claims").list())
+        .sort((a, b) => (a.id < b.id ? -1 : 1))
+        .map((k) => ({ id: k.id, basis: k.basis, snapshot: k.snapshot, checklist: k.checklist, verification_kind: k.verificationKind, decision_note: k.decisionNote }));
+      expect(pg, key).toEqual(JSON.parse(JSON.stringify(mem)));
+    }
+  });
+
+  it("varje ny rad har ett bonussteg och slaget följer steget (D2) – för inloggade och servern", async () => {
+    const base = { ...claim("bc-1"), id: "bc-t-null", step: null as number | null, kind: "progression" as const, status: "suggested" as const, createdAt: at, basis: "" };
+    const bad: [string, Tables["bonus_claims"]][] = [
+      ["utan steg", base as Tables["bonus_claims"]],
+      ["fel slag", { ...base, id: "bc-t-kind", step: 4 as number | null, kind: "progression" } as Tables["bonus_claims"]],
+    ];
+    for (const [label, r] of bad) {
+      const pg = allowed(await asPersona(findPersona("u-amira"), (tx) => attempt(tx, insertSql("bonus_claims", r as unknown as Record<string, unknown>))));
+      expect({ pg, mem: canWriteRow("bonus_claims", r, actorOf(findPersona("u-amira")), clocked) }, label).toEqual({ pg: false, mem: false });
+      const service = await asUser(db, null, (tx) => attempt(tx, insertSql("bonus_claims", r as unknown as Record<string, unknown>)), { role: "service_role" });
+      expect(service.ok, `${label} (service role)`).toBe(false);
+    }
+  });
+
+  it("underlaget som skickas hör till anspråket (D4): version 1, anspråkets id och steg", async () => {
+    const send = (snapshot: Record<string, unknown>) => ({ status: "submitted" as const, snapshot, submittedAt: at, submittedBy: "u-amira" });
+    const cases: [string, Record<string, unknown>, boolean][] = [
+      ["rätt underlag", { v: 1, claimId: "bc-1", step: 1 }, true],
+      ["annat anspråks underlag", { v: 1, claimId: "bc-6", step: 1 }, false],
+      ["fel steg", { v: 1, claimId: "bc-1", step: 3 }, false],
+      ["fel version", { v: 2, claimId: "bc-1", step: 1 }, false],
+      ["godtyckligt innehåll", { belopp: "1 500 kr" }, false],
+      // Jämförs som jsonb (R2-4): versionen och steget är tal, som i policy.ts – texten "1" räcker inte.
+      ["versionen som text", { v: "1", claimId: "bc-1", step: 1 }, false],
+      ["steget som text", { v: 1, claimId: "bc-1", step: "1" }, false],
+      ["båda som text", { v: "1", claimId: "bc-1", step: "1" }, false],
+    ];
+    for (const [label, snapshot, want] of cases) expect({ pg: await pgUpdate("bc-1", send(snapshot), "u-amira"), mem: memUpdate("bc-1", send(snapshot), "u-amira") }, label).toEqual({ pg: want, mem: want });
+  });
+
+  it("bara handläggaren som beställde beslutar i portalen (D3) – också med vidare synlighet för kommunen", async () => {
+    const widen = "update public.contracts set config = jsonb_set(config, '{customerVisibility,scope}', '\"all\"') where id = 'c-bot'";
+    const omarSees = await asUser(db, authOf("k-omar"), async (tx) => (await tx.query<{ id: string }>("select id from public.bonus_claims_public where id = 'bc-6'")).rows.length, {
+      before: async (tx) => { await tx.exec(widen); },
+    });
+    expect(omarSees, "med synligheten all ser Omar Marias anspråk").toBe(1);
+    const decideAs = (key: string) => asUser(db, authOf(key), (tx) => attempt(tx, insertSql("bonus_claim_decisions", decision("bc-6", key) as unknown as Record<string, unknown>)), {
+      before: async (tx) => { await tx.exec(widen); },
+    });
+    const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    const c = mem.rows("contracts").find((x) => x.id === "c-bot")!;
+    (c.config as { customerVisibility: { scope: string } }).customerVisibility.scope = "all";
+    const memRaw = { ...mem.raw(), now: () => at };
+    expect(canReadRow("bonus_claims", claim("bc-6"), actorOf(findPersona("k-omar")), memRaw)).toBe(true);
+    for (const [key, want] of [["k-omar", false], ["k-maria", true]] as const) {
+      expect({ pg: allowed(await decideAs(key)), mem: canWriteRow("bonus_claim_decisions", decision("bc-6", key), actorOf(findPersona(key)), memRaw) }, key).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("ett avslag av bonussteg 3 återtar steg 4 och 5 som bygger på det (A1) – samma i Postgres och minnet", async () => {
+    const S3 = "bonus-case-260027-3-1";
+    const S5 = "bonus-case-260027-5-1";
+    const d = decision(S3, "k-maria", { decision: "rejected", note: "För få timmar." });
+    const pg = await asPersona(findPersona("k-maria"), async (tx) => {
+      await tx.query(insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>));
+      await tx.exec("reset role");
+      return (await tx.query<{ id: string; status: string; withdrawn_by: string | null }>(`select id, status, withdrawn_by from public.bonus_claims where id in ('${S3}', '${S5}') order by id`)).rows;
+    });
+    expect(pg).toEqual([{ id: S3, status: "rejected", withdrawn_by: null }, { id: S5, status: "withdrawn", withdrawn_by: "system" }]);
+    const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    mem.clock = () => at;
+    await new MemoryRepo<Tables>(mem, actorOf(findPersona("k-maria")), POLICIES).table("bonus_claim_decisions").insert(d);
+    expect([S3, S5].map((id) => [mem.raw().get("bonus_claims", id)?.status, mem.raw().get("bonus_claims", id)?.withdrawnBy ?? null])).toEqual([["rejected", null], ["withdrawn", "system"]]);
+  });
+
+  it("append-only och oföränderligt för alla roller, också service role (D5)", async () => {
+    const service = (sql: string) => asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" });
+    // Besluten ändras och raderas aldrig.
+    expect(await service("update public.bonus_claim_decisions set note = 'x' where id = 'bcd-bc-5'")).toMatchObject({ ok: false, code: "42501" });
+    expect(await service("delete from public.bonus_claim_decisions where id = 'bcd-bc-5'")).toMatchObject({ ok: false, code: "42501" });
+    // Ett beslut som inte går att lägga på anspråket stoppas också för servern – ett anspråk blir aldrig kvar som skickat.
+    const onSuggested = decision("bc-1", "k-maria", { id: "bcd-t-service" });
+    expect(await service(insertSql("bonus_claim_decisions", onSuggested as unknown as Record<string, unknown>))).toMatchObject({ ok: false, code: "23514" });
+    // Ett beslutat eller återtaget anspråk ändras aldrig, och beslutet skrivs bara av mm.apply_bonus_decision.
+    expect(await service("update public.bonus_claims set basis = 'x' where id = 'bc-5'")).toMatchObject({ ok: false, code: "42501" });
+    expect(await service("update public.bonus_claims set basis = 'x' where id = 'bc-4'")).toMatchObject({ ok: false, code: "42501" });
+    expect(await service(`update public.bonus_claims set status = 'approved', customer_decision = 'approved', decided_at = '${at}' where id = 'bc-6'`)).toMatchObject({ ok: false, code: "42501" });
+    // Det servern gör på riktigt fungerar: ett nytt förslag (jobbet) och ett återtagande.
+    expect(allowed(await service(`update public.bonus_claims set status = 'withdrawn', withdrawn_at = '${at}', withdrawn_by = 'system' where id = 'bc-6'`))).toBe(true);
+    const free = data.cases.find((c) => c.contractId === "c-bot" && c.status === "active" && !data.bonus_claims.some((k) => k.caseId === c.id))!;
+    const suggestion = { ...claim("bc-1"), id: "bc-t-auto", caseId: free.id, step: 1, kind: "progression" as const, source: "auto" as const, createdBy: "system", createdAt: at };
+    expect(allowed(await service(insertSql("bonus_claims", suggestion as unknown as Record<string, unknown>)))).toBe(true);
+    // Ett beslut som redan står på anspråket (testdatat läses in med beslutade anspråk och deras beslut) stoppas inte: seed.sql
+    // går igenom triggern för varje beslut i testdatat när databasen byggs för de här testerna.
+  });
+
+  it("en anteckning med bara blanksteg räknas inte som motivering för ett mejlbeslut (D6)", async () => {
+    const blank = decision("bc-6", "u-sara", { via: "mejl", decidedBy: null, recordedBy: "u-sara", note: "   " });
+    expect({ pg: await pgDecide(blank, "u-sara"), mem: memDecide(blank, "u-sara") }).toEqual({ pg: false, mem: false });
+  });
+
+  it("fakturaraden: en bonusrad bara på en bonusfaktura och för ett godkänt anspråk – också för servern", async () => {
+    const periodic = data.invoice_drafts.find((d) => d.kind === "periodic" && d.status === "paid")!;
+    const bonusDraft = data.invoice_drafts.find((d) => d.kind === "bonus")!;
+    const base = data.invoice_lines.find((l) => l.invoiceDraftId === bonusDraft.id)!;
+    const line = (id: string, patch: Partial<Tables["invoice_lines"]>) => insertSql("invoice_lines", { ...base, id, ...patch } as unknown as Record<string, unknown>);
+    const service = (sql: string) => asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" });
+    expect(await service(line("il-t-1", { invoiceDraftId: periodic.id }))).toMatchObject({ ok: false, code: "23514" });
+    expect(await service(line("il-t-2", { bonusClaimId: "bc-6", caseId: claim("bc-6").caseId }))).toMatchObject({ ok: false, code: "23514" });
+    expect(await service(line("il-t-3", { bonusClaimId: null }))).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  // ---- Granskningsrunda 2: genvägen för testdata, flaggan, rättigheterna, underlaget och minnets vy och spärrar.
+  const memOk = (p: Promise<unknown>) => p.then(() => true, () => false);
+  const system = (s: MemoryStore<Tables>) => new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
+  const memWith = (extra: Partial<{ [N in TableName]: Tables[N][] }> = {}) => {
+    const d = structuredClone(data);
+    for (const [t, rows] of Object.entries(extra)) (d[t as TableName] as unknown[]).push(...structuredClone(rows as unknown[]));
+    const s = new MemoryStore<Tables>(d, UNIQUE_KEYS);
+    s.clock = () => at;
+    return s;
+  };
+
+  it("ett beslut som redan står på anspråket godtas bara när testdata läses in – aldrig för en inloggad (R2-1)", async () => {
+    // Ett godkänt anspråk utan beslut i loggen (bara möjligt för servern) – kommunen får inte "ta över" det med ett eget beslut.
+    const orphan: Tables["bonus_claims"] = {
+      ...claim("bc-5"), id: "bc-t-orphan", status: "approved", customerDecision: "approved", decidedBy: "k-omar", decidedAt: at, snapshot: { v: 1, claimId: "bc-t-orphan", step: 3 },
+    };
+    const d: Tables["bonus_claim_decisions"] = {
+      id: "bcd-t-orphan", claimId: orphan.id, caseId: orphan.caseId, contractId: orphan.contractId, decision: "approved", note: null, via: "portal", decidedBy: "k-maria", recordedBy: "k-maria", decidedAt: at,
+    };
+    const seedOrphan = async (tx: Tx) => { await tx.exec(insertSql("bonus_claims", orphan as unknown as Record<string, unknown>)); };
+    const kommun = await asUser(db, authOf("k-maria"), (tx) => attempt(tx, insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>)), { before: seedOrphan });
+    const service = await asUser(db, null, async (tx) => ({
+      a: await attempt(tx, insertSql("bonus_claim_decisions", d as unknown as Record<string, unknown>), [], { keep: true }),
+      k: (await tx.query<{ status: string; decided_by: string }>(`select status, decided_by from public.bonus_claims where id = '${orphan.id}'`)).rows[0],
+    }), { role: "service_role", before: seedOrphan });
+    expect(kommun).toMatchObject({ ok: false, code: "23514" });
+    expect(service.a.ok).toBe(true);
+    expect(service.k, "ingenting ändras på anspråket").toEqual({ status: "approved", decided_by: "k-omar" });
+    // Minnet: kommunen nekas, systemet (som service role och seed) godtas och ändrar ingenting.
+    const mem = memWith({ bonus_claims: [orphan] });
+    const maria = actorOf(findPersona("k-maria"));
+    expect({ pg: allowed(kommun), mem: await memOk(new MemoryRepo<Tables>(mem, maria, POLICIES).table("bonus_claim_decisions").insert(d)) }).toEqual({ pg: false, mem: false });
+    expect(await memOk(system(mem).table("bonus_claim_decisions").insert(d))).toBe(true);
+    expect(mem.raw().get("bonus_claims", orphan.id)).toMatchObject({ status: "approved", decidedBy: "k-omar" });
+    // Regeln själv: genvägen bara för systemet (p_existing_ok i mm.apply_bonus_decision).
+    const apply = POLICIES.bonus_claim_decisions!.afterInsert!;
+    const memRaw = { ...memWith({ bonus_claims: [orphan] }).raw(), now: () => at };
+    expect(() => apply(d, maria, memRaw, false)).toThrow();
+    expect(apply(d, SYSTEM_ACTOR, memRaw, true)).toEqual([]);
+  });
+
+  it("kommunens beslut skrivs på anspråket bara när beslutet finns i loggen – flaggan räcker inte, inte heller för service role (R2-2)", async () => {
+    const flag = "select set_config('mm.bonus_decision_apply', 'on', true)";
+    const approve = (when: string) => `update public.bonus_claims set status = 'approved', customer_decision = 'approved', decided_by = 'k-maria', decided_at = '${when}' where id = 'bc-6'`;
+    // Beslutet i loggen utan att triggern lägger det på anspråket (som mitt i mm.apply_bonus_decision).
+    const row = decision("bc-6", "k-maria", { id: "bcd-t-side" });
+    const sideload = async (tx: Tx) => {
+      await tx.exec("set local session_replication_role = replica");
+      await tx.exec(insertSql("bonus_claim_decisions", row as unknown as Record<string, unknown>));
+      await tx.exec("set local session_replication_role = origin");
+    };
+    const service = <T,>(fn: (tx: Tx) => Promise<T>, before?: (tx: Tx) => Promise<void>) => asUser(db, null, fn, { role: "service_role", before });
+    const noRow = await service(async (tx) => { await tx.query(flag); return attempt(tx, approve(at)); });
+    const withRow = await service(async (tx) => {
+      const noFlag = await attempt(tx, approve(at));
+      await tx.query(flag);
+      return { noFlag, same: await attempt(tx, approve(at)), otherTime: await attempt(tx, approve("2027-02-01T09:00")) };
+    }, sideload);
+    expect(noRow).toMatchObject({ ok: false, code: "42501" });
+    expect(withRow.noFlag).toMatchObject({ ok: false, code: "42501" });
+    expect(withRow.otherTime).toMatchObject({ ok: false, code: "42501" });
+    expect(withRow.same.ok).toBe(true);
+    // Inloggade med flaggan: aldrig (övergångarna för inloggade).
+    for (const key of ["u-amira", "k-maria"]) {
+      const got = await asPersona(findPersona(key), async (tx) => { await tx.query(flag); return attempt(tx, approve(at)); });
+      expect(allowed(got), key).toBe(false);
+    }
+    // Minnet: systemet ändrar beslutets fält bara när beslutet med samma anspråk, beslut och tid finns.
+    const patch = { status: "approved" as const, customerDecision: "approved" as const, decidedBy: "k-maria", decidedAt: at };
+    expect(await memOk(system(memWith()).table("bonus_claims").update("bc-6", patch))).toBe(false);
+    expect(await memOk(system(memWith({ bonus_claim_decisions: [row] })).table("bonus_claims").update("bc-6", patch))).toBe(true);
+    expect(await memOk(system(memWith({ bonus_claim_decisions: [row] })).table("bonus_claims").update("bc-6", { ...patch, decidedAt: "2027-02-01T09:00" }))).toBe(false);
+    for (const key of ["u-amira", "k-maria"]) {
+      expect(await memOk(new MemoryRepo<Tables>(memWith({ bonus_claim_decisions: [row] }), actorOf(findPersona(key)), POLICIES).table("bonus_claims").update("bc-6", patch)), key).toBe(false);
+    }
+  });
+
+  it("service role läser och skapar bara i beslutsloggen – ingen truncate (R2-3)", async () => {
+    const grants = await db.query<{ p: string }>(
+      "select string_agg(privilege_type, ',' order by privilege_type) as p from information_schema.role_table_grants where table_schema = 'public' and table_name = 'bonus_claim_decisions' and grantee = 'service_role'",
+    );
+    expect(grants.rows[0].p).toBe("INSERT,SELECT");
+    for (const sql of ["truncate public.bonus_claim_decisions", "update public.bonus_claim_decisions set note = 'x'", "delete from public.bonus_claim_decisions"]) {
+      expect(await asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" }), sql).toMatchObject({ ok: false, code: "42501" });
+    }
+    // "Läs in testdata på nytt" (mm.reset_test_data + on conflict do nothing) prövas i src/server/staging/load.test.ts.
+  });
+
+  it("ekonomen filtrerar på en dold kolumn och får ingenting – i vyn och i minnet (R2-5)", async () => {
+    const pgCount = (key: string, where: string) =>
+      asPersona(findPersona(key), async (tx) => (await tx.query<{ n: number }>(`select count(*)::int as n from public.bonus_claims_public where ${where}`)).rows[0].n);
+    const repo = (key: string) => new MemoryRepo<Tables>(store, actorOf(findPersona(key)), POLICIES).table("bonus_claims");
+    const filters: [string, Partial<Record<keyof Tables["bonus_claims"], unknown>>][] = [
+      ["verification_kind = 'anställningsbevis'", { verificationKind: "anställningsbevis" }],
+      ["basis = 'Kommentar'", { basis: "Kommentar" }],
+    ];
+    for (const [sql, where] of filters) {
+      const w = where as never;
+      const lars = { pg: await pgCount("u-lars", sql), count: await repo("u-lars").count(w), list: (await repo("u-lars").list(w)).length, first: await repo("u-lars").first(w), pick: (await repo("u-lars").pick(["id"], w)).length };
+      expect(lars, sql).toEqual({ pg: 0, count: 0, list: 0, first: null, pick: 0 });
+      // Den som arbetar i ärendet ser innehållet och träffar raderna – samma antal i vyn och i minnet.
+      const amira = { pg: await pgCount("u-amira", sql), mem: await repo("u-amira").count(w) };
+      expect(amira.pg, sql).toBeGreaterThan(0);
+      expect(amira.mem, sql).toBe(amira.pg);
+    }
+  });
+
+  it("systemet i minnet följer samma regler som service role: beslutade och återtagna anspråk ändras aldrig och beslutsloggen är append-only (R2-5)", async () => {
+    const service = async (sql: string) => allowed(await asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" }));
+    const free = data.cases.find((c) => c.contractId === "c-bot" && c.status === "active" && !data.bonus_claims.some((k) => k.caseId === c.id))!;
+    const suggestion = { ...claim("bc-1"), id: "bc-t-auto", caseId: free.id, step: 1, kind: "progression" as const, source: "auto" as const, createdBy: "system", createdAt: at };
+    const withdraw = { status: "withdrawn" as const, withdrawnAt: at, withdrawnBy: "system" };
+    const cases: [string, string, (r: ReturnType<typeof system>) => Promise<unknown>, boolean][] = [
+      ["ändra ett avslaget", "update public.bonus_claims set basis = 'x' where id = 'bc-5'", (r) => r.table("bonus_claims").update("bc-5", { basis: "x" }), false],
+      ["ändra ett återtaget", "update public.bonus_claims set basis = 'x' where id = 'bc-4'", (r) => r.table("bonus_claims").update("bc-4", { basis: "x" }), false],
+      ["återta ett godkänt", `update public.bonus_claims set status = 'withdrawn', withdrawn_at = '${at}', withdrawn_by = 'system' where id = 'bc-3'`, (r) => r.table("bonus_claims").update("bc-3", withdraw), false],
+      ["godkänna direkt", `update public.bonus_claims set status = 'approved', customer_decision = 'approved', decided_at = '${at}' where id = 'bc-6'`,
+        (r) => r.table("bonus_claims").update("bc-6", { status: "approved", customerDecision: "approved", decidedAt: at }), false],
+      ["skriva kommunens motivering", "update public.bonus_claims set decision_note = 'x' where id = 'bc-6'", (r) => r.table("bonus_claims").update("bc-6", { decisionNote: "x" }), false],
+      ["belopp på anspråket", "update public.bonus_claims set amount_ore = 150000 where id = 'bc-1'", (r) => r.table("bonus_claims").update("bc-1", { amountOre: 150000 }), false],
+      ["ta bort ett beslutat (beslutet pekar på det)", "delete from public.bonus_claims where id = 'bc-5'", (r) => r.table("bonus_claims").remove("bc-5"), false],
+      ["ändra ett beslut", "update public.bonus_claim_decisions set note = 'x' where id = 'bcd-bc-5'", (r) => r.table("bonus_claim_decisions").update("bcd-bc-5", { note: "x" }), false],
+      ["ta bort ett beslut", "delete from public.bonus_claim_decisions where id = 'bcd-bc-5'", (r) => r.table("bonus_claim_decisions").remove("bcd-bc-5"), false],
+      ["beslut på ett förslag", insertSql("bonus_claim_decisions", decision("bc-1", "k-maria", { id: "bcd-t-sys" }) as unknown as Record<string, unknown>),
+        (r) => r.table("bonus_claim_decisions").insert(decision("bc-1", "k-maria", { id: "bcd-t-sys" })), false],
+      // Det servern gör på riktigt fungerar: ett återtagande, ett nytt förslag (jobbet) och ett beslut som kom med mejl.
+      ["återta ett skickat", `update public.bonus_claims set status = 'withdrawn', withdrawn_at = '${at}', withdrawn_by = 'system' where id = 'bc-6'`, (r) => r.table("bonus_claims").update("bc-6", withdraw), true],
+      ["nytt förslag", insertSql("bonus_claims", suggestion as unknown as Record<string, unknown>), (r) => r.table("bonus_claims").insert(suggestion), true],
+      ["beslut på ett skickat", insertSql("bonus_claim_decisions", decision("bc-6", "k-maria", { id: "bcd-t-sys" }) as unknown as Record<string, unknown>),
+        (r) => r.table("bonus_claim_decisions").insert(decision("bc-6", "k-maria", { id: "bcd-t-sys" })), true],
+    ];
+    for (const [label, sql, run, want] of cases) {
+      expect({ pg: await service(sql), mem: await memOk(run(system(memWith()))) }, label).toEqual({ pg: want, mem: want });
+    }
   });
 });

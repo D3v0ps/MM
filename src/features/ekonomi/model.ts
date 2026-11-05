@@ -17,8 +17,10 @@ import type { Case, InvoiceDisplayStatus, InvoiceStatus } from "@/data/schema";
 
 /** Fakturans namn: "Faktura januari 2027", "Tilläggsfaktura 2 · december 2026" – eller med ärendet vid en faktura per ärende. */
 export function invoiceTitle(inv: { month: MonthKey; groupingKey: string }, caseNumber?: string | null): string {
-  const { n } = parseGroupingKey(inv.groupingKey);
+  const { base, n } = parseGroupingKey(inv.groupingKey);
   const what = caseNumber ? `${caseNumber} · ` : "";
+  // Bonusfakturan (grupp "bonus", src/core/bonus-billing.ts) hålls isär från månadens periodiska faktura.
+  if (base === "bonus" || base.startsWith("bonus-")) return n > 1 ? `Tilläggsfaktura ${n} · bonus · ${what}${monthName(inv.month)}` : `Bonusfaktura ${what}${monthName(inv.month)}`;
   return n > 1 ? `Tilläggsfaktura ${n} · ${what}${monthName(inv.month)}` : `Faktura ${what}${monthName(inv.month)}`;
 }
 
@@ -78,8 +80,9 @@ export const prescText = (billing: BillingConfig): string => {
 };
 
 /** Prisspannet i prislistan som gäller ett visst datum, t.ex. "1 323–1 668 kr". */
-export function priceSpan(prices: readonly { priceOre: number; validFrom: LocalDate; validTo: LocalDate | null }[], today: LocalDate): string | null {
-  const ps = prices.filter((p) => p.validFrom <= today && (!p.validTo || p.validTo >= today)).map((p) => p.priceOre);
+export function priceSpan(prices: readonly { priceOre: number; validFrom: LocalDate; validTo: LocalDate | null; unit?: string }[], today: LocalDate): string | null {
+  // Bara veckopriserna – bonusstegen (unit bonus_step) är inte ett pris per deltagare och vecka.
+  const ps = prices.filter((p) => (p.unit ?? "participant_week") === "participant_week" && p.validFrom <= today && (!p.validTo || p.validTo >= today)).map((p) => p.priceOre);
   if (!ps.length) return null;
   const lo = Math.min(...ps);
   const hi = Math.max(...ps);
@@ -264,7 +267,11 @@ export function invoiceTotals(inv: { amountOre: number; vatOre: number }): { gro
 }
 
 /** Fakturatexten (Peppol BT-22): avtalet, månaden, antal ärenden och veckor. Inga namn eller personnummer. */
-export function invoiceText(o: { contractNumber: string; month: MonthKey; lines: number; weeks: number; number: number; perContract: boolean }): string {
+export function invoiceText(o: { contractNumber: string; month: MonthKey; lines: number; weeks: number; number: number; perContract: boolean; bonus?: { cases: number } }): string {
+  if (o.bonus) {
+    const what = o.number > 1 ? `Tilläggsfaktura ${o.number} för bonus ${monthName(o.month)}` : `Bonus enligt incitamentsmodellen ${monthName(o.month)}`;
+    return `${what}, avtal ${o.contractNumber}: ${plural(o.lines, "bonussteg", "bonussteg")} i ${plural(o.bonus.cases, "ärende", "ärenden")}, godkända av kommunen. En rad per bonussteg – ärendenumret är faktureringsobjekt.`;
+  }
   const what = o.number > 1 ? `Tilläggsfaktura ${o.number} för ${monthName(o.month)}` : `Fakturaunderlag ${monthName(o.month)}`;
   const rows = o.perContract ? " En rad per ärende – ärendenumret är faktureringsobjekt." : " Ärendenumret är faktureringsobjekt.";
   return `${what}, avtal ${o.contractNumber}: ${plural(o.lines, "ärende", "ärenden")}, ${plural(o.weeks, "deltagarvecka", "deltagarveckor")}.${rows}`;

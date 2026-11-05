@@ -38,6 +38,9 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   avbojt: T("Avböjt avrop", "Besked om beställning {arendenummer}", "kommun"),
   coachbyte: T("Byte av huvudcoach", "Ny huvudcoach för {arendenummer}", "kommun"),
   beslut_behovs: T("Beslut behövs från kommunen", "Ärende {arendenummer} behöver ert beslut", "kommun"),
+  // Bonusanspråk skickat till kommunen (beslut 2026-11-04, src/features/bonus/handlers.ts): bara ärendenumret och länken till
+  // portalen – aldrig namn, belopp eller vad anspråket gäller.
+  bonusansprak: T("Bonusanspråk att besluta om", "Bonusanspråk att besluta om – {arendenummer}", "kommun"),
   atgardsplan_godkannande: T("Åtgärdsplan att godkänna", "Åtgärdsplan väntar på ert godkännande", "kommun"),
   atgardsplan_godkand: T("Åtgärdsplan godkänd", "Åtgärdsplan godkänd", "mb"),
   inbjudan_kommun: T("Inbjudan till portalen", "Inbjudan till Miljonbemannings portal", "kommun"),

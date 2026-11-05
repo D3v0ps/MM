@@ -59,8 +59,15 @@ describe("startsidan och listorna – samma siffror som den gamla prototypen", (
     expect(s.customerName).toBe("Botkyrka kommun");
     expect(s.unreadReports.map((r) => r.sub)).toEqual(["BOT-26-0112 · Habiba Mohamed", "BOT-26-0108 · Selam Ibrahim", "BOT-26-0170 · Bashir Karlsson", "BOT-26-0145 · Anders Karlsson"]);
     expect(s.tasks).toEqual([]);
-    // Kommunens handläggare ser mindre: startsidan har bara Att göra och det olästa.
-    expect(Object.keys(s).sort()).toEqual(["customerName", "firstName", "profileIncomplete", "tasks", "unit", "unreadMessages", "unreadReports"]);
+    // Kommunens handläggare ser mindre: startsidan har bara Att göra (uppgifterna och bonusanspråken att besluta om – Karims
+    // beslut 2026-11-04) och det olästa.
+    expect(Object.keys(s).sort()).toEqual(["bonus", "customerName", "firstName", "profileIncomplete", "tasks", "unit", "unreadMessages", "unreadReports"]);
+    // Bonusanspråket att besluta om nu i BOT-26-0027 (testdatat): bonussteg 3 – bonussteg 5 beslutas efter bonussteg 3 och räknas
+    // inte i Att göra. Bonussteget och namnet – inga belopp.
+    expect(s.bonus.map((b) => [b.caseNumber, b.step, b.status, b.canDecide])).toEqual([["BOT-26-0027", 3, "submitted", true]]);
+    const d = (await ask(kommunCase, { caseId: "case-260027" }, maria())) as KomCaseDetail;
+    expect(d.bonus.map((b) => [b.step, b.statusText, b.waitingForStep3, b.canDecide])).toEqual([[3, "Skickat till kommunen", false, true], [5, "Beslutas efter bonussteg 3", true, false]]);
+    expect(JSON.stringify(s.bonus)).not.toMatch(/Ore|kr\b|amount|price/i);
   });
   it("listan: handläggaren ser 71 egna – inga fält om skyddade personuppgifter, inga belopp", async () => {
     const own = await ask(kommunCaseList, {}, maria());

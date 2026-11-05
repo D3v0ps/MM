@@ -17,6 +17,7 @@ import { routes as notiser } from "@/features/notiser/routes";
 import { routes as session } from "@/features/session/routes";
 import { routes as hjalp } from "@/features/hjalp/routes";
 import { routes as grupper } from "@/features/grupper/routes";
+import { routes as bonus } from "@/features/bonus/routes";
 
 export const APP_ROUTES: readonly RouteDef[] = [
   ...session,
@@ -28,6 +29,8 @@ export const APP_ROUTES: readonly RouteDef[] = [
   ...rapporter,
   ...ledning,
   ...ekonomi,
+  // Före kommun: /portal/bonus/:claimId är mer specifik än portalens övriga sökvägar.
+  ...bonus,
   ...kommun,
   ...admin,
   ...praktik,

@@ -138,8 +138,8 @@ describe("batcharna", () => {
     const order = [...new Set(batches.map((b) => b.table))];
     expect(order.indexOf("buyer_references")).toBeLessThan(order.indexOf("profiles"));
     expect(order.indexOf("persons")).toBeLessThan(order.indexOf("cases"));
-    // Bara revisionsloggen och testarnas rader läggs in med "do nothing".
-    expect([...new Set(batches.filter((b) => b.ignoreDuplicates).map((b) => b.table))].sort()).toEqual(["audit_log", "memberships", "profiles"]);
+    // Bara revisionsloggen, kommunens bonusbeslut (append-only – service role får inte ändra dem) och testarnas rader läggs in med "do nothing".
+    expect([...new Set(batches.filter((b) => b.ignoreDuplicates).map((b) => b.table))].sort()).toEqual(["audit_log", "bonus_claim_decisions", "memberships", "profiles"]);
     const persons = batches.filter((b) => b.table === "persons").flatMap((b) => b.rows);
     expect(persons.every((p) => !String(p.personnummer_enc).startsWith("test:"))).toBe(true);
   });

@@ -70,14 +70,21 @@ export const COLUMNS = {
   reports: { id: "text", contractId: "text", caseId: "text | null", recipientUserId: "text | null", kind: "text", week: "text | null", month: "text | null", periodStart: "date | null", periodEnd: "date | null", status: "text", version: "integer", dueAt: "timestamptz | null", approvedBy: "text | null", approvedAt: "timestamptz | null", deliveredAt: "timestamptz | null", deliveredTo: "text[]", openedAt: "timestamptz | null", openedBy: "text | null", provisionalDue: "boolean", pdfPath: "text | null", aiSummaryDraft: "text | null", summary: "text | null", summaryAiUsed: "boolean", finalText: "jsonb | null", previousId: "text | null", correctionPending: "text | null", superseded: "boolean", supersededAt: "timestamptz | null", supersededBy: "text | null", correctionReason: "text | null", correctedBy: "text | null", correctedAt: "timestamptz | null", qualityReviewedBy: "text | null", qualityReviewedAt: "timestamptz | null", snapshot: "jsonb | null" },
   pulse_invites: { id: "text", caseId: "text", tokenHash: "text | null", channel: "text", language: "text", occasion: "text", sentAt: "timestamptz", expiresAt: "timestamptz", usedAt: "timestamptz | null" },
   pulse_responses: { id: "text", inviteId: "text", caseId: "text", coachId: "text | null", occasion: "text", language: "text", answers: "jsonb", text: "text", contactRequested: "boolean", submittedAt: "timestamptz" },
-  bonus_claims: { id: "text", caseId: "text", kind: "text", basis: "text", evidencePaths: "text[]", submittedAt: "timestamptz | null", customerDecision: "text | null", decidedBy: "text | null", decidedAt: "timestamptz | null", amountOre: "bigint | null", invoiceDraftId: "text | null" },
+  bonus_claims: {
+    id: "text", caseId: "text", kind: "text", basis: "text", evidencePaths: "text[]", submittedAt: "timestamptz | null", customerDecision: "text | null", decidedBy: "text | null",
+    decidedAt: "timestamptz | null", amountOre: "bigint | null", invoiceDraftId: "text | null",
+    // Incitamentsmodellen (0039_bonus.sql)
+    contractId: "text", step: "integer | null", status: "text", source: "text | null", outcomeEventId: "text | null", followsClaimId: "text | null", reachedOn: "date | null",
+    verificationKind: "text | null", verificationOn: "date | null", checklist: "jsonb", snapshot: "jsonb | null", createdBy: "text", createdAt: "timestamptz",
+    submittedBy: "text | null", withdrawnBy: "text | null", withdrawnAt: "timestamptz | null", decisionNote: "text | null",
+  },
   kpi_snapshots: { id: "text", contractId: "text", kpiKey: "text", window: "text", value: "numeric | null", numerator: "integer", denominator: "integer", computedAt: "timestamptz" },
   alerts: { id: "text", key: "text", contractId: "text", caseId: "text | null", kind: "text", severity: "text", title: "text", message: "text", recipientRoles: "text[]", createdAt: "timestamptz", acknowledgedBy: "text | null", acknowledgedAt: "timestamptz | null", actionPlan: "text | null" },
   alert_acks: { id: "text", alertKey: "text", acknowledgedBy: "text", acknowledgedAt: "timestamptz", actionPlan: "text" },
   deadlines: { id: "text", contractId: "text", caseId: "text | null", reportId: "text | null", kind: "text", dueAt: "timestamptz", metAt: "timestamptz | null", status: "text" },
   billing_runs: { id: "text", contractId: "text", month: "text", status: "text", createdBy: "text", createdAt: "timestamptz", closedAt: "timestamptz | null", closedBy: "text | null" },
   invoice_drafts: { id: "text", billingRunId: "text | null", contractId: "text", month: "text", kind: "text", caseId: "text | null", groupingKey: "text", buyerReference: "text | null", purchaseOrderNumber: "text | null", invoicedObject: "text", accruedOre: "bigint | null", remainingOre: "bigint | null", status: "text", approvedBy: "text | null", approvedAt: "timestamptz | null", manualInvoiceNo: "text | null", fortnoxDocumentNumber: "text | null", fortnoxIdempotencyKey: "text | null", fortnoxCreatedAt: "timestamptz | null", syncedAt: "timestamptz | null" },
-  invoice_lines: { id: "text", invoiceDraftId: "text", caseId: "text", priceItemId: "text", quantity: "numeric", unitPriceOre: "bigint", vatRate: "numeric", description: "text", isoWeeks: "text[]", zeroAttendanceWeeks: "text[]", note: "text" },
+  invoice_lines: { id: "text", invoiceDraftId: "text", caseId: "text", priceItemId: "text", quantity: "numeric", unitPriceOre: "bigint", vatRate: "numeric", description: "text", isoWeeks: "text[]", zeroAttendanceWeeks: "text[]", note: "text", bonusClaimId: "text | null" },
   billing_week_approvals: { id: "text", contractId: "text", month: "text", caseId: "text", weekKey: "text", approvedBy: "text", approvedAt: "timestamptz", note: "text" },
   invoice_credits: { id: "text", contractId: "text", month: "text", invoiceDraftId: "text | null", caseId: "text | null", creditedAt: "timestamptz", creditedBy: "text", buyerReference: "text | null" },
   fortnox_runs: { id: "text", contractId: "text", month: "text", kind: "text", ranAt: "timestamptz", ranBy: "text", created: "integer", skipped: "integer", notReady: "integer", blocked: "integer", changed: "integer" },
@@ -147,6 +154,11 @@ export const COLUMNS = {
   // Ändra startdatum (0038_andra_startdatum.sql)
   case_start_changes: {
     id: "text", contractId: "text", caseId: "text", fromDate: "date", toDate: "date", changedBy: "text", changedAt: "timestamptz", noteId: "text", seq: "integer",
+  },
+  // Kommunens beslut om bonusanspråk (0039_bonus.sql)
+  bonus_claim_decisions: {
+    id: "text", claimId: "text", caseId: "text", contractId: "text", decision: "text", note: "text | null", via: "text", decidedBy: "text | null", recordedBy: "text",
+    decidedAt: "timestamptz",
   },
 } as const satisfies ColumnManifest;
 

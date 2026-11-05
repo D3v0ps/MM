@@ -94,6 +94,9 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 | bilaga (t.ex. kartläggning) | case_attachment |
 | yrkeskompetensbevis | skills_certificate |
 | bonusanspråk | bonus_claim |
+| bonussteg 1–5 (aldrig "nivå") | bonus step (`bonus_claims.step`) |
+| bonusbeslut (kommunens godkännande eller avslag) | bonus_claim_decisions |
+| redovisningsunderlag (bonus) | bonus claim snapshot (`bonus_claims.snapshot`) |
 | fakturaunderlag | billing_basis |
 | samtycke | consent |
 | kontaktväg | preferred_contact |

@@ -76,7 +76,7 @@ describe("hidesMoney: belopp bara för rollen ekonom", () => {
 
 describe("stängda sidor, menyn och startsidan", () => {
   it("avtalssidan (alla flikar) och Ekonomi är stängda – inga andra sidor", () => {
-    for (const p of ["/admin/avtal", "/ekonomi", "/ekonomi/2027-01", "/ekonomi/arende/case-260117", "/ekonomi/2027-01/faktura/case-260117", "/ekonomi/prislista"]) expect(isTesterHiddenPath(p), p).toBe(true);
+    for (const p of ["/admin/avtal", "/ekonomi", "/ekonomi/2027-01", "/ekonomi/arende/case-260117", "/ekonomi/2027-01/faktura/case-260117", "/ekonomi/prislista", "/ekonomi/bonus/2027-01"]) expect(isTesterHiddenPath(p), p).toBe(true);
     for (const p of ["/admin/avtalx", "/admin/anvandare", "/admin/integrationer", "/ekonomix", "/arenden", "/ledning", "/portal/bestall"]) expect(isTesterHiddenPath(p), p).toBe(false);
   });
 
@@ -85,7 +85,7 @@ describe("stängda sidor, menyn och startsidan", () => {
     const links = (role: Parameters<typeof navFor>[0], hidesCommercial?: boolean) => navFor(role, { now, hidesCommercial }).flatMap((g) => g.items.map((i) => i.to));
     expect(links("admin")).toEqual(["/min-vecka", "/aktiviteter", "/arenden", "/grupper", "/admin/anvandare", "/admin/integrationer", "/admin/mallar", "/admin/logg"]);
     expect(links("admin", true)).toEqual(links("admin"));
-    expect(links("ekonom")).toEqual(["/min-vecka", "/ekonomi", "/ekonomi/2027-01", "/ekonomi/prislista"]);
+    expect(links("ekonom")).toEqual(["/min-vecka", "/ekonomi", "/ekonomi/2027-01", "/ekonomi/bonus", "/ekonomi/prislista"]);
     // Beslut 5: ingen annan roll har Ekonomi i menyn (chefen hade länken förut).
     for (const role of ["admin", "samordnare", "avtalsansvarig", "coach", "handledare", "chef"] as const) {
       expect(links(role).filter((to) => to.startsWith("/ekonomi")), role).toEqual([]);
