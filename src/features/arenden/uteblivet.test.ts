@@ -5,6 +5,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Actor, Role } from "@/api/roles";
 import { billableWeeks } from "@/core/billing";
+import { BOTKYRKA_CONFIG } from "@/core/config";
+import { defaultWeekPlan } from "@/core/schedule";
 import { weeklyReport } from "@/core/weekly-report";
 import { listPersonas } from "@/data/actors";
 import { MemoryRepo, type MemoryData } from "@/data/memory";
@@ -164,6 +166,17 @@ describe("deltagarkortet, ombokningen och tidslinjen", () => {
     const tl = await query<CaseTimeline>("arenden.kortTidslinje", { caseId: CASE, visa: "alla" }, erik());
     const entries = tl.months.flatMap((m) => m.entries).filter((e) => e.id.startsWith("fmns:"));
     expect(entries).toEqual([{ id: expect.stringMatching(/^fmns:/), at: MEETING, cat: "insatser", icon: "x-circle", title: "Kom inte till första mötet 29 jan kl. 14.00", sub: "Uteblev utan att meddela" }]);
+  });
+
+  it("insatsen kan startas som förut efter en registrering – från första mötets dag", async () => {
+    await register(erik());
+    const plan = defaultWeekPlan(BOTKYRKA_CONFIG, MEETING);
+    expect(await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-29", plan }, erik())).toMatchObject({ ok: true });
+    expect(rt.raw().get("cases", CASE)).toMatchObject({ status: "active", startDate: "2027-01-29" });
+    expect((await card(erik())).noShow).toBeNull();
+    // Registreringen ligger kvar (append-only) men skapade inga tillfällen eller närvaro – tillfällena kommer från veckoplanen.
+    expect(rows("first_meeting_no_shows")).toHaveLength(1);
+    expect(rows("attendance").filter((x) => x.caseId === CASE)).toEqual([]);
   });
 
   it("Avsluta – deltagaren kom aldrig: coachen avslutar det bekräftade ärendet med en orsak som coachen väljer", async () => {

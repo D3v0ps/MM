@@ -887,7 +887,7 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
     }
     const res = await book.run({ caseId: c.caseId, at }).catch(() => null);
     if (!res || !res.ok) {
-      toast("Mötet kunde inte bokas.", "error");
+      toast(res && !res.ok && res.message ? res.message : "Mötet kunde inte bokas.", "error");
       return;
     }
     toast(`${rebook ? "Det nya första mötet" : "Första mötet"} är bokat ${fmtDateTimeLong(at)}. ${res.invitation}`);
