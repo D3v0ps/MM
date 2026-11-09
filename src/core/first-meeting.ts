@@ -9,11 +9,15 @@
 //     rapporter, resultat, fakturor, bonus eller spärren för Ändra startdatum läser registreringen.
 //   * Uteblev utan att meddela eller giltig frånvaro – orsaken krävs vid giltig frånvaro (kort och saklig, inga personnummer).
 //   * Ett möte registreras en gång. Efter registreringen bokar man ett nytt första möte (arenden.caseBookFirstMeeting) eller
-//     avslutar insatsen (deltagaren kom aldrig). Insatsen kan fortfarande startas som förut.
-// Samma regler i databasen (triggern first_meeting_no_shows_check, 0040) och i policy.ts (first_meeting_no_shows).
+//     avslutar insatsen (deltagaren kom aldrig). Insatsen startas inte på ett möte som deltagaren inte kom till: först när ett
+//     nytt första möte är bokat, och startdatumet ligger alltid efter dagen då deltagaren inte kom (earliestStartDay – samma
+//     regel som triggern cases_start_date_no_show_guard i 0040, så att den dagen aldrig faktureras eller får närvaro).
+//   * Nyckeltalet Första möte inom en vecka räknas på det första bokade mötet (firstBookedMeetingAt – Karims beslut 2026-11-09).
+// Samma regler i databasen (triggrarna first_meeting_no_shows_check och cases_start_date_no_show_guard, 0040) och i policy.ts
+// (first_meeting_no_shows, cases).
 import type { Role } from "@/api/roles";
 import type { Case, FirstMeetingNoShow, FirstMeetingNoShowKind } from "@/data/schema";
-import { fmtDateTime, type LocalDateTime } from "./time";
+import { addWorkingDays, dayOf, fmtDate, fmtDateTime, holidayName, isWorkingDay, type LocalDate, type LocalDateTime } from "./time";
 import { looksLikePnr } from "./validation";
 
 /** Registrerar att deltagaren inte kom: de som kan starta insatsen (samma som Starta insatsen och Ändra startdatum). */
@@ -27,7 +31,7 @@ export const NO_SHOW_KIND_LABEL: Record<FirstMeetingNoShowKind, string> = {
   giltig: "Giltig frånvaro",
 };
 /** Hjälptexten vid fältet Orsak. */
-export const NO_SHOW_REASON_HELP = "Kort och sakligt. Inga personnummer och inga omdömen om personen.";
+export const NO_SHOW_REASON_HELP = "Kort och sakligt, till exempel 'sjuk' eller 'krock med annan tid'. Inga personnummer, inga diagnoser och inga omdömen om personen.";
 
 type CaseForNoShow = Pick<Case, "id" | "status" | "startDate" | "firstMeetingAt">;
 
@@ -46,6 +50,56 @@ export function currentNoShow<T extends Pick<FirstMeetingNoShow, "caseId" | "mee
 /** Knappen "Deltagaren kom inte": ärendet är öppet för det, mötet har varit och det är inte redan registrerat. */
 export function canRegisterNoShow(c: CaseForNoShow, now: LocalDateTime, rows: readonly Pick<FirstMeetingNoShow, "caseId" | "meetingAt">[]): boolean {
   return noShowOpen(c) && firstMeetingPassed(c, now) && !currentNoShow(c, rows);
+}
+
+type NoShowDate = Pick<FirstMeetingNoShow, "caseId" | "meetingAt">;
+
+/** Den senaste dagen (Stockholms tid) då deltagaren inte kom till ett första möte i ärendet, eller null. */
+export function lastNoShowDay(caseId: string, rows: readonly NoShowDate[]): LocalDate | null {
+  return rows.filter((x) => x.caseId === caseId).reduce<LocalDate | null>((m, x) => (m == null || dayOf(x.meetingAt) > m ? dayOf(x.meetingAt) : m), null);
+}
+
+/**
+ * Det tidigaste startdatumet som föreslås: första mötets dag, men aldrig på eller före en dag då deltagaren inte kom till första
+ * mötet (Karims beslut 2026-11-09 – triggern cases_start_date_no_show_guard i 0040 kräver en senare dag). Bokades det nya mötet
+ * samma dag som deltagaren inte kom föreslås nästa arbetsdag, så att en helg inte gör veckan debiterbar. null utan bokat möte.
+ */
+export function earliestStartDay(c: Pick<Case, "id" | "firstMeetingAt">, rows: readonly NoShowDate[]): LocalDate | null {
+  if (!c.firstMeetingAt) return null;
+  const meeting = dayOf(c.firstMeetingAt);
+  const last = lastNoShowDay(c.id, rows);
+  return last && last >= meeting ? addWorkingDays(last, 1) : meeting;
+}
+
+/** Startdatumet går inte: det ligger på eller före en dag då deltagaren inte kom till första mötet. Texten, eller null. */
+export function noShowStartProblem(caseId: string, startDate: LocalDate, rows: readonly NoShowDate[]): string | null {
+  const last = lastNoShowDay(caseId, rows);
+  return last && startDate <= last ? `Startdatumet måste vara efter ${fmtDate(last)} – deltagaren kom inte till första mötet den dagen.` : null;
+}
+
+/**
+ * Det första bokade mötet (Karims beslut 2026-11-09): det tidigaste mötet som deltagaren inte kom till, annars ärendets första möte.
+ * Nyckeltalet Första möte inom en vecka räknas på det – en ombokning efter att deltagaren uteblev gör inte ärendet sent. Bara
+ * datumen läses – aldrig slaget eller orsaken.
+ */
+export function firstBookedMeetingAt(c: Pick<Case, "id" | "firstMeetingAt">, rows: readonly NoShowDate[]): LocalDateTime | null {
+  const own = rows.filter((x) => x.caseId === c.id).map((x) => x.meetingAt).sort();
+  return own[0] ?? c.firstMeetingAt ?? null;
+}
+
+export type BookingProblem = { code: "past" | "before_order" | "same_time" | "not_working_day"; text: string };
+
+/**
+ * Vad som stoppar en bokning eller ombokning av första mötet (arenden.caseBookFirstMeeting – alla roller), eller null: tiden har
+ * redan passerat, dagen är före beställningen, samma tid som det bokade mötet, eller inte en arbetsdag (helg eller helgdag – samma
+ * regel som dialogen).
+ */
+export function firstMeetingBookingProblem(c: Pick<Case, "referredAt" | "firstMeetingAt">, at: LocalDateTime, now: LocalDateTime): BookingProblem | null {
+  if (at <= now) return { code: "past", text: "Tiden har redan passerat. Välj en senare tid." };
+  if (dayOf(at) < dayOf(c.referredAt)) return { code: "before_order", text: `Första mötet kan inte vara före beställningen ${fmtDate(c.referredAt)}.` };
+  if (c.firstMeetingAt && at === c.firstMeetingAt) return { code: "same_time", text: `Första mötet är redan bokat ${fmtDateTime(at)}. Välj en annan tid.` };
+  if (!isWorkingDay(at)) return { code: "not_working_day", text: `${holidayName(at) || "Dagen"} är inte en arbetsdag. Välj en vardag.` };
+  return null;
 }
 
 /** "Kom inte till första mötet 29 jan kl. 14.00" */

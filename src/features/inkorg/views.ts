@@ -597,6 +597,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const toStart = d.cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= e.today).sort(by<Case>("firstMeetingAt"));
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09) – bara läsning via ctx.repo (policyn för first_meeting_no_shows).
   const noShows = toStart.length ? await ctx.repo.table("first_meeting_no_shows").list({ caseId: { in: toStart.map((c) => c.id) } }) : [];
+  // Ärenden där deltagaren inte kom till ett första möte (bara ärendet – driftdatat): nyckeltalet räknas på det första bokade mötet.
+  const missedFirst = new Set(ops.first_meeting_no_shows.map((x) => x.caseId));
   const flagText = flagDaysText(e.org.alerts.firstMeetingNotBookedAfterDays);
 
   const dls = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor));
@@ -704,7 +706,10 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
         caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
         sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,
         noShow: cur ? { text: noShowSentence(cur) } : null, canRegisterNoShow: canRegisterNoShow(c, now, noShows),
-        rebook: { caseId: c.id, caseNumber: c.caseNumber, due: fmDue ? sla(fmDue, null, now) : null, coachName: name(c.leadCoachId), dueText: fmDue ? fmtWeekday(fmDue) : "–" },
+        rebook: {
+          caseId: c.id, caseNumber: c.caseNumber, due: fmDue ? sla(fmDue, null, now) : null, coachName: name(c.leadCoachId), dueText: fmDue ? fmtWeekday(fmDue) : "–",
+          afterNoShow: missedFirst.has(c.id),
+        },
       };
     }),
     tasks: tasks.map((t) => {
@@ -720,7 +725,10 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
         dueAt: firstMeeting && c?.firstMeetingAt ? c.firstMeetingAt : null,
         call: t.kind === "participant_contact" ? { phone: person?.phone?.trim() || null, firstMeeting } : null,
         rebook: firstMeeting && c
-          ? { caseId: c.id, caseNumber: c.caseNumber, due: fmDue ? sla(fmDue, null, now) : null, coachName: name(c.leadCoachId), dueText: fmDue ? fmtWeekday(fmDue) : "–" }
+          ? {
+            caseId: c.id, caseNumber: c.caseNumber, due: fmDue ? sla(fmDue, null, now) : null, coachName: name(c.leadCoachId), dueText: fmDue ? fmtWeekday(fmDue) : "–",
+            afterNoShow: missedFirst.has(c.id),
+          }
           : null,
       };
     }),

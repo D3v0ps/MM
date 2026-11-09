@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Case, ResultClass } from "@/data/schema";
+import type { Case, FirstMeetingNoShow, ResultClass } from "@/data/schema";
 import { windowStart } from "./env";
 import { kpiValue, kpis, resultForecast, resultRate, resultTally, resultTrend } from "./kpi";
 import { cfgWith, mkActivity, mkAttendance, mkCase, mkEvent, mkPulseResponse, mkReport, testDb, testEnv } from "./test-data";
@@ -116,6 +116,31 @@ describe("månads-KPI:er (förra månaden)", () => {
     const v = kpiValue(testDb({ cases: cs }), "forsta_mote_inom_en_vecka", {}, env);
     expect(v).toMatchObject({ num: 1, den: 2, value: 0.5, status: "below_internal" });
     expect(v?.late?.map((c) => c.id)).toEqual(["a"]);
+  });
+  it("första möte inom en vecka räknar det första bokade mötet – en ombokning efter att deltagaren inte kom gör inte ärendet sent (Karims beslut 2026-11-09)", () => {
+    const cs = [
+      // Bokat inom veckan, deltagaren kom inte och mötet bokades om till efter veckan: i tid.
+      mkCase({ id: "a", referredAt: "2027-01-04T11:45", firstMeetingAt: "2027-01-14T10:00" }),
+      // Deltagaren kom inte två gånger, men redan det första bokade mötet låg efter veckan: sent.
+      mkCase({ id: "b", referredAt: "2027-01-11T11:00", firstMeetingAt: "2027-01-25T10:00" }),
+      // Inget registrerat: ärendets första möte som förut – ett sent och ett i tid.
+      mkCase({ id: "c", referredAt: "2027-01-11T11:00", firstMeetingAt: "2027-01-18T12:00" }),
+      mkCase({ id: "d", referredAt: "2027-01-12T09:00", firstMeetingAt: "2027-01-15T10:00" }),
+    ];
+    let i = 0;
+    const missed = (caseId: string, meetingAt: string): FirstMeetingNoShow => ({
+      id: `fmns-${++i}`, caseId, contractId: "c-bot", meetingAt, kind: "uteblev", reason: null, registeredBy: "u-amira", registeredAt: meetingAt,
+    });
+    const noShows = [missed("a", "2027-01-08T10:00"), missed("b", "2027-01-22T10:00"), missed("b", "2027-01-20T10:00")];
+    const v = kpiValue(testDb({ cases: cs, first_meeting_no_shows: noShows }), "forsta_mote_inom_en_vecka", {}, env);
+    expect(v).toMatchObject({ num: 2, den: 4, value: 0.5 });
+    expect(v?.late?.map((c) => c.id)).toEqual(["b", "c"]);
+    // Utan registreringarna räknas ärendets första möte (som förut): a blir sent.
+    const before = kpiValue(testDb({ cases: cs }), "forsta_mote_inom_en_vecka", {}, env);
+    expect(before).toMatchObject({ num: 1, den: 4 });
+    expect(before?.late?.map((c) => c.id)).toEqual(["a", "b", "c"]);
+    // Registreringar i ett annat ärende påverkar inte.
+    expect(kpiValue(testDb({ cases: cs, first_meeting_no_shows: [missed("x", "2027-01-05T10:00")] }), "forsta_mote_inom_en_vecka", {}, env)).toMatchObject({ num: 1, den: 4 });
   });
   it("veckorapporter och månadsrapporter i tid (bara passerade förfallotider i månaden)", () => {
     const reports = [

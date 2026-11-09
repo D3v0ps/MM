@@ -154,10 +154,10 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     ctx.repo,
     ["activities", "attendance", "check_ins", "monthly_assessments", "reports", "placements", "alert_acks", "profiles", "memberships", "deviations",
       "user_notifications", "notification_reads", "messages", "contract_deviations", "billing_runs", "price_items", "buyer_references", "invoice_drafts",
-      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails", "case_area_changes"],
+      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails", "case_area_changes", "first_meeting_no_shows"],
     {
       activities: byCase, attendance: byCase, check_ins: byCase, monthly_assessments: byCase, placements: byCase, deviations: byCase, messages: byCase, invoice_lines: byCase,
-      case_area_changes: byCase, user_notifications: { recipientId: me },
+      case_area_changes: byCase, first_meeting_no_shows: byCase, user_notifications: { recipientId: me },
     },
   );
   // Bonusnotiserna visas inte för begränsade testare (ett ekonomiskt villkor).
@@ -170,8 +170,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const activeIds = new Set(active.map((c) => c.id));
   // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
   const toStart = cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= today).sort(by<Case>("firstMeetingAt"));
-  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09) – bara läsning via ctx.repo (policyn för first_meeting_no_shows).
-  const noShows = toStart.length ? await ctx.repo.table("first_meeting_no_shows").list({ caseId: { in: toStart.map((c) => c.id) } }) : [];
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09) – läst via ctx.repo ovan (policyn för first_meeting_no_shows).
+  const noShows = db.first_meeting_no_shows;
 
   // Närvaro att registrera (förra veckan)
   const unreg = unregistered(all, me, lastMon, addDays(lastMon, 6), main);

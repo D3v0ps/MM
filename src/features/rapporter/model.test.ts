@@ -119,3 +119,22 @@ describe("beställarrapporten", () => {
     expect(canonicalJson(m)).not.toMatch(/internalTarget|0\.35/);
   });
 });
+
+describe("beställarrapporten: Första möte inom en vecka räknar det första bokade mötet (seesSlaStats, Karims beslut 2026-11-09)", () => {
+  it("en sen ombokning efter att deltagaren inte kom ändrar inte raden – bara ärendet och mötets tid läses", () => {
+    // Testdatat med BOT-27-0043:s första möte fredag 29 januari kl. 14.00 (beställt i januari).
+    const live = { ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db;
+    const senv: ReportEnv = { ...env, cfg: { ...env.cfg, customerVisibility: { ...env.cfg.customerVisibility, seesSlaStats: true } } };
+    const jan = live.reports.find((x) => x.kind === "customer_summary" && x.month === "2027-01");
+    expect(jan).toBeTruthy();
+    const draft: Report = { ...jan!, status: "draft", deliveredAt: null };
+    const sla = (d: Parameters<typeof reportModel>[0]) => (reportModel(d, draft, senv) as SummaryModel).sla;
+    const before = sla(live);
+    expect(before?.some(([label]) => /första möte/i.test(label))).toBe(true);
+    // Deltagaren kom inte och mötet bokades om till 15 februari – långt efter veckan.
+    const rebooked = { ...live, cases: live.cases.map((c) => (c.id === "case-270043" ? { ...c, firstMeetingAt: "2027-02-15T10:00" } : c)) };
+    expect(sla({ ...rebooked, first_meeting_no_shows: [{ caseId: "case-270043", meetingAt: "2027-01-29T14:00" }] })).toEqual(before);
+    // Utan registreringen räknas ombokningen som sent (så som det var före beslutet).
+    expect(sla({ ...rebooked, first_meeting_no_shows: [] })).not.toEqual(before);
+  });
+});

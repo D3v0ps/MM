@@ -14,30 +14,39 @@
 -- tillfällen och ingen närvaro skapas: raden räknas aldrig i närvarograden, veckorapporten, månads- och slutrapporterna,
 -- beställarrapporten, resultatfilen, exporterna, faktureringen, bonusen, den automatiska närvaron eller spärren för Ändra
 -- startdatum – ingen av dem läser tabellen.
---   * Append-only för alla roller, också service role (triggern first_meeting_no_shows_append_only och rättigheterna – bara
---     läsa och skapa, så ingen truncate, som bonus_claim_decisions i 0039). "Läs in testdata på nytt" tömmer tabellen med
---     mm.reset_test_data (security definer) och läser in raderna med "on conflict do nothing" (src/server/staging/load.ts).
+--   * Append-only för inloggade (triggern first_meeting_no_shows_append_only och rättigheterna): ingen inloggad ändrar eller
+--     raderar en rad. Service role ändrar aldrig en rad men får radera (gallring) – rättigheterna select, insert och delete, och
+--     ingen truncate. "Läs in testdata på nytt" tömmer tabellen med mm.reset_test_data (security definer) och läser in raderna med
+--     "on conflict do nothing" (src/server/staging/load.ts).
 --   * För alla roller, också service role (triggern first_meeting_no_shows_check): ärendet är bekräftat och inte startat
 --     (status confirmed och start_date null), raden hör till ärendets avtal, mötet är ärendets första möte (meeting_at =
---     cases.first_meeting_at) och mötets tid har varit (meeting_at <= mm.app_now()). För inloggade dessutom: i eget namn
---     (registered_by = den inloggade) och med aktuell tid (registered_at högst 10 minuter från mm.app_now()).
+--     cases.first_meeting_at) och mötets tid har varit (meeting_at <= mm.app_now()). För inloggade dessutom: den som arbetar i
+--     ärendet (mm.work_on – annars ett och samma nekande, 42501, utan uppgifter om ärendet: triggern körs före policyn), i eget
+--     namn (registered_by = den inloggade) och med aktuell tid (registered_at högst 10 minuter från mm.app_now()).
+--   * Startdatumet (triggern cases_start_date_no_show_guard på public.cases, för alla roller): ett ärendes startdatum sätts aldrig
+--     på eller före en dag (Stockholms tid) då deltagaren inte kom till ett första möte i ärendet – inte med Starta insatsen och
+--     inte med Ändra startdatum. Annars skulle den dagen bli debiterbar (veckorna räknas från startdatumet) och kunna få automatisk
+--     närvaro. Insatsen startas efter att ett nytt första möte är bokat (arenden.caseStart nekar annars).
 --   * Behörighet (speglas exakt i src/data/policy.ts first_meeting_no_shows och prövas i src/data/supabase/rls-parity.test.ts):
 --       läsa:  Miljonbemanning med åtkomst full eller team till ärendet (mm.case_ids('{full,team}')) – aldrig kommunen och aldrig
 --              ekonomen (åtkomsten billing).
 --       skapa: den som arbetar i ärendet (mm.work_on), medlem i avtalet, i eget namn.
---       ingen ändrar eller raderar.
+--       ingen inloggad ändrar eller raderar; service role raderar bara (gallring).
 --   * Ett första möte en gång (unikt index på case_id och meeting_at). Bokas mötet om (arenden.caseBookFirstMeeting) har ärendet
 --     ett nytt första möte – kommer deltagaren inte då heller registreras en ny rad.
 --
--- Speglas i src/data/policy.ts (first_meeting_no_shows), src/data/schema.ts (TABLE_NAMES, UNIQUE_KEYS), src/core/scope.ts,
--- src/server/staging/load.ts (APPEND_ONLY) och scripts/db/columns.ts. Reglerna för hanteraren i src/core/first-meeting.ts.
+-- Speglas i src/data/policy.ts (first_meeting_no_shows, cases.guard och caseStartChangeApplies – noShowOnOrAfter),
+-- src/data/schema.ts (TABLE_NAMES, UNIQUE_KEYS), src/core/scope.ts, src/server/staging/load.ts (APPEND_ONLY) och
+-- scripts/db/columns.ts. Reglerna för hanterarna i src/core/first-meeting.ts.
 -- Inga destruktiva satser och inga befintliga rader, tabeller, funktioner, policyer eller rättigheter ändras – bara en ny tabell
--- med sina triggrar och policyer och en ny hjälpfunktion i schemat mm. Idempotent (if not exists, or replace, drop … if exists) –
--- tål att köras igen i SQL Editor.
+-- med sina triggrar och policyer och nya funktioner i schemat mm. Befintliga tabeller som får något nytt: public.cases (den nya
+-- triggern cases_start_date_no_show_guard, before insert or update of start_date – ändrar inga rader). Idempotent (if not exists,
+-- or replace, drop … if exists) – tål att köras igen i SQL Editor.
 --
--- Lås: inga heta tabeller ändras (bara främmande nycklar från den nya tabellen till cases, contracts och profiles). Väntar en sats
--- ändå längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i stället för att alla andra frågor köar bakom den – kör
--- då filen igen. Inställningen gäller bara den här körningen (återställs sist i filen).
+-- Lås: den nya triggern tar ett starkt lås på public.cases (het tabell) en kort stund; i övrigt bara främmande nycklar från den nya
+-- tabellen till cases, contracts och profiles. Väntar en sats längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i
+-- stället för att alla andra frågor köar bakom den – kör då filen igen, gärna utanför arbetstid. Inställningen gäller bara den här
+-- körningen (återställs sist i filen).
 set lock_timeout = '5s';
 set statement_timeout = '60s';
 
@@ -66,10 +75,10 @@ create index if not exists first_meeting_no_shows_contract_id_idx on public.firs
 create index if not exists first_meeting_no_shows_registered_by_idx on public.first_meeting_no_shows (registered_by);
 
 alter table public.first_meeting_no_shows enable row level security;
--- Bara läsa och skapa, för alla (som revisionsloggen, 0009, och kommunens bonusbeslut, 0039): en rad ändras och raderas aldrig –
--- inte heller med truncate, som inte går genom radtriggrarna.
+-- Inloggade läser och skapar. Service role läser, skapar och raderar (gallring) – ändrar aldrig och tömmer aldrig tabellen med
+-- truncate, som inte går genom radtriggrarna.
 revoke all on public.first_meeting_no_shows from anon, authenticated, service_role;
-grant select, insert on public.first_meeting_no_shows to service_role;
+grant select, insert, delete on public.first_meeting_no_shows to service_role;
 grant select, insert on public.first_meeting_no_shows to authenticated;
 
 -- policy.ts first_meeting_no_shows.read: Miljonbemanning med åtkomst full eller team till ärendet – aldrig kommunen (customer)
@@ -106,14 +115,20 @@ $$;
 revoke all on function mm.first_meeting_no_show_problem(text, text, timestamptz) from public, anon;
 grant execute on function mm.first_meeting_no_show_problem(text, text, timestamptz) to authenticated, service_role;
 
--- För alla roller, också service role: ärendet, mötet och att mötet har varit. För inloggade dessutom i eget namn och med aktuell
--- tid. Triggern körs med anroparens rättigheter (current_user skiljer inloggade från servern), ärendet läses av funktionen ovan.
+-- För alla roller, också service role: ärendet, mötet och att mötet har varit. För inloggade dessutom den som arbetar i ärendet,
+-- i eget namn och med aktuell tid. Triggern körs med anroparens rättigheter (current_user skiljer inloggade från servern), ärendet
+-- läses av funktionen ovan. Triggern körs före policyn first_meeting_no_shows_insert: den inloggade som inte arbetar i ärendet
+-- (kommunen, ekonomen, chefen, admin – eller ett ärende som inte finns) nekas därför först, med ett och samma svar, så att
+-- felmeddelandena aldrig säger något om ärendets läge eller möte.
 create or replace function mm.check_first_meeting_no_show() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 declare
   problem text;
 begin
+  if current_user = 'authenticated' and not mm.work_on(new.case_id) then
+    raise exception 'Du kan inte registrera det i det här ärendet' using errcode = '42501';
+  end if;
   problem := mm.first_meeting_no_show_problem(new.case_id, new.contract_id, new.meeting_at);
   if problem = 'case' or problem = 'contract' then
     raise exception 'Raden ska höra till ärendet och ärendets avtal' using errcode = '23514';
@@ -140,19 +155,49 @@ drop trigger if exists first_meeting_no_shows_check on public.first_meeting_no_s
 create trigger first_meeting_no_shows_check before insert on public.first_meeting_no_shows
 for each row execute function mm.check_first_meeting_no_show();
 
--- Append-only för alla roller (som revisionsloggen, 0009, och bonus_claim_decisions, 0039): en rad ändras och tas aldrig bort –
--- inte heller av service role. "Läs in testdata på nytt" tömmer tabellen med truncate (mm.reset_test_data), som inte går genom
--- radtriggrar.
+-- Append-only för inloggade (policy.ts noShowGuard): en rad ändras aldrig – inte heller av service role – och tas bara bort av
+-- service role (gallring; rättigheten delete har bara service role). "Läs in testdata på nytt" tömmer tabellen med truncate
+-- (mm.reset_test_data), som inte går genom radtriggrar.
 create or replace function mm.forbid_first_meeting_no_show_change() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 begin
-  raise exception 'Att deltagaren inte kom till första mötet ändras och tas aldrig bort' using errcode = '42501';
+  if tg_op = 'DELETE' and current_user not in ('authenticated', 'anon') then
+    return old;
+  end if;
+  raise exception 'Att deltagaren inte kom till första mötet ändras aldrig och tas bara bort vid gallring' using errcode = '42501';
 end
 $$;
 drop trigger if exists first_meeting_no_shows_append_only on public.first_meeting_no_shows;
 create trigger first_meeting_no_shows_append_only before update or delete on public.first_meeting_no_shows
 for each row execute function mm.forbid_first_meeting_no_show_change();
+
+-- ---------------------------------------------------------------- Startdatumet efter en dag då deltagaren inte kom
+-- policy.ts cases.guard och caseStartChangeApplies (noShowOnOrAfter): startdatumet sätts aldrig på eller före en dag (Stockholms
+-- tid) då deltagaren inte kom till ett första möte i ärendet – för alla roller, också service role och Ändra startdatum
+-- (mm.apply_case_start_change). Security definer: alla registreringar i ärendet läses, oavsett vem som ändrar. Triggern heter så
+-- att den körs efter cases_start_date_guard (0038 – triggrarna körs i bokstavsordning): den som inte får sätta startdatumet nekas
+-- där först och får aldrig veta något om registreringarna.
+create or replace function mm.guard_case_start_after_no_show() returns trigger
+language plpgsql security definer set search_path = public, mm
+as $$
+begin
+  if new.start_date is null or (tg_op = 'UPDATE' and new.start_date is not distinct from old.start_date) then
+    return new;
+  end if;
+  if exists (
+    select 1 from public.first_meeting_no_shows x
+    where x.case_id = new.id and (x.meeting_at at time zone 'Europe/Stockholm')::date >= new.start_date
+  ) then
+    raise exception 'Startdatumet ska vara efter dagen då deltagaren inte kom till första mötet' using errcode = '23514';
+  end if;
+  return new;
+end
+$$;
+revoke all on function mm.guard_case_start_after_no_show() from public, anon;
+drop trigger if exists cases_start_date_no_show_guard on public.cases;
+create trigger cases_start_date_no_show_guard before insert or update of start_date on public.cases
+for each row execute function mm.guard_case_start_after_no_show();
 
 reset lock_timeout;
 reset statement_timeout;

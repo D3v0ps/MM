@@ -17,7 +17,7 @@ import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory"
 import { canReadRow, canWriteRow, POLICIES } from "../policy";
 import { TABLE_NAMES, UNIQUE_KEYS, type Case, type TableName, type Tables } from "../schema";
 import {
-  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type DatabaseSnapshot, type Tx,
+  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type Attempt, type DatabaseSnapshot, type Tx,
 } from "./pglite";
 
 // Testarnas konton i auth.users (skapas av servern vid första inloggningen; seeden kopplar dem via e-postadressen).
@@ -3977,7 +3977,7 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
     await expect(new MemoryRepo<Tables>(s, actorOf(findPersona("u-sara")), POLICIES).table("first_meeting_no_shows").insert(row("u-sara"))).rejects.toBeInstanceOf(UniqueError);
   });
 
-  it("append-only för alla roller, också service role: ingen ändrar eller raderar och ingen tömmer tabellen – bara läsa och skapa", async () => {
+  it("append-only för inloggade: ingen ändrar, raderar eller tömmer tabellen – service role ändrar aldrig men raderar (gallring), ingen truncate", async () => {
     for (const key of ["u-erik", "u-sara", "u-robin", "k-omar", "u-lars"]) {
       const got = await asPersona(findPersona(key), async (tx) => ({
         upd: await attempt(tx, "update public.first_meeting_no_shows set kind = 'giltig', reason = 'x' where id = 'fmns-x-0043'"),
@@ -3988,17 +3988,95 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
     }
     const service = (sql: string) => asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" });
     expect(await service("update public.first_meeting_no_shows set reason = 'x' where id = 'fmns-x-0043'")).toMatchObject({ ok: false, code: "42501" });
-    expect(await service("delete from public.first_meeting_no_shows where id = 'fmns-x-0043'")).toMatchObject({ ok: false, code: "42501" });
+    expect(await service("delete from public.first_meeting_no_shows where id = 'fmns-x-0043'")).toEqual({ ok: true, rows: 1 });
     expect(await service("truncate public.first_meeting_no_shows")).toMatchObject({ ok: false, code: "42501" });
     const grants = await db.query<{ grantee: string; p: string }>(
       "select grantee, string_agg(privilege_type, ',' order by privilege_type) as p from information_schema.role_table_grants where table_schema = 'public' and table_name = 'first_meeting_no_shows' and grantee in ('authenticated', 'service_role', 'anon') group by grantee order by grantee",
     );
-    expect(grants.rows).toEqual([{ grantee: "authenticated", p: "INSERT,SELECT" }, { grantee: "service_role", p: "INSERT,SELECT" }]);
-    // Minnet: systemet ändrar och tar inte bort heller (guard).
+    expect(grants.rows).toEqual([{ grantee: "authenticated", p: "INSERT,SELECT" }, { grantee: "service_role", p: "DELETE,INSERT,SELECT" }]);
+    // Minnet: systemet ändrar inte (guard) men tar bort; den inloggade gör ingetdera.
     const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
     expect(await memOk(system(s).update("fmns-x-0043", { reason: "x" }))).toBe(false);
-    expect(await memOk(system(s).remove("fmns-x-0043"))).toBe(false);
     expect(await memOk(new MemoryRepo<Tables>(s, actorOf(findPersona("u-erik")), POLICIES).table("first_meeting_no_shows").remove("fmns-x-0043"))).toBe(false);
+    expect(await memOk(system(s).remove("fmns-x-0043"))).toBe(true);
+    expect(s.rows("first_meeting_no_shows")).toEqual([]);
+  });
+
+  it("felmeddelandena säger ingenting om ärendet till den som inte arbetar i det: ett och samma nekande (42501) oavsett ärende, möte och läge", async () => {
+    // Ärendet som det är (bekräftat, mötet har varit), fel möte, ett pågående ärende och ett ärende som inte finns: kommunen,
+    // ekonomen, chefen och admin får samma svar – annars kunde felkoden eller texten avslöja läget och mötets tid.
+    const targets: [string, Partial<Row>][] = [
+      ["rätt möte", {}], ["fel möte", { meetingAt: "2027-01-28T14:00" }], ["framtida möte", { meetingAt: "2027-03-01T10:00" }],
+      ["pågående ärende", { caseId: "case-270041" }], ["finns inte", { caseId: "case-finns-inte" }],
+    ];
+    for (const key of ["k-maria", "k-omar", "u-lars", "u-karin", "u-robin"]) {
+      const by = findPersona(key).actor.userId;
+      const got = await asWith(key, null, async (tx) => {
+        const out: Attempt[] = [];
+        for (const [label, patch] of targets) out.push(await attempt(tx, ins(row(by, { id: `fmns-o-${label.replace(/\s/g, "-")}`, ...patch }))));
+        return out;
+      });
+      for (const [i, [label]] of targets.entries()) {
+        expect(got[i], `${key} ${label}`).toEqual({ ok: false, code: "42501", message: "Du kan inte registrera det i det här ärendet" });
+        expect(memInsert(key, row(by, targets[i][1])), `${key} ${label} (minnet)`).toBe(false);
+      }
+    }
+    // Den som arbetar i ärendet får som förut veta vad som inte stämmer.
+    const erik = await asWith("u-erik", null, (tx) => attempt(tx, ins(row("u-erik", { meetingAt: "2027-01-28T14:00" }))));
+    expect(erik).toMatchObject({ ok: false, code: "23514", message: "Mötet ska vara ärendets första möte" });
+  });
+
+  it("startdatumet sätts aldrig på eller före dagen då deltagaren inte kom – för inloggade, för servern och med Ändra startdatum", async () => {
+    // EXTRA:s registrering för fredag 29 januari finns (ingen truncate här). Coachen och servern startar insatsen direkt.
+    const upd = (day: string) => `update public.cases set status = 'active', start_date = '${day}' where id = '${CASE}'`;
+    const memUpdate = async (key: string | null, day: string) => {
+      const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+      s.clock = () => at;
+      const repo = key ? new MemoryRepo<Tables>(s, actorOf(findPersona(key)), POLICIES) : new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
+      return memOk(repo.table("cases").update(CASE, { status: "active", startDate: day }));
+    };
+    for (const [day, want] of [["2027-01-28", false], ["2027-01-29", false], ["2027-01-30", true], ["2027-02-01", true]] as const) {
+      const pg = await asPersona(findPersona("u-erik"), (tx) => attempt(tx, upd(day)));
+      const service = await asUser(db, null, (tx) => attempt(tx, upd(day)), { role: "service_role" });
+      expect({ pg: allowed(pg), service: allowed(service), mem: await memUpdate("u-erik", day), sys: await memUpdate(null, day) }, day).toEqual({ pg: want, service: want, mem: want, sys: want });
+      if (!want) expect([pg, service].map((x) => (x.ok ? null : x.code)), day).toEqual(["23514", "23514"]);
+    }
+    // Andra ändringar i ärendet påverkas inte (startdatumet ändras inte).
+    expect(await asUser(db, null, (tx) => attempt(tx, `update public.cases set phase = 2 where id = '${CASE}'`), { role: "service_role" })).toEqual({ ok: true, rows: 1 });
+    // Kommunen och ekonomen nekas av spärren från 0038 (cases_start_date_guard körs först) – aldrig med registreringens regel.
+    for (const key of ["k-omar", "u-lars"]) {
+      const got = await asPersona(findPersona(key), (tx) => attempt(tx, `update public.cases set start_date = '2027-01-29' where id = '${CASE}'`));
+      expect(got.ok ? null : got.message, key).not.toMatch(/deltagaren inte kom/);
+    }
+    // Ändra startdatum: det nya mötet samma dag kl. 16.00, insatsen startad måndag 1 februari. Ändringen till 29 januari nekas av
+    // triggern på ärendet (mm.apply_case_start_change ändrar startdatumet) – till 2 februari går den.
+    const prep = `update public.cases set first_meeting_at = '2027-01-29 16:00+01', status = 'active', start_date = '2027-02-01' where id = '${CASE}'`;
+    const change = (id: string, toDate: string): Tables["case_start_changes"] => ({
+      id, contractId: "c-bot", caseId: CASE, fromDate: "2027-02-01", toDate, changedBy: "u-erik", changedAt: at, noteId: `note-${id}`, seq: 1,
+    });
+    const note = (x: Tables["case_start_changes"]): Tables["case_notes"] => ({
+      id: x.noteId, contractId: "c-bot", caseId: CASE, authorId: "u-erik", occurredOn: "2027-02-01", kind: "other", audience: "team",
+      body: "Ändrat startdatum: motivering.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null,
+    });
+    const erikRoles = new Set(data.memberships.filter((m) => m.userId === "u-erik").map((m) => m.role));
+    const pgChange = (x: Tables["case_start_changes"]) => asUser(db, authOf("u-erik"), async (tx) => attempt(tx, insertSql("case_start_changes", x as unknown as Record<string, unknown>)), {
+      before: async (tx) => {
+        await tx.exec(prep);
+        await tx.query(insertSql("case_notes", note(x) as unknown as Record<string, unknown>));
+        if (erikRoles.size > 1) await chooseRole("u-erik", "coach")(tx);
+      },
+    });
+    const memChange = (x: Tables["case_start_changes"]) => {
+      const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+      s.clock = () => at;
+      s.updateRow("cases", CASE, { firstMeetingAt: "2027-01-29T16:00", status: "active", startDate: "2027-02-01" });
+      s.insertRow("case_notes", note(x));
+      return canWriteRow("case_start_changes", x, actorOf(findPersona("u-erik")), s.raw());
+    };
+    const bad = await pgChange(change("csc-fmns-1", "2027-01-29"));
+    expect({ pg: bad.ok ? null : bad.code, mem: memChange(change("csc-fmns-1", "2027-01-29")) }).toEqual({ pg: "23514", mem: false });
+    const good = await pgChange(change("csc-fmns-2", "2027-02-02"));
+    expect({ pg: allowed(good), mem: memChange(change("csc-fmns-2", "2027-02-02")) }).toEqual({ pg: true, mem: true });
   });
 
   it("migrationen tål att köras igen och ändrar då ingenting", async () => {
@@ -4012,7 +4090,7 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
       const after = await count();
       const policies = (await tx.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename = 'first_meeting_no_shows'")).rows[0].n;
       const triggers = (await tx.query<{ n: number }>(
-        "select count(*)::int as n from pg_trigger where tgname in ('first_meeting_no_shows_check', 'first_meeting_no_shows_append_only')",
+        "select count(*)::int as n from pg_trigger where tgname in ('first_meeting_no_shows_check', 'first_meeting_no_shows_append_only', 'cases_start_date_no_show_guard')",
       )).rows[0].n;
       const checks = (await tx.query<{ n: number }>(
         "select count(*)::int as n from pg_constraint where conrelid = 'public.first_meeting_no_shows'::regclass and contype = 'c'",
@@ -4020,6 +4098,6 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
       res = { before, after, policies, triggers, checks };
       await tx.rollback();
     });
-    expect(res).toEqual({ before: 1, after: 1, policies: 2, triggers: 2, checks: 2 });
+    expect(res).toEqual({ before: 1, after: 1, policies: 2, triggers: 3, checks: 2 });
   });
 });

@@ -8,8 +8,10 @@
 //               first_meeting_no_shows_check) och tillåter ett möte en gång (unikt index) – två samtidiga registreringar ger en rad.
 //   Utskick:    inga. Ingen notifyReferrer, ingen notifyParticipant, inga notiser – kommunen får inget besked (Karims beslut).
 //   Följder:    inga tillfällen och ingen närvaro skapas, inget faktureras och ingenting i närvarograden, rapporterna, resultatfilen,
-//               bonusen, den automatiska närvaron eller spärren för Ändra startdatum ändras. Insatsen kan startas som förut, och
-//               ett nytt första möte bokas med arenden.caseBookFirstMeeting (coachen också, efter registreringen).
+//               bonusen, den automatiska närvaron eller spärren för Ändra startdatum ändras. Insatsen startas först när ett nytt
+//               första möte är bokat (arenden.caseBookFirstMeeting – coachen också, efter registreringen; arenden.caseStart nekar
+//               annars), och startdatumet ligger alltid efter dagen då deltagaren inte kom. Nyckeltalet Första möte inom en vecka
+//               räknar det första bokade mötet (Karims beslut 2026-11-09) – registreringen ändrar det inte.
 //   Logg:       case.first_meeting_no_show med id:n och slaget – aldrig orsaken (CLAUDE.md punkt 2).
 import { fail, ok } from "@/api/contract";
 import { handleCommand } from "@/api/server";

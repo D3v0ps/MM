@@ -8,7 +8,8 @@ import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
-import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
+import { firstMeetingBookingProblem } from "@/core/first-meeting";
+import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
   anchorTabs, PhaseBar, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
@@ -754,7 +755,8 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   const ns = c.noShow;
   const rebookFirst = !!ns?.current && ns.canRebook;
   if (rebookFirst) btns.push(<Button key="rebook" kind="primary" icon="calendar" className={btn} onClick={() => openModal("rebook")}>Boka nytt första möte</Button>);
-  // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat – och går fortfarande efter en registrering.
+  // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat. Inte när deltagaren inte kom till
+  // det bokade mötet (servern skickar inget start då) – först ett nytt första möte.
   if (c.start) btns.push(<Button key="start" kind={rebookFirst ? "secondary" : "primary"} icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
   if (ns?.canRegister) btns.push(<Button key="noshow" icon="x-circle" className={btn} onClick={() => openModal("noshow")}>Deltagaren kom inte</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
@@ -871,18 +873,18 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
   const due = c.firstMeeting.dueAt;
   const [at, setAt] = useState(`${addWorkingDays(today, 1)}T10:00`);
   const [err, setErr] = useState<string | null>(null);
-  const late = !!at && !!due && at > due;
+  // Efter att deltagaren inte kom räknas nyckeltalet på det första bokade mötet (Karims beslut 2026-11-09) – ingen varning.
+  const afterNoShow = !!c.noShow?.missedBefore;
+  const late = !!at && !!due && at > due && !afterNoShow;
   const save = async () => {
     if (!at || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)) {
       setErr("Välj datum och tid för mötet.");
       return;
     }
-    if (at < c.now) {
-      setErr("Tiden har redan passerat. Välj en senare tid.");
-      return;
-    }
-    if (!isWorkingDay(at)) {
-      setErr(`${holidayName(at) || "Dagen"} är inte en arbetsdag. Välj en vardag.`);
+    // Samma regel som servern (arenden.caseBookFirstMeeting): inte passerad, inte före beställningen, en ny tid och en arbetsdag.
+    const problem = firstMeetingBookingProblem(c, at, c.now);
+    if (problem) {
+      setErr(problem.text);
       return;
     }
     const res = await book.run({ caseId: c.caseId, at }).catch(() => null);
@@ -940,10 +942,11 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
       </p>
       {rebook && (
         <p>
-          Den nya tiden ersätter den gamla. Kommunen får en uppdaterad orderbekräftelse med det nya mötet, som när ett möte bokas om. Att deltagaren inte kom står kvar i
-          tidslinjen och syns aldrig för kommunen.
+          Den nya tiden ersätter den gamla. Kommunen får en uppdaterad orderbekräftelse med det nya mötet, som när ett möte bokas om – men aldrig varför. Att deltagaren
+          inte kom står kvar i tidslinjen och syns aldrig för kommunen.
         </p>
       )}
+      {afterNoShow && <p className="text-text-muted">Uppföljningen av nyckeltalet räknar det första bokade mötet – den nya tiden gör inte ärendet sent.</p>}
     </Modal>
   );
 }

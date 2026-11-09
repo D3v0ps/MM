@@ -33,12 +33,14 @@ import {
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
 import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
-import { canRegisterNoShow, currentNoShow, NO_SHOW_KIND_LABEL, NO_SHOW_REGISTRARS, noShowOpen, noShowSentence } from "@/core/first-meeting";
+import {
+  canRegisterNoShow, currentNoShow, earliestStartDay, firstMeetingBookingProblem, NO_SHOW_KIND_LABEL, NO_SHOW_REGISTRARS, noShowOpen, noShowSentence, noShowStartProblem,
+} from "@/core/first-meeting";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
@@ -351,6 +353,9 @@ function periodFromStart(cfg: OperationalConfig, c: Case, start: string): { ok: 
 // bara ärendenummer och länk – orderbekräftelsen visar alltid det slutdatum som gäller.
 // Coachen bokar ett nytt första möte bara när deltagaren inte kom till det bokade (Karims beslut 2026-11-09): ett bekräftat ärende
 // utan startdatum där det är registrerat för ärendets nuvarande första möte. Annars bokar samordnaren och avtalsansvarig, som förut.
+// För alla roller (firstMeetingBookingProblem – samma regel som dialogen): en tid som inte har passerat, inte före beställningens dag,
+// en annan tid än det bokade mötet och en arbetsdag. Annars skulle en ombokning till samma tid skicka orderbekräftelse och kallelse
+// igen, och ett möte före beställningen flytta planerat slut och faktureringen bakåt.
 handleCommand(caseBookFirstMeeting, { roles: [...MANAGERS, "coach"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
@@ -359,11 +364,13 @@ handleCommand(caseBookFirstMeeting, { roles: [...MANAGERS, "coach"] }, async (ct
   if (ctx.actor.role === "coach" && !(noShowOpen(c) && currentNoShow(c, await ctx.repo.table("first_meeting_no_shows").list({ caseId: c.id })))) {
     return fail("forbidden", "Första mötet bokas av samordnaren. Kom deltagaren inte till mötet? Registrera det först med Deltagaren kom inte – sedan kan du boka ett nytt första möte.");
   }
+  const now = ctx.now();
+  const booking = firstMeetingBookingProblem(c, p.at, now);
+  if (booking) return fail(booking.code, booking.text);
   const { cfg } = await contractOf(ctx, c.contractId);
   const day = dayOf(p.at);
   const period = periodFromStart(cfg, c, day);
   if (!period.ok) return fail("order_period", period.message);
-  const now = ctx.now();
   const rebooked = !!c.firstMeetingAt;
   // Den senaste levererade orderbekräftelsen ersätts av en ny version. Den gamla fryses FÖRE ändringen av ärendet (bästa försök,
   // som vid leverans), så att den behåller det slutdatum och det möte den lovade.
@@ -440,8 +447,18 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   if (c.status === "active" || c.status === "paused") return fail("wrong_status", "Insatsen har redan startat.");
   if (c.status !== "confirmed") return fail("wrong_status", NO_START);
   if (!c.firstMeetingAt) return fail("no_meeting", "Boka första mötet innan insatsen startar.");
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): insatsen startas först när ett nytt första möte är bokat, och
+  // aldrig på eller före en dag då deltagaren inte kom – den dagen faktureras aldrig och får ingen närvaro (samma regel som
+  // triggern cases_start_date_no_show_guard, 0040).
+  const noShows = await ctx.repo.table("first_meeting_no_shows").list({ caseId: c.id });
+  const cur = currentNoShow(c, noShows);
+  if (cur) {
+    return fail("no_show", `Deltagaren kom inte till första mötet ${fmtDateTime(cur.meetingAt)}. Boka ett nytt första möte innan insatsen startar – eller avsluta insatsen om deltagaren aldrig kom.`);
+  }
   const meetingDay = dayOf(c.firstMeetingAt);
   if (p.startDate < meetingDay) return fail("start_date", `Startdatumet kan inte vara före första mötet ${fmtDate(meetingDay)}.`);
+  const afterNoShow = noShowStartProblem(c.id, p.startDate, noShows);
+  if (afterNoShow) return fail("start_date", afterNoShow);
   const end = c.plannedEnd;
   if (!end || end < p.startDate) return fail("no_end", "Ärendet saknar ett planerat slut efter startdatumet. Rätta omfattningen i beställningen först.");
   const plan = normalizePlan(p.plan);
@@ -849,7 +866,7 @@ async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded
 /** Tabeller för flaggorna (prototypens sel.alerts). */
 const ALERT_TABLES = [
   "cases", "activities", "attendance", "check_ins", "placements", "reports", "price_items", "buyer_references", "invoice_drafts", "invoice_lines", "billing_runs",
-  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles", "case_area_changes",
+  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles", "case_area_changes", "first_meeting_no_shows",
 ] as const;
 
 // ---------------------------------------------------------------- arenden.lista
@@ -964,7 +981,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     // Fakturorna gäller hela avtalet och månaden (beslut 2026-10-07) – ärendets rader finns i invoice_lines.
     activities: byCase, attendance: byCase, check_ins: byCase, placements: byCase, reports: byCase, invoice_drafts: { contractId: c.contractId }, invoice_lines: byCase,
     billing_week_approvals: byCase,
-    pulse_responses: byCase, inbound_emails: byCase, case_team: byCase, messages: byCase, deviations: byCase, consents: byCase,
+    pulse_responses: byCase, inbound_emails: byCase, case_team: byCase, messages: byCase, deviations: byCase, consents: byCase, first_meeting_no_shows: byCase,
   });
   // Flaggor för ärendet: bara ärendets rader behövs (flaggorna per ärende räknas på ärendets egna data).
   const caseDb = { ...db, cases: db.cases.filter((x) => x.id === c.id) };
@@ -996,6 +1013,8 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
 
   const lead = teamRows.find((t) => t.role === "lead_coach");
   const myTeam = teamRows.find((t) => t.userId === me);
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): bara i ett bekräftat ärende – via behörigheten (loadDb ovan).
+  const noShows = c.status === "confirmed" ? db.first_meeting_no_shows : [];
   return {
     kind: "ok",
     now,
@@ -1073,9 +1092,11 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     coachOptions: manage && active && c.leadCoachId
       ? await coachOptionsFor(ctx, c)
       : [],
-    // Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte – standardplanen ur avtalet.
-    start: edit && c.status === "confirmed" && c.firstMeetingAt
-      ? { firstMeetingAt: c.firstMeetingAt, startDate: dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt) }
+    // Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte – standardplanen ur avtalet. Inte när deltagaren
+    // inte kom till det bokade mötet: då bokas ett nytt eller avslutas insatsen (Karims beslut 2026-11-09). Startdatumet ligger
+    // alltid efter en dag då deltagaren inte kom (earliestStartDay).
+    start: edit && c.status === "confirmed" && c.firstMeetingAt && !currentNoShow(c, noShows)
+      ? { firstMeetingAt: c.firstMeetingAt, startDate: earliestStartDay(c, noShows) ?? dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt) }
       : null,
     weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
@@ -1085,7 +1106,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       canChange: START_CHANGERS.includes(ctx.actor.role) && access === "full" && !startChangeBlockedText(c),
       changes: await ctx.repo.table("case_start_changes").count({ caseId: c.id }),
     },
-    noShow: await noShowFor(ctx, c, { edit, manage, now }),
+    noShow: noShowFor(ctx, c, noShows, { edit, manage, now }),
   };
 });
 
@@ -1093,13 +1114,13 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
  * Deltagaren kom inte till första mötet (Karims beslut 2026-11-09) – bara i ett bekräftat ärende. Registreringarna läses via
  * behörigheten (policyn/RLS: Miljonbemanning med full- eller teamåtkomst). Orsaken bara för den som får ändra i ärendet.
  */
-async function noShowFor(ctx: Ctx, c: Case, o: { edit: boolean; manage: boolean; now: string }): Promise<CaseCard["noShow"]> {
+function noShowFor(ctx: Ctx, c: Case, rows: readonly FirstMeetingNoShow[], o: { edit: boolean; manage: boolean; now: string }): CaseCard["noShow"] {
   if (c.status !== "confirmed") return null;
-  const rows = await ctx.repo.table("first_meeting_no_shows").list({ caseId: c.id });
   const cur = noShowOpen(c) ? currentNoShow(c, rows) : null;
   const registrar = o.edit && NO_SHOW_REGISTRARS.includes(ctx.actor.role);
   return {
     canRegister: registrar && canRegisterNoShow(c, o.now, rows),
+    missedBefore: rows.some((x) => x.caseId === c.id),
     current: cur ? { id: cur.id, meetingAt: cur.meetingAt, kind: cur.kind, text: noShowSentence(cur), reason: o.edit ? cur.reason : null } : null,
     // Samordnare och avtalsansvarig bokar som förut; coachen när mötet är registrerat (arenden.caseBookFirstMeeting).
     canRebook: o.manage || (!!cur && registrar && ctx.actor.role === "coach"),
@@ -1402,7 +1423,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
     const rdb: ReportDb & Pick<Db, "case_notes"> = {
       cases: [c], activities: db.activities, attendance: db.attendance, check_ins: db.check_ins, monthly_assessments: db.monthly_assessments, monthly_plans: db.monthly_plans,
       outcome_events: db.outcome_events, deviations: db.deviations, tasks: db.tasks, audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: db.contract_areas,
-      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes, case_area_changes: db.case_area_changes,
+      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes, case_area_changes: db.case_area_changes, first_meeting_no_shows: [],
     };
     const m = monthlyPreview(rdb, c.id, month, renv);
     gaps = monthlyGaps(rdb, c.id, month, renv);

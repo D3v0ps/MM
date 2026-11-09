@@ -94,7 +94,9 @@
 //   mötet        läses av Miljonbemanning med åtkomst full eller team – aldrig kommunen eller ekonomen · skapas av den som
 //                 arbetar i ärendet, i avtalet, i eget namn och med aktuell tid · för alla roller (också systemet, guard): ärendet
 //                 är bekräftat och inte startat, raden hör till ärendets avtal, mötet är ärendets första möte och har varit,
-//                 orsaken krävs vid giltig frånvaro (högst 300 tecken) · ett möte en gång (UNIQUE_KEYS) · append-only för alla
+//                 orsaken krävs vid giltig frånvaro (högst 300 tecken) · ett möte en gång (UNIQUE_KEYS) · ändras aldrig och
+//                 raderas bara av systemet (gallring) · ärendets startdatum sätts aldrig på eller före en dag då deltagaren inte
+//                 kom (cases.guard och caseStartChangeApplies, för alla roller – triggern cases_start_date_no_show_guard)
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -745,6 +747,8 @@ function caseStartChangeApplies(x: CaseStartChangeRow, raw: Raw): boolean {
   const c = raw.get("cases", x.caseId);
   if (!c || c.contractId !== x.contractId || c.startDate !== x.fromDate || !START_CHANGE_STATUSES.includes(c.status)) return false;
   if (c.firstMeetingAt && x.toDate < dayOf(c.firstMeetingAt)) return false;
+  // Aldrig på eller före en dag då deltagaren inte kom till första mötet (triggern cases_start_date_no_show_guard, 0040).
+  if (noShowOnOrAfter(raw, c.id, x.toDate)) return false;
   const end = c.endDate ?? c.plannedEnd;
   if (end && x.toDate > end) return false;
   const billing = { drafts: raw.all("invoice_drafts"), lines: raw.all("invoice_lines"), runs: raw.all("billing_runs") };
@@ -1031,11 +1035,26 @@ function noShowWrite(x: NoShowRow, a: Actor, raw: Raw): boolean {
   return workOn(x.caseId, a, raw) && member(a, x.contractId) && self(a, x.registeredBy) && noShowConsistent(x, raw) && atNow(raw, x.registeredAt);
 }
 /**
- * För alla roller, också systemet (bypass, som service role): append-only (triggern first_meeting_no_shows_append_only och
- * rättigheterna – service role läser och skapar bara) och en ny rad stämmer med ärendet (first_meeting_no_shows_check).
+ * För alla roller, också systemet (bypass, som service role): en rad ändras aldrig (triggern first_meeting_no_shows_append_only)
+ * och en ny rad stämmer med ärendet (first_meeting_no_shows_check). Systemet får ta bort en rad (gallring – service role har
+ * rättigheten delete); inloggade nekas av skrivregeln (noShowWrite: raden finns redan), som i Postgres där de saknar rättigheten.
  */
 function noShowGuard(x: NoShowRow | null, cur: NoShowRow | undefined, raw: Raw): boolean {
-  return !!x && !cur && noShowConsistent(x, raw);
+  if (!x) return true;
+  return !cur && noShowConsistent(x, raw);
+}
+/** Ett första möte i ärendet som deltagaren inte kom till ligger på eller efter dagen (Stockholms tid, som mötets tid). */
+function noShowOnOrAfter(raw: Raw, caseId: string, day: string): boolean {
+  return raw.all("first_meeting_no_shows").some((x) => x.caseId === caseId && dayOf(x.meetingAt) >= day);
+}
+/**
+ * Ärendets startdatum (triggern cases_start_date_no_show_guard, 0040 – för alla roller, också systemet): ett nytt eller ändrat
+ * startdatum ligger aldrig på eller före en dag då deltagaren inte kom till ett första möte i ärendet. Ändra startdatum (afterInsert
+ * på case_start_changes) prövar samma regel i caseStartChangeApplies.
+ */
+function caseNoShowStartGuard(next: Case | null, cur: Case | undefined, raw: Raw): boolean {
+  if (!next || next.startDate == null || (cur && (cur.startDate ?? null) === next.startDate)) return true;
+  return !noShowOnOrAfter(raw, next.id, next.startDate);
 }
 
 // ---------------------------------------------------------------- Tabellerna
@@ -1089,7 +1108,7 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
       });
     },
   },
-  cases: { read: (c, a, raw) => accessOfCase(raw, a, c) !== "none", write: caseWrite },
+  cases: { read: (c, a, raw) => accessOfCase(raw, a, c) !== "none", write: caseWrite, guard: caseNoShowStartGuard },
   case_status_history: { read: (h, a, raw) => canSeePerson(accessTo(raw, a, h.caseId)), write: (h, a, raw) => caseWriteById(h.caseId, a, raw) },
   case_counters: { read: (x, a) => isMB(a) && member(a, x.contractId), write: never }, // löpnummer: ctx.system
   case_team: {
@@ -1351,7 +1370,8 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   case_start_changes: { read: (x, a) => has(START_CHANGE_READERS, a) && member(a, x.contractId), write: caseStartChangeWrite, afterInsert: caseStartChangeApply },
 
   // ---- Deltagaren kom inte till första mötet (0040). Internt: Miljonbemanning med full- eller teamåtkomst (mm.case_ids('{full,team}'))
-  //      – aldrig kommunen (customer) eller ekonomen (billing). Skapas av den som arbetar i ärendet; ändras och tas aldrig bort.
+  //      – aldrig kommunen (customer) eller ekonomen (billing). Skapas av den som arbetar i ärendet; ändras aldrig och tas bara bort
+  //      av systemet (gallring).
   first_meeting_no_shows: {
     read: (x, a, raw) => {
       const acc = accessTo(raw, a, x.caseId);

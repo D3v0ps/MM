@@ -396,9 +396,11 @@ export function TabNarvaro({ card, setTab, openModal }: TabProps) {
               >
                 {card.start
                   ? "Starta insatsen efter första mötet – då skapas tillfällena enligt veckoplanen och närvaron kan registreras."
-                  : card.status === "confirmed"
-                    ? "Insatsen startas när första mötet är bokat och hållet."
-                    : "Närvaro registreras från första mötet."}
+                  : card.noShow?.current
+                    ? "Deltagaren kom inte till första mötet. Insatsen startas när ett nytt första möte är bokat och hållet."
+                    : card.status === "confirmed"
+                      ? "Insatsen startas när första mötet är bokat och hållet."
+                      : "Närvaro registreras från första mötet."}
               </Empty>
             </Card>
           );

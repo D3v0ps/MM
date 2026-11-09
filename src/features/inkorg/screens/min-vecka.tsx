@@ -642,11 +642,12 @@ function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; reb
           <TimeInput value={time} onValueChange={setTime} />
         </Field>
       </FormGrid>
-      {due && date > dayOf(due) && (
+      {due && date > dayOf(due) && !c.afterNoShow && (
         <Notice tone="warn" title={`Senare än ${meetingText} efter avropet`}>
           Mötet markeras i uppföljningen av nyckeltalet för första möte.
         </Notice>
       )}
+      {c.afterNoShow && <div className="text-text-muted">Uppföljningen av nyckeltalet räknar det första bokade mötet – den nya tiden gör inte ärendet sent.</div>}
       <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
     </Modal>
   );

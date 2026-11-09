@@ -92,6 +92,7 @@ async function scopeFor(ctx: Ctx, contract?: Contract): Promise<Scope> {
 /** Tabeller med contractId respektive caseId – filtreras på avtalet och dess ärenden. */
 const BY_CONTRACT = new Set<TableName>([
   "reports", "contract_deviations", "contract_areas", "price_items", "memberships", "billing_runs", "invoice_drafts", "billing_week_approvals", "case_area_changes",
+  "first_meeting_no_shows",
 ]);
 const BY_CASE = new Set<TableName>([
   "activities", "attendance", "check_ins", "outcome_events", "placements", "pulse_invites", "pulse_responses", "deviations", "monthly_assessments", "case_team",
@@ -115,7 +116,7 @@ async function contractDb(ctx: Ctx, contract: Contract): Promise<Db> {
   const names: TableName[] = [
     "activities", "attendance", "check_ins", "outcome_events", "placements", "pulse_invites", "pulse_responses", "deviations", "monthly_assessments", "case_team",
     "reports", "contract_deviations", "contract_areas", "price_items", "memberships", "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals",
-    "buyer_references", "profiles", "persons", "contracts", "alert_acks", "demo_tags", "case_area_changes",
+    "buyer_references", "profiles", "persons", "contracts", "alert_acks", "demo_tags", "case_area_changes", "first_meeting_no_shows",
   ];
   const filters: Record<string, unknown> = {
     persons: { id: { in: personIds } },
