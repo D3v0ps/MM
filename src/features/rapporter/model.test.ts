@@ -9,6 +9,7 @@ import { requireOperational } from "@/core/config";
 import { dayOf } from "@/core/time";
 import { createSeed } from "@/data/seed";
 import { withoutAreaChanges } from "@/data/seed/decisions-2026-10-22";
+import { withoutFirstMeetingDemo } from "@/data/seed/decisions-2026-11-09";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import { emptyDb, type Db, type Report } from "@/data/schema";
 import { canonicalJson, driftedSinceDelivery, frozenModel, reportModel, summaryFromNumbers, type OrderModel, type ReportEnv, type SummaryModel } from "./model";
@@ -19,9 +20,10 @@ type FacitRow = { model: string; title: string; period: string; eff: string; sta
 type Facit = { meta: { now: string; count: number }; sample: Record<string, { id: string; model: unknown }>; reports: Record<string, FacitRow> };
 const facit = JSON.parse(readFileSync(new URL("./parity/facit.json", import.meta.url), "utf8")) as Facit;
 
-// Facit är från före bytet av yrkesområde i testdatat (Karims beslut 2026-10-22) – rapporterna visar ärendets nuvarande
-// yrkesområde, så jämförelsen görs på testdatat utan bytet (som src/core/parity.test.ts).
-const db = withoutAreaChanges({ ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db);
+// Facit är från före bytet av yrkesområde i testdatat (Karims beslut 2026-10-22) och före BOT-27-0043:s första möte i januari
+// (Karims beslut 2026-11-09) – rapporterna visar ärendets nuvarande yrkesområde, första möte och planerade slut, så jämförelsen
+// görs på testdatat utan dem (som src/core/parity.test.ts).
+const db = withoutFirstMeetingDemo(withoutAreaChanges({ ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db));
 const contract = db.contracts.find((c) => c.id === "c-bot")!;
 const supplier = db.organizations.find((o) => o.id === contract.supplierId)!;
 const env: ReportEnv = { cfg: requireOperational(contract.config), contract: { id: contract.id, startsOn: contract.startsOn, supplierName: supplier.name }, now: facit.meta.now, activityTypes: ACTIVITY_TYPES };

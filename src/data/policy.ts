@@ -90,6 +90,11 @@
 //                 motivering); läses inte av ekonomen; en ny rad ändrar anspråket i samma steg (afterInsert, för alla roller) och bara
 //                 när det är skickat och obeslutat – ett avslag av steg 3 återtar steg 4 och 5 som bygger på det. En bonusrad på
 //                 en faktura står bara på en bonusfaktura och gäller ett godkänt anspråk (invoice_lines)
+//   Första       deltagaren kom inte till första mötet (first_meeting_no_shows, 0040, Karims beslut 2026-11-09 – internt):
+//   mötet        läses av Miljonbemanning med åtkomst full eller team – aldrig kommunen eller ekonomen · skapas av den som
+//                 arbetar i ärendet, i avtalet, i eget namn och med aktuell tid · för alla roller (också systemet, guard): ärendet
+//                 är bekräftat och inte startat, raden hör till ärendets avtal, mötet är ärendets första möte och har varit,
+//                 orsaken krävs vid giltig frånvaro (högst 300 tecken) · ett möte en gång (UNIQUE_KEYS) · append-only för alla
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -111,7 +116,7 @@ import {
 import type { Case, Report, TableName, Tables } from "./schema";
 import { dayOf, diffMinutes } from "@/core/time";
 import { FOLLOWS_STEP3, stepKind } from "@/core/bonus";
-import { BONUS_ACTIVE_STATUSES, BONUS_CLAIM_STATUSES, BONUS_SOURCES } from "./schema";
+import { BONUS_ACTIVE_STATUSES, BONUS_CLAIM_STATUSES, BONUS_SOURCES, FIRST_MEETING_NO_SHOW_KINDS } from "./schema";
 
 type Raw = RawAccess<Tables>;
 
@@ -997,6 +1002,42 @@ function invoiceLineKindOk(x: Tables["invoice_lines"], raw: Raw): boolean {
   return d?.kind === "bonus" && !!k && k.caseId === x.caseId && k.contractId === d.contractId && k.status === "approved";
 }
 
+// ---------------------------------------------------------------- Deltagaren kom inte till första mötet (0040)
+type NoShowRow = Tables["first_meeting_no_shows"];
+/** Orsakens längd (kontrollen first_meeting_no_shows_reason_check). */
+const NO_SHOW_REASON_MAX = 300;
+/**
+ * Raden stämmer (triggern first_meeting_no_shows_check och kontrollerna i tabellen, 0040 – för alla roller, också systemet):
+ * slaget och orsaken (högst 300 tecken; vid giltig frånvaro krävs den och får inte vara bara blanksteg), ärendet är bekräftat och
+ * inte startat (inget startdatum), raden hör till ärendets avtal, mötet är ärendets första möte och mötets tid har varit (minnets
+ * klocka, RawAccess.now – ett minne utan klocka prövar inte tiden).
+ */
+function noShowConsistent(x: NoShowRow, raw: Raw): boolean {
+  if (!(FIRST_MEETING_NO_SHOW_KINDS as readonly string[]).includes(x.kind)) return false;
+  if (x.reason != null && chars(x.reason) > NO_SHOW_REASON_MAX) return false;
+  if (x.kind === "giltig" && (x.reason == null || !/\S/.test(x.reason))) return false;
+  const c = raw.get("cases", x.caseId);
+  if (!c || c.contractId !== x.contractId || c.status !== "confirmed" || c.startDate != null || !c.firstMeetingAt || c.firstMeetingAt !== x.meetingAt) return false;
+  const now = raw.now?.();
+  return !now || x.meetingAt <= now;
+}
+/**
+ * Ny rad (first_meeting_no_shows_insert, 0040): den som arbetar i ärendet (workOn – full eller team), medlem i avtalet, i eget namn.
+ * För inloggade dessutom (triggern) raden stämmer och registreras med aktuell tid (högst 10 minuter från klockan). En befintlig
+ * rad ändras aldrig (ingen update-policy) – regeln stoppar också MemoryRepo.remove(), och guard nedan gäller också systemet.
+ */
+function noShowWrite(x: NoShowRow, a: Actor, raw: Raw): boolean {
+  if (raw.get("first_meeting_no_shows", x.id)) return false;
+  return workOn(x.caseId, a, raw) && member(a, x.contractId) && self(a, x.registeredBy) && noShowConsistent(x, raw) && atNow(raw, x.registeredAt);
+}
+/**
+ * För alla roller, också systemet (bypass, som service role): append-only (triggern first_meeting_no_shows_append_only och
+ * rättigheterna – service role läser och skapar bara) och en ny rad stämmer med ärendet (first_meeting_no_shows_check).
+ */
+function noShowGuard(x: NoShowRow | null, cur: NoShowRow | undefined, raw: Raw): boolean {
+  return !!x && !cur && noShowConsistent(x, raw);
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -1308,6 +1349,17 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
 
   // ---- Ändra startdatum (0038). Bara datum och id:n – Miljonbemanning utom ekonomen, aldrig kommunen. Ändras aldrig.
   case_start_changes: { read: (x, a) => has(START_CHANGE_READERS, a) && member(a, x.contractId), write: caseStartChangeWrite, afterInsert: caseStartChangeApply },
+
+  // ---- Deltagaren kom inte till första mötet (0040). Internt: Miljonbemanning med full- eller teamåtkomst (mm.case_ids('{full,team}'))
+  //      – aldrig kommunen (customer) eller ekonomen (billing). Skapas av den som arbetar i ärendet; ändras och tas aldrig bort.
+  first_meeting_no_shows: {
+    read: (x, a, raw) => {
+      const acc = accessTo(raw, a, x.caseId);
+      return acc === "full" || acc === "team";
+    },
+    write: noShowWrite,
+    guard: noShowGuard,
+  },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

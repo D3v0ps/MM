@@ -20,6 +20,7 @@ import { kpiValue } from "@/core/kpi";
 import { hasContactDetails } from "@/core/contact";
 import { areaName, contactLabel, outboundReasonLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
+import { canRegisterNoShow, currentNoShow, noShowOpen, noShowSentence } from "@/core/first-meeting";
 import {
   addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS, type LocalDateTime,
 } from "@/core/time";
@@ -594,6 +595,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const noCoach = d.cases.filter((c) => !c.leadCoachId && ["received", "acknowledged", "confirmed", "active", "paused"].includes(c.status)).sort(by<Case>("referredAt"));
   // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
   const toStart = d.cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= e.today).sort(by<Case>("firstMeetingAt"));
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09) – bara läsning via ctx.repo (policyn för first_meeting_no_shows).
+  const noShows = toStart.length ? await ctx.repo.table("first_meeting_no_shows").list({ caseId: { in: toStart.map((c) => c.id) } }) : [];
   const flagText = flagDaysText(e.org.alerts.firstMeetingNotBookedAfterDays);
 
   const dls = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor));
@@ -693,10 +696,17 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     }),
     groupsToday: await todaysGroupActivities(ctx, e.today),
     now,
-    toStart: toStart.map((c) => ({
-      caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
-      sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,
-    })),
+    toStart: toStart.map((c) => {
+      // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): registreringen för det nuvarande mötet, och om den kan göras nu.
+      const cur = noShowOpen(c) ? currentNoShow(c, noShows) : null;
+      const fmDue = firstMeetingDue(c, e.cfg);
+      return {
+        caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
+        sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,
+        noShow: cur ? { text: noShowSentence(cur) } : null, canRegisterNoShow: canRegisterNoShow(c, now, noShows),
+        rebook: { caseId: c.id, caseNumber: c.caseNumber, due: fmDue ? sla(fmDue, null, now) : null, coachName: name(c.leadCoachId), dueText: fmDue ? fmtWeekday(fmDue) : "–" },
+      };
+    }),
     tasks: tasks.map((t) => {
       const caseId = !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null;
       const c = t.caseIds.length === 1 ? (taskCases.get(t.caseIds[0]) ?? null) : null;

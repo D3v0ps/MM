@@ -160,6 +160,10 @@ export const COLUMNS = {
     id: "text", claimId: "text", caseId: "text", contractId: "text", decision: "text", note: "text | null", via: "text", decidedBy: "text | null", recordedBy: "text",
     decidedAt: "timestamptz",
   },
+  // Deltagaren kom inte till första mötet (0040_uteblivet_forsta_mote.sql)
+  first_meeting_no_shows: {
+    id: "text", caseId: "text", contractId: "text", meetingAt: "timestamptz", kind: "text", reason: "text | null", registeredBy: "text", registeredAt: "timestamptz",
+  },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

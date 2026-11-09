@@ -64,7 +64,11 @@ type Dialog = { kind: "ack"; a: AlertView } | { kind: "book"; c: Booking; rebook
  * En del i att göra-listan: rubrik, anmärkningar och åtgärd. restNotes = anmärkningarna när delen slås ihop med något annat i
  * ärendet (då står inte delens rubrik i radens rubrik). flag = en flagga (Kvittera med en textknapp när den inte är radens åtgärd).
  */
-type Part = TodoPart & { icon: TodoItem["icon"]; title: ReactNode; notes: ReactNode[]; restNotes?: ReactNode[]; action?: ReactNode; flag?: AlertView };
+type Part = TodoPart & {
+  icon: TodoItem["icon"]; title: ReactNode; notes: ReactNode[]; restNotes?: ReactNode[]; action?: ReactNode; flag?: AlertView;
+  /** En andra åtgärd som textknapp under anmärkningarna (t.ex. "Deltagaren kom inte" bredvid Starta insatsen). */
+  extra?: ReactNode;
+};
 
 /** Ordningen vid samma tid och för det som saknar tid – och vilken del i ett ärende som ger raden dess knapp (lägre först). */
 // Flaggorna väger lätt: i ett ärende som också har ett avrop att acceptera eller ett möte att boka är det den åtgärden som gäller.
@@ -157,6 +161,25 @@ function Week({ v }: { v: StartView }) {
       });
     }
     for (const c of v.toStart) {
+      // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): raden blir "Boka nytt första möte". Avsluta insatsen är
+      // coachens (deltagarkortet och coachens Min vecka).
+      if (c.noShow) {
+        parts.push({
+          key: `starta:${c.caseId}`, group: c.caseId, dueAt: c.firstMeetingAt, weight: W.starta, icon: "calendar",
+          title: (
+            <>
+              <span className="font-bold">Boka nytt första möte –</span> <CaseLink caseId={c.caseId} caseNumber={c.caseNumber} className="-ml-1.5" />
+            </>
+          ),
+          notes: [`${c.noShow.text} Coach ${c.coachName}. Kommer deltagaren aldrig avslutar coachen insatsen. Kommunen har inte fått något besked.`],
+          action: (
+            <Button kind="secondary" icon="calendar" onClick={() => setDialog({ kind: "book", c: c.rebook, rebook: true })}>
+              Boka nytt första möte <span className="sr-only">för {c.caseNumber}</span>
+            </Button>
+          ),
+        });
+        continue;
+      }
       parts.push({
         key: `starta:${c.caseId}`, group: c.caseId, dueAt: c.firstMeetingAt, weight: W.starta, icon: "play", title: caseTitle(c.caseId, c.caseNumber, "Insats att starta"),
         notes: [`${c.sub}. Första mötet har hållits – coachen kan också starta insatsen.`],
@@ -165,6 +188,12 @@ function Week({ v }: { v: StartView }) {
             Starta insatsen <span className="sr-only">{c.caseNumber}</span>
           </Button>
         ),
+        // Mötets tid har varit och inget är registrerat: "Deltagaren kom inte" som andra åtgärd.
+        extra: c.canRegisterNoShow ? (
+          <Button kind="ghost" icon="x-circle" to={`/arenden/${encodeURIComponent(c.caseId)}?uteblev=1`}>
+            Deltagaren kom inte <span className="sr-only">{c.caseNumber}</span>
+          </Button>
+        ) : undefined,
       });
     }
     for (const a of v.alerts) parts.push(alertPart(a));
@@ -194,13 +223,15 @@ function Week({ v }: { v: StartView }) {
     const flags = r.rest.map((p) => p.flag).filter((f): f is AlertView => !!f);
     // Övriga delar i samma ärende behåller sina knappar (t.ex. "Ringt – kallad" när ärendet också har ett avrop att svara på).
     const others = r.rest.filter((p) => !p.flag && p.action);
+    const extras = [r.main, ...r.rest].filter((p) => p.extra);
     return {
       key: r.key, icon: r.main.icon, title: r.main.title, when: r.dueAt ? `Senast ${whenText(r.dueAt, now)}` : undefined, status: statusOf(r.dueAt, now),
       notes: [...r.main.notes, ...r.rest.flatMap((p) => p.restNotes ?? p.notes)], action: r.main.action,
       // Flaggor i ett ärende som har en annan åtgärd: kvitteras med en textknapp under anmärkningarna.
       children:
-        others.length || flags.length ? (
+        others.length || flags.length || extras.length ? (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {extras.map((p) => <span key={`${p.key}:extra`} className="inline-flex flex-wrap gap-x-2">{p.extra}</span>)}
             {others.map((p) => <span key={p.key} className="inline-flex flex-wrap gap-x-2">{p.action}</span>)}
             {flags.map((f) => <span key={f.key}>{ackButton(f, true)}</span>)}
           </div>

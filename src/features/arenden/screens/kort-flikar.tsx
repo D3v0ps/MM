@@ -15,6 +15,7 @@ import {
 import { CaseBackgroundCard } from "./attachments";
 import { ParticipantFilesCard } from "./participant-files";
 import { NoteDialog } from "./kort-tidslinje";
+import { NoShowNotice } from "./kort-uteblev";
 import { recordingOffered } from "@/features/coach/api";
 import type { TabProps } from "./kort";
 
@@ -65,16 +66,26 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 </Stack>
               </Notice>
             )}
-            {card.start && (
+            {/* Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): rutan ersätter "starta insatsen" – med Boka nytt första
+                möte och Avsluta – deltagaren kom aldrig. */}
+            {card.noShow?.current ? (
+              <NoShowNotice card={card} onRebook={() => openModal("rebook")} />
+            ) : card.start && (
               <Notice tone="info" icon="play" title={dayOf(card.start.firstMeetingAt) <= today ? "Första mötet har hållits – starta insatsen" : "Nästa steg efter första mötet: starta insatsen"}>
                 <Stack gap="sm">
                   <div>
                     Första mötet {fmtDateTimeLong(card.start.firstMeetingAt)}. När insatsen startar blir ärendet Pågår, tillfällena skapas enligt veckoplanen och närvaron kan registreras.
+                    {card.noShow?.canRegister ? " Kom deltagaren inte? Registrera det – då startar insatsen inte och inget faktureras." : ""}
                   </div>
-                  <div>
+                  <div className="flex flex-wrap gap-2">
                     <Button kind="primary" icon="play" onClick={() => openModal("start")}>
                       Starta insatsen
                     </Button>
+                    {card.noShow?.canRegister && (
+                      <Button icon="x-circle" onClick={() => openModal("noshow")}>
+                        Deltagaren kom inte
+                      </Button>
+                    )}
                   </div>
                 </Stack>
               </Notice>

@@ -77,7 +77,7 @@ function chunk(table: TableName, rows: Record<string, unknown>[], ignoreDuplicat
 }
 
 /** Tabellerna som service role bara läser och skapar i (append-only): raderna läggs in med "on conflict do nothing". */
-const APPEND_ONLY: ReadonlySet<TableName> = new Set<TableName>(["audit_log", "bonus_claim_decisions"]);
+const APPEND_ONLY: ReadonlySet<TableName> = new Set<TableName>(["audit_log", "bonus_claim_decisions", "first_meeting_no_shows"]);
 
 /** Alla batchar i beroendeordning (seed.sql:s ordning). */
 export function seedBatches(crypto: PnrCrypto, data: MemoryData<Tables> = seedData()): SeedBatch[] {
@@ -91,8 +91,8 @@ export function seedBatches(crypto: PnrCrypto, data: MemoryData<Tables> = seedDa
     const testers = all.filter(isTesterRow);
     const rest = all.filter((r) => !isTesterRow(r));
     // Revisionsloggen töms aldrig: testdatats loggrader läggs bara till om de saknas (append-only, inga ändringar). Kommunens
-    // bonusbeslut töms av mm.reset_test_data men är också append-only: service role får bara läsa och skapa (0039), och
-    // "on conflict do update" kräver rätten att ändra – "do nothing" kräver bara insert.
+    // bonusbeslut och att deltagaren inte kom till första mötet töms av mm.reset_test_data men är också append-only: service role
+    // får bara läsa och skapa (0039, 0040), och "on conflict do update" kräver rätten att ändra – "do nothing" kräver bara insert.
     out.push(...chunk(table, toRows(table, rest, crypto), APPEND_ONLY.has(table)));
     out.push(...chunk(table, toRows(table, testers, crypto), true));
   }

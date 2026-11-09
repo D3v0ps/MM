@@ -120,9 +120,14 @@ describe("Min vecka per roll", () => {
     // Knapparna säger vad de gäller.
     expect(screen.getByRole("button", { name: "Acceptera BOT-27-0048" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Boka första mötet för BOT-27-0039" })).toBeTruthy();
-    // Sorterat på sista tid: den försenade slutrapporten först, sedan avropet som brådskar.
-    expect(rows[0].textContent).toContain("Försenad");
-    expect(rows[1].textContent).toContain("BOT-27-0048");
+    // Sorterat på sista tid: insatsen att starta (BOT-27-0043 – första mötet var i fredags, Karims beslut 2026-11-09) med "Deltagaren
+    // kom inte", sedan den försenade slutrapporten och avropet som brådskar.
+    expect(rows[0].textContent).toContain("BOT-27-0043");
+    expect(rows[0].textContent).toContain("Insats att starta");
+    expect(screen.getByRole("link", { name: "Deltagaren kom inte BOT-27-0043" }).getAttribute("href")).toContain("uteblev=1");
+    expect(rows[1].textContent).toContain("Försenad");
+    expect(rows[1].textContent).toContain("Slutrapport");
+    expect(rows[2].textContent).toContain("BOT-27-0048");
     for (const k of keys) expect(ALLOWED.samordnare, k).toContain(k);
   });
 

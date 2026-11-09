@@ -30,6 +30,7 @@ import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation"
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 import { CaseGroupingRow } from "@/features/grupper/screens/grouping-card";
 import { CaseStartChange, CaseStartHistory } from "./kort-startdatum";
+import { NoShowModal } from "./kort-uteblev";
 import { CaseAreaChange, CaseAreaHistory } from "./kort-yrkesomrade";
 
 const TAB_LABEL: Record<CaseTab, string> = {
@@ -47,7 +48,7 @@ export type TabProps = {
   openTab: (t: CaseTab, o?: { mal?: string | null; manad?: string | null }) => void;
   openModal: (m: ModalKind) => void;
 };
-type ModalKind = "coach" | "meeting" | "consent" | "start" | "plan" | "activity" | "team" | "contact";
+type ModalKind = "coach" | "meeting" | "rebook" | "noshow" | "consent" | "start" | "plan" | "activity" | "team" | "contact";
 
 function useCrumbs() {
   const role = useSession().actor.role;
@@ -81,7 +82,12 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
     );
   }
   if (d.kind === "denied") return <NoAccess crumbs={crumbs} />;
-  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} starta={query.get("starta") === "1"} />;
+  return (
+    <CaseView
+      card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} starta={query.get("starta") === "1"}
+      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"}
+    />
+  );
 }
 
 function NoAccess({ crumbs }: { crumbs: { label: string; to: string }[] }) {
@@ -180,7 +186,11 @@ function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
 /** "Visa alla uppgifter" kommer ihåg läget under sessionen (bara i minnet, aldrig i adressen). */
 let showAllFacts = false;
 
-function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean }) {
+function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka }: {
+  card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean;
+  /** ?uteblev=1 ("Deltagaren kom inte" på Min vecka) och ?boka=1 ("Boka nytt första möte" på Min vecka): dialogen öppnas en gång. */
+  uteblev: boolean; boka: boolean;
+}) {
   const nav = useNav();
   const role = useSession().actor.role;
   const team = card.access === "team";
@@ -192,12 +202,16 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
   // ?starta=1 (knappen Starta insatsen på Min vecka): dialogen öppnas en gång när kortet har laddats.
   const autoStarted = useRef(false);
   const canStart = !!card.start;
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): ?uteblev=1 och ?boka=1 från Min vecka öppnar dialogerna på samma sätt.
+  const canNoShow = !!card.noShow?.canRegister;
+  const canRebook = !!card.noShow?.current && !!card.noShow.canRebook;
+  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : null;
   useEffect(() => {
-    if (starta && canStart && !autoStarted.current) {
+    if (auto && !autoStarted.current) {
       autoStarted.current = true;
-      setModal("start");
+      setModal(auto);
     }
-  }, [starta, canStart]);
+  }, [auto]);
   const base = `/arenden/${encodeURIComponent(card.caseId)}`;
   // Flikbyte: samma historikpost (replace) och ingen hoppning – Tillbaka lämnar kortet. Länkar i kortet byter flik likadant.
   const setTab = (t: CaseTab) => nav.replace(path(base, { flik: t === "oversikt" ? null : t }));
@@ -312,6 +326,8 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
 
       {modal === "coach" && <CoachModal card={card} onClose={() => setModal(null)} />}
       {modal === "meeting" && <MeetingModal card={card} onClose={() => setModal(null)} />}
+      {modal === "rebook" && card.noShow?.canRebook && <MeetingModal card={card} rebook onClose={() => setModal(null)} />}
+      {modal === "noshow" && card.noShow?.canRegister && <NoShowModal card={card} onClose={() => setModal(null)} />}
       {modal === "consent" && <ConsentModal card={card} onClose={() => setModal(null)} />}
       {modal === "start" && card.start && <StartModal card={card} mode="start" onClose={() => setModal(null)} />}
       {modal === "plan" && <StartModal card={card} mode="plan" onClose={() => setModal(null)} />}
@@ -734,8 +750,13 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   const btns: ReactNode[] = [];
   // Smal skärm: knapparna staplas lika breda.
   const btn = "whitespace-normal max-[560px]:w-full";
-  // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat.
-  if (c.start) btns.push(<Button key="start" kind="primary" icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): är det registrerat är nästa steg att boka ett nytt första möte.
+  const ns = c.noShow;
+  const rebookFirst = !!ns?.current && ns.canRebook;
+  if (rebookFirst) btns.push(<Button key="rebook" kind="primary" icon="calendar" className={btn} onClick={() => openModal("rebook")}>Boka nytt första möte</Button>);
+  // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat – och går fortfarande efter en registrering.
+  if (c.start) btns.push(<Button key="start" kind={rebookFirst ? "secondary" : "primary"} icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
+  if (ns?.canRegister) btns.push(<Button key="noshow" icon="x-circle" className={btn} onClick={() => openModal("noshow")}>Deltagaren kom inte</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
   if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
   // Mötet (beslut 2026-10-09): "Spela in mötet" är coachens huvudväg – inspelning, AI-utkast till mötesrapport, granskning och godkännande på samma skärm.
@@ -843,7 +864,8 @@ function CoachModal({ card: c, onClose }: { card: CaseCard; onClose: () => void 
   );
 }
 
-function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => void }) {
+/** Boka första möte – eller boka ett nytt (rebook) när deltagaren inte kom till det bokade (Karims beslut 2026-11-09). */
+function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: () => void; rebook?: boolean }) {
   const book = useCommand(caseBookFirstMeeting);
   const today = dayOf(c.now);
   const due = c.firstMeeting.dueAt;
@@ -868,17 +890,17 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
       toast("Mötet kunde inte bokas.", "error");
       return;
     }
-    toast(`Första mötet är bokat ${fmtDateTimeLong(at)}. ${res.invitation}`);
+    toast(`${rebook ? "Det nya första mötet" : "Första mötet"} är bokat ${fmtDateTimeLong(at)}. ${res.invitation}`);
     onClose();
   };
   return (
     <Modal
-      title="Boka första möte"
+      title={rebook ? "Boka nytt första möte" : "Boka första möte"}
       onClose={onClose}
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>Avbryt</Button>
-          <Button kind="primary" icon="calendar" pending={book.pending} onClick={() => void save()}>Boka mötet</Button>
+          <Button kind="primary" icon="calendar" pending={book.pending} onClick={() => void save()}>{rebook ? "Boka det nya mötet" : "Boka mötet"}</Button>
         </>
       }
     >
@@ -888,6 +910,7 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
           ["Huvudcoach", c.leadCoach?.name ?? "–"],
           ["Beställt", fmtDateTimeLong(c.referredAt)],
           ["Senast bokat", c.firstMeeting.sla ? <SlaBadge key="sla" sla={c.firstMeeting.sla} dueAt={due} /> : "–"],
+          ...(rebook && c.noShow?.current ? [["Kom inte till", fmtDateTimeLong(c.noShow.current.meetingAt)] as [string, ReactNode]] : []),
         ]}
       />
       <Field
@@ -915,6 +938,12 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
           ? "Deltagaren saknar telefonnummer och e-postadress, så kallelsen når inte fram. Kontakta handläggaren och be om en kontaktuppgift."
           : "Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats."}
       </p>
+      {rebook && (
+        <p>
+          Den nya tiden ersätter den gamla. Kommunen får en uppdaterad orderbekräftelse med det nya mötet, som när ett möte bokas om. Att deltagaren inte kom står kvar i
+          tidslinjen och syns aldrig för kommunen.
+        </p>
+      )}
     </Modal>
   );
 }

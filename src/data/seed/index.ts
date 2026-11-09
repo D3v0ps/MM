@@ -21,6 +21,8 @@
 //   decisions-2026-10-29.ts  Karims beslut 2026-10-29: filer på deltagarkortet (CV, personligt brev, intyg – bara Miljonbemanning)
 //                    och en ändring av startdatum (med motivering)
 //   decisions-2026-11-04.ts  incitamentsmodellen (beslut 2026-11-04): bonusstegens priser och bonusanspråk i olika lägen
+//   decisions-2026-11-09.ts  Karims beslut 2026-11-09: ett bekräftat ärende vars första möte har varit (deltagaren kom inte –
+//                    flödet att prova)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -36,6 +38,7 @@ import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
 import { applyDecisions20261022 } from "./decisions-2026-10-22";
 import { applyDecisions20261029 } from "./decisions-2026-10-29";
 import { applyDecisions20261104 } from "./decisions-2026-11-04";
+import { applyDecisions20261109 } from "./decisions-2026-11-09";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -83,6 +86,8 @@ export function createSeed(): MemoryData<Tables> {
   applyDecisions20261029(db);
   // Incitamentsmodellen (beslut 2026-11-04): bonusstegens prisrader och ett urval bonusanspråk i olika lägen.
   applyDecisions20261104(db);
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): BOT-27-0043:s första möte har varit och insatsen har inte startat.
+  applyDecisions20261109(db);
   return db;
 }
 

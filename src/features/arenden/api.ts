@@ -3,7 +3,8 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { AKTIVITETER, BILLING, BONUS, CARD, CASE_FACTS, CASE_STATS, CASES, COACH, GRUPPER, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS } from "@/api/invalidation";
 import {
-  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, FIRST_MEETING_NO_SHOW_KINDS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES,
+  type FirstMeetingNoShowKind, type PreferredContact, type PriorAssessment, type TeamRole,
   type ParticipantFileCategory,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
@@ -403,6 +404,25 @@ export const caseChangeStart = command("arenden.andraStartdatum", z.object({
 >();
 
 /**
+ * Deltagaren kom inte till första mötet (Karims beslut 2026-11-09, migration 0040): ett bekräftat ärende utan startdatum vars
+ * första möte har varit. Uteblev utan att meddela eller giltig frånvaro (orsaken krävs – kort och saklig, inga personnummer). Bara
+ * coach, samordnare och avtalsansvarig med full åtkomst (samma som Starta insatsen). Kontrollen i src/core/first-meeting.ts
+ * (noShowProblem). Internt: kommunen får inget besked och ser det aldrig – inga mejl, inga notiser, inget till deltagaren. Det är
+ * ingen närvaro och faktureras aldrig: inga tillfällen och ingen närvaro skapas. Revisionsloggen får case.first_meeting_no_show
+ * med id:n och slaget – aldrig orsaken. meetingAt = mötet som dialogen visade; har mötet bokats om under tiden blir det conflict.
+ * Samma registrering igen (samma person, möte, slag och orsak – svaret kom inte fram) svarar som första gången.
+ */
+// Omräkning: kortet (rutan, knapparna och tidslinjen), Min vecka (coachens och samordnarens rad) och revisionsloggen.
+export const caseFirstMeetingNoShow = command("arenden.caseFirstMeetingNoShow", z.object({
+  caseId: IdSchema,
+  meetingAt: LocalDateTimeSchema,
+  kind: z.enum(FIRST_MEETING_NO_SHOW_KINDS),
+  reason: z.string().max(2000).optional(),
+}), { invalidates: [CARD, "coach.minVecka", "inkorg.start", ...LOG] }).returns<
+  Result<{ noShowId: string; kind: FirstMeetingNoShowKind }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "conflict" | "not_passed" | "already" | "reason" | "pnr">
+>();
+
+/**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
  * och exit-pulsmätning (inte vid skyddade personuppgifter). verified = arbete/studier är verifierat.
  */
@@ -725,6 +745,20 @@ export type CaseCard = {
    * arenden.startdatum).
    */
   startChange: { canChange: boolean; changes: number };
+  /**
+   * Deltagaren kom inte till första mötet (Karims beslut 2026-11-09, 0040 – internt, aldrig för kommunen). canRegister = knappen
+   * "Deltagaren kom inte" (coach, samordnare eller avtalsansvarig som får ändra i ärendet, i ett bekräftat ärende utan startdatum
+   * vars första möte har varit och inte redan är registrerat). current = registreringen för ärendets nuvarande första möte (rutan
+   * "Kom inte till första mötet …"; reason bara för den som får ändra i ärendet). canRebook = Boka nytt första möte (samordnare
+   * och avtalsansvarig, och coachen efter en registrering). canClose = Avsluta – deltagaren kom aldrig (rollen avslutar insatser).
+   * null = ärendet är inte bekräftat.
+   */
+  noShow: {
+    canRegister: boolean;
+    current: { id: string; meetingAt: LocalDateTime; kind: FirstMeetingNoShowKind; text: string; reason: string | null } | null;
+    canRebook: boolean;
+    canClose: boolean;
+  } | null;
 };
 export type CaseCardResult =
   | CaseCard

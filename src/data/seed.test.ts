@@ -96,7 +96,9 @@ describe("antal rader per tabell", () => {
     const rows: [keyof Tables, string, number][] = [
       ["contracts", "contracts", 1], ["contract_areas", "areas", 12], ["price_items", "priceItems", 12], ["buyer_references", "buyerReferences", 4],
       ["persons", "persons", 230], ["cases", "cases", 231], ["case_status_history", "caseStatusHistory", 594], ["inbound_emails", "inboundEmails", 27],
-      ["intake_assessments", "intakeAssessments", 225], ["activities", "activities", 3861], ["attendance", "attendance", 3590],
+      // Karims beslut 2026-11-09 (seed/decisions-2026-11-09.ts): BOT-27-0043 har inte startat – prototypens två planerade tillfällen
+      // och samtycket före start finns inte (prototypen: 3861 och 157).
+      ["intake_assessments", "intakeAssessments", 225], ["activities", "activities", 3859], ["attendance", "attendance", 3590],
       ["check_ins", "checkIns", 1145], ["monthly_assessments", "monthlyAssessments", 352], ["monthly_plans", "monthlyPlans", 352],
       ["outcome_events", "outcomeEvents", 228], ["deviations", "deviations", 19], ["contract_deviations", "contractDeviations", 3], ["employers", "employers", 12],
       ["placements", "placements", 158], ["reports", "reports", 794], ["pulse_invites", "pulseInvites", 341], ["pulse_responses", "pulseResponses", 217],
@@ -104,14 +106,14 @@ describe("antal rader per tabell", () => {
       // mottagningsbekräftelsen, dess loggrad och uppgiften till avtalsansvarig finns inte (prototypen: 20, 8 och 2).
       // Karims beslut 2026-10-29 (seed/decisions-2026-10-29.ts): revisionsloggens rad för testdatats ändring av startdatum (prototypen: 19).
       // Karims beslut 2026-11-04 (seed/decisions-2026-11-04.ts): 21 rader för testdatats bonusanspråk och december månads bonusfaktura.
-      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 41],
+      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 156], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 41],
       ["outbound_messages", "notifications", 7], ["tasks", "tasks", 1],
     ];
     for (const [table, , count] of rows) expect([table, n(table)]).toEqual([table, count]);
     // data-samples.json är från en äldre seed: avstämningar 1144, händelser 230, avvikelser 18, praktik 159, uppgifter 0.
     // Den nuvarande prototypen (paritetstestet ovan) har 1145, 228, 19, 158 och 2. Övriga antal stämmer med filen – utom
     // revisionsloggen och utskicken (beslut 2026-10-07, se ovan).
-    const STALE = new Set(["checkIns", "outcomeEvents", "deviations", "placements", "tasks", "contracts", "auditLog", "notifications"]);
+    const STALE = new Set(["checkIns", "outcomeEvents", "deviations", "placements", "tasks", "contracts", "auditLog", "notifications", "activities", "consents"]);
     if (samples) for (const [table, proto] of rows) if (!STALE.has(proto)) expect([proto, n(table)]).toEqual([proto, samples[proto]]);
     // users + customerUsers -> profiles; ett medlemskap per användare och avtal. Kommunens chef (k-eva) är borttagen
     // (beslut 2026-10-07): fyra handläggare hos kommunen.
@@ -129,7 +131,8 @@ describe("antal rader per tabell", () => {
     expect(n("organizations")).toBe(2); // Miljonbemanning och Botkyrka kommun
     expect(n("holidays")).toBe(32);
     expect(seed.activities.filter((a) => a.groupActivityId != null).length).toBe(247);
-    expect(seed.activities.length).toBe(3861 + 247);
+    // Prototypens tillfällen utan BOT-27-0043:s två före start (Karims beslut 2026-11-09) och raderna i gruppaktiviteterna.
+    expect(seed.activities.length).toBe(3861 - 2 + 247);
   });
 });
 
