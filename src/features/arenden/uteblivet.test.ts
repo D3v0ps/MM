@@ -204,7 +204,12 @@ describe("deltagarkortet, ombokningen och tidslinjen", () => {
     // Deltagaren kom kl. 16.00: Starta insatsen från det nya mötets dag – samma dag som deltagaren inte kom till mötet kl. 14.00.
     expect((await card(erik())).start).toMatchObject({ firstMeetingAt: at, startDate: "2027-01-29" });
     const plan = defaultWeekPlan(BOTKYRKA_CONFIG, at);
-    expect(await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-28", plan }, erik())).toMatchObject({ ok: false, error: "start_date" });
+    // Dagen före (deltagaren kom före det bokade mötet, Karims beslut 2026-11-09) går inte här: insatsen startar aldrig före ett
+    // möte som deltagaren enligt registreringen inte kom till.
+    const earlier = await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-28", plan }, erik());
+    expect(earlier).toMatchObject({ ok: false, error: "no_show" });
+    expect(earlier.message).toBe("Det är registrerat att deltagaren inte kom till första mötet 29 jan kl. 14.00. Insatsen kan inte starta före det – välj en senare dag eller ett senare klockslag för mötet.");
+    expect(rt.raw().get("cases", CASE)).toMatchObject({ status: "confirmed", startDate: null, firstMeetingAt: at });
     expect(await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-29", plan }, erik())).toMatchObject({ ok: true });
     const c = rt.raw().get("cases", CASE)!;
     expect(c).toMatchObject({ status: "active", startDate: "2027-01-29" });

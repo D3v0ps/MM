@@ -190,6 +190,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
     unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
+    // Starta insatsen före det bokade första mötet (Karims beslut 2026-11-09): mötet flyttades till startdagen.
+    came_earlier: "deltagaren kom före det bokade mötet – första mötet flyttades till startdagen",
   },
   // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).
   sharingFrom: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef", __new: "Ny rapport" },

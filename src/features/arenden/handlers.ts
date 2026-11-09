@@ -17,6 +17,7 @@ import {
   activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
   messagesOf, placementsOf, reportsOf,
 } from "@/core/db-index";
+import { earlyStartMonths, earlyStartProblem, movedMeetingAt, orderPeriodBasis } from "@/core/early-start";
 import { domainEnv, type DomainEnv } from "@/core/env";
 import { overlaps } from "@/core/group-activities";
 import { plural } from "@/core/format";
@@ -29,7 +30,7 @@ import { scopeToContract } from "@/core/scope";
 import { avropDue, finalReportDueAt, firstMeetingDays, firstMeetingDue, isProvisionalDue, slaStatus, type SlaTone } from "@/core/sla";
 import {
   addDays, addMonths, addWorkingDays, billableWeekCount, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, isoWeek, monday, monthKey, monthName,
-  WEEKDAYS,
+  WEEKDAYS, type LocalDateTime,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
 import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
@@ -40,7 +41,8 @@ import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, Report, ResultClass,
+  TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
@@ -58,7 +60,7 @@ import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, monthReportState } from "./timeline";
 import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
-import "./start-handlers";
+import { billingForMonths } from "./start-handlers";
 import "./no-show-handlers";
 import "./attachment-handlers";
 import "./contact-handlers";
@@ -353,6 +355,45 @@ function periodFromStart(cfg: OperationalConfig, c: Case, start: string): { ok: 
   return { ok: true, patch: {} };
 }
 
+/**
+ * Den senaste levererade orderbekräftelsen i ärendet – den som en flytt av första mötet ersätter – eller null. Den fryses FÖRE
+ * ändringen av ärendet (bästa försök, som vid leverans), så att den behåller det slutdatum och det möte den lovade. Delas av
+ * ombokningen (arenden.caseBookFirstMeeting) och starten före det bokade mötet (arenden.caseStart, Karims beslut 2026-11-09).
+ */
+async function freezeCurrentConfirmation(ctx: Ctx, caseId: string): Promise<Report | null> {
+  const previous = (await ctx.repo.table("reports").list({ caseId, kind: "order_confirmation" })).filter(deliveredOk).sort(by("version", -1))[0] ?? null;
+  if (previous) {
+    try {
+      await freezeReport(ctx, previous.id);
+    } catch (e) {
+      console.error("orderbekräftelse: frysningen av den ersatta versionen misslyckades", previous.id, e instanceof Error ? e.name : typeof e);
+    }
+  }
+  return previous;
+}
+
+/**
+ * Kommunen får en ny version av orderbekräftelsen när första mötet har flyttats (ärendet är redan ändrat): den nya versionen
+ * levereras i portalen, den gamla märks ersatt, loggen får report.delivered och handläggaren ett mejl med bara ärendenummer och
+ * länk – orderbekräftelsen visar alltid det möte och det slutdatum som gäller.
+ */
+async function deliverUpdatedConfirmation(ctx: Ctx, c: Case, previous: Report, now: LocalDateTime): Promise<Report> {
+  const today = dayOf(now);
+  const nr = newReport({
+    id: ctx.newId("rep"), contractId: c.contractId, caseId: c.id, kind: "order_confirmation", periodStart: today, periodEnd: today, status: "delivered",
+    dueAt: previous.dueAt, version: previous.version + 1, previousId: previous.id, approvedBy: ctx.actor.userId, approvedAt: now, deliveredAt: now,
+    deliveredTo: c.referrerId ? [c.referrerId] : previous.deliveredTo,
+  });
+  await ctx.repo.table("reports").insert(nr);
+  await ctx.repo.table("reports").update(previous.id, { superseded: true, supersededAt: now, supersededBy: nr.id });
+  await ctx.audit({
+    action: "report.delivered", entity: "report", entityId: nr.id, contractId: c.contractId,
+    details: { kind: "order_confirmation", channel: "portal", version: nr.version, reason: "first_meeting_rebooked", previous: previous.id },
+  });
+  await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelsen för ärende ${c.caseNumber} är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.`);
+  return nr;
+}
+
 // Bokning och ombokning av första mötet. Slutdatumet räknas om från mötesdagen (beslut 7, 2026-10-08). Bokas mötet om efter
 // att orderbekräftelsen levererats får kommunen en ny version av orderbekräftelsen (den gamla märks ersatt) och ett mejl med
 // bara ärendenummer och länk – orderbekräftelsen visar alltid det slutdatum som gäller.
@@ -377,36 +418,14 @@ handleCommand(caseBookFirstMeeting, { roles: [...MANAGERS, "coach"] }, async (ct
   const period = periodFromStart(cfg, c, day);
   if (!period.ok) return fail("order_period", period.message);
   const rebooked = !!c.firstMeetingAt;
-  // Den senaste levererade orderbekräftelsen ersätts av en ny version. Den gamla fryses FÖRE ändringen av ärendet (bästa försök,
-  // som vid leverans), så att den behåller det slutdatum och det möte den lovade.
-  const previous = (await ctx.repo.table("reports").list({ caseId: c.id, kind: "order_confirmation" })).filter(deliveredOk).sort(by("version", -1))[0] ?? null;
-  if (previous) {
-    try {
-      await freezeReport(ctx, previous.id);
-    } catch (e) {
-      console.error("orderbekräftelse: frysningen av den ersatta versionen misslyckades", previous.id, e instanceof Error ? e.name : typeof e);
-    }
-  }
+  // Den senaste levererade orderbekräftelsen ersätts av en ny version. Den gamla fryses FÖRE ändringen av ärendet.
+  const previous = await freezeCurrentConfirmation(ctx, c.id);
   const updated = await ctx.repo.table("cases").update(c.id, { firstMeetingAt: p.at, plannedStart: day, ...period.patch });
   await ctx.audit({
     action: "case.first_meeting_booked", entity: "case", entityId: c.id, contractId: c.contractId,
     details: { at: p.at, rebooked, plannedEnd: updated.plannedEnd, plannedWeeks: updated.plannedWeeks },
   });
-  if (previous) {
-    const today = dayOf(now);
-    const nr = newReport({
-      id: ctx.newId("rep"), contractId: c.contractId, caseId: c.id, kind: "order_confirmation", periodStart: today, periodEnd: today, status: "delivered",
-      dueAt: previous.dueAt, version: previous.version + 1, previousId: previous.id, approvedBy: ctx.actor.userId, approvedAt: now, deliveredAt: now,
-      deliveredTo: c.referrerId ? [c.referrerId] : previous.deliveredTo,
-    });
-    await ctx.repo.table("reports").insert(nr);
-    await ctx.repo.table("reports").update(previous.id, { superseded: true, supersededAt: now, supersededBy: nr.id });
-    await ctx.audit({
-      action: "report.delivered", entity: "report", entityId: nr.id, contractId: c.contractId,
-      details: { kind: "order_confirmation", channel: "portal", version: nr.version, reason: "first_meeting_rebooked", previous: previous.id },
-    });
-    await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelsen för ärende ${c.caseNumber} är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.`);
-  }
+  if (previous) await deliverUpdatedConfirmation(ctx, c, previous, now);
   const invitation = await sendMeetingInvitation(ctx, updated, p.at);
   return ok({ invitation: invitation.summary });
 });
@@ -454,42 +473,77 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   if (!c.firstMeetingAt) return fail("no_meeting", "Boka första mötet innan insatsen startar.");
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): insatsen startas inte på det mötet – först när ett nytt
   // första möte är bokat (samma regel som triggern cases_start_date_no_show_guard, 0040). Sedan gäller den vanliga regeln nedan.
-  const cur = currentNoShow(c, await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id }));
+  const noShows = await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id });
+  const cur = currentNoShow(c, noShows);
   if (cur) return fail("no_show", noShowStartText(cur));
-  const meetingDay = dayOf(c.firstMeetingAt);
-  if (p.startDate < meetingDay) return fail("start_date", `Startdatumet kan inte vara före första mötet ${fmtDate(meetingDay)}.`);
-  const end = c.plannedEnd;
+  const now = ctx.now();
+  // Deltagaren kom före det bokade första mötet (Karims beslut 2026-11-09): startdatumet får ligga före mötets dag när dagen har
+  // varit (eller är i dag), inte ligger före beställningen, är en arbetsdag och inte hör till en fakturerad månad
+  // (earlyStartProblem i src/core/early-start.ts). Första mötet flyttas då till startdagen med klockslaget ur dialogen, och
+  // planerat slut räknas om från den dagen (periodFromStart – samma som vid en ombokning). Allt prövas innan något skrivs.
+  const early = p.startDate < dayOf(c.firstMeetingAt);
+  let move: { at: LocalDateTime; patch: Partial<Case> } | null = null;
+  if (early) {
+    const at = movedMeetingAt(c, p.startDate, p.meetingTime);
+    const problem = earlyStartProblem({
+      c, startDate: p.startDate, meetingAt: at, today: dayOf(now), noShows, billing: await billingForMonths(ctx, c, earlyStartMonths(c, p.startDate)),
+    });
+    if (problem) return fail(problem.code, problem.text);
+    const { cfg } = await contractOf(ctx, c.contractId);
+    const period = periodFromStart(cfg, c, p.startDate);
+    if (!period.ok) return fail("order_period", period.message);
+    move = { at, patch: { firstMeetingAt: at, plannedStart: p.startDate, ...period.patch } };
+  }
+  const end = move?.patch.plannedEnd ?? c.plannedEnd;
   if (!end || end < p.startDate) return fail("no_end", "Ärendet saknar ett planerat slut efter startdatumet. Rätta omfattningen i beställningen först.");
   const plan = normalizePlan(p.plan);
   if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
   const rows = planActivities(plan, p.startDate, end, { pausedWeeks: c.pausedWeeks });
   const acts = ctx.repo.table("activities");
+  // Flyttas första mötet ersätts den senaste levererade orderbekräftelsen av en ny version – den gamla fryses före ändringen.
+  const previous = move ? await freezeCurrentConfirmation(ctx, c.id) : null;
   // Tillfällena skrivs före ärendet (ingen transaktion). Kan ärendet inte startas (t.ex. behörigheten eller triggern
   // cases_start_date_guard nekar) tas de som hann skrivas bort igen – annars blir de kvar och dubbleras vid nästa försök.
+  // Starten och det flyttade mötet skrivs i en och samma ändring av ärendet: antingen båda eller ingen av dem.
   const inserted: string[] = [];
   const undo = async () => {
     for (const id of inserted) await acts.remove(id).catch(() => undefined);
   };
   const meet = plan.find((r) => r.kind === "möte");
+  let updated: Case | null;
   try {
     for (const r of rows) {
       const a = toActivity(ctx, c.id, r);
       await acts.insert(a);
       inserted.push(a.id);
     }
-    await ctx.repo.table("cases").update(c.id, {
+    // Bara om ärendet fortfarande är bekräftat (kontroll och skrivning i ett steg): startar två samtidigt går bara den första
+    // igenom – annars blev tillfällena dubbla och kommunen fick två nya orderbekräftelser när mötet flyttas.
+    updated = await ctx.repo.table("cases").updateIf(c.id, { status: "confirmed" }, {
       status: "active", startDate: p.startDate, meetingDay: meet?.weekday ?? c.meetingDay, meetingTime: meet?.time ?? c.meetingTime,
-      phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate,
+      phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate, ...(move?.patch ?? {}),
     });
   } catch (e) {
     await undo();
     throw e;
   }
+  if (!updated) {
+    await undo();
+    return fail("wrong_status", "Insatsen har redan startats eller ärendet har ändrats under tiden, kanske av en kollega. Ladda om sidan – inget har sparats.");
+  }
+  if (move) {
+    // Samma logg som en ombokning, med orsaken – och ingen kallelse: deltagaren har redan kommit.
+    await ctx.audit({
+      action: "case.first_meeting_booked", entity: "case", entityId: c.id, contractId: c.contractId,
+      details: { at: move.at, rebooked: true, reason: "came_earlier", plannedEnd: updated.plannedEnd, plannedWeeks: updated.plannedWeeks },
+    });
+    if (previous) await deliverUpdatedConfirmation(ctx, c, previous, now);
+  }
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "active", toCoach: c.leadCoachId, reason: "Insatsen startad" });
   await ctx.audit({ action: "case.started", entity: "case", entityId: c.id, contractId: c.contractId, details: { startDate: p.startDate, plannedEnd: end, activities: rows.length, plan: planKeys(plan) } });
   // Insatsen pågår: deltagaren bjuds in till kommande aktiviteter för sin nivå och sitt yrkesområde (Karims beslut 2026-10-22).
   await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
-  return ok({ activities: rows.length, firstActivityAt: rows[0]?.startsAt ?? null });
+  return ok({ activities: rows.length, firstActivityAt: rows[0]?.startsAt ?? null, movedMeetingAt: move?.at ?? null, plannedEnd: end });
 });
 
 handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
@@ -1094,7 +1148,12 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     // Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte – standardplanen ur avtalet. Inte när deltagaren
     // inte kom till det bokade mötet: då bokas ett nytt eller avslutas insatsen (Karims beslut 2026-11-09).
     start: edit && c.status === "confirmed" && c.firstMeetingAt && !currentNoShow(c, noShows)
-      ? { firstMeetingAt: c.firstMeetingAt, startDate: dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt) }
+      ? {
+        firstMeetingAt: c.firstMeetingAt, startDate: dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt),
+        // Deltagaren kom före det bokade mötet (Karims beslut 2026-11-09): tidigaste startdatum, omfattningen som planerat slut
+        // räknas om från och avtalets standardveckoplan (dialogen föreslår planen för det flyttade mötet).
+        earliest: dayOf(c.referredAt), period: orderPeriodBasis(c), planRows: cfg.activities?.defaultWeekPlan ?? null,
+      }
       : null,
     weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
@@ -1686,6 +1745,10 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
       if (dt.failed === true) return `${dates}, avbröts – görs klart automatiskt`;
       return [dates, removed ? `${plural(removed, "tillfälle", "tillfällen")} före det nya datumet togs bort` : "", months.length ? `utan månadsrapport: ${months.join(", ")}` : ""]
         .filter(Boolean).join(", ");
+    }
+    // Första mötet bokat, ombokat eller flyttat till startdagen när deltagaren kom före det bokade mötet (Karims beslut 2026-11-09).
+    if (x.action === "case.first_meeting_booked") {
+      return [s(dt.at) ? fmtDateTimeLong(s(dt.at)) : "", dt.reason === "came_earlier" ? "flyttat – deltagaren kom före det bokade mötet" : ""].filter(Boolean).join(", ");
     }
     // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): bara slaget – aldrig orsaken (den står inte i loggen).
     if (x.action === "case.first_meeting_no_show") return NO_SHOW_KIND_LABEL[s(dt.kind) as FirstMeetingNoShowKind] ?? "";

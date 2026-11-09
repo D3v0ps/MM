@@ -435,6 +435,8 @@ function CaseFacts({ card: c, onRegister, onEditContact }: { card: CaseCard; onR
     ["Avtalsområde", `${c.areaName}${c.secondaryAreaName ? ` (även ${c.secondaryAreaName})` : ""}`],
     ["Yrkesspår", c.vocationalTrack || "Väljs i kartläggningen"],
     ["Beställd", `${fmtDate(c.referredAt)} kl. ${fmtTime(c.referredAt)} via ${c.sourceText}`],
+    // Första mötet som gäller – också det flyttade när deltagaren kom före det bokade mötet (Karims beslut 2026-11-09).
+    c.firstMeetingAt ? ["Första mötet", fmtDateTimeLong(c.firstMeetingAt)] : null,
     ["Start", c.startDate ? fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${fmtDate(c.firstMeetingAt)}` : "Inte bestämd"],
     ["Planerat slut", c.plannedEnd ? fmtDate(c.plannedEnd) : "Inte angivet"],
     c.endDate

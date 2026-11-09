@@ -102,11 +102,12 @@ describe("arenden.caseStart – starta insatsen", () => {
     expect(rt.raw().get("cases", "case-270039")!.status).toBe("confirmed");
   });
 
-  it("startdatumet kan inte vara före första mötet, och bara huvudcoachen, samordnaren och avtalsansvarig startar", async () => {
+  it("startdatumet kan inte vara före beställningen, och bara huvudcoachen, samordnaren och avtalsansvarig startar", async () => {
     const caseId = await acceptMaria();
-    expect(await cmd("arenden.caseStart", { caseId, startDate: "2027-01-29", plan: PLAN }, amira())).toMatchObject({ ok: false, error: "start_date" });
+    // Fredagen före beställningen (måndag 1 februari): före första mötet går bara när deltagaren kom tidigare – aldrig före beställningen.
+    expect(await cmd("arenden.caseStart", { caseId, startDate: "2027-01-29", plan: PLAN }, amira())).toMatchObject({ ok: false, error: "before_order" });
     // En annan coach når också ärendet (beslut 2026-10-09) – samma kontroller; den vilande rollen handledare får inte köra kommandot.
-    expect(await cmd("arenden.caseStart", { caseId, startDate: "2027-01-29", plan: PLAN }, leila())).toMatchObject({ ok: false, error: "start_date" });
+    expect(await cmd("arenden.caseStart", { caseId, startDate: "2027-01-29", plan: PLAN }, leila())).toMatchObject({ ok: false, error: "before_order" });
     await expect(cmd("arenden.caseStart", { caseId, startDate: "2027-02-01", plan: PLAN }, dormantSupervisor())).rejects.toThrow();
     expect(rt.raw().get("cases", caseId)!.status).toBe("confirmed");
     // Senare start: tillfällena börjar först då.
@@ -120,7 +121,12 @@ describe("arenden.caseStart – starta insatsen", () => {
     const card = (await rt.run("query", caseCard.key, { caseId }, amira())) as CaseCardResult;
     expect(card.kind).toBe("ok");
     if (card.kind !== "ok") return;
-    expect(card.start).toEqual({ firstMeetingAt: FIRST_MEETING, startDate: "2027-02-01", plan: PLAN });
+    // Tidigaste startdatum (beställningens dag), omfattningen och avtalets standardplan: underlaget när deltagaren kom före det
+    // bokade mötet (Karims beslut 2026-11-09).
+    expect(card.start).toEqual({
+      firstMeetingAt: FIRST_MEETING, startDate: "2027-02-01", plan: PLAN, earliest: "2027-02-01", period: { months: 6, other: false, weeks: 26 },
+      planRows: BOTKYRKA_CONFIG.activities?.defaultWeekPlan,
+    });
     expect(card.weekPlan).toBeNull();
     await cmd("arenden.caseStart", { caseId, startDate: "2027-02-01", plan: PLAN }, amira());
     const after = (await rt.run("query", caseCard.key, { caseId }, amira())) as CaseCardResult;

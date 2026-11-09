@@ -76,6 +76,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                   <div>
                     Första mötet {fmtDateTimeLong(card.start.firstMeetingAt)}. När insatsen startar blir ärendet Pågår, tillfällena skapas enligt veckoplanen och närvaron kan registreras.
                     {card.noShow?.canRegister ? " Kom deltagaren inte? Registrera det – då startar insatsen inte och inget faktureras." : ""}
+                    {/* Deltagaren kom före det bokade mötet (Karims beslut 2026-11-09): insatsen startas den dag hen kom. */}
+                    {dayOf(card.start.firstMeetingAt) > today ? " Kom deltagaren före det bokade mötet? Starta insatsen och välj dagen hen kom." : ""}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button kind="primary" icon="play" onClick={() => openModal("start")}>

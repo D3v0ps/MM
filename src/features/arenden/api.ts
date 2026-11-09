@@ -10,7 +10,8 @@ import {
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
 import type { SlaTone } from "@/core/sla";
-import { WEEK_PLAN_KINDS } from "@/core/config";
+import { WEEK_PLAN_KINDS, type WeekPlanDay } from "@/core/config";
+import type { OrderPeriodBasis } from "@/core/early-start";
 import type { WeekPlanRow } from "@/core/schedule";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText, WeekKeySchema } from "../_shared/schemas";
 import type { ReportDocView } from "../rapporter/api";
@@ -209,14 +210,29 @@ export const WeekPlanSchema = z.array(WeekPlanRowSchema).min(1).max(10);
  * veckoplanen (helgdagar hoppas över, högst 60 veckor), statushistorik och loggen case.started. Huvudcoachen, samordnare
  * och avtalsansvarig. Kom deltagaren inte till det bokade första mötet (Karims beslut 2026-11-09) nekas starten (no_show) tills
  * ett nytt första möte är bokat – sedan gäller den vanliga regeln (tidigast det nya mötets dag).
+ *
+ * Deltagaren kom före det bokade första mötet (Karims beslut 2026-11-09): startdatumet får ligga före mötets dag när dagen är i
+ * dag eller har varit (start_date annars – en kommande dag före mötet bokas om), inte ligger före beställningens dag
+ * (before_order), är en arbetsdag (not_working_day) och inte hör till en fakturerad eller godkänd månad (invoiced). Första mötet
+ * flyttas då till startdagen med klockslaget meetingTime (annars det bokade mötets klockslag; no_show om det flyttade mötet inte
+ * ligger efter ett möte som deltagaren enligt en registrering inte kom till), planerat slut räknas om från startdagen (order_period om omfattningen inte går att
+ * räkna), kommunen får en ny version av orderbekräftelsen och mejlet "Orderbekräftelsen … är uppdaterad" – och deltagaren får
+ * ingen kallelse. Loggen får case.first_meeting_booked (rebooked, reason came_earlier) och case.started. Svaret: movedMeetingAt
+ * (det flyttade mötet, annars null) och plannedEnd (det slut som gäller efter starten).
  */
 // Omräkning brett med flit: statusen och tillfällena syns i listor, Min vecka, närvaro, portal, rapporter, KPI:er och fakturering.
 export const caseStart = command("arenden.caseStart", z.object({
   caseId: IdSchema,
   startDate: LocalDateSchema,
   plan: WeekPlanSchema,
+  /** Klockslaget för första mötet när startdatumet ligger före det bokade mötet (TT:MM). Läses bara då. */
+  meetingTime: TimeSchema.optional(),
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
-  Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "no_show" | "start_date" | "no_end" | "plan">
+  Result<
+    { activities: number; firstActivityAt: string | null; movedMeetingAt: string | null; plannedEnd: string | null },
+    | "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "no_show" | "start_date" | "before_order" | "not_working_day" | "invoiced" | "order_period"
+    | "no_end" | "plan"
+  >
 >();
 
 /**
@@ -739,8 +755,18 @@ export type CaseCard = {
   /**
    * Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte, för den som får ändra i ärendet.
    * Standardplanen ur avtalet med första mötets dag och tid, och startdatumet (första mötets dag).
+   * Deltagaren kom före det bokade mötet (Karims beslut 2026-11-09): earliest = beställningens dag (tidigaste startdatum),
+   * period = omfattningen som planerat slut räknas om från (plannedEndFrom i src/core/early-start.ts) och planRows = avtalets
+   * standardveckoplan, så att dialogen kan föreslå planen för det flyttade mötet (defaultWeekPlan).
    */
-  start: { firstMeetingAt: string; startDate: string; plan: WeekPlanRow[] } | null;
+  start: {
+    firstMeetingAt: string;
+    startDate: string;
+    plan: WeekPlanRow[];
+    earliest: LocalDate;
+    period: OrderPeriodBasis;
+    planRows: WeekPlanDay[] | null;
+  } | null;
   /** Nuvarande veckoplan i ett pågående ärende (ur kommande tillfällen, annars avtalets standard) – för Ändra veckoplan. */
   weekPlan: WeekPlanRow[] | null;
   /**

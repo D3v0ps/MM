@@ -92,6 +92,24 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
+### Deltagaren kom före det bokade första mötet
+
+Kom deltagaren tidigare än det bokade första mötet? Starta insatsen den dag hen kom.
+
+1. Öppna deltagarkortet och tryck på **Starta insatsen**.
+2. Välj dagen deltagaren kom som **Startdatum**. Det går i dag eller en dag som har varit, tidigast beställningens dag. Dagen ska vara en vardag.
+3. Fyll i **Klockslag för mötet**. Det bokade mötets klockslag är förvalt.
+4. Kontrollera veckoplanen och tryck på **Starta insatsen**.
+
+Det här händer:
+
+- Första mötet flyttas till startdagen. Planerat slut räknas om från den dagen. Dialogen visar det nya slutet innan du startar.
+- Kommunen får ett mejl om att orderbekräftelsen är uppdaterad. Den nya orderbekräftelsen finns i portalen.
+- Deltagaren får ingen kallelse. Hen har redan kommit.
+- Veckorna räknas i fakturaunderlaget från startdatumet.
+- Ska mötet hållas en kommande dag före det bokade? Då bokar samordnaren om första mötet i stället.
+- Är månaden redan fakturerad eller godkänd av ekonomen går det inte. Kontakta ekonomen.
+
 ### Deltagaren kom inte till första mötet
 
 Starta inte insatsen för att kunna skriva frånvaro. Gör så här i stället:
