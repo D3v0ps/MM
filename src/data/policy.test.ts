@@ -1198,29 +1198,31 @@ describe("deltagaren kom inte till första mötet (first_meeting_no_shows, 0040,
     expect(s.rows("first_meeting_no_shows")).toEqual([]);
   });
 
-  it("startdatumet sätts aldrig på eller före en dag då deltagaren inte kom – för alla, också systemet och Ändra startdatum", async () => {
+  it("startdatumet sätts inte så länge det nuvarande första mötet är registrerat – för alla, också systemet och Ändra startdatum", async () => {
     const s = fresh("2027-02-01T09:12");
     s.insertRow("first_meeting_no_shows", row());
-    // Nytt första möte samma dag kl. 16.00; startdatumet 29 januari (dagen då deltagaren inte kom) eller tidigare nekas.
-    s.updateRow("cases", CASE, { firstMeetingAt: "2027-01-29T16:00" });
     const sys = new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true }).table("cases");
-    for (const day of ["2027-01-28", "2027-01-29"]) {
+    // Ärendets första möte är mötet som deltagaren inte kom till: inget startdatum, vilken dag det än är.
+    for (const day of ["2027-01-29", "2027-02-01"]) {
       await expect(repoFor(ERIK, s).table("cases").update(CASE, { status: "active", startDate: day }), `${day} (Erik)`).rejects.toBeInstanceOf(PolicyError);
       await expect(sys.update(CASE, { startDate: day }), `${day} (systemet)`).rejects.toBeInstanceOf(PolicyError);
     }
     expect(s.getRow("cases", CASE)).toMatchObject({ status: "confirmed", startDate: null });
-    // Dagen efter går – och andra ändringar i ärendet påverkas inte.
-    await expect(repoFor(ERIK, s).table("cases").update(CASE, { status: "active", startDate: "2027-01-30" })).resolves.toMatchObject({ startDate: "2027-01-30" });
+    // Andra ändringar i ärendet påverkas inte.
     await expect(sys.update(CASE, { phase: 2 })).resolves.toMatchObject({ phase: 2 });
-    // Ändra startdatum till dagen då deltagaren inte kom nekas också (caseStartChangeApplies – triggern körs också där).
+    // Nytt första möte samma dag kl. 16.00 (deltagaren kom): insatsen kan starta samma dag.
+    s.updateRow("cases", CASE, { firstMeetingAt: "2027-01-29T16:00" });
+    await expect(repoFor(ERIK, s).table("cases").update(CASE, { status: "active", startDate: "2027-01-29" })).resolves.toMatchObject({ startDate: "2027-01-29" });
+    // Ändra startdatum: nekas bara om ärendets nuvarande första möte är registrerat (caseStartChangeApplies – triggern körs också där).
     const note = { id: "note-fmns", contractId: "c-bot", caseId: CASE, authorId: "u-erik", occurredOn: "2027-02-01", kind: "other" as const, audience: "team" as const,
       body: "Startdatumet ändrat.", createdAt: "2027-02-01T09:12", updatedAt: null, removedAt: null, removedBy: null };
     s.insertRow("case_notes", note);
-    const change = { id: "csc-fmns", caseId: CASE, contractId: "c-bot", seq: 1, fromDate: "2027-01-30", toDate: "2027-01-29", noteId: note.id, changedBy: "u-erik", changedAt: "2027-02-01T09:12" };
+    const change = { id: "csc-fmns", caseId: CASE, contractId: "c-bot", seq: 1, fromDate: "2027-01-29", toDate: "2027-02-02", noteId: note.id, changedBy: "u-erik", changedAt: "2027-02-01T09:12" };
+    s.updateRow("cases", CASE, { firstMeetingAt: AT });
     await expect(repoFor(ERIK, s).table("case_start_changes").insert(change)).rejects.toBeInstanceOf(PolicyError);
-    expect(s.getRow("cases", CASE)).toMatchObject({ startDate: "2027-01-30" });
-    // Samma ändring till dagen efter går (bara dagen då deltagaren inte kom stoppade).
-    await expect(repoFor(ERIK, s).table("case_start_changes").insert({ ...change, toDate: "2027-02-02" })).resolves.toBeTruthy();
+    expect(s.getRow("cases", CASE)).toMatchObject({ startDate: "2027-01-29" });
+    s.updateRow("cases", CASE, { firstMeetingAt: "2027-01-29T16:00" });
+    await expect(repoFor(ERIK, s).table("case_start_changes").insert(change)).resolves.toBeTruthy();
     expect(s.getRow("cases", CASE)).toMatchObject({ startDate: "2027-02-02" });
   });
 });

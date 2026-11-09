@@ -24,7 +24,7 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { earliestStartDay, noShowStartProblem } from "@/core/first-meeting";
+import { currentNoShow, noShowStartText } from "@/core/first-meeting";
 import { personName } from "@/core/labels";
 import {
   NO_BILLING, nextStartChangeSeq, planStartChange, START_CHANGERS, startChangeBlockedText, startChangeMonths, startChangeNoteBody, startChangesInOrder, startMotivationOf,
@@ -49,8 +49,6 @@ handleQuery(caseStartView, { roles: START_VIEWERS }, async (ctx, p): Promise<Cas
   const person = await ctx.repo.table("persons").get(c.personId);
   if (!person) return null;
   const changes = await ctx.repo.table("case_start_changes").list({ caseId: c.id });
-  // Dagarna då deltagaren inte kom till första mötet (0040): startdatumet ligger alltid efter dem.
-  const noShows = await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id });
   const [profiles, notes] = changes.length
     ? await Promise.all([
       ctx.repo.table("profiles").list({ id: { in: uniq(changes.map((x) => x.changedBy)) } }),
@@ -63,7 +61,7 @@ handleQuery(caseStartView, { roles: START_VIEWERS }, async (ctx, p): Promise<Cas
     startDate: c.startDate,
     // Avslutad eller inte startad insats: ingen knapp (servern svarar wrong_status med orsaken).
     canChange: START_CHANGERS.includes(ctx.actor.role) && !startChangeBlockedText(c),
-    earliest: earliestStartDay(c, noShows),
+    earliest: c.firstMeetingAt ? dayOf(c.firstMeetingAt) : null,
     latest: c.endDate ?? c.plannedEnd,
     history: startChangesInOrder(changes)
       .reverse()
@@ -117,10 +115,10 @@ handleCommand(caseChangeStart, { roles: START_CHANGERS }, async (ctx, p) => {
   ]);
   const plan = planStartChange({ case: c, to: p.startDate, motivation: p.motivation, activities, attendance, checkIns, billing, reports });
   if (!plan.ok) return fail(plan.problem.code, plan.problem.text);
-  // Aldrig på eller före en dag då deltagaren inte kom till första mötet (Karims beslut 2026-11-09, triggern
-  // cases_start_date_no_show_guard i 0040) – bara möjligt när det nya första mötet bokades samma dag.
-  const afterNoShow = noShowStartProblem(c.id, p.startDate, await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id }));
-  if (afterNoShow) return fail("before_meeting", afterNoShow);
+  // Inte så länge ärendets nuvarande första möte är registrerat som ett möte som deltagaren inte kom till (Karims beslut
+  // 2026-11-09, triggern cases_start_date_no_show_guard i 0040). En pågående insats har normalt aldrig det – spegel av databasen.
+  const cur = currentNoShow(c, await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id }));
+  if (cur) return fail("wrong_status", noShowStartText(cur));
   const { from, to } = plan.plan;
   const now = ctx.now();
   const seq = nextStartChangeSeq(await ctx.repo.table("case_start_changes").list({ caseId: c.id }));

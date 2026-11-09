@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 import type { Case, FirstMeetingNoShow } from "@/data/schema";
 import {
-  canRegisterNoShow, currentNoShow, earliestStartDay, firstBookedMeetingAt, firstMeetingBookingProblem, firstMeetingPassed, lastNoShowDay, noShowOpen, noShowProblem, noShowSentence,
-  noShowStartProblem, noShowTitle,
+  canRegisterNoShow, currentNoShow, firstBookedMeetingAt, firstMeetingBookingProblem, firstMeetingPassed, noShowOpen, noShowProblem, noShowSentence, noShowStartText,
+  noShowTitle,
 } from "./first-meeting";
 
 const MEETING = "2027-01-29T14:00";
@@ -74,22 +74,14 @@ describe("noShowProblem – vad som stoppar", () => {
   });
 });
 
-describe("startdatumet efter en registrering (Karims beslut 2026-11-09, triggern cases_start_date_no_show_guard)", () => {
-  it("aldrig på eller före en dag då deltagaren inte kom – det nya mötets dag föreslås, och bokades det samma dag nästa arbetsdag", () => {
-    const rows = [reg(), reg({ caseId: "case-2", meetingAt: "2027-02-10T10:00" })];
-    expect(lastNoShowDay("case-1", rows)).toBe("2027-01-29");
-    expect(lastNoShowDay("case-3", rows)).toBeNull();
-    // Inget registrerat: första mötets dag som förut.
-    expect(earliestStartDay(c(), [])).toBe("2027-01-29");
-    // Nytt möte onsdag 3 februari: den dagen.
-    expect(earliestStartDay(c({ firstMeetingAt: "2027-02-03T10:00" }), rows)).toBe("2027-02-03");
-    // Nytt möte samma fredag kl. 16.00: nästa arbetsdag (måndag) – aldrig fredagen och ingen helgdag.
-    expect(earliestStartDay(c({ firstMeetingAt: "2027-01-29T16:00" }), rows)).toBe("2027-02-01");
-    expect(earliestStartDay(c({ firstMeetingAt: null }), rows)).toBeNull();
-    expect(noShowStartProblem("case-1", "2027-01-29", rows)).toBe("Startdatumet måste vara efter 29 jan 2027 – deltagaren kom inte till första mötet den dagen.");
-    expect(noShowStartProblem("case-1", "2027-01-28", rows)).not.toBeNull();
-    expect(noShowStartProblem("case-1", "2027-01-30", rows)).toBeNull();
-    expect(noShowStartProblem("case-3", "2027-01-29", rows)).toBeNull();
+describe("starta insatsen efter en registrering (Karims beslut 2026-11-09, triggern cases_start_date_no_show_guard)", () => {
+  it("bara ärendets nuvarande första möte stoppar – ett nytt möte samma dag kan startas den dagen", () => {
+    // Det registrerade mötet är ärendets första möte: Starta insatsen nekas med texten.
+    expect(currentNoShow(c(), [reg()])).toEqual(reg());
+    expect(noShowStartText(reg())).toBe("Deltagaren kom inte till första mötet 29 jan kl. 14.00. Boka ett nytt första möte innan insatsen startar – eller avsluta insatsen om deltagaren aldrig kom.");
+    // Nytt möte samma fredag kl. 16.00 eller en annan dag: ingen registrering för det – den vanliga regeln gäller.
+    expect(currentNoShow(c({ firstMeetingAt: "2027-01-29T16:00" }), [reg()])).toBeNull();
+    expect(currentNoShow(c({ firstMeetingAt: "2027-02-03T10:00" }), [reg()])).toBeNull();
   });
 });
 
@@ -105,7 +97,7 @@ describe("nyckeltalet räknar det första bokade mötet (Karims beslut 2026-11-0
 describe("bokningen av första mötet (alla roller)", () => {
   const order = { referredAt: "2027-01-25T10:00", firstMeetingAt: "2027-02-03T10:00" };
   const code = (at: string, now = "2027-02-01T09:12", o: Pick<Case, "referredAt" | "firstMeetingAt"> = order) => firstMeetingBookingProblem(o, at, now)?.code ?? null;
-  it("en arbetsdag som inte har passerat, inte före beställningen och inte samma tid som det bokade mötet", () => {
+  it("en arbetsdag som inte har passerat, inte före beställningen och inte samma tid som det bokade mötet (accept: utan bokat möte)", () => {
     expect(code("2027-02-04T10:00")).toBeNull();
     expect(code("2027-02-01T09:12")).toBe("past");
     expect(code("2027-01-29T14:00")).toBe("past");

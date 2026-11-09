@@ -34,7 +34,7 @@ import {
 import { by, groupBy } from "@/core/util";
 import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
 import {
-  canRegisterNoShow, currentNoShow, earliestStartDay, firstMeetingBookingProblem, NO_SHOW_KIND_LABEL, NO_SHOW_REGISTRARS, noShowOpen, noShowSentence, noShowStartProblem,
+  canRegisterNoShow, currentNoShow, firstMeetingBookingProblem, NO_SHOW_KIND_LABEL, NO_SHOW_REGISTRARS, noShowOpen, noShowSentence, noShowStartText,
 } from "@/core/first-meeting";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
@@ -208,6 +208,11 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   }
 
   const now = ctx.now();
+  // Första mötet (alla roller, före allt som skrivs – samma regel som dialogen och arenden.caseBookFirstMeeting, utan samma tid):
+  // en tid som inte har passerat, inte före beställningens dag och en arbetsdag. Annars kunde planerat slut och faktureringen
+  // räknas från ett möte före beställningen.
+  const booking = firstMeetingBookingProblem({ referredAt: c.referredAt, firstMeetingAt: null }, p.firstMeetingAt, now);
+  if (booking && booking.code !== "same_time") return fail(booking.code, booking.text);
   // Slutdatumet räknas från första mötets dag (beslut 7, 2026-10-08) – mötet är obligatoriskt vid accept.
   const plannedStart = dayOf(p.firstMeetingAt);
   // Omfattningen: ny i dialogen, annars beställningens (planerat slut räknas om från mötesdagen). Äldre beställningar i
@@ -447,18 +452,12 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   if (c.status === "active" || c.status === "paused") return fail("wrong_status", "Insatsen har redan startat.");
   if (c.status !== "confirmed") return fail("wrong_status", NO_START);
   if (!c.firstMeetingAt) return fail("no_meeting", "Boka första mötet innan insatsen startar.");
-  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): insatsen startas först när ett nytt första möte är bokat, och
-  // aldrig på eller före en dag då deltagaren inte kom – den dagen faktureras aldrig och får ingen närvaro (samma regel som
-  // triggern cases_start_date_no_show_guard, 0040).
-  const noShows = await ctx.repo.table("first_meeting_no_shows").list({ caseId: c.id });
-  const cur = currentNoShow(c, noShows);
-  if (cur) {
-    return fail("no_show", `Deltagaren kom inte till första mötet ${fmtDateTime(cur.meetingAt)}. Boka ett nytt första möte innan insatsen startar – eller avsluta insatsen om deltagaren aldrig kom.`);
-  }
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): insatsen startas inte på det mötet – först när ett nytt
+  // första möte är bokat (samma regel som triggern cases_start_date_no_show_guard, 0040). Sedan gäller den vanliga regeln nedan.
+  const cur = currentNoShow(c, await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id }));
+  if (cur) return fail("no_show", noShowStartText(cur));
   const meetingDay = dayOf(c.firstMeetingAt);
   if (p.startDate < meetingDay) return fail("start_date", `Startdatumet kan inte vara före första mötet ${fmtDate(meetingDay)}.`);
-  const afterNoShow = noShowStartProblem(c.id, p.startDate, noShows);
-  if (afterNoShow) return fail("start_date", afterNoShow);
   const end = c.plannedEnd;
   if (!end || end < p.startDate) return fail("no_end", "Ärendet saknar ett planerat slut efter startdatumet. Rätta omfattningen i beställningen först.");
   const plan = normalizePlan(p.plan);
@@ -1093,10 +1092,9 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       ? await coachOptionsFor(ctx, c)
       : [],
     // Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte – standardplanen ur avtalet. Inte när deltagaren
-    // inte kom till det bokade mötet: då bokas ett nytt eller avslutas insatsen (Karims beslut 2026-11-09). Startdatumet ligger
-    // alltid efter en dag då deltagaren inte kom (earliestStartDay).
+    // inte kom till det bokade mötet: då bokas ett nytt eller avslutas insatsen (Karims beslut 2026-11-09).
     start: edit && c.status === "confirmed" && c.firstMeetingAt && !currentNoShow(c, noShows)
-      ? { firstMeetingAt: c.firstMeetingAt, startDate: earliestStartDay(c, noShows) ?? dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt) }
+      ? { firstMeetingAt: c.firstMeetingAt, startDate: dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt) }
       : null,
     weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,

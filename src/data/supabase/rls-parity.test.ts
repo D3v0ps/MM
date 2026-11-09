@@ -4026,57 +4026,70 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
     expect(erik).toMatchObject({ ok: false, code: "23514", message: "Mötet ska vara ärendets första möte" });
   });
 
-  it("startdatumet sätts aldrig på eller före dagen då deltagaren inte kom – för inloggade, för servern och med Ändra startdatum", async () => {
-    // EXTRA:s registrering för fredag 29 januari finns (ingen truncate här). Coachen och servern startar insatsen direkt.
+  it("startdatumet sätts inte så länge det nuvarande första mötet är registrerat – för inloggade, för servern och med Ändra startdatum", async () => {
+    // EXTRA:s registrering för fredag 29 januari kl. 14.00 finns (ingen truncate här) och är ärendets första möte.
     const upd = (day: string) => `update public.cases set status = 'active', start_date = '${day}' where id = '${CASE}'`;
-    const memUpdate = async (key: string | null, day: string) => {
+    /** Det nya mötet samma dag kl. 16.00 (deltagaren kom), som postgres före satsen. */
+    const REBOOK = `update public.cases set first_meeting_at = '2027-01-29 16:00+01' where id = '${CASE}'`;
+    const erikRoles = new Set(data.memberships.filter((m) => m.userId === "u-erik").map((m) => m.role));
+    const asErik = <T,>(prep: readonly string[], fn: (tx: Tx) => Promise<T>) => asUser(db, authOf("u-erik"), fn, {
+      before: async (tx) => {
+        for (const sql of prep) await tx.exec(sql);
+        if (erikRoles.size > 1) await chooseRole("u-erik", "coach")(tx);
+      },
+    });
+    const asService = <T,>(prep: readonly string[], fn: (tx: Tx) => Promise<T>) =>
+      asUser(db, null, fn, { role: "service_role", before: async (tx) => { for (const sql of prep) await tx.exec(sql); } });
+    const memUpdate = async (key: string | null, day: string, firstMeetingAt = MEETING) => {
       const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
       s.clock = () => at;
+      s.updateRow("cases", CASE, { firstMeetingAt });
       const repo = key ? new MemoryRepo<Tables>(s, actorOf(findPersona(key)), POLICIES) : new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
       return memOk(repo.table("cases").update(CASE, { status: "active", startDate: day }));
     };
-    for (const [day, want] of [["2027-01-28", false], ["2027-01-29", false], ["2027-01-30", true], ["2027-02-01", true]] as const) {
-      const pg = await asPersona(findPersona("u-erik"), (tx) => attempt(tx, upd(day)));
-      const service = await asUser(db, null, (tx) => attempt(tx, upd(day)), { role: "service_role" });
-      expect({ pg: allowed(pg), service: allowed(service), mem: await memUpdate("u-erik", day), sys: await memUpdate(null, day) }, day).toEqual({ pg: want, service: want, mem: want, sys: want });
-      if (!want) expect([pg, service].map((x) => (x.ok ? null : x.code)), day).toEqual(["23514", "23514"]);
+    // Det registrerade mötet är ärendets första möte: inget startdatum, vilken dag det än är.
+    for (const day of ["2027-01-29", "2027-02-01"]) {
+      const pg = await asErik([], (tx) => attempt(tx, upd(day)));
+      const service = await asService([], (tx) => attempt(tx, upd(day)));
+      expect({ pg: allowed(pg), service: allowed(service), mem: await memUpdate("u-erik", day), sys: await memUpdate(null, day) }, day).toEqual({ pg: false, service: false, mem: false, sys: false });
+      expect([pg, service].map((x) => (x.ok ? null : x.code)), day).toEqual(["23514", "23514"]);
     }
+    // Nytt första möte senare samma dag: insatsen kan starta samma dag – för coachen, servern och i minnet.
+    const pg = await asErik([REBOOK], (tx) => attempt(tx, upd("2027-01-29")));
+    const service = await asService([REBOOK], (tx) => attempt(tx, upd("2027-01-29")));
+    expect({ pg: allowed(pg), service: allowed(service), mem: await memUpdate("u-erik", "2027-01-29", "2027-01-29T16:00"), sys: await memUpdate(null, "2027-01-29", "2027-01-29T16:00") })
+      .toEqual({ pg: true, service: true, mem: true, sys: true });
     // Andra ändringar i ärendet påverkas inte (startdatumet ändras inte).
-    expect(await asUser(db, null, (tx) => attempt(tx, `update public.cases set phase = 2 where id = '${CASE}'`), { role: "service_role" })).toEqual({ ok: true, rows: 1 });
+    expect(await asService([], (tx) => attempt(tx, `update public.cases set phase = 2 where id = '${CASE}'`))).toEqual({ ok: true, rows: 1 });
     // Kommunen och ekonomen nekas av spärren från 0038 (cases_start_date_guard körs först) – aldrig med registreringens regel.
     for (const key of ["k-omar", "u-lars"]) {
       const got = await asPersona(findPersona(key), (tx) => attempt(tx, `update public.cases set start_date = '2027-01-29' where id = '${CASE}'`));
-      expect(got.ok ? null : got.message, key).not.toMatch(/deltagaren inte kom/);
+      expect(got.ok ? null : got.message, key).not.toMatch(/deltagaren kom inte/i);
     }
-    // Ändra startdatum: det nya mötet samma dag kl. 16.00, insatsen startad måndag 1 februari. Ändringen till 29 januari nekas av
-    // triggern på ärendet (mm.apply_case_start_change ändrar startdatumet) – till 2 februari går den.
-    const prep = `update public.cases set first_meeting_at = '2027-01-29 16:00+01', status = 'active', start_date = '2027-02-01' where id = '${CASE}'`;
-    const change = (id: string, toDate: string): Tables["case_start_changes"] => ({
-      id, contractId: "c-bot", caseId: CASE, fromDate: "2027-02-01", toDate, changedBy: "u-erik", changedAt: at, noteId: `note-${id}`, seq: 1,
+    // Ändra startdatum (mm.apply_case_start_change ändrar startdatumet): insatsen startade 29 januari på mötet kl. 16.00. Är
+    // ärendets första möte mötet kl. 14.00 som deltagaren inte kom till nekas ändringen av triggern på ärendet – annars går den.
+    const STARTED = [`update public.cases set first_meeting_at = '2027-01-29 16:00+01', status = 'active', start_date = '2027-01-29' where id = '${CASE}'`];
+    const MISSED = [...STARTED, `update public.cases set first_meeting_at = '2027-01-29 14:00+01' where id = '${CASE}'`];
+    const change = (id: string): Tables["case_start_changes"] => ({
+      id, contractId: "c-bot", caseId: CASE, fromDate: "2027-01-29", toDate: "2027-02-02", changedBy: "u-erik", changedAt: at, noteId: `note-${id}`, seq: 1,
     });
     const note = (x: Tables["case_start_changes"]): Tables["case_notes"] => ({
       id: x.noteId, contractId: "c-bot", caseId: CASE, authorId: "u-erik", occurredOn: "2027-02-01", kind: "other", audience: "team",
       body: "Ändrat startdatum: motivering.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null,
     });
-    const erikRoles = new Set(data.memberships.filter((m) => m.userId === "u-erik").map((m) => m.role));
-    const pgChange = (x: Tables["case_start_changes"]) => asUser(db, authOf("u-erik"), async (tx) => attempt(tx, insertSql("case_start_changes", x as unknown as Record<string, unknown>)), {
-      before: async (tx) => {
-        await tx.exec(prep);
-        await tx.query(insertSql("case_notes", note(x) as unknown as Record<string, unknown>));
-        if (erikRoles.size > 1) await chooseRole("u-erik", "coach")(tx);
-      },
-    });
-    const memChange = (x: Tables["case_start_changes"]) => {
+    const pgChange = (x: Tables["case_start_changes"], prep: readonly string[]) =>
+      asErik([...prep, insertSql("case_notes", note(x) as unknown as Record<string, unknown>)], (tx) => attempt(tx, insertSql("case_start_changes", x as unknown as Record<string, unknown>)));
+    const memChange = (x: Tables["case_start_changes"], firstMeetingAt: string) => {
       const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
       s.clock = () => at;
-      s.updateRow("cases", CASE, { firstMeetingAt: "2027-01-29T16:00", status: "active", startDate: "2027-02-01" });
+      s.updateRow("cases", CASE, { firstMeetingAt, status: "active", startDate: "2027-01-29" });
       s.insertRow("case_notes", note(x));
       return canWriteRow("case_start_changes", x, actorOf(findPersona("u-erik")), s.raw());
     };
-    const bad = await pgChange(change("csc-fmns-1", "2027-01-29"));
-    expect({ pg: bad.ok ? null : bad.code, mem: memChange(change("csc-fmns-1", "2027-01-29")) }).toEqual({ pg: "23514", mem: false });
-    const good = await pgChange(change("csc-fmns-2", "2027-02-02"));
-    expect({ pg: allowed(good), mem: memChange(change("csc-fmns-2", "2027-02-02")) }).toEqual({ pg: true, mem: true });
+    const bad = await pgChange(change("csc-fmns-1"), MISSED);
+    expect({ pg: bad.ok ? null : bad.code, mem: memChange(change("csc-fmns-1"), MEETING) }).toEqual({ pg: "23514", mem: false });
+    const good = await pgChange(change("csc-fmns-2"), STARTED);
+    expect({ pg: allowed(good), mem: memChange(change("csc-fmns-2"), "2027-01-29T16:00") }).toEqual({ pg: true, mem: true });
   });
 
   it("migrationen tål att köras igen och ändrar då ingenting", async () => {

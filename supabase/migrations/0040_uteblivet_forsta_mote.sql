@@ -23,10 +23,11 @@
 --     cases.first_meeting_at) och mötets tid har varit (meeting_at <= mm.app_now()). För inloggade dessutom: den som arbetar i
 --     ärendet (mm.work_on – annars ett och samma nekande, 42501, utan uppgifter om ärendet: triggern körs före policyn), i eget
 --     namn (registered_by = den inloggade) och med aktuell tid (registered_at högst 10 minuter från mm.app_now()).
---   * Startdatumet (triggern cases_start_date_no_show_guard på public.cases, för alla roller): ett ärendes startdatum sätts aldrig
---     på eller före en dag (Stockholms tid) då deltagaren inte kom till ett första möte i ärendet – inte med Starta insatsen och
---     inte med Ändra startdatum. Annars skulle den dagen bli debiterbar (veckorna räknas från startdatumet) och kunna få automatisk
---     närvaro. Insatsen startas efter att ett nytt första möte är bokat (arenden.caseStart nekar annars).
+--   * Startdatumet (triggern cases_start_date_no_show_guard på public.cases, för alla roller): ett ärendes startdatum sätts inte så
+--     länge ärendets första möte (cases.first_meeting_at) är registrerat som ett möte som deltagaren inte kom till – inte med
+--     Starta insatsen och inte med Ändra startdatum. Annars skulle insatsen kunna starta på det mötet, så att veckan blev
+--     debiterbar och mötet kunde få automatisk närvaro. Efter ett nytt första möte gäller den vanliga regeln (tidigast mötets dag,
+--     också samma dag som deltagaren inte kom till ett tidigare möte).
 --   * Behörighet (speglas exakt i src/data/policy.ts first_meeting_no_shows och prövas i src/data/supabase/rls-parity.test.ts):
 --       läsa:  Miljonbemanning med åtkomst full eller team till ärendet (mm.case_ids('{full,team}')) – aldrig kommunen och aldrig
 --              ekonomen (åtkomsten billing).
@@ -172,12 +173,13 @@ drop trigger if exists first_meeting_no_shows_append_only on public.first_meetin
 create trigger first_meeting_no_shows_append_only before update or delete on public.first_meeting_no_shows
 for each row execute function mm.forbid_first_meeting_no_show_change();
 
--- ---------------------------------------------------------------- Startdatumet efter en dag då deltagaren inte kom
--- policy.ts cases.guard och caseStartChangeApplies (noShowOnOrAfter): startdatumet sätts aldrig på eller före en dag (Stockholms
--- tid) då deltagaren inte kom till ett första möte i ärendet – för alla roller, också service role och Ändra startdatum
--- (mm.apply_case_start_change). Security definer: alla registreringar i ärendet läses, oavsett vem som ändrar. Triggern heter så
--- att den körs efter cases_start_date_guard (0038 – triggrarna körs i bokstavsordning): den som inte får sätta startdatumet nekas
--- där först och får aldrig veta något om registreringarna.
+-- ---------------------------------------------------------------- Startdatumet och ett första möte som deltagaren inte kom till
+-- policy.ts cases.guard och caseStartChangeApplies (missedCurrentMeeting): startdatumet sätts inte så länge ärendets första möte
+-- (raden efter ändringen) är registrerat som ett möte som deltagaren inte kom till – för alla roller, också service role och
+-- Ändra startdatum (mm.apply_case_start_change). Efter ett nytt första möte gäller den vanliga regeln. Security definer: alla
+-- registreringar i ärendet läses, oavsett vem som ändrar. Triggern heter så att den körs efter cases_start_date_guard (0038 –
+-- triggrarna körs i bokstavsordning): den som inte får sätta startdatumet nekas där först och får aldrig veta något om
+-- registreringarna.
 create or replace function mm.guard_case_start_after_no_show() returns trigger
 language plpgsql security definer set search_path = public, mm
 as $$
@@ -185,11 +187,10 @@ begin
   if new.start_date is null or (tg_op = 'UPDATE' and new.start_date is not distinct from old.start_date) then
     return new;
   end if;
-  if exists (
-    select 1 from public.first_meeting_no_shows x
-    where x.case_id = new.id and (x.meeting_at at time zone 'Europe/Stockholm')::date >= new.start_date
+  if new.first_meeting_at is not null and exists (
+    select 1 from public.first_meeting_no_shows x where x.case_id = new.id and x.meeting_at = new.first_meeting_at
   ) then
-    raise exception 'Startdatumet ska vara efter dagen då deltagaren inte kom till första mötet' using errcode = '23514';
+    raise exception 'Deltagaren kom inte till första mötet – boka ett nytt första möte innan insatsen startar' using errcode = '23514';
   end if;
   return new;
 end

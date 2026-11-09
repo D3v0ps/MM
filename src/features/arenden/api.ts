@@ -91,7 +91,8 @@ export const caseCreate = command("arenden.caseCreate", z.object({
  * eller annan tidsperiod) är förifylld ur beställningen och kan ändras; "annan tidsperiod" behåller slutdatumet. Beställarreferensen
  * är valfri (MB fyller i den här eller före faktureringen, beslut 2026-10-07) – formatet kontrolleras om något skrivits.
  * Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till kommunen och kallelse till
- * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens.
+ * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens. Första mötet ska vara en arbetsdag som inte har passerat och
+ * inte före beställningens dag (past, before_order, not_working_day – firstMeetingBookingProblem, samma regel som bokningen).
  */
 // Omräkning brett med flit: skapar orderbekräftelsen (reports), ändrar inkorgen och deadlines, och ger coachen ärendet.
 export const caseAccept = command("arenden.caseAccept", z.object({
@@ -109,7 +110,10 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
 }), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   /** invitation: hur kallelsen går, i klarspråk (t.ex. "Kallelsen skickas med e-post.") – notifyParticipant. */
-  Result<{ reportId: string; caseNumber: string; invitation: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
+  Result<
+    { reportId: string; caseNumber: string; invitation: string },
+    "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period" | "past" | "before_order" | "not_working_day"
+  >
 >();
 
 /** Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. */
@@ -204,7 +208,7 @@ export const WeekPlanSchema = z.array(WeekPlanRowSchema).min(1).max(10);
  * aldrig före mötet. Sätter status Pågår och startdatum, skapar tillfällena från startdatumet till planerat slut enligt
  * veckoplanen (helgdagar hoppas över, högst 60 veckor), statushistorik och loggen case.started. Huvudcoachen, samordnare
  * och avtalsansvarig. Kom deltagaren inte till det bokade första mötet (Karims beslut 2026-11-09) nekas starten (no_show) tills
- * ett nytt första möte är bokat, och startdatumet ligger alltid efter en dag då deltagaren inte kom (start_date).
+ * ett nytt första möte är bokat – sedan gäller den vanliga regeln (tidigast det nya mötets dag).
  */
 // Omräkning brett med flit: statusen och tillfällena syns i listor, Min vecka, närvaro, portal, rapporter, KPI:er och fakturering.
 export const caseStart = command("arenden.caseStart", z.object({

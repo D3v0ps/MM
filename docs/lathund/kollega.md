@@ -106,7 +106,7 @@ Det här händer:
 
 - Kommunen får inget besked och ser det inte. Det är bara för Miljonbemanning.
 - Det räknas inte som närvaro och faktureras inte. Inga tillfällen skapas och insatsen startar inte.
-- **Starta insatsen** försvinner tills ett nytt första möte är bokat. Insatsen startar tidigast dagen efter mötet som deltagaren inte kom till.
+- **Starta insatsen** försvinner tills ett nytt första möte är bokat. Insatsen startar tidigast samma dag som det nya mötet.
 - Det står kvar i tidslinjen, också när ett nytt möte är bokat. Det går inte att ändra eller ta bort.
 - När du bokar ett nytt första möte får kommunen den uppdaterade orderbekräftelsen med den nya tiden, som när ett möte bokas om. Kommunen får inte veta varför. Deltagaren får en ny kallelse.
 - Den nya tiden gör inte ärendet sent i uppföljningen. Nyckeltalet för första mötet räknar det första bokade mötet.

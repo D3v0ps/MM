@@ -9,15 +9,15 @@
 //     rapporter, resultat, fakturor, bonus eller spärren för Ändra startdatum läser registreringen.
 //   * Uteblev utan att meddela eller giltig frånvaro – orsaken krävs vid giltig frånvaro (kort och saklig, inga personnummer).
 //   * Ett möte registreras en gång. Efter registreringen bokar man ett nytt första möte (arenden.caseBookFirstMeeting) eller
-//     avslutar insatsen (deltagaren kom aldrig). Insatsen startas inte på ett möte som deltagaren inte kom till: först när ett
-//     nytt första möte är bokat, och startdatumet ligger alltid efter dagen då deltagaren inte kom (earliestStartDay – samma
-//     regel som triggern cases_start_date_no_show_guard i 0040, så att den dagen aldrig faktureras eller får närvaro).
+//     avslutar insatsen (deltagaren kom aldrig). Insatsen startas inte på ett möte som deltagaren inte kom till: startdatumet
+//     sätts inte så länge ärendets nuvarande första möte är registrerat (samma regel som triggern cases_start_date_no_show_guard
+//     i 0040). Efter ett nytt första möte gäller den vanliga regeln – tidigast det nya mötets dag, också samma dag.
 //   * Nyckeltalet Första möte inom en vecka räknas på det första bokade mötet (firstBookedMeetingAt – Karims beslut 2026-11-09).
 // Samma regler i databasen (triggrarna first_meeting_no_shows_check och cases_start_date_no_show_guard, 0040) och i policy.ts
 // (first_meeting_no_shows, cases).
 import type { Role } from "@/api/roles";
 import type { Case, FirstMeetingNoShow, FirstMeetingNoShowKind } from "@/data/schema";
-import { addWorkingDays, dayOf, fmtDate, fmtDateTime, holidayName, isWorkingDay, type LocalDate, type LocalDateTime } from "./time";
+import { dayOf, fmtDate, fmtDateTime, holidayName, isWorkingDay, type LocalDateTime } from "./time";
 import { looksLikePnr } from "./validation";
 
 /** Registrerar att deltagaren inte kom: de som kan starta insatsen (samma som Starta insatsen och Ändra startdatum). */
@@ -54,28 +54,12 @@ export function canRegisterNoShow(c: CaseForNoShow, now: LocalDateTime, rows: re
 
 type NoShowDate = Pick<FirstMeetingNoShow, "caseId" | "meetingAt">;
 
-/** Den senaste dagen (Stockholms tid) då deltagaren inte kom till ett första möte i ärendet, eller null. */
-export function lastNoShowDay(caseId: string, rows: readonly NoShowDate[]): LocalDate | null {
-  return rows.filter((x) => x.caseId === caseId).reduce<LocalDate | null>((m, x) => (m == null || dayOf(x.meetingAt) > m ? dayOf(x.meetingAt) : m), null);
-}
-
 /**
- * Det tidigaste startdatumet som föreslås: första mötets dag, men aldrig på eller före en dag då deltagaren inte kom till första
- * mötet (Karims beslut 2026-11-09 – triggern cases_start_date_no_show_guard i 0040 kräver en senare dag). Bokades det nya mötet
- * samma dag som deltagaren inte kom föreslås nästa arbetsdag, så att en helg inte gör veckan debiterbar. null utan bokat möte.
+ * Starta insatsen och Ändra startdatum nekas så länge ärendets nuvarande första möte är registrerat (currentNoShow – samma regel
+ * som triggern cases_start_date_no_show_guard i 0040). Efter ett nytt första möte gäller den vanliga regeln: tidigast mötets dag.
  */
-export function earliestStartDay(c: Pick<Case, "id" | "firstMeetingAt">, rows: readonly NoShowDate[]): LocalDate | null {
-  if (!c.firstMeetingAt) return null;
-  const meeting = dayOf(c.firstMeetingAt);
-  const last = lastNoShowDay(c.id, rows);
-  return last && last >= meeting ? addWorkingDays(last, 1) : meeting;
-}
-
-/** Startdatumet går inte: det ligger på eller före en dag då deltagaren inte kom till första mötet. Texten, eller null. */
-export function noShowStartProblem(caseId: string, startDate: LocalDate, rows: readonly NoShowDate[]): string | null {
-  const last = lastNoShowDay(caseId, rows);
-  return last && startDate <= last ? `Startdatumet måste vara efter ${fmtDate(last)} – deltagaren kom inte till första mötet den dagen.` : null;
-}
+export const noShowStartText = (x: Pick<FirstMeetingNoShow, "meetingAt">): string =>
+  `Deltagaren kom inte till första mötet ${fmtDateTime(x.meetingAt)}. Boka ett nytt första möte innan insatsen startar – eller avsluta insatsen om deltagaren aldrig kom.`;
 
 /**
  * Det första bokade mötet (Karims beslut 2026-11-09): det tidigaste mötet som deltagaren inte kom till, annars ärendets första möte.
@@ -90,9 +74,9 @@ export function firstBookedMeetingAt(c: Pick<Case, "id" | "firstMeetingAt">, row
 export type BookingProblem = { code: "past" | "before_order" | "same_time" | "not_working_day"; text: string };
 
 /**
- * Vad som stoppar en bokning eller ombokning av första mötet (arenden.caseBookFirstMeeting – alla roller), eller null: tiden har
- * redan passerat, dagen är före beställningen, samma tid som det bokade mötet, eller inte en arbetsdag (helg eller helgdag – samma
- * regel som dialogen).
+ * Vad som stoppar en bokning eller ombokning av första mötet (arenden.caseBookFirstMeeting och arenden.caseAccept – alla roller),
+ * eller null: tiden har redan passerat, dagen är före beställningen, samma tid som det bokade mötet (bara när ett möte är bokat –
+ * accept skickar firstMeetingAt null), eller inte en arbetsdag (helg eller helgdag – samma regel som dialogerna).
  */
 export function firstMeetingBookingProblem(c: Pick<Case, "referredAt" | "firstMeetingAt">, at: LocalDateTime, now: LocalDateTime): BookingProblem | null {
   if (at <= now) return { code: "past", text: "Tiden har redan passerat. Välj en senare tid." };

@@ -196,19 +196,21 @@ describe("deltagarkortet, ombokningen och tidslinjen", () => {
     expect(rows("activities").filter((x) => x.caseId === CASE && x.startsAt < "2027-02-03")).toEqual([]);
   });
 
-  it("bokas det nya mötet samma dag startar insatsen tidigast dagen efter – aldrig dagen då deltagaren inte kom", async () => {
+  it("ett nytt möte senare samma dag: insatsen startar den dagen och veckan är debiterbar", async () => {
     start(demoClock("2027-01-29T15:00"));
     expect((await register(erik())).ok).toBe(true);
     const at = "2027-01-29T16:00";
     expect(await cmd("arenden.caseBookFirstMeeting", { caseId: CASE, at }, erik())).toMatchObject({ ok: true });
-    // Förslaget: nästa arbetsdag (fredag -> måndag), så att helgen inte gör veckan debiterbar.
-    expect((await card(erik())).start).toMatchObject({ firstMeetingAt: at, startDate: "2027-02-01" });
+    // Deltagaren kom kl. 16.00: Starta insatsen från det nya mötets dag – samma dag som deltagaren inte kom till mötet kl. 14.00.
+    expect((await card(erik())).start).toMatchObject({ firstMeetingAt: at, startDate: "2027-01-29" });
     const plan = defaultWeekPlan(BOTKYRKA_CONFIG, at);
-    const res = await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-29", plan }, erik());
-    expect(res).toMatchObject({ ok: false, error: "start_date", message: "Startdatumet måste vara efter 29 jan 2027 – deltagaren kom inte till första mötet den dagen." });
-    expect(rt.raw().get("cases", CASE)).toMatchObject({ status: "confirmed", startDate: null });
-    expect(await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-02-01", plan }, erik())).toMatchObject({ ok: true });
-    expect(rt.raw().get("cases", CASE)).toMatchObject({ status: "active", startDate: "2027-02-01" });
+    expect(await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-28", plan }, erik())).toMatchObject({ ok: false, error: "start_date" });
+    expect(await cmd("arenden.caseStart", { caseId: CASE, startDate: "2027-01-29", plan }, erik())).toMatchObject({ ok: true });
+    const c = rt.raw().get("cases", CASE)!;
+    expect(c).toMatchObject({ status: "active", startDate: "2027-01-29" });
+    // Veckan med mötet (v. 4) är debiterbar, som för vilken insats som helst som startar en fredag.
+    const weeks = billableWeeks(c, { activities: [...rows("activities")], attendance: [...rows("attendance")] }, { now: "2027-02-05T12:00" });
+    expect(weeks.map((w) => w.key)).toEqual(["2027-W04", "2027-W05"]);
   });
 
   it("bokningen prövas på servern för alla roller: inte passerad, en ny tid och en arbetsdag – inga utskick och ingen ny orderbekräftelse när den nekas", async () => {

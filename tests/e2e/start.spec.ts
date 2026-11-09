@@ -1,7 +1,8 @@
 // Starta insatsen, veckoplan, praktik och team (beslut 2026-10-08, skarp drift). Hela kedjan som i skarp drift saknades:
 // acceptera avropet → coachens Min vecka visar Insatser att starta → Starta insatsen (veckoplan) → tillfällen i Närvaro →
 // registrera närvaro → dagens tillfälle på Min vecka → veckan i ekonomens underlag. Samma test mot prototypen (projekt "demo")
-// och appen (projekt "app"). Demoklockan: måndag 1 februari 2027 kl. 09.12 – första mötet bokas i dag 09.00 så att det har hållits.
+// och appen (projekt "app"). Demoklockan: måndag 1 februari 2027 kl. 09.12 – första mötet bokas i dag 10.00 (accept tar bara en tid
+// som inte har passerat), och veckoplanens coachträff läggs kl. 09.00 så att dagens tillfälle har hållits och får närvaro.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { isDemo, loaded, open, switchPersona } from "./helpers";
 
@@ -45,13 +46,13 @@ async function go(page: Page, info: TestInfo, to: string) {
 
 test("acceptera → Insatser att starta → Starta insatsen → tillfällen i Närvaro → närvaro → Min vecka → ekonomens underlag", async ({ page }, info) => {
   test.setTimeout(120_000);
-  // 1. Samordnaren accepterar avropet med första möte i dag 09.00.
+  // 1. Samordnaren accepterar avropet med första möte i dag 10.00.
   const errors = await open(page, info, "/inkorg/em-101", SARA);
   await main(page).getByRole("button", { name: "Acceptera", exact: true }).click();
   const d = dialog(page);
   await page.check("#ink-coach-u-amira");
   await page.fill("#ink-fm-date", "2027-02-01");
-  await page.fill("#ink-fm-time", "09:00");
+  await page.fill("#ink-fm-time", "10:00");
   await d.getByRole("button", { name: "Acceptera avropet" }).click();
   await expect(d.getByText("Amira Haddad har fått en notis om tilldelningen")).toBeVisible();
   await d.getByRole("button", { name: "Klart" }).click();
@@ -74,7 +75,9 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   await expect(sd.locator("#arn-plan-d3")).toBeChecked();
   await expect(sd.locator("#arn-plan-d4")).not.toBeChecked();
   await expect(sd.locator("#arn-plan-k0")).toHaveValue("möte");
-  await expect(sd.locator("#arn-plan-t0")).toHaveValue("09:00");
+  await expect(sd.locator("#arn-plan-t0")).toHaveValue("10:00");
+  // Coachträffen i veckoplanen kl. 09.00 – dagens tillfälle har då hållits och får närvaro nedan.
+  await sd.locator("#arn-plan-t0").fill("09:00");
   await expect(sd).toContainText("3 tillfällen per vecka");
   await sd.getByRole("button", { name: "Starta insatsen" }).click();
   await expect(toastWith(page, /Insatsen är startad\. \d+ tillfällen är inplanerade till och med/)).toBeVisible();

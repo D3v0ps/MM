@@ -95,8 +95,8 @@
 //                 arbetar i ärendet, i avtalet, i eget namn och med aktuell tid · för alla roller (också systemet, guard): ärendet
 //                 är bekräftat och inte startat, raden hör till ärendets avtal, mötet är ärendets första möte och har varit,
 //                 orsaken krävs vid giltig frånvaro (högst 300 tecken) · ett möte en gång (UNIQUE_KEYS) · ändras aldrig och
-//                 raderas bara av systemet (gallring) · ärendets startdatum sätts aldrig på eller före en dag då deltagaren inte
-//                 kom (cases.guard och caseStartChangeApplies, för alla roller – triggern cases_start_date_no_show_guard)
+//                 raderas bara av systemet (gallring) · ärendets startdatum sätts inte så länge ärendets nuvarande första möte
+//                 är registrerat (cases.guard och caseStartChangeApplies, för alla roller – triggern cases_start_date_no_show_guard)
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -747,8 +747,9 @@ function caseStartChangeApplies(x: CaseStartChangeRow, raw: Raw): boolean {
   const c = raw.get("cases", x.caseId);
   if (!c || c.contractId !== x.contractId || c.startDate !== x.fromDate || !START_CHANGE_STATUSES.includes(c.status)) return false;
   if (c.firstMeetingAt && x.toDate < dayOf(c.firstMeetingAt)) return false;
-  // Aldrig på eller före en dag då deltagaren inte kom till första mötet (triggern cases_start_date_no_show_guard, 0040).
-  if (noShowOnOrAfter(raw, c.id, x.toDate)) return false;
+  // Inte när ärendets nuvarande första möte är registrerat som ett möte som deltagaren inte kom till (triggern
+  // cases_start_date_no_show_guard, 0040 – ändringen sätter ärendets startdatum).
+  if (missedCurrentMeeting(raw, c)) return false;
   const end = c.endDate ?? c.plannedEnd;
   if (end && x.toDate > end) return false;
   const billing = { drafts: raw.all("invoice_drafts"), lines: raw.all("invoice_lines"), runs: raw.all("billing_runs") };
@@ -1043,18 +1044,19 @@ function noShowGuard(x: NoShowRow | null, cur: NoShowRow | undefined, raw: Raw):
   if (!x) return true;
   return !cur && noShowConsistent(x, raw);
 }
-/** Ett första möte i ärendet som deltagaren inte kom till ligger på eller efter dagen (Stockholms tid, som mötets tid). */
-function noShowOnOrAfter(raw: Raw, caseId: string, day: string): boolean {
-  return raw.all("first_meeting_no_shows").some((x) => x.caseId === caseId && dayOf(x.meetingAt) >= day);
+/** Ärendets nuvarande första möte är registrerat som ett möte som deltagaren inte kom till. */
+function missedCurrentMeeting(raw: Raw, c: Pick<Case, "id" | "firstMeetingAt">): boolean {
+  return !!c.firstMeetingAt && raw.all("first_meeting_no_shows").some((x) => x.caseId === c.id && x.meetingAt === c.firstMeetingAt);
 }
 /**
  * Ärendets startdatum (triggern cases_start_date_no_show_guard, 0040 – för alla roller, också systemet): ett nytt eller ändrat
- * startdatum ligger aldrig på eller före en dag då deltagaren inte kom till ett första möte i ärendet. Ändra startdatum (afterInsert
- * på case_start_changes) prövar samma regel i caseStartChangeApplies.
+ * startdatum sätts inte så länge ärendets första möte (raden efter ändringen) är registrerat som ett möte som deltagaren inte kom
+ * till. Efter ett nytt första möte gäller den vanliga regeln. Ändra startdatum (afterInsert på case_start_changes) prövar samma
+ * regel i caseStartChangeApplies.
  */
 function caseNoShowStartGuard(next: Case | null, cur: Case | undefined, raw: Raw): boolean {
   if (!next || next.startDate == null || (cur && (cur.startDate ?? null) === next.startDate)) return true;
-  return !noShowOnOrAfter(raw, next.id, next.startDate);
+  return !missedCurrentMeeting(raw, next);
 }
 
 // ---------------------------------------------------------------- Tabellerna
