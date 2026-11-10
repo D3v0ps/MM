@@ -7,7 +7,8 @@ import type { MemoryData } from "../../src/data/memory";
 import { DEMO_START } from "../../src/data/seed";
 import type { TableName, Tables } from "../../src/data/schema";
 import {
-  AUTH_UUID_NAMESPACE, authUserIdFor, BOOTSTRAP_TABLES, profileExtras, SEED_TABLE_ORDER, seedData, TESTERS, testerMemberships, testerProfiles, uuidV5,
+  AUTH_UUID_NAMESPACE, authUserIdFor, BOOTSTRAP_TABLES, contractIntakeCoaches, contractsWithoutIntake, profileExtras, SEED_TABLE_ORDER, seedData, TESTERS, testerMemberships,
+  testerProfiles, uuidV5,
 } from "../../src/data/supabase/seed-rows";
 import { COLUMNS, quoteIdent, snakeCase, type SqlType } from "./columns";
 
@@ -131,10 +132,19 @@ export function seedSql(data: MemoryData<Tables> = seedData()): string {
     "",
   ];
   for (const table of SEED_TABLE_ORDER) {
-    const rows = data[table] as readonly object[];
+    // Avtalen läses in utan intagsansvarig: profilerna och medlemskapen finns inte än (sätts sist, se nedan).
+    const rows = table === "contracts" ? contractsWithoutIntake(data.contracts) : (data[table] as readonly object[]);
     parts.push(`-- ${table} (${rows.length})`);
     parts.push(...insertStatements(table, rows));
     parts.push("");
+  }
+  const intake = contractIntakeCoaches(data.contracts);
+  if (intake.length) {
+    parts.push(
+      "-- Avtalens intagsansvarige (0041): sätts sist, när profilerna och medlemskapen finns (triggern contracts_intake_coach_check).",
+      ...intake.map((x) => `update public.contracts set intake_coach_id = ${quote(x.intakeCoachId)} where id = ${quote(x.id)};`),
+      "",
+    );
   }
   parts.push(
     "-- Testmiljön: miljö och testklocka. Klockan startar på testtiden när seeden läses in och går sedan i vanlig takt.",
@@ -167,7 +177,7 @@ export function bootstrapSql(data: MemoryData<Tables> = seedData()): string {
   const parts: string[] = [
     `-- Startdata för testmiljön (staging): bara påhittade uppgifter och testarna (${TESTERS.map((t) => t.fullName.split(" ")[0]).join(", ")}).`,
     "-- GENERERAD av scripts/db/generate-bootstrap.ts (npx tsx scripts/db/generate-bootstrap.ts) – ändra inte för hand.",
-    "-- Kör efter migrationerna 0001–0017. Idempotent. Kör ALDRIG mot produktion (spärren nedan stoppar det).",
+    "-- Kör efter alla migrationer (också 0041 – avtalen har kolumnen intake_coach_id). Idempotent. Kör ALDRIG mot produktion (spärren nedan stoppar det).",
     "-- Sedan: testaren loggar in och väljer \"Läs in testdata på nytt\" i adminvyn (resten av testdatat).",
     "",
     "set timezone to 'Europe/Stockholm';",
@@ -185,8 +195,11 @@ export function bootstrapSql(data: MemoryData<Tables> = seedData()): string {
     "",
   ];
   for (const table of BOOTSTRAP_TABLES) {
-    const rows = data[table] as readonly object[];
-    parts.push(`-- ${table} (${rows.length})`, ...insertStatements(table, rows, 250, { action: "update" }), "");
+    // Avtalen: aldrig intagsansvarig härifrån (0041) – testpersonerna finns inte i startdatat. En intagsansvarig som redan är
+    // vald i testmiljön behålls när filen körs igen ("Läs in testdata på nytt" sätter testdatats).
+    const contracts = table === "contracts";
+    const rows = contracts ? contractsWithoutIntake(data.contracts) : (data[table] as readonly object[]);
+    parts.push(`-- ${table} (${rows.length})`, ...insertStatements(table, rows, 250, { action: "update", ...(contracts ? { keep: ["intake_coach_id"] } : {}) }), "");
   }
   // Grupperingarnas standardvärden (fem nivåer och Vill arbeta, samma id som migrationen 0031): 0031 lägger bara in dem för
   // avtal som finns när migrationen körs – i en ny testmiljö kommer avtalen först här. "do nothing": namn som ändrats behålls.

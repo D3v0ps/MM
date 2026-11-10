@@ -297,8 +297,13 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact", "report_correction"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
-/** bonus_decision = kommunen har beslutat om ett bonusanspråk (till huvudcoachen, 0039 – kolumnen är text utan check). */
-export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation", "bonus_decision"] as const;
+/**
+ * bonus_decision = kommunen har beslutat om ett bonusanspråk (till huvudcoachen, 0039 – kolumnen är text utan check).
+ * new_order = en ny beställning att ta emot (till avtalets intagsansvarige när beställningen kommer in) och case_received = en ny
+ * deltagare är mottagen (till avtalets samordnare när någon har tagit emot beställningen) – Karims beslut 2026-11-09. Bara i appen,
+ * aldrig e-post eller SMS, och bara ärendenumret – aldrig deltagarens namn.
+ */
+export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation", "bonus_decision", "new_order", "case_received"] as const;
 export type UserNotificationKind = (typeof USER_NOTIFICATION_KINDS)[number];
 
 /**
@@ -427,6 +432,13 @@ export type Contract = {
   status: ContractStatus;
   /** Avtalsansvarig (kundansvarig) hos Miljonbemanning. */
   contractManagerId: UserId | null;
+  /**
+   * Intagsansvarig (Karims beslut 2026-11-09, 0041): coachen som tar emot avtalets nya beställningar – får en notis när en
+   * beställning kommer in, bokar första mötet och trycker Ta emot utan samordnarens OK. null = samordnaren tar emot, som förut.
+   * Personen har ett medlemskap med rollen coach i avtalet (triggern contracts_intake_coach_check – för alla roller). Bara
+   * systemadministratören ändrar (contracts_update). Kommunen läser aldrig kolumnen (contracts_public).
+   */
+  intakeCoachId: UserId | null;
 };
 
 export type ContractArea = {

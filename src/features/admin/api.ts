@@ -52,6 +52,13 @@ export type ContractFacts = ContractSummary & {
   managerId: string | null;
   /** Kollegorna som kan vara avtalsansvariga (aktiva, med rollen avtalsansvarig i avtalet). */
   managerOptions: { id: string; name: string }[];
+  /**
+   * Intagsansvarig (Karims beslut 2026-11-09, contracts.intake_coach_id): coachen som tar emot avtalets nya beställningar, eller
+   * null = samordnaren tar emot. intakeCoachOptions = avtalets aktiva coacher.
+   */
+  intakeCoachId: string | null;
+  intakeCoachName: string | null;
+  intakeCoachOptions: { id: string; name: string }[];
   /** Uppsägning och omfattning i klarspråk (avtalstext som ännu inte finns i konfigurationen – se handlers). */
   termination: string | null;
   scope: string | null;
@@ -111,6 +118,16 @@ const ChannelSchema = z.enum(["app", "email"]);
 export const adminSetContractManager = command("admin.setContractManager", z.object({ contractId: IdSchema, userId: IdSchema }), {
   invalidates: ["admin.contract", "admin.users", INBOX, CASES, ...LOG],
 }).returns<Result<object, "not_found" | "not_manager" | "unchanged">>();
+
+/**
+ * Välj avtalets intagsansvarige (Karims beslut 2026-11-09): en av avtalets coacher, eller null = ingen (samordnaren tar emot nya
+ * beställningar, som förut). Bara systemadministratören. Loggen contract.intake_coach_changed har bara id:n. not_coach =
+ * personen har inte rollen coach i avtalet.
+ */
+// Omräkning: avtalssidan, coachens Min vecka och deltagarkortet (Ta emot), sidopanelens räknare och loggen.
+export const adminSetIntakeCoach = command("admin.setIntakeCoach", z.object({ contractId: IdSchema, userId: IdSchema.nullable() }), {
+  invalidates: ["admin.contract", "admin.users", CASES, "coach.minVecka", NAV, ...LOG],
+}).returns<Result<object, "not_found" | "not_coach" | "unchanged">>();
 
 export const adminSetOrgRule = command("admin.setOrgRule", z.object({
   remindCoachAfterWeeks: z.number().int().min(0).max(52),

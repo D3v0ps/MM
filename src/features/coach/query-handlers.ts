@@ -19,7 +19,7 @@ import { hasPrefill, levelSourceOf, withAutoAreas } from "@/core/monthly-prefill
 import { notificationsFor, progressionWatch } from "@/core/progression";
 import { monthReportNeed } from "@/core/report-schedule";
 import { scopeToContract } from "@/core/scope";
-import { finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
+import { avropDue, finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, weekMonday, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { weeklyReport } from "@/core/weekly-report";
@@ -28,6 +28,7 @@ import type { Case, CheckIn, Contract, MonthlyPrefill, Person, Report } from "@/
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
+import { ordersToReceive } from "../_shared/intake";
 import { aiOff, internalNoteIds, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { recordingOffered } from "../_shared/ai-types";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
@@ -197,8 +198,29 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const assessments = cases.map((c) => ({ c, ma: assessmentFor(all, c.id, pm) })).filter((x) => x.ma);
   const maOpen = assessments.filter((x) => x.ma?.status !== "approved");
 
-  // Meddelanden, påminnelser, flaggor, notiser
-  const notifs = notificationsFor(all, me, "coach", main).filter((n) => !n.readAt && n.kind !== "progress_escalation");
+  // Nya beställningar att ta emot (Karims beslut 2026-11-09): bara för avtalets intagsansvarige – tom lista för andra coacher.
+  // Läst via behörigheten (ärendena, personerna och handläggarnas profiler); tidsgränsen är avropets svarstid i ärendets avtal.
+  const receive = await ordersToReceive(ctx);
+  const receivePersons = receive.length ? await ctx.repo.table("persons").list({ id: { in: uniq(receive.map((c) => c.personId)) } }) : [];
+  const toReceive: MinVeckaView["toReceive"] = [];
+  for (const c of receive) {
+    const env = await envOf(c.contractId);
+    const p = receivePersons.find((x) => x.id === c.personId);
+    // Vilande spärr för skyddade personuppgifter: en person som inte får läsas visas inte (fail-closed).
+    if (!env || !p) continue;
+    const dueAt = avropDue(c, env.cfg);
+    toReceive.push({
+      caseId: c.id, caseNumber: c.caseNumber, name: nameOf(p), from: c.referrerId ? personName(db.profiles, c.referrerId) : c.referrerName ?? "–",
+      dueAt, sla: dueAt ? sla(dueAt, env) : null,
+    });
+  }
+  toReceive.sort((a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999") || a.caseNumber.localeCompare(b.caseNumber));
+  const receiveIds = new Set(toReceive.map((x) => x.caseId));
+
+  // Meddelanden, påminnelser, flaggor, notiser. Notisen om en ny beställning visas inte en gång till under Följ upp när
+  // beställningen redan står i Att göra i dag med knappen Ta emot.
+  const notifs = notificationsFor(all, me, "coach", main)
+    .filter((n) => !n.readAt && n.kind !== "progress_escalation" && !(n.kind === "new_order" && !!n.caseId && receiveIds.has(n.caseId)));
   // Meddelanden från kommunen som coachen inte har läst – samma räkning som deltagarkortets olästa (kommunens användare =
   // profiler i kundorganisationer). Ett per ärende, det senaste överst. Bara läsning via ctx.repo.
   const customerOrgs = new Set((await ctx.repo.table("organizations").list({ kind: "customer" })).map((o) => o.id));
@@ -272,6 +294,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       const cur = noShowOpen(c) ? currentNoShow(c, noShows) : null;
       return { ...row(c), firstMeetingAt: c.firstMeetingAt as string, noShow: cur ? { text: noShowSentence(cur) } : null, canRegisterNoShow: canRegisterNoShow(c, now, noShows) };
     }),
+    toReceive,
     drafts: drafts.map((ci) => ({
       checkInId: ci.id, ...row(caseById.get(ci.caseId) as Case), heldAt: ci.heldAt, inputMethod: ci.inputMethod,
       audioDeletedAt: ci.ai?.audioDeletedAt ?? null, rawTranscriptDeleteBy: ci.ai?.rawTranscriptDeleteBy ?? null,

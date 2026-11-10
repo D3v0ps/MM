@@ -438,6 +438,12 @@ export type MinVeckaView = {
     noShow: { text: string } | null;
     canRegisterNoShow: boolean;
   }[];
+  /**
+   * Nya beställningar att ta emot (Karims beslut 2026-11-09, 0041): beställningarna som väntar på svar i avtalen där coachen är
+   * intagsansvarig – tom lista för alla andra coacher. dueAt = när kommunen senast ska ha svar (avropets tidsgräns), from =
+   * handläggaren som beställde. Sorterade på tidsgränsen. Raden har knappen Ta emot (samma dialog som inkorgens Acceptera).
+   */
+  toReceive: { caseId: string; caseNumber: string; name: string; from: string; dueAt: LocalDateTime | null; sla: CoachSla | null }[];
   drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];
   monthly: {
     month: MonthKey;

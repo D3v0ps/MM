@@ -16,6 +16,7 @@ import {
   Badge, Button, Card, CaseName, cn, DemoNote, Field, focusSoon, Icon, Input, Row, Split, Stack, TitleLink, toast, TodoList, WeekMore, WeekPage, type IconName,
   type TodoItem, type TodoStatus,
 } from "@/ui";
+import { AcceptModal } from "@/features/inkorg/screens/modals";
 import { alertAck } from "@/features/ledning/api";
 import { notifRead } from "@/features/notiser/api";
 import { pendingNotes } from "@/features/rost/api";
@@ -45,7 +46,7 @@ const by = (dueAt: string, now: string) => `Senast ${whenText(dueAt, now)}`;
  * Ordningen vid samma tid och för det som saknar tid (C1: närvaro, möten, mötesrapporter, månadsbedömningar, kommunen) – och
  * vilken del i ett ärende som ger raden dess rubrik och knapp (lägre först): dagens möte går före det som förfaller i ärendet.
  */
-const W = { narvaro: 10, mote: 12, starta: 15, forfaller: 18, manad: 30, utkast: 40, kommunen: 50, rost: 55, bonus: 60 } as const;
+const W = { taemot: 8, narvaro: 10, mote: 12, starta: 15, forfaller: 18, manad: 30, utkast: 40, kommunen: 50, rost: 55, bonus: 60 } as const;
 
 function MinVecka({ v }: { v: MinVeckaView }) {
   const nav = useNav();
@@ -61,7 +62,34 @@ function MinVecka({ v }: { v: MinVeckaView }) {
     nav.push(`/arenden/${encodeURIComponent(n.caseId)}?flik=meddelanden`);
   };
 
+  // Ta emot en ny beställning (Karims beslut 2026-11-09): dialogen är inkorgens acceptdialog, delad.
+  const [receive, setReceive] = useState<{ caseId: string; caseNumber: string } | null>(null);
+
   const parts: Part[] = [];
+  // Nya beställningar att ta emot – bara för avtalets intagsansvarige (listan är tom för andra coacher). Sorteras på
+  // tidsgränsen för svaret till kommunen, som samordnarens rad.
+  for (const o of v.toReceive) {
+    const open = (kind: "secondary" | "ghost") => (
+      <Button kind={kind} icon="check" onClick={() => setReceive({ caseId: o.caseId, caseNumber: o.caseNumber })}>
+        Ta emot <span className="sr-only">{o.caseNumber}</span>
+      </Button>
+    );
+    parts.push({
+      key: `taemot:${o.caseId}`, group: o.caseId, dueAt: o.dueAt, weight: W.taemot,
+      rest: { notes: [`Ny beställning att ta emot – ${o.caseNumber}.`], action: open("ghost") },
+      item: {
+        id: `mv-taemot-${o.caseId}`, icon: "inbox", when: o.dueAt ? by(o.dueAt, now) : undefined, status: o.sla ? slaToStatus(o.sla) : null,
+        title: `Ny beställning att ta emot – ${o.caseNumber}`,
+        notes: [
+          <span key="vem">
+            <Link to={`/arenden/${encodeURIComponent(o.caseId)}`} className="font-bold text-antracit underline underline-offset-3">{o.name}</Link> · beställd av {o.from}.
+          </span>,
+          "Boka första mötet och tryck på Ta emot. Kommunen får orderbekräftelsen och samordnarna en notis.",
+        ],
+        action: open("secondary"),
+      },
+    });
+  }
   // Närvaro att registrera (förra veckan) – med regeln om automatisk närvaro i en rad.
   if (unreg > 0) {
     parts.push({
@@ -437,6 +465,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         Kalendern visar aktiviteterna i dina aktiva ärenden. I den riktiga tjänsten kan den synkas med Outlook. Påminnelser om progression är interna regler för
         Miljonbemanning och går bara till dig. <Persp role="kommun_handlaggare" to="/portal/rapporter" label="Se vad handläggaren får" />
       </DemoNote>
+      {receive && <AcceptModal intake caseId={receive.caseId} caseNumber={receive.caseNumber} onClose={() => setReceive(null)} />}
     </WeekPage>
   );
 }

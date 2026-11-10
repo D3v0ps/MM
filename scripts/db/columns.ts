@@ -28,7 +28,7 @@ export type ColumnManifest = { [N in TableName]: { [K in keyof Tables[N]]-?: Col
 
 export const COLUMNS = {
   organizations: { id: "text", name: "text", orgNr: "text", kind: "text", emailDomains: "text[]" },
-  contracts: { id: "text", supplierId: "text", customerId: "text", name: "text", contractNumber: "text", dnr: "text | null", startsOn: "date", endsOn: "date | null", casePrefix: "text", dataRole: "text", config: "jsonb", status: "text", contractManagerId: "text | null" },
+  contracts: { id: "text", supplierId: "text", customerId: "text", name: "text", contractNumber: "text", dnr: "text | null", startsOn: "date", endsOn: "date | null", casePrefix: "text", dataRole: "text", config: "jsonb", status: "text", contractManagerId: "text | null", intakeCoachId: "text | null" },
   contract_areas: { id: "text", contractId: "text", code: "text", name: "text", active: "boolean" },
   price_items: { id: "text", contractId: "text", areaCode: "text | null", code: "text", unit: "text", packageMonths: "integer | null", priceOre: "bigint", vatRate: "numeric", validFrom: "date", validTo: "date | null", fortnoxArticleNo: "text | null", exampleOnly: "boolean" },
   profiles: { id: "text", organizationId: "text", fullName: "text", email: "text", phone: "text", title: "text", active: "boolean", lastLoginAt: "timestamptz | null", customerUnit: "text | null", buyerReferenceId: "text | null", teamRole: "text | null", invitedAt: "timestamptz | null", invitedBy: "text | null" },

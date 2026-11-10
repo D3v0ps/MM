@@ -2,7 +2,7 @@
 // views/inkorg.js. Bara för hanterare. Läsning via ctx.repo; ctx.system bara där det står en kommentar om varför.
 import type { Role } from "@/api/roles";
 import type { Ctx, PnrCrypto } from "@/api/server";
-import { buyerRefLengthText, isUnset, phaseLabel } from "@/core/config";
+import { buyerRefLengthText, isUnset, phaseLabel, requireOperational } from "@/core/config";
 import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/core/cases";
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { viewLink } from "@/core/links";
@@ -25,7 +25,7 @@ import {
   addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS, type LocalDateTime,
 } from "@/core/time";
 import { by, uniq } from "@/core/util";
-import type { Case, CaseStatusHistory, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Report } from "@/data/schema";
+import type { Case, CaseStatusHistory, Contract, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Profile, Report } from "@/data/schema";
 import type {
   AckView, AlertView, CaseFieldsView, ConfirmationView, DeadlinesView, DecisionForm, DeclinedView, DuplicateView, FieldGroup, FieldNote, FormField, InboxItemDetail,
   InboxList, KpiCardView, MiniDeadline, OriginalView, ParsedView, PendingSupplement, PnrView, StartView,
@@ -47,7 +47,7 @@ const DECIDED = ["confirmed", "active", "paused", "closed"];
 const isOpen = (c: Pick<Case, "status"> | null | undefined) => !!c && OPEN.includes(c.status);
 /** Mejlet väntar på hantering (samma statusar som fliken Att hantera). */
 const isPending = (s: InboundEmail["status"]) => s === "received" || s === "acknowledged";
-const refConfig = (e: InboxEnv) => ({ refPattern: e.cfg.billing.buyerReference.pattern, refLen: buyerRefLengthText(e.cfg) });
+const refConfig = (e: Pick<InboxEnv, "cfg">) => ({ refPattern: e.cfg.billing.buyerReference.pattern, refLen: buyerRefLengthText(e.cfg) });
 const refError = (s: string | null | undefined, e: InboxEnv) => refErrorMB(s, e.cfg.billing.buyerReference.pattern, buyerRefLengthText(e.cfg));
 
 /** Ärendets värde för ett fält i beställningen (prototypens fältnamn → ärendets). */
@@ -526,26 +526,28 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
 }
 
 // ---------------------------------------------------------------- Dialogerna Acceptera och Avböj
-export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<DecisionForm | null> {
-  const e = await inboxEnv(ctx);
-  const d = await loadInbox(ctx, e);
-  const c = d.caseById.get(caseId);
-  if (!c) return null;
+/** Avtalet och klockan som underlaget räknas mot (inkorgens miljö, eller ärendets avtal för den intagsansvarige). */
+type FormEnv = Pick<InboxEnv, "contract" | "cfg" | "now" | "today">;
+/**
+ * Underlaget till acceptdialogen utan avropsinkorgen: ärendet, avtalets coacher (med antal aktiva ärenden), teamets kandidater,
+ * avtalsområdena, omfattningen och handläggarens bakgrund. Allt läst via behörigheten. Delas av inkorgens dialog
+ * (buildDecisionForm) och den intagsansvariges Ta emot (buildIntakeForm).
+ */
+async function decisionFormBase(ctx: Ctx, e: FormEnv, c: Case, cases: readonly Case[], profiles: readonly Profile[]): Promise<Omit<DecisionForm, "pendingSup" | "declined" | "total">> {
   const person = (await ctx.repo.table("persons").get(c.personId)) ?? null;
   const memberships = await ctx.repo.table("memberships").list({ contractId: e.contract.id });
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
-  const active = (uid: string) => d.cases.filter((x) => x.leadCoachId === uid && ["confirmed", "active", "paused"].includes(x.status)).length;
+  const active = (uid: string) => cases.filter((x) => x.leadCoachId === uid && ["confirmed", "active", "paused"].includes(x.status)).length;
   // Teamet bygger på medlemskapens roller (beslut 2026-10-08) – inte profiles.teamRole, som bara testdatat sätter.
   const cand = await teamCandidates(ctx, e.contract.id);
   const due = firstMeetingDue(c, e.cfg);
   const avrop = avropDue(c, e.cfg);
-  const sup = pendingSups(d, c)[0] ?? null;
   const activeAreas = areas.filter((a) => a.active);
   return {
-    caseId: c.id, caseNumber: c.caseNumber, from: c.referrerId ? personName(d.profiles, c.referrerId) : c.referrerName ?? "–",
+    caseId: c.id, caseNumber: c.caseNumber, from: c.referrerId ? personName(profiles, c.referrerId) : c.referrerName ?? "–",
     areaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : "Avtalsområde inte valt",
     displayName: person ? `${person.firstName} ${person.lastName}` : "–", avropSla: avrop ? sla(avrop, null, e.now) : null,
-    coaches: coachesOf({ profiles: d.profiles, memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
+    coaches: coachesOf({ profiles: [...profiles], memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
     staff: cand.staff,
     firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
@@ -555,8 +557,28 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
     periods: { months: [...e.cfg.orderPeriods.months], allowOther: e.cfg.orderPeriods.allowOther },
     orderPeriodMonths: c.orderPeriodMonths, orderPeriodReason: c.orderPeriodReason, plannedEnd: c.plannedEnd, plannedWeeks: c.plannedWeeks,
     background: await caseBackground(ctx, c),
-    pendingSup: sup, declined: d.cases.filter((x) => x.status === "declined").length, total: d.cases.length,
   };
+}
+
+export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<DecisionForm | null> {
+  const e = await inboxEnv(ctx);
+  const d = await loadInbox(ctx, e);
+  const c = d.caseById.get(caseId);
+  if (!c) return null;
+  const sup = pendingSups(d, c)[0] ?? null;
+  return { ...(await decisionFormBase(ctx, e, c, d.cases, d.profiles)), pendingSup: sup, declined: d.cases.filter((x) => x.status === "declined").length, total: d.cases.length };
+}
+
+/**
+ * Underlaget till Ta emot för avtalets intagsansvarige (Karims beslut 2026-11-09, arenden.acceptForm): samma underlag som
+ * inkorgens acceptdialog, men läst utan avropsinkorgen – coachen läser aldrig mejlen (inbound_emails), så en komplettering som
+ * väntar visas inte här (samordnaren för in den i inkorgen). Avtalet är ärendets, redan läst via behörigheten.
+ */
+export async function buildIntakeForm(ctx: Ctx, c: Case, contract: Contract): Promise<DecisionForm> {
+  const now = ctx.now();
+  const e: FormEnv = { contract, cfg: requireOperational(contract.config), now, today: dayOf(now) };
+  const [cases, profiles] = await Promise.all([ctx.repo.table("cases").list({ contractId: contract.id }), ctx.repo.table("profiles").list()]);
+  return { ...(await decisionFormBase(ctx, e, c, cases, profiles)), pendingSup: null, declined: 0, total: 0 };
 }
 
 // ---------------------------------------------------------------- Startsidan

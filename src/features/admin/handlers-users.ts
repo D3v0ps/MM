@@ -177,6 +177,17 @@ handleCommand(adminInviteStaff, { roles: ["admin"] }, async (ctx, p) => {
 });
 
 /** Ändra roller: medlemskapen i huvudavtalet görs lika med listan (minst en roll). Den egna adminrollen kan inte tas bort. */
+/**
+ * Avtalet har inte längre personen som intagsansvarig (Karims beslut 2026-11-09): när rollen coach tas bort eller kollegan spärras.
+ * Avtalet läses om (det kan ha ändrats) och loggen får bara id:n och orsaken som kod.
+ */
+async function clearIntakeCoach(ctx: Ctx, contract: Pick<Contract, "id">, userId: string, reason: "role_removed" | "blocked"): Promise<void> {
+  const c = await ctx.repo.table("contracts").get(contract.id);
+  if (!c || c.intakeCoachId !== userId) return;
+  await ctx.repo.table("contracts").update(c.id, { intakeCoachId: null });
+  await ctx.audit({ action: "contract.intake_coach_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { from: userId, to: null, reason } });
+}
+
 handleCommand(adminSetStaffRoles, { roles: ["admin"] }, async (ctx, p) => {
   const main = await mainContract(ctx);
   const u = await colleague(ctx, main, p.userId);
@@ -191,6 +202,8 @@ handleCommand(adminSetStaffRoles, { roles: ["admin"] }, async (ctx, p) => {
   for (const m of cur) if (!roles.includes(m.role as SupplierRole)) await table.remove(m.id);
   for (const role of roles) if (!cur.some((m) => m.role === role)) await table.insert({ id: `${u.id}:${main.id}:${role}`, userId: u.id, contractId: main.id, role, customerUnit: null });
   await ctx.audit({ action: "staff_user.roles_changed", entity: "profile", entityId: u.id, contractId: main.id, details: { from: before, to: roles } });
+  // Avtalets intagsansvarige (0041) ska ha rollen coach: tas rollen bort går avtalets nya beställningar till samordnaren igen.
+  if (!roles.includes("coach")) await clearIntakeCoach(ctx, main, u.id, "role_removed");
   return ok({ changed: true });
 });
 
@@ -202,5 +215,7 @@ handleCommand(adminSetStaffActive, { roles: ["admin"] }, async (ctx, p) => {
   if (u.id === ctx.actor.userId) return fail("self", "Du kan inte spärra dig själv.");
   if (u.active !== p.active) await ctx.repo.table("profiles").update(u.id, { active: p.active });
   await ctx.audit({ action: p.active ? "staff_user.reactivated" : "staff_user.blocked", entity: "profile", entityId: u.id, contractId: main.id, details: {} });
+  // En spärrad kollega kan inte logga in: är hen avtalets intagsansvarige går nya beställningar till samordnaren igen (0041).
+  if (!p.active) await clearIntakeCoach(ctx, main, u.id, "blocked");
   return ok({});
 });

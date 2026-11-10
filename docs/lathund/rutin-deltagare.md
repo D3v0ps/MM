@@ -11,10 +11,13 @@ Vem: kommunens handläggare och samordnaren.
 1. Kommunen beställer med ett mejl till **avrop@miljonbemanning.se** eller i portalen under **Beställ ny insats**. Yrkesområdet ska vara med.
 2. Beställningen blir ett ärende med ett ärendenummer. Ordererkännandet skickas automatiskt till handläggaren. Saknas något, till exempel yrkesområdet, frågar ordererkännandet efter det.
 3. Kom beställningen per telefon, eller i ett mejl som inte gick att läsa in? Samordnaren trycker på **Registrera beställning** i **Avropsinkorg**.
+4. Har avtalet en intagsansvarig får hen notisen **Ny beställning att ta emot – BOT-…** i appen. Beställningen står också på hens Min vecka.
 
 ### 2. Acceptera och boka första mötet
 
-Vem: samordnaren eller avtalsansvarig, inom den tid som står i avtalet.
+Vem: avtalets intagsansvarige, samordnaren eller avtalsansvarig, inom den tid som står i avtalet.
+
+Avtalets intagsansvarige är en coach som systemadministratören har valt. Hen tar emot nya beställningar själv med **Ta emot** på Min vecka eller på deltagarkortet. Dialogen och stegen är desamma som nedan, och hen är förvald som huvudcoach. Samordnarna får notisen **Ny deltagare mottagen – BOT-…** i appen. Har avtalet ingen intagsansvarig tar samordnaren emot, som förut. Bara samordnaren och avtalsansvarig avböjer en beställning.
 
 1. Öppna beställningen i **Avropsinkorg** och tryck på **Acceptera avropet**.
 2. Kontrollera **Avtalsområde**. Det är ifyllt från beställningen.

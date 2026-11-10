@@ -5,6 +5,8 @@
 //   * bara ekonomen ser fakturaunderlag och belopp (beslut 2026-10-07, spärrat på servern)
 //   * coachen ser och arbetar i alla ärenden i avtalet – tilldelningen styr notiser och Mina ärenden (beslut 2026-10-09)
 //   * chefen läser ärendena, kvitterar flaggor och signerar den månatliga loggkontrollen; systemadministratören läser ärendena
+//   * nya beställningar tas emot av samordnaren och avtalsansvarig – och av coachen bara som avtalets intagsansvarige (Karims
+//     beslut 2026-11-09); bara samordnaren och avtalsansvarig avböjer
 import type { EscalationRole } from "@/core/config";
 
 /** Kolumnerna: rollerna i appen (den vilande rollen handledare visas inte). */
@@ -46,7 +48,8 @@ export function roleMatrix(escalateTo: readonly EscalationRole[], escWord: Escal
     {
       title: "Gör",
       rows: [
-        row("accept", "Acceptera och avböja avrop", all(["avtalsansvarig", "samordnare"])),
+        row("accept", "Ta emot nya beställningar – coachen bara som avtalets intagsansvarige", all(["avtalsansvarig", "samordnare", "coach"])),
+        row("decline", "Avböja avrop", all(["avtalsansvarig", "samordnare"])),
         row("customers", "Bjuda in och spärra kommunanvändare", all(["admin", "avtalsansvarig"])),
         row("staff", "Lägga till kollegor och ändra roller", all(["admin"])),
         row("admin", "Ändra avtal och köra bakgrundsjobb", all(["admin"])),
@@ -60,6 +63,9 @@ export function roleMatrix(escalateTo: readonly EscalationRole[], escWord: Escal
       title: "Notiser",
       rows: [
         row("notify-assignment", "Notis vid tilldelning: huvudcoach och team", { coach: "mottagare" }),
+        // Karims beslut 2026-11-09: bara i appen – aldrig e-post eller SMS.
+        row("notify-new-order", "Notis om ny beställning att ta emot: avtalets intagsansvarige", { coach: "mottagare" }),
+        row("notify-received", "Notis när en deltagare är mottagen: samordnare", { samordnare: "mottagare" }),
         row("notify-progress", "Påminnelser om utebliven progression: coach", { coach: "mottagare", chef: "ser" }),
         row(
           "notify-escalation",
@@ -84,11 +90,11 @@ export const ROLE_DESCRIPTIONS: readonly RoleDescription[] = [
   },
   {
     key: "samordnare", role: "Operativ samordnare", org: "Miljonbemanning", sees: "Alla ärenden i avtalet – inga belopp",
-    does: "Avropsinkorg, tilldelar coach, bokar start, kvitterar flaggor, registrerar avtalsavvikelser", login: "E-post och engångskod",
+    does: "Avropsinkorg, tar emot och avböjer avrop, tilldelar coach, bokar start, kvitterar flaggor, registrerar avtalsavvikelser", login: "E-post och engångskod",
   },
   {
     key: "coach", role: "Huvudcoach", org: "Miljonbemanning", sees: "Alla ärenden i avtalet – tilldelningen styr notiser och Mina ärenden. Inga belopp",
-    does: "Kartläggning, möten, närvaro, bedömningar, utfall, rapporter, kvitterar flaggor", login: "E-post och engångskod",
+    does: "Kartläggning, möten, närvaro, bedömningar, utfall, rapporter, kvitterar flaggor. Avtalets intagsansvarige tar emot nya beställningar", login: "E-post och engångskod",
   },
   {
     key: "chef", role: "Chef och controller", org: "Miljonbemanning", sees: "Alla ärenden i läsläge, nyckeltal, flaggor och revisionsloggen – inga belopp",

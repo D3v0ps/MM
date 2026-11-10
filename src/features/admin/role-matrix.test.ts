@@ -31,10 +31,12 @@ const routeRoles = (path: string) => {
 describe("behörighetsmatrisen stämmer med hanterarna, rutterna och policyn (paket 1, A1)", () => {
   it("Gör: varje rad är exakt de roller som kommandot tar emot", () => {
     const commands: Record<string, string[]> = {
-      accept: ["arenden.caseAccept", "arenden.caseDecline"],
+      // Ta emot (Karims beslut 2026-11-09): coachen bara som avtalets intagsansvarige – hanteraren och databasen prövar det.
+      accept: ["arenden.caseAccept", "arenden.acceptForm"],
+      decline: ["arenden.caseDecline"],
       customers: ["admin.inviteCustomer", "admin.setCustomerActive"],
       staff: ["admin.inviteStaff", "admin.setStaffRoles"],
-      admin: ["admin.setContractManager", "admin.setOrgRule", "admin.runJob"],
+      admin: ["admin.setContractManager", "admin.setIntakeCoach", "admin.setOrgRule", "admin.runJob"],
       alerts: ["ledning.alertAck"],
       deviations: ["ledning.cdevSave"],
       invoicing: ["ekonomi.billingSendFortnox", "ekonomi.billingApproveInvoice"],
@@ -46,6 +48,12 @@ describe("behörighetsmatrisen stämmer med hanterarna, rutterna och policyn (pa
       for (const key of keys) expect(withCell(row), `${row}: ${key}`).toEqual(handlerRoles(key));
       // Bara Ja eller Nej i Gör.
       expect(MATRIX_ROLES.every((r) => ["ja", "nej"].includes(rowOf(row).cells[r])), row).toBe(true);
+    }
+    // Coachen tar emot bara som avtalets intagsansvarige (raden säger det) och avböjer aldrig; inkorgen är inte coachens.
+    expect(rowOf("accept").label).toMatch(/coachen bara som avtalets intagsansvarige/);
+    expect(rowOf("decline").cells.coach).toBe("nej");
+    for (const key of ["inkorg.list", "inkorg.item", "inkorg.decisionForm", "inkorg.confirmation", "inkorg.register", "inkorg.emailSetStatus", "inkorg.emailApplySupplement"]) {
+      expect(has(key, "coach"), key).toBe(false);
     }
     // Chefen kvitterar flaggor och signerar loggkontrollen.
     expect(rowOf("alerts").cells.chef).toBe("ja");

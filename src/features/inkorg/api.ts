@@ -20,7 +20,7 @@ export const emailSetStatus = command("inkorg.emailSetStatus", z.object({
   emailId: IdSchema,
   status: z.enum(INBOUND_EMAIL_STATUSES),
   caseId: IdSchema.optional(),
-}), { invalidates: [INBOX, "arenden.lista", CARD, "coach.minVecka", MGMT, NAV, ...LOG] }).returns<Result<object, "not_found">>();
+}), { invalidates: [INBOX, "arenden.lista", "arenden.acceptForm", CARD, "coach.minVecka", MGMT, NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * För in en komplettering i ärendet (prototypens email.applySupplement): omfattning, slutdatum, motivering och

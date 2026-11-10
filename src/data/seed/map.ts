@@ -61,7 +61,7 @@ export function contractTables(db: Db) {
   );
   db.contracts.push(
     { id: "c-bot", supplierId: ORG_MB, customerId: ORG_BOTKYRKA, name: "Yrkesförberedande och yrkesinriktade insatser", contractNumber: "332026110", dnr: "AVN/2026:00048",
-      startsOn: "2026-09-10", endsOn: "2030-09-10", casePrefix: "BOT", dataRole: "processor", config: clone(BOTKYRKA_CONFIG), status: "active", contractManagerId: "u-johan" },
+      startsOn: "2026-09-10", endsOn: "2030-09-10", casePrefix: "BOT", dataRole: "processor", config: clone(BOTKYRKA_CONFIG), status: "active", contractManagerId: "u-johan", intakeCoachId: null },
   );
   // Prislistan: påhittade priser inom avtalets spann. I testdatats berättelse (fem månader in i piloten, fakturor för september–
   // december är skapade och betalda) är priserna inlagda, så de är inte markerade som exempelpriser – en faktura med exempelpris

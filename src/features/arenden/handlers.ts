@@ -47,12 +47,14 @@ import type {
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
+import { isIntakeCoach, isOpenOrder, notifyCaseReceived, settleNewOrderNotices } from "../_shared/intake";
 import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
 import { fieldWord, reasonWord } from "../admin/audit-text";
 import { templateLabel } from "../admin/templates";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
+import { buildDecisionForm, buildIntakeForm } from "../inkorg/views";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
 import { freezeReport } from "../rapporter/freeze";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
@@ -68,7 +70,7 @@ import { participantFilesFor } from "./participant-file-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
-  activityAdd, activityRemove, caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseScheduleChange, caseSetBuyerRef, caseSetTeam, caseStart,
+  activityAdd, activityRemove, caseAccept, caseAcceptForm, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseScheduleChange, caseSetBuyerRef, caseSetTeam, caseStart,
   caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
@@ -178,14 +180,37 @@ handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_hand
 });
 
 // ---------------------------------------------------------------- case.accept
-handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
+// Tar emot en beställning: samordnaren och avtalsansvarig som förut – och avtalets intagsansvarige (Karims beslut 2026-11-09,
+// 0041): en coach tar emot bara i avtal där hen är intagsansvarig (contracts.intake_coach_id), aldrig andra coacher. Samma regel i
+// databasen (triggern cases_accept_guard) och policy.ts (caseAcceptGuard).
+const ACCEPT_ROLES: readonly Role[] = [...MANAGERS, "coach"];
+const NOT_INTAKE = "Nya beställningar tas emot av samordnaren eller av avtalets intagsansvarige.";
+
+/** Underlaget till dialogen (Acceptera i inkorgen, Ta emot för den intagsansvarige) – samma dialog för båda. */
+handleQuery(caseAcceptForm, { roles: ACCEPT_ROLES }, async (ctx, p) => {
+  if (isManager(ctx.actor.role)) {
+    const f = await buildDecisionForm(ctx, p.caseId);
+    return f ? { ...f, intake: false, defaultCoachId: null } : null;
+  }
+  // Den intagsansvarige: ärendet, personen och avtalet läses via behörigheten – aldrig avropsinkorgen eller dess mejl.
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c || !isOpenOrder(c) || !(await ctx.repo.table("persons").get(c.personId))) return null;
+  const contract = await ctx.repo.table("contracts").get(c.contractId);
+  if (!contract || !isOperational(contract.config) || !isIntakeCoach(ctx.actor, contract)) return null;
+  return { ...(await buildIntakeForm(ctx, c, contract)), intake: true, defaultCoachId: ctx.actor.userId };
+});
+
+handleCommand(caseAccept, { roles: ACCEPT_ROLES }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   // Personen läses via behörigheten (vilande spärr för skyddade personuppgifter: samordnaren ser då ingen person).
   const person = await ctx.repo.table("persons").get(c.personId);
   if (!person) return fail("forbidden", NO_EDIT);
-  if (c.status !== "received" && c.status !== "acknowledged") return fail("wrong_status", `${c.caseNumber} är redan besvarat.`);
   const { contract, cfg } = await contractOf(ctx, c.contractId);
+  // En coach tar emot bara som avtalets intagsansvarige – före allt annat, så att svaret är detsamma oavsett ärendets läge.
+  const intake = ctx.actor.role === "coach";
+  if (intake && !isIntakeCoach(ctx.actor, contract)) return fail("forbidden", NOT_INTAKE);
+  if (!isOpenOrder(c)) return fail("wrong_status", `${c.caseNumber} är redan besvarat.`);
   // Beställarreferensen är valfri vid accept (beslut 2026-10-07) – formatet kontrolleras om något skrivits.
   const ref = p.buyerReference != null ? p.buyerReference.trim() || null : c.buyerReference;
   if (p.buyerReference != null && ref && !buyerRefValid(ref, cfg)) {
@@ -241,7 +266,10 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   } else {
     return fail("order_period", "Välj hur länge insatsen ska pågå.");
   }
-  const updated = await ctx.repo.table("cases").update(c.id, patch);
+  // Bara om beställningen fortfarande väntar på svar (kontroll och skrivning i ett steg): tar samordnaren och den
+  // intagsansvarige emot samtidigt går bara den första igenom – ingen andra orderbekräftelse, kallelse eller notis.
+  const updated = await ctx.repo.table("cases").updateIf(c.id, { status: { in: ["received", "acknowledged"] } }, patch);
+  if (!updated) return fail("wrong_status", `${c.caseNumber} är redan besvarat.`);
 
   const teamTable = ctx.repo.table("case_team");
   for (const t of await teamTable.list({ caseId: c.id })) await teamTable.remove(t.id);
@@ -255,11 +283,14 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
     approvedBy: ctx.actor.userId, approvedAt: now, deliveredAt: now, deliveredTo: c.referrerId ? [c.referrerId] : [],
   });
   await ctx.repo.table("reports").insert(rep);
-  const email = await ctx.repo.table("inbound_emails").first({ caseId: c.id, status: { in: ["acknowledged", "received"] } });
-  if (email) await ctx.repo.table("inbound_emails").update(email.id, { status: "accepted", handledBy: ctx.actor.userId, handledAt: now });
+  // Avropsmejlet bokförs som accepterat. ctx.system för den intagsansvarige: coachen läser och ändrar aldrig avropsinkorgens
+  // mejl (policyn och RLS för inbound_emails) – bokföringen är ett systemsteg, som notiserna. Samordnaren skriver som förut.
+  const emails = (intake ? ctx.system : ctx.repo).table("inbound_emails");
+  const email = await emails.first({ caseId: c.id, status: { in: ["acknowledged", "received"] } });
+  if (email) await emails.update(email.id, { status: "accepted", handledBy: ctx.actor.userId, handledAt: now });
   await ctx.audit({
     action: "case.accepted", entity: "case", entityId: c.id, contractId: c.contractId,
-    details: { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt, withinSla: due ? now <= due : null },
+    details: { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt, withinSla: due ? now <= due : null, ...(intake ? { via: "intake_coach" } : {}) },
   });
 
   const settings = await orgSettingsFor(ctx, contract);
@@ -273,6 +304,10 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   } else {
     invitation = (await sendMeetingInvitation(ctx, updated, p.firstMeetingAt)).summary;
   }
+  // Samordnarna får en notis i appen om att en deltagare är mottagen (utom den som själv tog emot), och den intagsansvariges
+  // notis om beställningen är inte längre aktuell (Karims beslut 2026-11-09).
+  await notifyCaseReceived(ctx, updated, { firstMeetingAt: p.firstMeetingAt, leadCoachId: p.leadCoachId });
+  await settleNewOrderNotices(ctx, c.id);
   return ok({ reportId: rep.id, caseNumber: c.caseNumber, invitation });
 });
 
@@ -291,6 +326,8 @@ handleCommand(caseDecline, { roles: MANAGERS }, async (ctx, p) => {
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "declined", reason });
   await ctx.audit({ action: "case.declined", entity: "case", entityId: c.id, contractId: c.contractId, details: { reason } });
   await notifyReferrer(ctx, c, "avbojt", `Vi kan tyvärr inte ta emot beställning ${c.caseNumber}. Logga in i portalen för att läsa orsaken.`);
+  // Den intagsansvariges notis om beställningen är inte längre aktuell (0041).
+  await settleNewOrderNotices(ctx, c.id);
   return ok({});
 });
 
@@ -1027,7 +1064,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
   // restricted (vilande spärr för skyddade personuppgifter) behandlas som ingen åtkomst.
   if (access !== "full" && access !== "team") return { kind: "denied" };
   const L = (await loadCase(ctx, c.id))!;
-  const { cfg, env, role, me, team, edit } = L;
+  const { cfg, env, role, me, team, edit, contract } = L;
   const now = env.now;
   const byCase = { caseId: c.id };
   const db = await loadDb(ctx.repo, [...ALERT_TABLES, "case_team", "messages", "deviations", "consents", "contract_areas", "memberships"], {
@@ -1155,6 +1192,8 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
         earliest: dayOf(c.referredAt), period: orderPeriodBasis(c), planRows: cfg.activities?.defaultWeekPlan ?? null,
       }
       : null,
+    // Ta emot (Karims beslut 2026-11-09): bara avtalets intagsansvarige, i en beställning som väntar på svar.
+    canReceive: access === "full" && isOpenOrder(c) && isIntakeCoach(ctx.actor, contract),
     weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
     // Ändra startdatum (Karims beslut 2026-10-29): knappen och om raden med ändringarna ska hämtas (arenden.startdatum) – så att

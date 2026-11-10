@@ -19,6 +19,8 @@ const { pnrCryptoFromKeys } = await import("../crypto");
 const key = (s: string) => createHash("sha256").update(s).digest();
 const CRYPTO = pnrCryptoFromKeys(key("testmiljö-kryptering"), key("testmiljö-hmac"));
 const KARIM_AUTH = "aaaaaaaa-0000-4000-8000-000000000001";
+/** Avtalen med en intagsansvarig i testdatat (0041): de skrivs en gång till sist, när profilerna och medlemskapen finns. */
+const INTAKE_CONTRACTS = seedData().contracts.filter((c) => c.intakeCoachId).length;
 
 /** PostgREST-klienten (rpc + upsert) mot en transaktion, som service role. */
 function pgClient(tx: Tx): SeedClient & { calls: { table: string; rows: number; ignore: boolean }[] } {
@@ -133,7 +135,11 @@ describe("batcharna", () => {
   it("alla rader, i seed.sql:s ordning, med krypterade personnummer och inga batchar över gränsen", () => {
     const batches = seedBatches(CRYPTO);
     const total = batches.reduce((n, b) => n + b.rows.length, 0);
-    expect(total).toBe(Object.values(expected()).reduce((a, b) => a + b, 0));
+    // Avtalen med en intagsansvarig (0041) skrivs en gång till sist, när profilerna och medlemskapen finns.
+    expect(total).toBe(Object.values(expected()).reduce((a, b) => a + b, 0) + INTAKE_CONTRACTS);
+    const contractBatches = batches.filter((b) => b.table === "contracts");
+    expect(contractBatches.map((b) => b.rows.map((r) => r.intake_coach_id))).toEqual([[null], ["u-amira"]]);
+    expect(batches.at(-1)).toBe(contractBatches[1]);
     for (const b of batches) expect(JSON.stringify(b.rows).length).toBeLessThan(MAX_BATCH_BYTES + 64 * 1024);
     const order = [...new Set(batches.map((b) => b.table))];
     expect(order.indexOf("buyer_references")).toBeLessThan(order.indexOf("profiles"));
@@ -160,7 +166,10 @@ describe("inläsningen (mm.reset_test_data + upsert i batchar)", () => {
       const summary = await loadTestData(client, { crypto: CRYPTO, demoStart: DEMO_START });
       const want = expected();
       expect(await counts(tx)).toEqual(want);
-      expect(summary.rows).toBe(Object.values(want).reduce((a, b) => a + b, 0));
+      expect(summary.rows).toBe(Object.values(want).reduce((a, b) => a + b, 0) + INTAKE_CONTRACTS);
+      // Avtalets intagsansvarige (0041) är satt – sist, efter profilerna och medlemskapen (triggern contracts_intake_coach_check).
+      expect(INTAKE_CONTRACTS).toBe(1);
+      expect((await tx.query<{ intake_coach_id: string | null }>("select intake_coach_id from public.contracts where id = 'c-bot'")).rows[0].intake_coach_id).toBe("u-amira");
       expect(summary.requests).toBe(client.calls.length + 1);
       expect(summary.requests).toBeLessThan(120);
 

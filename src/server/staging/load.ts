@@ -14,7 +14,7 @@ import type { MemoryData } from "@/data/memory";
 import type { Person, TableName, Tables } from "@/data/schema";
 import { decodeTestPnr } from "@/data/seed/pnr";
 import { toDbRow } from "@/data/supabase/columns";
-import { profileExtras, SEED_TABLE_ORDER, seedData, TESTER_IDS } from "@/data/supabase/seed-rows";
+import { contractIntakeCoaches, contractsWithoutIntake, profileExtras, SEED_TABLE_ORDER, seedData, TESTER_IDS } from "@/data/supabase/seed-rows";
 
 // ---------------------------------------------------------------- Den del av supabase-js som används (fejkas i testet)
 export type SeedError = { code?: string; message?: string };
@@ -83,7 +83,8 @@ const APPEND_ONLY: ReadonlySet<TableName> = new Set<TableName>(["audit_log", "bo
 export function seedBatches(crypto: PnrCrypto, data: MemoryData<Tables> = seedData()): SeedBatch[] {
   const out: SeedBatch[] = [];
   for (const table of SEED_TABLE_ORDER) {
-    const all = data[table] as readonly object[];
+    // Avtalen läses in utan intagsansvarig (0041): profilerna och medlemskapen finns inte än – kolumnen sätts sist, se nedan.
+    const all = table === "contracts" ? contractsWithoutIntake(data.contracts) : (data[table] as readonly object[]);
     if (!all.length) continue;
     // Testarnas rader behålls av mm.reset_test_data() och läggs bara till om de saknas (inloggningskopplingen ändras inte).
     const isTesterRow = (r: object) =>
@@ -96,6 +97,10 @@ export function seedBatches(crypto: PnrCrypto, data: MemoryData<Tables> = seedDa
     out.push(...chunk(table, toRows(table, rest, crypto), APPEND_ONLY.has(table)));
     out.push(...chunk(table, toRows(table, testers, crypto), true));
   }
+  // Avtalens intagsansvarige (0041): avtalen skrivs en gång till, nu med kolumnen – personen och medlemskapet finns
+  // (triggern contracts_intake_coach_check prövar dem för alla roller).
+  const intake = new Set(contractIntakeCoaches(data.contracts).map((x) => x.id));
+  if (intake.size) out.push(...chunk("contracts", toRows("contracts", data.contracts.filter((c) => intake.has(c.id)), crypto), false));
   return out;
 }
 
