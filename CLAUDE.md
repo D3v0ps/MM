@@ -76,6 +76,7 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 | närvaro / frånvaro | attendance |
 | automatiskt registrerad närvaro | `attendance.source = 'auto'` |
 | deltagaren kom inte till första mötet (internt, aldrig närvaro eller faktura) | first_meeting_no_show (`first_meeting_no_shows`, kind 'uteblev' / 'giltig') |
+| intagsansvarig (tar emot nya beställningar, en per avtal) | intake_coach (`contracts.intake_coach_id`) |
 | gruppaktivitet | group_activity (`group_activities`; deltagarens tillfälle `activities.group_activity_id`) |
 | gruppmål | group_goal (`group_activities.goal`, `group_goal_results`) |
 | återkommande aktivitet | group_activity_series |
