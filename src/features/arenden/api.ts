@@ -121,7 +121,9 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   /** invitation: hur kallelsen går, i klarspråk (t.ex. "Kallelsen skickas med e-post.") – notifyParticipant. */
   Result<
     { reportId: string; caseNumber: string; invitation: string },
-    "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period" | "past" | "before_order" | "not_working_day"
+    | "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period" | "past" | "before_order" | "not_working_day"
+    // Den intagsansvarige: en komplettering från kommunen väntar i avropsinkorgen – samordnaren för in den först.
+    | "pending_supplement"
   >
 >();
 
@@ -129,10 +131,13 @@ export const caseAccept = command("arenden.caseAccept", z.object({
  * Underlaget till dialogen som tar emot en beställning – samma dialog för alla (src/features/inkorg/screens/modals.tsx):
  * Acceptera i avropsinkorgen (samordnare och avtalsansvarig) och Ta emot för avtalets intagsansvarige (Karims beslut
  * 2026-11-09). intake = dialogen visas för den intagsansvarige (rubriken Ta emot, ingen kvittens ur inkorgen);
- * defaultCoachId = huvudcoachen som är förvald – den intagsansvarige själv, annars ingen. null = beställningen finns inte, är
- * redan besvarad (för den intagsansvarige) eller så får rollen inte ta emot den (andra coacher).
+ * defaultCoachId = huvudcoachen som är förvald – den intagsansvarige själv, annars ingen. supplementPending = kommunen har
+ * skickat en komplettering som väntar i avropsinkorgen: den intagsansvarige tar inte emot förrän samordnaren har fört in den
+ * (bara ja eller nej – coachen läser aldrig mejlet; alltid false för samordnaren och avtalsansvarig, som ser kompletteringen i
+ * pendingSup). null = beställningen finns inte, är redan besvarad (för den intagsansvarige) eller så får rollen inte ta emot
+ * den (andra coacher).
  */
-export type AcceptFormView = DecisionForm & { intake: boolean; defaultCoachId: string | null };
+export type AcceptFormView = DecisionForm & { intake: boolean; defaultCoachId: string | null; supplementPending: boolean };
 export const caseAcceptForm = query("arenden.acceptForm", z.object({ caseId: IdSchema })).returns<AcceptFormView | null>();
 
 /**

@@ -235,8 +235,11 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
       wide
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>Avbryt</Button>
-          <Button kind="primary" icon="check" pending={accept.pending} disabled={noCoach} onClick={() => void submit()}>{intake ? "Ta emot" : "Acceptera avropet"}</Button>
+          <Button kind="ghost" onClick={onClose}>{f.supplementPending ? "Stäng" : "Avbryt"}</Button>
+          {/* En komplettering väntar i inkorgen: den intagsansvarige tar inte emot förrän samordnaren har fört in den. */}
+          {!f.supplementPending && (
+            <Button kind="primary" icon="check" pending={accept.pending} disabled={noCoach} onClick={() => void submit()}>{intake ? "Ta emot" : "Acceptera avropet"}</Button>
+          )}
         </>
       }
     >
@@ -250,6 +253,11 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
         <span className="text-small text-text-muted">Från {f.from} · {f.displayName}</span>
         {f.avropSla && <SlaBadge sla={f.avropSla.sla} dueAt={f.avropSla.dueAt} prefix="Svar:" />}
       </div>
+      {f.supplementPending && (
+        <Notice tone="warn" icon="link" title="En komplettering väntar i inkorgen">
+          Kommunen har skickat en komplettering som väntar i inkorgen. Be samordnaren föra in den innan du tar emot.
+        </Notice>
+      )}
       <CaseBackgroundCard bg={f.background} title="Underlag från handläggaren" />
       {f.pendingSup && (
         <Notice tone="info" icon="link" title="Det finns en komplettering att föra in först">

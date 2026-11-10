@@ -77,6 +77,7 @@ Avtalet kan ha en **intagsansvarig**. Det är en coach som tar emot nya beställ
 - Notisen kommer bara i appen. Du får inget mejl och inget SMS.
 - Beställningen försvinner från din lista **Att göra** och från **Avropsinkorg** när den är mottagen.
 - Du kan fortfarande ta emot beställningen själv med **Acceptera avropet**. Den som trycker först tar emot. Den andra får beskedet att beställningen redan är besvarad.
+- Har kommunen svarat med en komplettering? För in den i **Avropsinkorg** så snart du kan. Den intagsansvarige kan inte ta emot beställningen förrän kompletteringen är införd.
 - Bara samordnaren och avtalsansvarig avböjer och registrerar beställningar.
 - Har avtalet ingen intagsansvarig tar du emot alla beställningar, som förut.
 
@@ -121,6 +122,7 @@ Bra att veta:
 - Kommunen ska ha svar inom en arbetsdag. Ta emot samma dag om du kan.
 - Kan vi inte ta uppdraget? Säg till samordnaren. Bara samordnaren och avtalsansvarig avböjer.
 - Har samordnaren redan tagit emot beställningen får du beskedet att den redan är besvarad. Då behöver du inte göra något.
+- Står det **En komplettering väntar i inkorgen** i dialogen? Då har kommunen skickat nya uppgifter som inte är införda än. Be samordnaren föra in kompletteringen. Sedan kan du ta emot.
 - Är du borta, till exempel på semester? Be systemadministratören välja en annan intagsansvarig.
 
 ### Starta insatsen
@@ -419,7 +421,7 @@ Intagsansvarig är coachen som tar emot avtalets nya beställningar. Personen f�
 Bra att veta:
 
 - Bara kollegor med rollen coach i avtalet finns i listan. Ge rollen under **Användare och roller** först.
-- Byt person vid semester. Den nya personen får notiserna direkt.
+- Byt person vid semester. Den nya personen får en notis för varje beställning som väntar på svar, och nya beställningar går till hen direkt.
 - Tar du bort rollen coach från personen, eller spärrar personen, står avtalet utan intagsansvarig. Då tar samordnaren emot tills du har valt en ny.
 - Bytet står i revisionsloggen.
 

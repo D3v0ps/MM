@@ -7,7 +7,9 @@
 //   4. Sara (samordnare) får notisen "Ny deltagare mottagen – BOT-27-0051" med vem som tog emot, första mötet och huvudcoachen,
 //      och öppnar deltagarkortet: bekräftat, huvudcoach Amira.
 //   5. Erik (en annan coach) ser ingen rad på Min vecka, ingen notis och ingen knapp Ta emot på en beställning som väntar.
-//      Amira har knappen på samma kort, och tar emot ett annat avrop (BOT-27-0050) från deltagarkortet.
+//      Amira har knappen på samma kort – men beställningen (BOT-27-0049) har en komplettering från kommunen som väntar i
+//      avropsinkorgen, så dialogen säger det och har ingen knapp Ta emot. Hon tar emot ett annat avrop (BOT-27-0050) från
+//      deltagarkortet.
 //   6. Maria ser orderbekräftelsen i portalen – och ingenting om vem som är intagsansvarig.
 // Det andra testet: systemadministratören byter intagsansvarig på avtalssidan (till exempel vid semester) och väljer sedan ingen –
 // den nya personen får raderna direkt, och utan intagsansvarig tar bara samordnaren emot.
@@ -164,8 +166,16 @@ test("en ny beställning går till avtalets intagsansvarige: notis, rad på Min 
   await expect(m.getByRole("button", { name: "Ta emot", exact: true })).toHaveCount(0);
   // Den intagsansvarige har knappen på samma kort, och länken ?taemot=1 öppnar dialogen.
   await switchTo(page, info, `/arenden/${WAITING}?taemot=1`, AMIRA);
-  await expect(dialog(page, `Ta emot ${WAITING_NO}`)).toBeVisible();
-  await btn(dialog(page, `Ta emot ${WAITING_NO}`), "Avbryt").click();
+  const waiting = dialog(page, `Ta emot ${WAITING_NO}`);
+  await expect(waiting).toBeVisible();
+  // Kommunen har skickat en komplettering till den här beställningen som samordnaren inte har fört in än (em-103 i testdatat):
+  // den intagsansvarige får veta att den väntar – ingenting ur mejlet – och kan inte ta emot förrän den är införd.
+  await expect(waiting).toContainText("En komplettering väntar i inkorgen");
+  await expect(waiting).toContainText("Kommunen har skickat en komplettering som väntar i inkorgen. Be samordnaren föra in den innan du tar emot.");
+  await expect(waiting.getByRole("button", { name: "Ta emot", exact: true })).toHaveCount(0);
+  await expect(waiting).not.toContainText("55102938");
+  await btn(waiting, "Stäng").click();
+  await expect(waiting).toHaveCount(0);
   await expect(m).toContainText("Ny beställning att ta emot");
   await expect(m.getByRole("button", { name: "Ta emot", exact: true }).first()).toBeVisible();
   // Ta emot från deltagarkortet (Marias mejlavrop BOT-27-0050): kvittensen står kvar, och kortet bakom är bekräftat utan knappen.

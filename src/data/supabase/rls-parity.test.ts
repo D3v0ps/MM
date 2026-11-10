@@ -4122,7 +4122,8 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
 describe("starta insatsen före det bokade första mötet (Karims beslut 2026-11-09): inga nya regler i databasen – samma svar i RLS, triggrarna och policy.ts", () => {
   // BOT-27-0042 (huvudcoach Mats, handläggare Ahmed): bekräftat, första mötet tisdag 2 februari kl. 14.00 och orderbekräftelsen
   // rep-16614 levererad. Deltagaren kom måndag 1 februari: hanteraren arenden.caseStart startar insatsen och flyttar första mötet
-  // i en och samma ändring av ärendet, och kommunen får en ny version av orderbekräftelsen. Ingen migration behövs för det –
+  // i en och samma ändring av ärendet, och kommunen får en ny version av orderbekräftelsen. Inga nya regler behövs för det
+  // (ändringen skrivs med ett villkor på statusen – läsrätten på cases.status kommer med 0041, se villkorade-andringar.test.ts) –
   // testerna visar att varje skrivning går för coach, samordnare och avtalsansvarig, och nekas för alla andra.
   const CASE = "case-270042";
   const at = "2027-02-01T09:12";
@@ -4563,6 +4564,80 @@ describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS,
     expect((await asUser(db, null, (tx) => attempt(tx, "select mm.is_intake_coach('c-bot')"))).ok).toBe(false);
   });
 
+  it("en beställning som aldrig togs emot tas aldrig emot i efterhand: avslutad eller avböjd först och sedan pågående går inte – för någon", async () => {
+    // Coachen får avsluta en väntande beställning (som förut). Utan spärren kunde hen sedan sätta den som pågående i ett andra
+    // steg (granskningen 2026-11-10). Regeln gäller alla inloggade – ingen hanterare gör en sådan ändring.
+    const states: [string, string, Partial<Case>][] = [
+      ["avslutad", `update public.cases set status = 'closed', closed_at = '2027-02-01 09:12+01', end_date = '2027-02-01', end_reason = 'avbrott_deltagarens_val' where id = '${CASE}'`,
+        { status: "closed", closedAt: at, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" }],
+      ["avböjd", DECLINE, { status: "declined", declineReason: "Fullt just nu", declinedAt: at }],
+    ];
+    for (const [label, prep, from] of states) {
+      for (const key of ["u-erik", "u-amira", "u-sara", "u-johan"]) {
+        for (const status of ["confirmed", "active", "paused"] as const) {
+          const pg = await pgWrite(key, `update public.cases set status = '${status}' where id = '${CASE}'`, [prep]);
+          const mem = memStore();
+          mem.updateRow("cases", CASE, from);
+          expect({ pg: code(pg), mem: await memOk(repoFor(mem, key).table("cases").update(CASE, { status })) }, `${label} ${key} ${status}`).toEqual({ pg: "42501", mem: false });
+        }
+      }
+    }
+    // Servern (service role) rörs inte, och i minnet gäller spärren inte systemet.
+    const sys = memStore();
+    sys.updateRow("cases", CASE, states[0][2]);
+    expect({ pg: code(await service(`update public.cases set status = 'active' where id = '${CASE}'`, [states[0][1]])), mem: await memOk(systemRepo(sys).table("cases").update(CASE, { status: "active" })) })
+      .toEqual({ pg: 1, mem: true });
+  });
+
+  it("tiden för mottagandet (confirmed_at) ändras bara när beställningen tas emot – annars kunde den sättas först och spärren gås runt", async () => {
+    const setAt = `update public.cases set confirmed_at = '2027-02-01 09:12+01' where id = '${CASE}'`;
+    // I en väntande beställning, utan att ta emot den.
+    for (const key of ["u-erik", "u-amira", "u-sara"]) {
+      expect({ pg: code(await pgWrite(key, setAt)), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, { confirmedAt: at })) }, key).toEqual({ pg: "42501", mem: false });
+    }
+    // I en beställning som avslutades utan att ha tagits emot (steg två i kringgåendet).
+    const closeSql = `update public.cases set status = 'closed', closed_at = '2027-02-01 09:12+01', end_date = '2027-02-01', end_reason = 'avbrott_deltagarens_val' where id = '${CASE}'`;
+    const closed = memStore();
+    closed.updateRow("cases", CASE, { status: "closed", closedAt: at, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" });
+    expect({ pg: code(await pgWrite("u-erik", setAt, [closeSql])), mem: await memOk(repoFor(closed, "u-erik").table("cases").update(CASE, { confirmedAt: at })) }).toEqual({ pg: "42501", mem: false });
+    // I ett bekräftat ärende ändras och töms tiden inte i efterhand – men en ändring som lämnar den som den är går.
+    const conf = data.cases.find((c) => c.status === "confirmed" && c.confirmedAt)!;
+    for (const [label, stmt, patch] of [
+      ["töm", `update public.cases set confirmed_at = null where id = '${conf.id}'`, { confirmedAt: null }],
+      ["ändra", `update public.cases set confirmed_at = '2027-02-01 09:12+01' where id = '${conf.id}'`, { confirmedAt: at }],
+    ] as const) {
+      expect({ pg: code(await pgWrite("u-sara", stmt)), mem: await memOk(repoFor(memStore(), "u-sara").table("cases").update(conf.id, patch)) }, label).toEqual({ pg: "42501", mem: false });
+    }
+    expect({
+      // Samma värde som står i raden (sessionens tidszon är Stockholm) – så som appen skickar värdet i en ändring.
+      pg: code(await pgWrite("u-sara", `update public.cases set confirmed_at = '${(conf.confirmedAt as string).replace("T", " ")}', location = 'Miljonbemanning Alby' where id = '${conf.id}'`)),
+      mem: await memOk(repoFor(memStore(), "u-sara").table("cases").update(conf.id, { confirmedAt: conf.confirmedAt, location: "Miljonbemanning Alby" })),
+    }).toEqual({ pg: 1, mem: true });
+    // Mottagandet sätter tiden (samma ändring som tar emot) – prövat ovan med ACCEPT. Servern rörs inte.
+    expect(code(await service(setAt))).toBe(1);
+  });
+
+  it("avtalet är ärendets avtal före ändringen: den som är intagsansvarig i ett annat avtal kan inte flytta ärendet dit och ta emot det i samma ändring", async () => {
+    // Erik får rollen coach i det andra avtalet (c-ny) och blir intagsansvarig där. I Botkyrkaavtalet är han en vanlig coach.
+    const prep = [
+      "insert into public.memberships (id, user_id, contract_id, role) values ('u-erik:c-ny:coach', 'u-erik', 'c-ny', 'coach')",
+      "update public.contracts set intake_coach_id = 'u-erik' where id = 'c-ny'",
+    ];
+    const elsewhere = await asUser(db, authOf("u-erik"), async (tx) =>
+      (await tx.query<{ bot: boolean; ny: boolean }>("select mm.is_intake_coach('c-bot') as bot, mm.is_intake_coach('c-ny') as ny")).rows[0], { before: before("u-erik", prep) });
+    expect(elsewhere).toEqual({ bot: false, ny: true });
+    const memErik = () => {
+      const s = memStore();
+      s.insertRow("memberships", { id: "u-erik:c-ny:coach", userId: "u-erik", contractId: "c-ny", role: "coach", customerUnit: null });
+      s.updateRow("contracts", "c-ny", { intakeCoachId: "u-erik" });
+      return new MemoryRepo<Tables>(s, { ...actorOf(findPersona("u-erik")), contractIds: ["c-bot", "c-ny"] }, POLICIES);
+    };
+    const MOVE = ACCEPT.replace("status = 'confirmed'", "status = 'confirmed', contract_id = 'c-ny'");
+    expect({ pg: code(await pgWrite("u-erik", MOVE, prep)), mem: await memOk(memErik().table("cases").update(CASE, { ...PATCH, contractId: "c-ny" })) }).toEqual({ pg: "42501", mem: false });
+    // Utan flytten tar han inte heller emot (han är inte intagsansvarig i ärendets avtal).
+    expect({ pg: code(await pgWrite("u-erik", ACCEPT, prep)), mem: await memOk(memErik().table("cases").update(CASE, PATCH)) }).toEqual({ pg: "42501", mem: false });
+  });
+
   it("tas profilen bort töms kolumnen (on delete set null) – som när testdatat läses in på nytt", async () => {
     const erik = data.profiles.find((p) => p.id === "u-erik")!;
     let res: { set: string | null; after: string | null } | null = null;
@@ -4592,6 +4667,9 @@ describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS,
         indexes: await one<number>("select count(*)::int as v from pg_indexes where indexname = 'contracts_intake_coach_id_idx'"),
         fks: await one<number>("select count(*)::int as v from pg_constraint where conrelid = 'public.contracts'::regclass and contype = 'f' and confrelid = 'public.profiles'::regclass and confdeltype = 'n'"),
         viewGrants: await one<string>("select string_agg(grantee || ':' || privilege_type, ',' order by grantee, privilege_type) as v from information_schema.role_table_grants where table_schema = 'public' and table_name = 'contracts_public' and grantee in ('anon', 'authenticated')"),
+        // Läsrätten för villkorade ändringar av ärendet: id (0013) och status (0041) – inga andra kolumner, och ingenting för anon.
+        caseColumns: await one<string>("select string_agg(grantee || ':' || column_name, ',' order by grantee, column_name) as v from information_schema.column_privileges where table_schema = 'public' and table_name = 'cases' and privilege_type = 'SELECT' and grantee in ('anon', 'authenticated')"),
+        guard: await one<string>("select pg_get_triggerdef(oid) as v from pg_trigger where tgname = 'cases_accept_guard'"),
       });
       const before = await state();
       await tx.exec(file);
@@ -4601,7 +4679,10 @@ describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS,
       await tx.rollback();
     });
     expect(res).toEqual({
-      before: { contracts: "c-bot:u-amira,c-ny:-", columns: 1, triggers: 2, indexes: 1, fks: 1, viewGrants: "authenticated:SELECT" },
+      before: {
+        contracts: "c-bot:u-amira,c-ny:-", columns: 1, triggers: 2, indexes: 1, fks: 1, viewGrants: "authenticated:SELECT", caseColumns: "authenticated:id,authenticated:status",
+        guard: "CREATE TRIGGER cases_accept_guard BEFORE UPDATE OF status, confirmed_at ON public.cases FOR EACH ROW EXECUTE FUNCTION mm.guard_case_accept()",
+      },
       same: true, lock: "0", statement: "0",
     });
   });

@@ -101,7 +101,9 @@
 //   ansvarig     beställningar · personen har rollen coach i avtalet när kolumnen sätts eller byts (guard – för alla, också
 //                 systemet) · bara admin ändrar avtalet · kommunen läser aldrig kolumnen (project, vyn contracts_public) · en
 //                 beställning som väntar på svar tas emot (bekräftad, pågående eller pausad) bara av samordnaren,
-//                 avtalsansvarig eller avtalets intagsansvarige, och avböjs bara av samordnaren eller avtalsansvarig
+//                 avtalsansvarig eller avtalets intagsansvarige (i ärendets avtal före ändringen), och avböjs bara av
+//                 samordnaren eller avtalsansvarig · en beställning som aldrig togs emot (avböjd, eller avslutad utan
+//                 confirmedAt) tas aldrig emot i efterhand · confirmedAt ändras bara när beställningen tas emot
 //                 (caseAcceptGuard i caseWrite – triggern cases_accept_guard)
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
@@ -727,15 +729,26 @@ const ORDER_TAKEN_STATUSES: readonly Case["status"][] = ["confirmed", "active", 
 /** Aktören agerar som coach och är avtalets intagsansvarige (mm.is_intake_coach, 0041). */
 const isIntakeCoach = (raw: Raw, a: Actor, contractId: string): boolean => a.role === "coach" && raw.get("contracts", contractId)?.intakeCoachId === a.userId;
 /**
- * Ta emot en beställning (triggern cases_accept_guard, 0041 – Karims beslut 2026-11-09): en beställning som väntar på svar tas
- * emot bara av samordnaren, avtalsansvarig eller avtalets intagsansvarige, och avböjs bara av samordnaren eller avtalsansvarig.
+ * Ta emot en beställning (triggern cases_accept_guard, 0041 – Karims beslut 2026-11-09), för inloggade:
+ *   - en beställning som väntar på svar tas emot bara av samordnaren, avtalsansvarig eller avtalets intagsansvarige, och avböjs
+ *     bara av samordnaren eller avtalsansvarig. Avtalet är ärendets avtal före ändringen (cur.contractId) – den som är
+ *     intagsansvarig i ett annat avtal kan inte flytta ärendet dit i samma ändring;
+ *   - en beställning som aldrig togs emot (avböjd, eller avslutad utan confirmedAt) tas aldrig emot i efterhand – av ingen.
+ *     Annars kunde en coach avsluta en väntande beställning och sedan sätta den som pågående i två steg. Ingen hanterare gör det;
+ *   - confirmedAt ändras bara i samma ändring som tar emot beställningen (annars kunde den sättas först).
  * Övriga ändringar av ärendet (också coachens avslut av en beställning som aldrig togs emot) prövas som förut.
  */
 function caseAcceptGuard(cur: Case, next: Case, a: Actor, raw: Raw): boolean {
-  if (!ORDER_OPEN_STATUSES.includes(cur.status) || next.status === cur.status) return true;
   const manager = a.role === "samordnare" || a.role === "avtalsansvarig";
-  if (ORDER_TAKEN_STATUSES.includes(next.status)) return manager || isIntakeCoach(raw, a, next.contractId);
-  if (next.status === "declined") return manager;
+  const pending = ORDER_OPEN_STATUSES.includes(cur.status);
+  const taken = next.status !== cur.status && ORDER_TAKEN_STATUSES.includes(next.status);
+  if (pending) {
+    if (taken && !manager && !isIntakeCoach(raw, a, cur.contractId)) return false;
+    if (next.status === "declined" && !manager) return false;
+  } else if (taken && (cur.status === "declined" || cur.status === "closed") && cur.confirmedAt == null) {
+    return false;
+  }
+  if ((next.confirmedAt ?? null) !== (cur.confirmedAt ?? null) && !(pending && taken)) return false;
   return true;
 }
 /**

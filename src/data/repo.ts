@@ -81,6 +81,36 @@ export interface Repo<TT extends Record<string, Row>> {
   table<N extends keyof TT & string>(name: N): Table<TT[N]>;
 }
 
+// ---------------------------------------------------------------- Villkorade ändringar: kolumnerna i villkoret
+/**
+ * Per tabell: fälten (utöver id) som en villkorad ändring (Table.updateIf) får villkoras på genom användarens repo. Gäller
+ * tabeller där inloggade inte får läsa alla kolumner direkt i tabellen (resten läses via en vy) – Postgres kräver läsrätt på
+ * varje kolumn i villkoret, annars nekas ändringen (42501). Tabeller som saknas i listan har inga begränsningar.
+ * Listan för appen: USER_FILTER_COLUMNS i src/data/schema.ts.
+ */
+export type FilterColumns = Readonly<Record<string, readonly string[] | undefined>>;
+
+/** Ett villkor på en kolumn som inloggade inte får läsa direkt i tabellen – ett programmeringsfel, aldrig användarens. */
+export class FilterColumnError extends Error {
+  constructor(public readonly table: string, public readonly column: string) {
+    super(
+      `updateIf på ${table} villkoras på ${column}, som inloggade inte får läsa direkt i tabellen – ändringen skulle nekas i databasen (42501). ` +
+        "Lägg till kolumnen i USER_FILTER_COLUMNS (src/data/schema.ts) och ge läsrätten i en migration (grant select (…)), eller gör ändringen via ctx.system.",
+    );
+    this.name = "FilterColumnError";
+  }
+}
+
+/** Stoppa ett villkor på en kolumn som inte finns i listan för tabellen (id går alltid). Ingen lista = inga begränsningar. */
+export function checkFilterColumns(table: string, where: object | undefined, allowed: FilterColumns | undefined): void {
+  const cols = allowed?.[table];
+  if (!cols || !where) return;
+  for (const [field, cond] of Object.entries(where)) {
+    if (cond === undefined || field === "id") continue;
+    if (!cols.includes(field)) throw new FilterColumnError(table, field);
+  }
+}
+
 // ---------------------------------------------------------------- Filtrering (delas av MemoryRepo och tester)
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 

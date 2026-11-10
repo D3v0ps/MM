@@ -15,6 +15,7 @@ import { uniq } from "@/core/util";
 import { emailValid } from "@/core/validation";
 import { SELF_REGISTERED } from "@/core/self-registration";
 import type { Contract, Membership, Profile } from "@/data/schema";
+import { intakeCoachChanged } from "../_shared/intake";
 import {
   adminInviteCustomer, adminInviteStaff, adminSetCustomerActive, adminSetStaffActive, adminSetStaffRoles, adminUsers, type CustomerUserRow, type MbUserRow, type UnitOption,
 } from "./api";
@@ -186,6 +187,8 @@ async function clearIntakeCoach(ctx: Ctx, contract: Pick<Contract, "id">, userId
   if (!c || c.intakeCoachId !== userId) return;
   await ctx.repo.table("contracts").update(c.id, { intakeCoachId: null });
   await ctx.audit({ action: "contract.intake_coach_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { from: userId, to: null, reason } });
+  // Personens notiser om beställningar att ta emot är inte längre aktuella – samordnaren tar emot tills en ny är vald.
+  await intakeCoachChanged(ctx, c, userId, null);
 }
 
 handleCommand(adminSetStaffRoles, { roles: ["admin"] }, async (ctx, p) => {

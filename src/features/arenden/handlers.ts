@@ -47,7 +47,7 @@ import type {
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
-import { isIntakeCoach, isOpenOrder, notifyCaseReceived, settleNewOrderNotices } from "../_shared/intake";
+import { hasPendingSupplement, isIntakeCoach, isOpenOrder, notifyCaseReceived, PENDING_SUPPLEMENT_TEXT, settleNewOrderNotices } from "../_shared/intake";
 import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
 import { fieldWord, reasonWord } from "../admin/audit-text";
@@ -190,14 +190,14 @@ const NOT_INTAKE = "Nya beställningar tas emot av samordnaren eller av avtalets
 handleQuery(caseAcceptForm, { roles: ACCEPT_ROLES }, async (ctx, p) => {
   if (isManager(ctx.actor.role)) {
     const f = await buildDecisionForm(ctx, p.caseId);
-    return f ? { ...f, intake: false, defaultCoachId: null } : null;
+    return f ? { ...f, intake: false, defaultCoachId: null, supplementPending: false } : null;
   }
   // Den intagsansvarige: ärendet, personen och avtalet läses via behörigheten – aldrig avropsinkorgen eller dess mejl.
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c || !isOpenOrder(c) || !(await ctx.repo.table("persons").get(c.personId))) return null;
   const contract = await ctx.repo.table("contracts").get(c.contractId);
   if (!contract || !isOperational(contract.config) || !isIntakeCoach(ctx.actor, contract)) return null;
-  return { ...(await buildIntakeForm(ctx, c, contract)), intake: true, defaultCoachId: ctx.actor.userId };
+  return { ...(await buildIntakeForm(ctx, c, contract)), intake: true, defaultCoachId: ctx.actor.userId, supplementPending: await hasPendingSupplement(ctx, c.id) };
 });
 
 handleCommand(caseAccept, { roles: ACCEPT_ROLES }, async (ctx, p) => {
@@ -211,6 +211,9 @@ handleCommand(caseAccept, { roles: ACCEPT_ROLES }, async (ctx, p) => {
   const intake = ctx.actor.role === "coach";
   if (intake && !isIntakeCoach(ctx.actor, contract)) return fail("forbidden", NOT_INTAKE);
   if (!isOpenOrder(c)) return fail("wrong_status", `${c.caseNumber} är redan besvarat.`);
+  // Den intagsansvarige tar inte emot medan en komplettering från kommunen väntar i avropsinkorgen (hen läser aldrig mejlen):
+  // samordnaren för in den först – annars bokades mötet och orderbekräftelsen på uppgifter som kommunen redan har rättat.
+  if (intake && (await hasPendingSupplement(ctx, c.id))) return fail("pending_supplement", PENDING_SUPPLEMENT_TEXT);
   // Beställarreferensen är valfri vid accept (beslut 2026-10-07) – formatet kontrolleras om något skrivits.
   const ref = p.buyerReference != null ? p.buyerReference.trim() || null : c.buyerReference;
   if (p.buyerReference != null && ref && !buyerRefValid(ref, cfg)) {
@@ -714,6 +717,9 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
     });
   }
   await ctx.audit({ action: "case.closed", entity: "case", entityId: c.id, contractId: c.contractId, details: { endReason: p.endReason, resultClass } });
+  // En beställning som avslutas utan att ha tagits emot väntar inte längre på svar: den intagsansvariges notis om den är inte
+  // längre aktuell (0041) – som när beställningen tas emot eller avböjs.
+  if (isOpenOrder(c)) await settleNewOrderNotices(ctx, c.id);
   // Avslutad: kommande aktiviteter som målgruppen (nivån eller yrkesområdet) bjöd in till tas bort – utan registrerad närvaro.
   await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
   return ok({ reportId: rep.id, resultClass });

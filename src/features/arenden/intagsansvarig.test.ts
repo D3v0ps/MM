@@ -392,3 +392,130 @@ describe("systemadministratören väljer intagsansvarig", () => {
     expect(rt.raw().get("contracts", "c-bot")?.intakeCoachId).toBe("u-leila");
   });
 });
+
+// ---------------------------------------------------------------- Granskningen 2026-11-10
+describe("en komplettering från kommunen väntar i avropsinkorgen", () => {
+  // BOT-27-0049 (Ahmeds avrop) saknar omfattning. Kommunen har svarat med ärendenumret (em-103: sex månader och en
+  // beställarreferens) – svaret är kopplat till ärendet men inte infört. Samordnaren för in det i avropsinkorgen.
+  const WAITING = "case-270049";
+  const SUP = "em-103";
+  const receive = (actor: Actor) => cmd("arenden.caseAccept", { caseId: WAITING, leadCoachId: "u-amira", firstMeetingAt: MEETING, primaryArea: "D", orderPeriodMonths: 12 }, actor);
+
+  it("testdatat: kompletteringen är kopplad till ärendet och inte införd", () => {
+    expect(rows("inbound_emails").filter((e) => e.caseId === WAITING && e.classification === "supplement").map((e) => [e.id, e.status])).toEqual([[SUP, "linked"]]);
+    expect(caseOf(WAITING)).toMatchObject({ status: "acknowledged", orderPeriodMonths: null });
+  });
+
+  it("underlaget säger bara att en komplettering väntar – ingenting ur mejlet – och bara för den intagsansvarige", async () => {
+    const f = (await query<AcceptFormView | null>("arenden.acceptForm", { caseId: WAITING }, amira()))!;
+    expect(f).toMatchObject({ intake: true, supplementPending: true, pendingSup: null });
+    const mail = rows("inbound_emails").find((e) => e.id === SUP)!;
+    const text = JSON.stringify(f);
+    for (const secret of [mail.subject, mail.bodyText.slice(0, 40), "55102938", SUP]) expect(text, secret).not.toContain(secret);
+    // En beställning utan komplettering, och samordnarens underlag (som visar kompletteringen i pendingSup).
+    expect(await query<AcceptFormView | null>("arenden.acceptForm", { caseId: CASE }, amira())).toMatchObject({ intake: true, supplementPending: false });
+    const forSara = (await query<AcceptFormView | null>("arenden.acceptForm", { caseId: WAITING }, sara()))!;
+    expect(forSara).toMatchObject({ intake: false, supplementPending: false });
+    expect(forSara.pendingSup).toMatchObject({ id: SUP });
+  });
+
+  it("den intagsansvarige tar inte emot förrän kompletteringen är införd – ingenting skrivs", async () => {
+    const before = JSON.stringify([caseOf(WAITING), rows("reports").length, rows("user_notifications").length, rows("outbound_messages").length, rows("audit_log").length]);
+    expect(await receive(amira())).toEqual({
+      ok: false, error: "pending_supplement", message: "Kommunen har skickat en komplettering som väntar i inkorgen. Be samordnaren föra in den innan du tar emot.",
+    });
+    expect(JSON.stringify([caseOf(WAITING), rows("reports").length, rows("user_notifications").length, rows("outbound_messages").length, rows("audit_log").length])).toBe(before);
+  });
+
+  it("när samordnaren har fört in kompletteringen tar den intagsansvarige emot – med kommunens omfattning", async () => {
+    expect((await cmd("inkorg.emailApplySupplement", { emailId: SUP }, sara())).ok).toBe(true);
+    expect(caseOf(WAITING)).toMatchObject({ orderPeriodMonths: 6, buyerReference: "55102938" });
+    expect(await query<AcceptFormView | null>("arenden.acceptForm", { caseId: WAITING }, amira())).toMatchObject({ supplementPending: false, orderPeriodMonths: 6 });
+    // Dialogen skickar beställningens omfattning (förvald) – här utan eget val.
+    expect((await cmd("arenden.caseAccept", { caseId: WAITING, leadCoachId: "u-amira", firstMeetingAt: MEETING, primaryArea: "D" }, amira())).ok).toBe(true);
+    expect(caseOf(WAITING)).toMatchObject({ status: "confirmed", orderPeriodMonths: 6, plannedEnd: "2027-08-07", leadCoachId: "u-amira" });
+    expect(rows("reports").filter((r) => r.caseId === WAITING && r.kind === "order_confirmation")).toHaveLength(1);
+  });
+
+  it("samordnaren och avtalsansvarig tar emot som förut – också med en komplettering som väntar", async () => {
+    expect((await receive(sara())).ok).toBe(true);
+    expect(caseOf(WAITING)).toMatchObject({ status: "confirmed", orderPeriodMonths: 12 });
+  });
+});
+
+describe("notiserna följer beställningen och personen", () => {
+  const set = (userId: string | null) => cmd("admin.setIntakeCoach", { contractId: "c-bot", userId }, robin());
+  const readBy = (userId: string) => new Set(rows("notification_reads").filter((r) => r.userId === userId).map((r) => r.notificationKey));
+  const newOrder = (userId: string) => rows("user_notifications").filter((n) => n.kind === "new_order" && n.recipientId === userId);
+  const WAITING_CASES = ["case-270048", "case-270049", CASE];
+
+  it("en beställning som avslutas utan att ha tagits emot: notisen om den märks som läst", async () => {
+    await notifyIntakeCoach(rt.ctxFor(sara()), caseOf(), null);
+    const n = notices("new_order")[0];
+    expect(readBy("u-amira").has(n.id)).toBe(false);
+    // En coach (inte den intagsansvarige) avslutar beställningen – deltagaren kom aldrig.
+    expect((await cmd("arenden.caseClose", { caseId: CASE, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" }, erik())).ok).toBe(true);
+    expect(caseOf().status).toBe("closed");
+    expect(readBy("u-amira").has(n.id)).toBe(true);
+    expect((await query<NavCounts>("session.navCounts", {}, amira())).tasks).toBe(2);
+    // Ett avslut av en pågående insats rör inga notiser om beställningar.
+    const reads = rows("notification_reads").length;
+    const active = rows("cases").find((c) => c.status === "active" && c.leadCoachId === "u-amira")!;
+    expect((await cmd("arenden.caseClose", { caseId: active.id, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" }, amira())).ok).toBe(true);
+    expect(rows("notification_reads")).toHaveLength(reads);
+  });
+
+  it("byte av intagsansvarig: den förras notiser märks som lästa och den nya får en notis per beställning som väntar – högst en per ärende och person", async () => {
+    // Amira har en oläst notis om en ny beställning (portalen) – de tre i testdatat har ingen notis.
+    const res = await order();
+    const fresh = res.caseId as string;
+    expect(newOrder("u-amira").map((n) => n.caseId)).toEqual([fresh]);
+    expect(await set("u-erik")).toEqual({ ok: true });
+    // Den förra: notisen är läst (beställningen är inte längre hennes att ta emot).
+    expect(newOrder("u-amira").every((n) => readBy("u-amira").has(n.id))).toBe(true);
+    expect((await query<NotifList>("notiser.list", {}, amira())).items.filter((x) => x.kind === "new_order" && !x.readAt)).toEqual([]);
+    // Den nya: en notis per beställning som väntar – bara i appen, utan personuppgifter, med svarstiden.
+    const toErik = newOrder("u-erik");
+    expect(toErik.map((n) => n.caseId).sort()).toEqual([...WAITING_CASES, fresh].sort());
+    for (const n of toErik) expect(n).toMatchObject({ channels: ["app"], emailBody: "", title: `Ny beställning att ta emot – ${caseOf(n.caseId as string).caseNumber}` });
+    expect(toErik.find((n) => n.caseId === CASE)?.body).toBe("Boka första mötet och tryck på Ta emot. Kommunen ska ha svar senast 2 feb kl. 08.41.");
+    expect(JSON.stringify(toErik)).not.toMatch(/Tove|Testsson|19900101/);
+    expect((await query<NotifList>("notiser.list", {}, erik())).items.filter((x) => x.kind === "new_order" && !x.readAt)).toHaveLength(4);
+    // En besvarad beställning ger ingen notis till nästa person.
+    expect((await accept(erik(), { leadCoachId: "u-erik" })).ok).toBe(true);
+    // Tillbaka till Amira: hon får notiser för beställningarna hon inte har fått förut – inte en andra för samma ärende – och
+    // Eriks märks som lästa.
+    expect(await set("u-amira")).toEqual({ ok: true });
+    expect(newOrder("u-amira").map((n) => n.caseId).sort()).toEqual(["case-270048", "case-270049", fresh].sort());
+    expect(newOrder("u-erik").every((n) => readBy("u-erik").has(n.id))).toBe(true);
+    // Och en gång till till Erik: inga nya notiser – han har redan fått en per ärende.
+    const count = rows("user_notifications").length;
+    expect(await set("u-erik")).toEqual({ ok: true });
+    expect(rows("user_notifications")).toHaveLength(count);
+    // Ingen e-post och inget SMS om något av detta.
+    expect(rows("outbound_messages").filter((m) => /beställning att ta emot/i.test(m.body))).toEqual([]);
+  });
+
+  it("ingen intagsansvarig (vald bort, rollen coach borttagen eller kollegan spärrad): personens notiser märks som lästa och ingen får nya", async () => {
+    const fresh = (await order()).caseId as string;
+    const mine = () => newOrder("u-amira").filter((n) => n.caseId === fresh);
+    expect(readBy("u-amira").has(mine()[0].id)).toBe(false);
+    const count = rows("user_notifications").length;
+    expect(await set(null)).toEqual({ ok: true });
+    expect(readBy("u-amira").has(mine()[0].id)).toBe(true);
+    expect(rows("user_notifications")).toHaveLength(count);
+    // Rollen coach tas bort från den intagsansvarige: samma sak.
+    expect(await set("u-erik")).toEqual({ ok: true });
+    const toErik = newOrder("u-erik");
+    expect(toErik.length).toBeGreaterThan(0);
+    expect(await cmd("admin.setStaffRoles", { userId: "u-erik", roles: ["chef"] }, robin())).toMatchObject({ ok: true });
+    expect(rt.raw().get("contracts", "c-bot")?.intakeCoachId).toBeNull();
+    expect(toErik.every((n) => readBy("u-erik").has(n.id))).toBe(true);
+    // Spärrad kollega.
+    expect(await set("u-leila")).toEqual({ ok: true });
+    const toLeila = newOrder("u-leila");
+    expect(toLeila.length).toBeGreaterThan(0);
+    expect(await cmd("admin.setStaffActive", { userId: "u-leila", active: false }, robin())).toMatchObject({ ok: true });
+    expect(toLeila.every((n) => readBy("u-leila").has(n.id))).toBe(true);
+  });
+});

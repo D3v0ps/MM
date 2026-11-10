@@ -2201,6 +2201,21 @@ export function emptyDb(): Db {
 }
 
 /**
+ * Tabeller där inloggade inte får läsa alla kolumner direkt i tabellen (resten läses via en vy: cases_public och
+ * bonus_claims_public) – och kolumnerna de får läsa utöver id. En villkorad ändring (Table.updateIf) genom användarens repo
+ * blir i Postgres "update … where id = ? and <villkor>", och Postgres kräver läsrätt på varje kolumn i villkoret: ett villkor på
+ * en annan kolumn nekas med 42501 för alla roller – utan att minnesläget märker något. Därför:
+ *   - minneslägets körning (memory-runtime.ts) och SupabaseRepo (userRepo) stoppar ett villkor på en kolumn utanför listan
+ *     (FilterColumnError) – varje hanterartest prövar alltså sina villkor;
+ *   - listan prövas mot databasens rättigheter i src/data/supabase/villkorade-andringar.test.ts (samma tabeller, samma kolumner).
+ * cases: id (0013) och status (0041 – arenden.caseAccept och arenden.caseStart). bonus_claims: 0039.
+ */
+export const USER_FILTER_COLUMNS: { readonly [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
+  cases: ["status"],
+  bonus_claims: ["caseId", "contractId", "step", "status"],
+};
+
+/**
  * Unika nycklar utöver id – samma som databasens unika index, så att minnesläget stoppar samma dubbletter (UniqueError,
  * src/data/memory.ts): en närvarorad per tillfälle (0022, två samtidiga registreringar), ett pulssvar per länk (0016).
  */

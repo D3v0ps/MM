@@ -2,7 +2,7 @@
 // Behörigheten speglar Row Level Security: varje läsning filtreras genom policyn för tabellen,
 // så att prototypen visar exakt det rollen skulle få se i den riktiga databasen.
 import type { Actor } from "@/api/roles";
-import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, UniqueError, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type UniqueKey, type Where } from "./repo";
+import { applyOpts, checkFilterColumns, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, UniqueError, type FilterColumns, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type UniqueKey, type Where } from "./repo";
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
@@ -154,7 +154,8 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
     private store: MemoryStore<TT>,
     private actor: Actor,
     private policies: Policies<TT>,
-    private opts: { bypass?: boolean } = {},
+    /** filterColumns: kolumnerna som updateIf får villkoras på per tabell (USER_FILTER_COLUMNS) – prövas inte med bypass. */
+    private opts: { bypass?: boolean; filterColumns?: FilterColumns } = {},
   ) {}
 
   table<N extends keyof TT & string>(name: N): Table<TT[N]> {
@@ -214,6 +215,8 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
       },
       // Kontroll och skrivning i samma synkrona steg – två kommandon som körs samtidigt kan inte båda få raden.
       updateIf: async (id, where, patch) => {
+        // Samma spärr som SupabaseRepo: i databasen kräver villkoret läsrätt på kolumnen (inte för service role).
+        if (!this.opts.bypass) checkFilterColumns(name, where, this.opts.filterColumns);
         const cur = store.getRow(name, id);
         if (!cur || !canRead(cur) || !matches(cur, where)) return null;
         const next = { ...cur, ...patch, id } as TT[N];

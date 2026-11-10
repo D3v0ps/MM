@@ -11,6 +11,7 @@ import { noProgressStreak } from "@/core/progression";
 import { dayOf } from "@/core/time";
 import { by } from "@/core/util";
 import type { Contract } from "@/data/schema";
+import { intakeCoachChanged } from "../_shared/intake";
 import { ruleDiffText, type RuleSnapshot } from "./audit-text";
 import {
   adminContract, adminOrgRules, adminSetContractManager, adminSetIntakeCoach, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption,
@@ -149,6 +150,9 @@ handleCommand(adminSetIntakeCoach, { roles: ["admin"], commercial: true }, async
   if (from === to) return fail("unchanged", to ? "Personen är redan intagsansvarig." : "Avtalet har redan ingen intagsansvarig.");
   await ctx.repo.table("contracts").update(c.id, { intakeCoachId: to });
   await ctx.audit({ action: "contract.intake_coach_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { from, to } });
+  // Notiserna följer personen: den förras notiser om beställningar att ta emot märks som lästa, och den nya får en notis för
+  // varje beställning som väntar på svar (högst en per ärende och person).
+  await intakeCoachChanged(ctx, c, from, to);
   return ok({});
 });
 
