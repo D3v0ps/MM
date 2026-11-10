@@ -103,8 +103,8 @@
 //                 beställning som väntar på svar tas emot (bekräftad, pågående eller pausad) bara av samordnaren,
 //                 avtalsansvarig eller avtalets intagsansvarige (i ärendets avtal före ändringen), och avböjs bara av
 //                 samordnaren eller avtalsansvarig · en beställning som aldrig togs emot (avböjd, eller avslutad utan
-//                 confirmedAt) tas aldrig emot i efterhand · confirmedAt ändras bara när beställningen tas emot
-//                 (caseAcceptGuard i caseWrite – triggern cases_accept_guard)
+//                 confirmedAt) tas aldrig emot i efterhand · confirmedAt ändras bara när beställningen tas emot · ärendets
+//                 avtal (contractId) ändras aldrig av en inloggad (caseAcceptGuard i caseWrite – triggern cases_accept_guard)
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -735,10 +735,13 @@ const isIntakeCoach = (raw: Raw, a: Actor, contractId: string): boolean => a.rol
  *     intagsansvarig i ett annat avtal kan inte flytta ärendet dit i samma ändring;
  *   - en beställning som aldrig togs emot (avböjd, eller avslutad utan confirmedAt) tas aldrig emot i efterhand – av ingen.
  *     Annars kunde en coach avsluta en väntande beställning och sedan sätta den som pågående i två steg. Ingen hanterare gör det;
- *   - confirmedAt ändras bara i samma ändring som tar emot beställningen (annars kunde den sättas först).
+ *   - confirmedAt ändras bara i samma ändring som tar emot beställningen (annars kunde den sättas först);
+ *   - ärendets avtal (contractId) ändras aldrig – annars kunde ärendet först flyttas till ett avtal där aktören är
+ *     intagsansvarig och sedan tas emot där, i två steg. Ingen hanterare flyttar ett ärende mellan avtal.
  * Övriga ändringar av ärendet (också coachens avslut av en beställning som aldrig togs emot) prövas som förut.
  */
 function caseAcceptGuard(cur: Case, next: Case, a: Actor, raw: Raw): boolean {
+  if (next.contractId !== cur.contractId) return false;
   const manager = a.role === "samordnare" || a.role === "avtalsansvarig";
   const pending = ORDER_OPEN_STATUSES.includes(cur.status);
   const taken = next.status !== cur.status && ORDER_TAKEN_STATUSES.includes(next.status);

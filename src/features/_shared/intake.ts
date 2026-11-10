@@ -46,9 +46,11 @@ const inApp = (ctx: Ctx, x: Pick<UserNotification, "recipientId" | "kind" | "cas
 /**
  * En ny beställning har kommit in: avtalets intagsansvarige får en notis i appen ("Ny beställning att ta emot – BOT-…") med
  * länk till ärendet. Anropas där beställningen skapas (createOrder – portalen, det inlästa mejlavropet och samordnarens
- * registrering) och när en ny person blir intagsansvarig (intakeCoachChanged). Högst en notis per ärende och person. Ingen
- * notis utan intagsansvarig, eller när personen inte längre har rollen coach i avtalet eller är avstängd – då tar samordnaren
- * emot som förut.
+ * registrering) och när en ny person blir intagsansvarig (intakeCoachChanged). Högst en oläst notis per ärende och person:
+ * har personen redan en oläst notis om ärendet skrivs ingen ny, men en notis som redan är läst hindrar inte – den som blir
+ * intagsansvarig igen (till exempel när ett felaktigt val rättas) ska ha en oläst notis för varje beställning som väntar.
+ * Ingen notis utan intagsansvarig, eller när personen inte längre har rollen coach i avtalet eller är avstängd – då tar
+ * samordnaren emot som förut.
  * ctx.system: notisen går till en annan användare (user_notifications skrivs bara av systemet), och den som skapar beställningen
  * – ofta kommunens handläggare – läser inte vem som är intagsansvarig.
  */
@@ -62,7 +64,11 @@ export async function notifyIntakeCoach(ctx: Ctx, c: Pick<Case, "id" | "caseNumb
     s.table("profiles").get(coachId),
   ]);
   if (!membership || !profile || profile.active === false) return;
-  if (await s.table("user_notifications").first({ caseId: c.id, kind: KIND_NEW, recipientId: coachId })) return;
+  const earlier = await s.table("user_notifications").list({ caseId: c.id, kind: KIND_NEW, recipientId: coachId });
+  if (earlier.length) {
+    const read = new Set((await s.table("notification_reads").list({ userId: coachId, notificationKey: { in: earlier.map((n) => n.id) } })).map((r) => r.notificationKey));
+    if (earlier.some((n) => !read.has(n.id))) return;
+  }
   await s.table("user_notifications").insert(inApp(ctx, {
     recipientId: coachId, kind: KIND_NEW, caseId: c.id, title: `Ny beställning att ta emot – ${c.caseNumber}`,
     body: `Boka första mötet och tryck på Ta emot.${dueAt ? ` Kommunen ska ha svar senast ${fmtDateTime(dueAt)}.` : ""}`,
@@ -113,8 +119,9 @@ export async function settleNewOrderNotices(ctx: Ctx, caseId: string): Promise<v
  * Avtalets intagsansvarige har bytts eller tagits bort (admin.setIntakeCoach; rollen coach borttagen eller kollegan spärrad):
  *   - den förra personens olästa notiser "Ny beställning att ta emot" i avtalet märks som lästa – beställningarna är inte
  *     längre hens att ta emot;
- *   - den nya personen får en notis för varje beställning som väntar på svar i avtalet (notifyIntakeCoach: högst en per ärende
- *     och person, bara om personen har rollen coach och inte är spärrad) – annars visste hen inte om dem förrän på Min vecka.
+ *   - den nya personen får en notis för varje beställning som väntar på svar i avtalet (notifyIntakeCoach: högst en oläst per
+ *     ärende och person, bara om personen har rollen coach och inte är spärrad) – annars visste hen inte om dem förrän på Min
+ *     vecka. Det gäller också den som blir intagsansvarig igen: de gamla notiserna är lästa, så hen får en ny per beställning.
  * Anropas efter att avtalet har ändrats. ctx.system: notiser och läsmarkeringar gäller andra användare, och den som ändrar
  * (systemadministratören) arbetar inte i ärendena.
  */

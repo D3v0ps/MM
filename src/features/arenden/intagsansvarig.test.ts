@@ -465,35 +465,67 @@ describe("notiserna följer beställningen och personen", () => {
     expect(rows("notification_reads")).toHaveLength(reads);
   });
 
-  it("byte av intagsansvarig: den förras notiser märks som lästa och den nya får en notis per beställning som väntar – högst en per ärende och person", async () => {
+  /** Olästa notiser om beställningar att ta emot per ärende, för en person. */
+  const unread = (userId: string) => {
+    const read = readBy(userId);
+    return newOrder(userId).filter((n) => !read.has(n.id)).map((n) => n.caseId as string).sort();
+  };
+
+  it("byte av intagsansvarig: den förras notiser märks som lästa och den nya får en oläst notis per beställning som väntar", async () => {
     // Amira har en oläst notis om en ny beställning (portalen) – de tre i testdatat har ingen notis.
     const res = await order();
     const fresh = res.caseId as string;
-    expect(newOrder("u-amira").map((n) => n.caseId)).toEqual([fresh]);
+    expect(unread("u-amira")).toEqual([fresh]);
     expect(await set("u-erik")).toEqual({ ok: true });
     // Den förra: notisen är läst (beställningen är inte längre hennes att ta emot).
-    expect(newOrder("u-amira").every((n) => readBy("u-amira").has(n.id))).toBe(true);
+    expect(unread("u-amira")).toEqual([]);
     expect((await query<NotifList>("notiser.list", {}, amira())).items.filter((x) => x.kind === "new_order" && !x.readAt)).toEqual([]);
     // Den nya: en notis per beställning som väntar – bara i appen, utan personuppgifter, med svarstiden.
     const toErik = newOrder("u-erik");
-    expect(toErik.map((n) => n.caseId).sort()).toEqual([...WAITING_CASES, fresh].sort());
+    expect(unread("u-erik")).toEqual([...WAITING_CASES, fresh].sort());
     for (const n of toErik) expect(n).toMatchObject({ channels: ["app"], emailBody: "", title: `Ny beställning att ta emot – ${caseOf(n.caseId as string).caseNumber}` });
     expect(toErik.find((n) => n.caseId === CASE)?.body).toBe("Boka första mötet och tryck på Ta emot. Kommunen ska ha svar senast 2 feb kl. 08.41.");
     expect(JSON.stringify(toErik)).not.toMatch(/Tove|Testsson|19900101/);
     expect((await query<NotifList>("notiser.list", {}, erik())).items.filter((x) => x.kind === "new_order" && !x.readAt)).toHaveLength(4);
     // En besvarad beställning ger ingen notis till nästa person.
     expect((await accept(erik(), { leadCoachId: "u-erik" })).ok).toBe(true);
-    // Tillbaka till Amira: hon får notiser för beställningarna hon inte har fått förut – inte en andra för samma ärende – och
-    // Eriks märks som lästa.
     expect(await set("u-amira")).toEqual({ ok: true });
-    expect(newOrder("u-amira").map((n) => n.caseId).sort()).toEqual(["case-270048", "case-270049", fresh].sort());
-    expect(newOrder("u-erik").every((n) => readBy("u-erik").has(n.id))).toBe(true);
-    // Och en gång till till Erik: inga nya notiser – han har redan fått en per ärende.
-    const count = rows("user_notifications").length;
-    expect(await set("u-erik")).toEqual({ ok: true });
-    expect(rows("user_notifications")).toHaveLength(count);
+    expect(unread("u-amira")).toEqual(["case-270048", "case-270049", fresh].sort());
+    expect(unread("u-erik")).toEqual([]);
     // Ingen e-post och inget SMS om något av detta.
     expect(rows("outbound_messages").filter((m) => /beställning att ta emot/i.test(m.body))).toEqual([]);
+  });
+
+  it("den som blir intagsansvarig igen har en oläst notis per beställning som väntar – A → B → A → B, och ingen → A (granskningen, runda 2)", async () => {
+    // Systemadministratören väljer fel person och rättar det direkt: den första personens gamla notiser är lästa, så hon får
+    // nya – exakt en oläst per beställning och person, aldrig två.
+    const fresh = (await order()).caseId as string;
+    const waiting = [...WAITING_CASES, fresh].sort();
+    expect(unread("u-amira")).toEqual([fresh]);
+    // A → B
+    expect(await set("u-erik")).toEqual({ ok: true });
+    expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: [], erik: waiting });
+    // B → A: också beställningen som Amira redan hade en (nu läst) notis om.
+    expect(await set("u-amira")).toEqual({ ok: true });
+    expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: waiting, erik: [] });
+    expect((await query<NotifList>("notiser.list", {}, amira())).items.filter((x) => x.kind === "new_order" && !x.readAt)).toHaveLength(4);
+    expect((await query<NavCounts>("session.navCounts", {}, amira())).tasks).toBe(4);
+    // A → B igen
+    expect(await set("u-erik")).toEqual({ ok: true });
+    expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: [], erik: waiting });
+    // ingen → A
+    expect(await set(null)).toEqual({ ok: true });
+    expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: [], erik: [] });
+    expect(await set("u-amira")).toEqual({ ok: true });
+    expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: waiting, erik: [] });
+    // Aldrig två olästa om samma ärende, hur många gånger notisen än skrivs.
+    for (const id of waiting) await notifyIntakeCoach(rt.ctxFor(sara()), caseOf(id), null);
+    expect(unread("u-amira")).toEqual(waiting);
+    // En notis som hon själv märker som läst står kvar som läst – beställningen finns ändå på Min vecka tills den är besvarad.
+    const n = newOrder("u-amira").find((x) => x.caseId === fresh && !readBy("u-amira").has(x.id))!;
+    expect((await cmd("notiser.notifRead", { ids: [n.id] }, amira())).ok).toBe(true);
+    expect(unread("u-amira")).toEqual(waiting.filter((id) => id !== fresh));
+    expect((await query<MinVeckaView>("coach.minVecka", {}, amira())).toReceive.map((x) => x.caseId).sort()).toEqual(waiting);
   });
 
   it("ingen intagsansvarig (vald bort, rollen coach borttagen eller kollegan spärrad): personens notiser märks som lästa och ingen får nya", async () => {

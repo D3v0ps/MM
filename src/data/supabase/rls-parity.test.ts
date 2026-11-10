@@ -4638,6 +4638,38 @@ describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS,
     expect({ pg: code(await pgWrite("u-erik", ACCEPT, prep)), mem: await memOk(memErik().table("cases").update(CASE, PATCH)) }).toEqual({ pg: "42501", mem: false });
   });
 
+  it("ärendets avtal ändras aldrig av en inloggad – annars kunde ärendet flyttas till ett avtal där man är intagsansvarig och tas emot där i två steg", async () => {
+    // Granskningen, runda 2. Erik får rollen coach i det andra avtalet (c-ny) och blir intagsansvarig där. Steg ett vore att
+    // flytta ärendet dit, steg två att ta emot det. Ingen hanterare flyttar ett ärende mellan avtal.
+    const prep = [
+      "insert into public.memberships (id, user_id, contract_id, role) values ('u-erik:c-ny:coach', 'u-erik', 'c-ny', 'coach')",
+      "update public.contracts set intake_coach_id = 'u-erik' where id = 'c-ny'",
+    ];
+    const memErik = () => {
+      const s = memStore();
+      s.insertRow("memberships", { id: "u-erik:c-ny:coach", userId: "u-erik", contractId: "c-ny", role: "coach", customerUnit: null });
+      s.updateRow("contracts", "c-ny", { intakeCoachId: "u-erik" });
+      return new MemoryRepo<Tables>(s, { ...actorOf(findPersona("u-erik")), contractIds: ["c-bot", "c-ny"] }, POLICIES);
+    };
+    const move = (id: string) => `update public.cases set contract_id = 'c-ny' where id = '${id}'`;
+    expect({ pg: code(await pgWrite("u-erik", move(CASE), prep)), mem: await memOk(memErik().table("cases").update(CASE, { contractId: "c-ny" })) }).toEqual({ pg: "42501", mem: false });
+    // Inte heller den som annars ändrar ärendet: avtalsansvarig Johan är medlem i båda avtalen, samordnaren och den
+    // intagsansvarige i Botkyrkaavtalet – och inte i ett pågående ärende.
+    const active = data.cases.find((c) => c.status === "active" && c.contractId === "c-bot")!;
+    for (const key of ["u-johan", "u-sara", "u-amira"]) {
+      for (const id of [CASE, active.id]) {
+        expect({ pg: code(await pgWrite(key, move(id))), mem: await memOk(repoFor(memStore(), key).table("cases").update(id, { contractId: "c-ny" })) }, `${key} ${id}`).toEqual({ pg: "42501", mem: false });
+      }
+    }
+    // Ett oförändrat avtal i ändringen går (appen skickar inte kolumnen, men värdet är detsamma).
+    expect({
+      pg: code(await pgWrite("u-sara", `update public.cases set contract_id = 'c-bot', location = 'Miljonbemanning Alby' where id = '${CASE}'`)),
+      mem: await memOk(repoFor(memStore(), "u-sara").table("cases").update(CASE, { contractId: "c-bot", location: "Miljonbemanning Alby" })),
+    }).toEqual({ pg: 1, mem: true });
+    // Servern (service role) rörs inte – inläsningen av testdata och mejlinläsningen skriver som servern.
+    expect({ pg: code(await service(move(CASE))), mem: await memOk(systemRepo(memStore()).table("cases").update(CASE, { contractId: "c-ny" })) }).toEqual({ pg: 1, mem: true });
+  });
+
   it("tas profilen bort töms kolumnen (on delete set null) – som när testdatat läses in på nytt", async () => {
     const erik = data.profiles.find((p) => p.id === "u-erik")!;
     let res: { set: string | null; after: string | null } | null = null;
@@ -4681,7 +4713,7 @@ describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS,
     expect(res).toEqual({
       before: {
         contracts: "c-bot:u-amira,c-ny:-", columns: 1, triggers: 2, indexes: 1, fks: 1, viewGrants: "authenticated:SELECT", caseColumns: "authenticated:id,authenticated:status",
-        guard: "CREATE TRIGGER cases_accept_guard BEFORE UPDATE OF status, confirmed_at ON public.cases FOR EACH ROW EXECUTE FUNCTION mm.guard_case_accept()",
+        guard: "CREATE TRIGGER cases_accept_guard BEFORE UPDATE OF status, confirmed_at, contract_id ON public.cases FOR EACH ROW EXECUTE FUNCTION mm.guard_case_accept()",
       },
       same: true, lock: "0", statement: "0",
     });

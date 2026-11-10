@@ -24,6 +24,9 @@
 --        pågående i två steg. Ingen hanterare gör en sådan ändring.
 --      * Tiden för mottagandet (confirmed_at) ändras bara i samma ändring som tar emot beställningen – annars kunde den sättas
 --        först, så att regeln ovan inte längre känner igen beställningen som aldrig mottagen.
+--      * Ärendets avtal (contract_id) ändras aldrig av en inloggad – annars kunde den som är intagsansvarig i ett annat avtal
+--        först flytta ärendet dit och sedan ta emot det, i två steg. Ingen hanterare flyttar ett ärende mellan avtal;
+--        servern (inläsningen av testdata, mejlinläsningen) rörs inte.
 --    Före 0041 släppte databasen igenom vilken coach som helst med åtkomst till ärendet – bara appens rollkontroll stoppade.
 --    Övriga ändringar av ärendet prövas som förut (cases_update, cases_area_guard, cases_start_date_guard,
 --    cases_start_date_no_show_guard). Servern (service role) rörs inte.
@@ -43,8 +46,8 @@
 -- Inga destruktiva satser och inga befintliga rader ändras. Befintliga objekt som ersätts: funktionen mm.visible_contracts() och
 -- vyn public.contracts_public (samma rader och kolumner som förut plus den nya kolumnen sist). Befintliga tabeller som får något
 -- nytt: public.contracts (kolumnen, ett index och triggern contracts_intake_coach_check) och public.cases (triggern
--- cases_accept_guard, before update of status, confirmed_at – ändrar inga rader – och läsrätten på kolumnen status för
--- inloggade). Idempotent (if not exists, or replace, drop … if exists) – tål att köras igen i SQL Editor.
+-- cases_accept_guard, before update of status, confirmed_at, contract_id – ändrar inga rader – och läsrätten på kolumnen status
+-- för inloggade). Idempotent (if not exists, or replace, drop … if exists) – tål att köras igen i SQL Editor.
 --
 -- KÖR HELA FILEN SOM EN TRANSAKTION. SQL Editor och Supabase CLI gör det (hela filen skickas som en fråga). Med psql: alltid
 -- "psql -1 -f" (eller --single-transaction) – aldrig sats för sats. Mellan satsen som lägger till kolumnen och satsen som
@@ -128,8 +131,10 @@ grant execute on function mm.is_intake_coach(text) to authenticated, service_rol
 --     samordnaren eller avtalsansvarig. Avtalet är ärendets avtal före ändringen (old.contract_id).
 --   * En beställning som aldrig togs emot (avböjd, eller avslutad utan confirmed_at) tas aldrig emot i efterhand.
 --   * confirmed_at ändras bara i samma ändring som tar emot beställningen.
--- Coachens avslut av en beställning som aldrig togs emot (closed) och ändringar som inte rör statusen eller confirmed_at prövas
--- som förut.
+--   * Ärendets avtal (contract_id) ändras aldrig – annars kunde ärendet först flyttas till ett avtal där den inloggade är
+--     intagsansvarig och sedan tas emot där.
+-- Coachens avslut av en beställning som aldrig togs emot (closed) och ändringar som inte rör statusen, confirmed_at eller
+-- avtalet prövas som förut.
 create or replace function mm.guard_case_accept() returns trigger
 language plpgsql set search_path = public, mm
 as $$
@@ -140,6 +145,9 @@ declare
 begin
   if current_user not in ('authenticated', 'anon') then
     return new;
+  end if;
+  if new.contract_id is distinct from old.contract_id then
+    raise exception 'Ärendets avtal ändras inte' using errcode = '42501';
   end if;
   v_manager := coalesce(mm.current_role(), '') in ('samordnare', 'avtalsansvarig');
   v_pending := old.status in ('received', 'acknowledged');
@@ -162,7 +170,7 @@ end
 $$;
 revoke all on function mm.guard_case_accept() from public, anon;
 drop trigger if exists cases_accept_guard on public.cases;
-create trigger cases_accept_guard before update of status, confirmed_at on public.cases
+create trigger cases_accept_guard before update of status, confirmed_at, contract_id on public.cases
 for each row execute function mm.guard_case_accept();
 
 -- ---------------------------------------------------------------- 3. Villkorade ändringar av ärendet
