@@ -418,7 +418,7 @@ describe("mallar och utskick", () => {
     expect(fillExample(t("aktivitet_andrad").body)).toBe(participantMessage("aktivitet_andrad", "2027-02-03T10:00", "Alby", "2027-02-02T13:00"));
     expect(fillExample(t("aktivitet_installd").body)).toBe(participantMessage("aktivitet_installd", "2027-02-03T10:00", "Alby"));
     expect(d.sendLog.map((n) => n.templateLabel)).toEqual([
-      "Ordererkännande", "Pulslänk", "Ny rapport", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
+      "Ordererkännande", "Pulslänk", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
     ]);
     expect(d.sendLog.every((n) => !n.leak && !n.byTester)).toBe(true);
     expect(d.sendLog[1]).toMatchObject({ channel: "sms", to: "070-*** ** 12", caseNumber: "BOT-26-0143" });

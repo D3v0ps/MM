@@ -819,6 +819,11 @@ export type GroupActivity = {
   /** Den återkommande aktiviteten tillfället hör till (0035), annars null. Unikt (seriesId, startsAt). Skapas bara av servern. */
   seriesId: string | null;
   /**
+   * Seriens tid för tillfället (0042): tiden jobbet skapade det på. Ändras aldrig – inte heller när tillfället får ny tid – så att
+   * jobbet aldrig skapar ett nytt tillfälle på den gamla tiden. Unikt (seriesId, seriesSlot). Null utan serie; sätts bara av servern.
+   */
+  seriesSlot?: LocalDateTime | null;
+  /**
    * Deltagarna som målgruppen bjuder in eller tar bort efter att aktiviteten skapats får meddelande (aktivitetsinbjudan,
    * aktivitet_installd). Enstaka aktiviteter: kryssrutan när aktiviteten skapades; återkommande: seriens val (standard av).
    */
@@ -2230,7 +2235,7 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
   activities: [{ fields: ["groupActivityId", "caseId"] }],
   // Ett tillfälle per återkommande aktivitet och starttid (0035, group_activities_series_starts_key – bara rader med series_id).
-  group_activities: [{ fields: ["seriesId", "startsAt"] }],
+  group_activities: [{ fields: ["seriesId", "startsAt"] }, { fields: ["seriesId", "seriesSlot"] }],
   // Ett val per deltagare och gruppmål (0033, group_goal_results_activity_case_key).
   group_goal_results: [{ fields: ["groupActivityId", "caseId"] }],
   pulse_responses: ["inviteId"],

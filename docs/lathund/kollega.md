@@ -28,7 +28,7 @@ Alla på Miljonbemanning börjar på **Min vecka**. Varje roll har en egen Min v
 
 Överst står listan **Att göra** (coachen: **Att göra i dag**). Den är sorterad på sista tid – det som är försenat och det som ska göras snart står först. Varje sak står en gång med sin knapp, och knappen säger vad den gäller, till exempel **Acceptera BOT-27-0048**. Har ett ärende flera saker står de på samma rad. Siffran vid **Min vecka** i menyn är dina öppna uppgifter.
 
-Coachen har under listan **SMS att skicka** (se **Skicka SMS själv**), **Följ upp** (påminnelser, egna flaggor och olästa notiser – ett ärende en gång) och **Att kartlägga** när någon av dina deltagare saknar nivå. Veckokalendern visas när du trycker på **Visa hela veckan**.
+Coachen har under listan **Veckans tider att skicka** och **SMS att skicka** (se **Skicka SMS själv**), **Följ upp** (påminnelser, egna flaggor och olästa notiser – ett ärende en gång) och **Att kartlägga** när någon av dina deltagare saknar nivå. Veckokalendern visas när du trycker på **Visa hela veckan**.
 
 Sidopanelen har alltid:
 
@@ -137,10 +137,10 @@ Bra att veta:
 
 Ska deltagaren ha andra dagar eller tider varje vecka efter starten? Tryck på **Ändra veckoplan** överst på deltagarkortet. Knappen finns också i **Närvaro** när listan visar en deltagare.
 
-1. Planen är ifylld med deltagarens egna tillfällen. Gruppaktiviteter och nivåaktiviteter står inte i planen – de ändras i aktiviteten.
+1. Planen är ifylld med deltagarens egna tillfällen den här veckan – också dagarna som har varit. Gruppaktiviteter, nivåaktiviteter, tillfällen du lagt till med **Lägg till tillfälle** och praktikdagar står inte i planen.
 2. Ändra dag, typ, tid, längd eller plats och spara.
-3. Kommande tillfällen utan närvaro som inte stämmer med planen byts ut. Tillfällen med närvaro ändras aldrig. Sparar du planen utan att ändra något händer ingenting.
-4. Har du flyttat ett tillfälle med **Ändra tid** ligger det kvar.
+3. Kommande tillfällen utan närvaro som inte stämmer med planen byts ut. Tillfällen med närvaro, enstaka tillfällen och praktikdagar ändras aldrig. Sparar du planen utan att ändra något händer ingenting.
+4. Har du flyttat ett tillfälle med **Ändra tid** ligger det kvar. Har du tagit bort ett tillfälle kommer det inte tillbaka.
 
 ### Deltagaren kom före det bokade första mötet
 
@@ -342,19 +342,19 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 4. Var alla andra där? Tryck på **Markera övriga som närvarande** och bekräfta namnen. Det gäller alla tillfällen i listan som saknar registrering. Närvaro eller frånvaro som redan är registrerad ändras aldrig. Rätta en enskild rad med knapparna på raden.
 5. Klockan 18.00 registreras tillfällen som har passerat och saknar närvaro som närvarande. De märks **Automatiskt registrerad**. Var deltagaren inte där? Ändra raden till frånvaro. Märket försvinner och raden blir en vanlig registrering.
 
-Ska ett kommande tillfälle ha en annan tid? Tryck på **Ändra tid** på raden i **Närvaro** eller under **Kommande tillfällen** på deltagarkortets flik **Närvaro**. Välj ny dag och tid, **Längd** och plats och tryck på **Spara ny tid**. Du behöver inte göra om tillfället. **Skicka den nya tiden till deltagaren** är förvalt: deltagaren får e-post eller SMS med dag, tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren. Tiden kan inte ändras när närvaron är registrerad, till en helgdag, en vecka med uppehåll, en månad som är fakturerad eller en tid då deltagaren redan har något annat. **Längd** väljer du i listan – du skriver aldrig timmar. Ett tillfälle i en gruppaktivitet ändrar du i aktiviteten.
+Ska ett kommande tillfälle ha en annan tid? Tryck på **Ändra tid** på raden i **Närvaro** eller under **Kommande tillfällen** på deltagarkortets flik **Närvaro**. Välj ny dag och tid, **Längd** och plats och tryck på **Spara ny tid**. Du behöver inte göra om tillfället. **Skicka den nya tiden till deltagaren** är förvalt: deltagaren får e-post eller SMS med dag, tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren. Tiden kan inte ändras när tillfället har börjat eller närvaron är registrerad, till en helgdag, en vecka med uppehåll, en månad som är fakturerad eller en tid då deltagaren redan har något annat. **Längd** väljer du i listan – du skriver aldrig timmar. Ett tillfälle i en gruppaktivitet ändrar du i aktiviteten.
 6. Närvaron ligger till grund för veckorapporten till kommunen, närvarograden och fakturan. Ändras närvaron efter att veckorapporten har gått ut: öppna rapporten under **Rapporter** och tryck på **Rätta**.
 
 ### Skicka SMS själv
 
-Appen skickar inte SMS till deltagarna ännu. Därför står de SMS som ska skickas på din Min vecka under **SMS att skicka**. Alla coacher ser alla deltagare.
+Appen skickar inte SMS till deltagarna ännu. Därför står de SMS som ska skickas på din Min vecka under **Veckans tider att skicka** och **SMS att skicka**. Först står dina egna deltagare. Kryssa i **Visa alla** för att se alla deltagare – då står huvudcoachens namn på raden.
 
-- **Veckans tider**: från fredag finns en rad per deltagare med nästa veckas tider – dag, datum, tid och plats. Raden står kvar tills den är skickad eller veckan är slut.
-- **Kallelse, inbjudan, ändrad tid och inställd aktivitet** som inte gick att skicka: texten är samma som deltagaren skulle ha fått.
+- **Veckans tider**: från fredag finns en rad per deltagare med nästa veckas tider – dag, datum, tid och plats. Praktikdagar står inte med. Raden står kvar tills den är skickad eller veckans första tillfälle har börjat.
+- **Kallelse, inbjudan, ändrad tid och inställd aktivitet** som inte gick att skicka: texten är samma som deltagaren skulle ha fått. Raden försvinner när tiden har passerat.
 
-1. Tryck på **Kopiera numret** och klistra in numret i ett nytt SMS i din telefon. Numret står också på raden.
-2. Tryck på **Kopiera texten** och klistra in texten i SMS:et. Ändra inte texten – den har bara tid, plats och vårt telefonnummer, aldrig namn.
-3. Skicka SMS:et från din telefon.
+1. Tryck på **Kopiera numret**.
+2. Tryck på **Öppna SMS**. SMS:et öppnas i din telefon med texten ifylld. Klistra in numret som mottagare. På en dator: klistra in numret och texten i ett SMS i din telefon – tryck på **Kopiera texten** för texten.
+3. Ändra inte texten – den har bara tid, plats och vårt telefonnummer, aldrig namn. Skicka SMS:et.
 4. Tryck på **Markera som skickat**. Raden försvinner för alla coacher, och samordnaren behöver inte ringa om samma sak.
 
 Har tiderna ändrats efter att du kopierade texten? Då står den nya texten på raden. Kopiera den och skicka den nya texten.

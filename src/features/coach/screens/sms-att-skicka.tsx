@@ -1,12 +1,14 @@
 "use client";
 // SMS att skicka på coachens Min vecka (Karims beslut 2026-11-11, SPEC §9): SMS till deltagare är inte kopplat, så coachen skickar
-// SMS:et själv. En rad per SMS – veckans tider (från fredag för nästa vecka) och meddelanden som inte kunde skickas automatiskt.
-// Raden har deltagaren, numret som markerbar text med Kopiera numret (aldrig en tel:- eller sms:-länk – inga personuppgifter i
-// URL:er, CLAUDE.md punkt 2), texten med Kopiera texten och Markera som skickat. Inga nya hjälptexter.
-import { useRef } from "react";
+// SMS:et själv. Två listor (granskningen 2026-11-11): Veckans tider att skicka (från fredag för nästa vecka, tills veckans första
+// tillfälle börjar) och SMS att skicka (meddelanden som inte kunde skickas automatiskt). Först coachens egna deltagare (huvudcoach
+// eller i teamet) – Visa alla visar alla i avtalet med huvudcoachens förnamn. Raden har deltagaren, numret som markerbar text med
+// Kopiera numret, texten med Kopiera texten och Markera som skickat. Efter Kopiera numret: Öppna SMS – en sms:-länk med bara texten
+// (tid, plats och Miljonbemannings telefonnummer); numret står aldrig i en länk (CLAUDE.md punkt 2). Inga nya hjälptexter.
+import { useRef, useState } from "react";
 import { PhoneToCopy } from "@/features/inkorg/screens/min-vecka";
 import { useCommand, useQuery } from "@/shell/backend";
-import { Button, CaseName, focusSoon, toast, TodoList, type TodoItem } from "@/ui";
+import { Button, buttonVariants, CaseName, Check, cn, DoneLine, focusSoon, Icon, toast, TodoList, type TodoItem } from "@/ui";
 import { smsAttSkicka, smsMarkSent, type SmsKind, type SmsToSendRow } from "../api";
 
 /** Vad SMS:et gäller – radens anmärkning (samma ord som mallarna i adminvyn). */
@@ -17,26 +19,83 @@ const KIND_LABEL: Record<Exclude<SmsKind, "veckoschema">, string> = {
   aktivitet_installd: "Inställd aktivitet",
 };
 const kindText = (r: SmsToSendRow): string => (r.kind === "veckoschema" ? `Veckans tider – vecka ${r.week ?? ""}`.trim() : KIND_LABEL[r.kind]);
+/** Radens id (fokus efter Markera som skickat). */
+const rowId = (key: string): string => `sms-${key.replace(/[^A-Za-z0-9-]/g, "-")}`;
 
 export function SmsAttSkicka() {
   const q = useQuery(smsAttSkicka, {});
+  const [all, setAll] = useState(false);
   const rows = q.data?.rows ?? [];
   if (!rows.length) return null;
-  const items: TodoItem[] = rows.map((r) => ({
-    key: r.key,
-    testId: "sms-rad",
-    icon: "message",
-    title: <CaseName big caseId={r.caseId} name={r.name} caseNumber={r.caseNumber} />,
-    notes: [r.leadCoach ? `${kindText(r)} · huvudcoach ${r.leadCoach}` : kindText(r)],
-    children: (
-      <div className="flex min-w-0 flex-col gap-1">
-        <PhoneToCopy phone={r.phone} caseNumber={r.caseNumber} />
-        <SmsText text={r.text} caseNumber={r.caseNumber} />
-      </div>
-    ),
-    action: <MarkSent row={r} />,
-  }));
-  return <TodoList id="mv-sms" title={`SMS att skicka (${rows.length})`} icon="message" items={items} initial={5} />;
+  const shown = all ? rows : rows.filter((r) => r.mine);
+  const weekly = shown.filter((r) => r.kind === "veckoschema");
+  const other = shown.filter((r) => r.kind !== "veckoschema");
+  const toggle = rows.some((r) => !r.mine) ? (
+    <Check id="mv-sms-alla" checked={all} onCheckedChange={setAll}>
+      Visa alla
+    </Check>
+  ) : null;
+  // Efter Markera som skickat: nästa rad i samma lista, annars den andra listans rubrik, annars Att göra i dag (listan försvinner).
+  const focusAfter = (list: readonly SmsToSendRow[], key: string) => {
+    const i = list.findIndex((r) => r.key === key);
+    const next = list[i + 1] ?? list[i - 1];
+    const otherList = list === weekly ? other : weekly;
+    focusSoon(next ? rowId(next.key) : otherList.length ? (otherList === weekly ? "mv-sms-vecka-rubrik" : "mv-sms-rubrik") : "mv-att-gora-rubrik");
+  };
+  const items = (list: readonly SmsToSendRow[]): TodoItem[] =>
+    list.map((r) => ({
+      key: r.key,
+      id: rowId(r.key),
+      testId: "sms-rad",
+      icon: "message",
+      title: <CaseName big caseId={r.caseId} name={r.name} caseNumber={r.caseNumber} />,
+      notes: [all && r.leadCoach ? `${kindText(r)} · huvudcoach ${r.leadCoach}` : kindText(r)],
+      children: <SmsBody row={r} />,
+      action: <MarkSent row={r} onDone={() => focusAfter(list, r.key)} />,
+    }));
+  if (!weekly.length && !other.length) {
+    return (
+      <DoneLine id="mv-sms" title="SMS att skicka" icon="message">
+        <span className="inline-flex flex-wrap items-center gap-x-3">Inget att göra just nu. {toggle}</span>
+      </DoneLine>
+    );
+  }
+  return (
+    <>
+      {weekly.length > 0 && (
+        <TodoList id="mv-sms-vecka" title={`Veckans tider att skicka (${weekly.length})`} icon="message" summary={toggle} items={items(weekly)} initial={5} />
+      )}
+      {other.length > 0 && (
+        <TodoList id="mv-sms" title={`SMS att skicka (${other.length})`} icon="message" summary={weekly.length ? undefined : toggle} items={items(other)} initial={5} />
+      )}
+    </>
+  );
+}
+
+/** Numret, texten och – efter Kopiera numret – Öppna SMS. */
+function SmsBody({ row }: { row: SmsToSendRow }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <PhoneToCopy phone={row.phone} caseNumber={row.caseNumber} onCopied={() => setCopied(true)} />
+      <SmsText text={row.text} caseNumber={row.caseNumber} />
+      {copied && (
+        <a href={smsHref(row.text)} className={cn(buttonVariants({ kind: "ghost" }), "-ml-1.5 self-start px-1.5")}>
+          <Icon name="send" />
+          Öppna SMS <span className="sr-only">till deltagaren i {row.caseNumber}</span>
+        </a>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Länken som öppnar telefonens SMS-app med texten ifylld – mottagaren klistrar coachen in (numret står aldrig i länken, CLAUDE.md
+ * punkt 2). iPhone och iPad vill ha "sms:&body=", andra "sms:?body=".
+ */
+export function smsHref(text: string, userAgent: string = typeof navigator !== "undefined" ? navigator.userAgent : ""): string {
+  const ios = /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+  return `sms:${ios ? "&" : "?"}body=${encodeURIComponent(text)}`;
 }
 
 /**
@@ -68,14 +127,18 @@ function SmsText({ text, caseNumber }: { text: string; caseNumber: string }) {
   );
 }
 
-/** Markera som skickat: raden försvinner för alla. Har texten ändrats (nya tider) visas den nya raden i stället. */
-function MarkSent({ row }: { row: SmsToSendRow }) {
+/**
+ * Markera som skickat: raden försvinner för alla. Kommandot har det coachen såg – veckans tillfällen eller meddelandets id – så att
+ * markeringen går också när tiden har gått. Har tiderna ändrats visas den nya raden i stället.
+ */
+function MarkSent({ row, onDone }: { row: SmsToSendRow; onDone: () => void }) {
   const mark = useCommand(smsMarkSent);
   const run = async () => {
-    const res = await mark.run({ key: row.key, text: row.text }).catch(() => null);
+    const input = { key: row.key, text: row.text, ...(row.slots ? { slots: row.slots } : {}), ...(row.messageId ? { messageId: row.messageId } : {}) };
+    const res = await mark.run(input).catch(() => null);
     if (res && res.ok) {
       toast(res.already ? "SMS:et var redan markerat som skickat." : "SMS:et är markerat som skickat.");
-      focusSoon("mv-sms-rubrik");
+      onDone();
     } else toast((res && !res.ok && res.message) || "SMS:et kunde inte markeras som skickat.", "error");
   };
   return (

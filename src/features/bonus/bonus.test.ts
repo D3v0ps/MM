@@ -66,7 +66,7 @@ describe("coachen: kortet Bonus och granskningen", () => {
     expect(v.steps.map((s) => [s.step, s.label, s.status, s.statusText])).toEqual([
       [1, "Dokumenterad progression", "none", "Inte aktuellt än"], [2, "Stark progression", "approved", "Godkänt av kommunen"],
       [3, "Arbete eller studier", "approved", "Godkänt av kommunen"], [4, "Hållbart resultat", "suggested", "Förslag att granska"],
-      [5, "Snabbhetspremie", "approved", "Godkänt av kommunen"],
+      [5, "Snabbt resultat", "approved", "Godkänt av kommunen"],
     ]);
     expect(v.steps.every((s) => !!s.icon)).toBe(true);
     expect(v.canAct).toBe(true);

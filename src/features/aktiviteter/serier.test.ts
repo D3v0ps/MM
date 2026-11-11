@@ -14,7 +14,7 @@ import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
-import { caseClose } from "@/features/arenden/api";
+import { activityAdd, caseClose } from "@/features/arenden/api";
 import { attendanceSet } from "@/features/coach/api";
 import "@/api/handlers";
 import {
@@ -107,12 +107,52 @@ describe("ett tillfälle i en serie får ny tid (Karims beslut 2026-11-11)", () 
     expect(audit("group_activity_series.occurrence_moved")).toEqual([]);
   });
 
-  it("meddelandet följer seriens val: av = inget meddelande, på = aktivitet_andrad med bara tid, plats och telefonnummer", async () => {
+  it("ny tid: dialogens val gäller också när serien är utan meddelanden – alla inbjudna får aktivitet_andrad, den som faller bort aktivitet_installd", async () => {
+    const off = await createSeries();
+    const o = occurrencesOf(off.seriesId)[1];
+    const parts = partsOf(o.id);
+    expect(parts.length).toBeGreaterThan(1);
+    // En av deltagarna har ett eget tillfälle vid den nya tiden och kan inte vara med (inbjuden av målgruppen – tas bort).
+    const busy = parts[0].caseId;
+    expect(await run(activityAdd, { caseId: busy, kind: "yrkesmoment", startsAt: "2027-02-05T10:00", durationMin: 60, location: "Miljonbemanning Alby" }, amira())).toMatchObject({ ok: true });
+    const out0 = rows("outbound_messages").length;
+    const res = await run(groupActivityUpdate, { id: o.id, ...baseOf(o), startsAt: "2027-02-05T10:00", notify: true }, amira());
+    expect(res).toMatchObject({ ok: true });
+    const sent = rows("outbound_messages").slice(out0);
+    const andrad = sent.filter((m) => m.template === "aktivitet_andrad" && m.channel !== "call");
+    const installd = sent.filter((m) => m.template === "aktivitet_installd" && m.channel !== "call");
+    const staying = partsOf(o.id).map((a) => a.caseId);
+    expect(staying).not.toContain(busy);
+    expect([...new Set(andrad.map((m) => m.caseId))].sort()).toEqual([...staying].sort());
+    expect([...new Set(installd.map((m) => m.caseId))]).toEqual([busy]);
+    expect(andrad.every((m) => m.body.includes("Aktiviteten hos Miljonbemanning torsdag 4 februari kl. 15.00 är ändrad. Nu gäller fredag 5 februari kl. 10.00") && !/BOT-\d|Studiebesök/.test(m.body))).toBe(true);
+    expect(installd.every((m) => m.body.includes("torsdag 4 februari kl. 15.00") && m.body.includes("är inställd"))).toBe(true);
+  });
+
+  it("ny tid utan rutan: inga meddelanden", async () => {
     const off = await createSeries();
     const o = occurrencesOf(off.seriesId)[1];
     const out0 = rows("outbound_messages").length;
-    expect(await run(groupActivityUpdate, { id: o.id, ...baseOf(o), startsAt: "2027-02-05T10:00", notify: true, replaceOverlapping: true }, amira())).toMatchObject({ ok: true, notified: null });
+    expect(await run(groupActivityUpdate, { id: o.id, ...baseOf(o), startsAt: "2027-02-05T13:00", notify: false, replaceOverlapping: true }, amira())).toMatchObject({ ok: true, notified: null });
     expect(rows("outbound_messages").slice(out0)).toEqual([]);
+  });
+
+  it("seriens tid står på raden (0042) och ändras inte när tillfället flyttas; jobbets unika nyckel stoppar ett andra tillfälle på den", async () => {
+    const res = await createSeries();
+    const thu = occurrencesOf(res.seriesId)[1];
+    expect(thu.seriesSlot).toBe("2027-02-04T15:00");
+    expect(await run(groupActivityUpdate, { id: thu.id, ...baseOf(thu), startsAt: "2027-02-05T10:00", replaceOverlapping: true }, amira())).toMatchObject({ ok: true });
+    expect(rows("group_activities").find((g) => g.id === thu.id)).toMatchObject({ startsAt: "2027-02-05T10:00", seriesSlot: "2027-02-04T15:00" });
+    // Utan loggraden (jobbet läser bara raden): ingen ny torsdag 15.00.
+    rt.store.rows("audit_log").splice(0, rt.store.rows("audit_log").length, ...rows("audit_log").filter((l) => l.action !== "group_activity_series.occurrence_moved"));
+    rt.clock.set("2027-02-02T08:05");
+    await ensureGroupActivities(system());
+    expect(occurrencesOf(res.seriesId).some((g) => g.startsAt === "2027-02-04T15:00")).toBe(false);
+    // En inloggad ändrar aldrig seriens tid (policy.ts GROUP_FIXED – samma som kolumnskyddet i databasen).
+    await expect(rt.ctxFor(amira()).repo.table("group_activities").update(thu.id, { seriesSlot: "2027-02-06T15:00", updatedAt: "2027-02-02T08:05", updatedBy: "u-amira" })).rejects.toThrow();
+  });
+
+  it("en serie med meddelanden: aktivitet_andrad med bara tid, plats och telefonnummer", async () => {
     const on = await createSeries({ name: "Studiebesök med meddelande", weekdays: [3], startTime: "13:00", notify: true });
     const g = occurrencesOf(on.seriesId)[0];
     expect(partsOf(g.id).length).toBeGreaterThan(0);

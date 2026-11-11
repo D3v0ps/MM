@@ -163,11 +163,15 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
           <p>
             <b>{v.title}</b> publiceras i kommunens portal för {name || "mottagaren"}.
           </p>
-          <p>{name || "Mottagaren"} får ett mejl som bara innehåller en notis:</p>
-          <MailNote>&quot;{v.delivery.notice}&quot;</MailNote>
-          <p>
-            {v.delivery.attachmentAllowed ? "Rapporten skickas även som bilaga enligt kommunens skriftliga instruktion." : "Rapporten skickas inte som bilaga i e-post. Det är avstängt i avtalskonfigurationen."}
-          </p>
+          {v.delivery.email && (
+            <>
+              <p>{name || "Mottagaren"} får ett mejl som bara innehåller en notis:</p>
+              <MailNote>&quot;{v.delivery.notice}&quot;</MailNote>
+              <p>
+                {v.delivery.attachmentAllowed ? "Rapporten skickas även som bilaga enligt kommunens skriftliga instruktion." : "Rapporten skickas inte som bilaga i e-post. Det är avstängt i avtalskonfigurationen."}
+              </p>
+            </>
+          )}
           <p>Innehållet låses vid leveransen. Senare ändringar kräver en rättelse (ny version).</p>
         </Stack>
       ),
@@ -180,7 +184,7 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
     }
     // Frys innehållet direkt efter leveransen.
     await snapshot.run({ reportIds: [v.id] });
-    toast(`Levererad i portalen till ${name || "kommunen"}. Mejlet innehåller bara en notis utan personuppgifter.`);
+    toast(`Levererad i portalen till ${name || "kommunen"}.${v.delivery.email ? " Mejlet innehåller bara en notis utan personuppgifter." : ""}`);
     // Knappen Leverera försvinner: vägen vidare (nästa rapport att leverera, listan) får fokus.
     setJustDelivered(true);
     focusSoon("efter-leverans");
@@ -548,12 +552,14 @@ function DeliveryCard({ v }: { v: ReportView }) {
             ["Kanal", d.channel],
             ["Mottagare", d.recipientName ? v.recipient : "–"],
             ["Kvittens", "Bara mottagaren kvitterar. Andra i kommunen kan läsa rapporten utan att den blir kvitterad."],
-            ["Bilaga i e-post", d.attachmentAllowed ? "Tillåten – kommunen har gett skriftlig instruktion" : "Avstängd. Kommunen har inte skriftligt begärt rapporter som bilaga."],
+            ...(d.email ? [["Bilaga i e-post", d.attachmentAllowed ? "Tillåten – kommunen har gett skriftlig instruktion" : "Avstängd. Kommunen har inte skriftligt begärt rapporter som bilaga."] as [string, string]] : []),
           ]}
         />
-        <MailNote>
-          <b className="text-antracit">Mejlet till {d.recipientName || "mottagaren"} innehåller bara:</b> &quot;{d.notice}&quot; Inga namn eller personnummer.
-        </MailNote>
+        {d.email && (
+          <MailNote>
+            <b className="text-antracit">Mejlet till {d.recipientName || "mottagaren"} innehåller bara:</b> &quot;{d.notice}&quot; Inga namn eller personnummer.
+          </MailNote>
+        )}
         <div>
           <CustomerPerspective recipientId={v.recipientId} reportId={v.id} label="Öppna kommunens vy" />
         </div>

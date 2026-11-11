@@ -4,7 +4,8 @@
 //
 // Ett tillfälle är deltagarens egen rad i activities (coachträff/möte, yrkesmoment, praktikdag, arbetsgivarbesök, annat) – inte en
 // rad i en gruppaktivitet (den flyttas i aktivitetsvyn). Det flyttas när:
-//   * ingen närvaro är registrerad för det (då har det hänt, och närvaron och veckorapporten bygger på tiden);
+//   * ingen närvaro är registrerad för det (då har det hänt, och närvaron och veckorapporten bygger på tiden) och det inte har
+//     börjat (granskningen 2026-11-11 – som gruppaktiviteterna, upcoming);
 //   * den nya tiden inte har passerat, ligger inom insatsen (från startdatumet till slutdatumet eller planerat slut), är en
 //     arbetsdag och inte i en vecka med uppehåll;
 //   * ingen av månaderna (veckans månad enligt torsdagsregeln) för den gamla och den nya tiden är fakturerad eller godkänd av
@@ -15,7 +16,7 @@ import { ACTIVITY_KIND_WORD, overlaps, slotText } from "./group-activities";
 import { startChangeLock, type StartChangeBilling } from "./start-date";
 import { dayOf, fmtDate, fmtWeekday, holidayName, isoWeek, isWorkingDay, monthName, weekMonthKey, type LocalDateTime, type MonthKey } from "./time";
 
-export type ActivityMoveCode = "has_attendance" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap";
+export type ActivityMoveCode = "has_attendance" | "started" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap";
 export type ActivityMoveProblem = { code: ActivityMoveCode; text: string };
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -42,12 +43,13 @@ export function activityMoveProblem(o: {
 }): ActivityMoveProblem | null {
   const { c, a, to } = o;
   if (o.registered) return { code: "has_attendance", text: "Närvaron är redan registrerad för tillfället. Tiden kan inte ändras." };
+  if (a.startsAt <= o.now) return { code: "started", text: "Tillfället har redan börjat. Tiden kan inte ändras." };
   if (to.startsAt <= o.now) return { code: "past", text: "Tiden har redan passerat. Välj en senare tid." };
   const day = dayOf(to.startsAt);
   if (c.startDate && day < c.startDate) return { code: "date", text: `Tillfället kan inte ligga före startdatumet ${fmtDate(c.startDate)}.` };
   const end = c.endDate ?? c.plannedEnd;
   if (end && day > end) return { code: "date", text: `Tillfället kan inte ligga efter ${c.endDate ? "slutdatumet" : "planerat slut"} ${fmtDate(end)}.` };
-  if (!isWorkingDay(day)) return { code: "not_working_day", text: `${holidayName(day) || "Dagen"} är inte en arbetsdag. Välj en vardag.` };
+  if (!isWorkingDay(day)) return { code: "not_working_day", text: `${holidayName(day) || "Dagen"} är inte en arbetsdag.` };
   const week = isoWeek(day);
   if (c.pausedWeeks.includes(week.key)) return { code: "paused_week", text: `Vecka ${week.week} är ett uppehåll i insatsen. Välj en annan vecka.` };
   const lock = startChangeLock(c, activityMoveMonths(a.startsAt, to.startsAt), o.billing);

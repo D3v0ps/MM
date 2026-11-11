@@ -91,15 +91,15 @@ export const FIRST_MEETING_DEFAULT_TIME = "10:00";
 
 /**
  * Förvalt datum för första mötet i acceptdialogen (Karims beslut 2026-11-11: "behöver vi själva fylla i datumen fast kommunens
- * handläggare har skrivit in det"). Kommunens önskade start när den dagen går att boka – i dag eller senare, inte före
+ * handläggare har skrivit in det"). Kommunens önskade start när den dagen går att boka – efter i dag, inte före
  * beställningens dag, en arbetsdag och med det förvalda klockslaget kvar (samma regel som servern, firstMeetingBookingProblem).
- * Annars den första dagen från och med den senaste av önskad start, i dag och beställningens dag som går att boka. Utan önskad
- * start: två arbetsdagar fram, som förut.
+ * Annars den första dagen från och med den senaste av önskad start och beställningens dag som går att boka. Utan önskad
+ * start, eller när den önskade starten har passerat eller är i dag (granskningen 2026-11-11): två arbetsdagar fram, som förut.
  */
 export function acceptDefaultDate(o: { desiredStart: string | null | undefined; referredAt: LocalDateTime; now: LocalDateTime; time?: string }): string {
   const today = dayOf(o.now);
   const time = o.time ?? FIRST_MEETING_DEFAULT_TIME;
-  if (!o.desiredStart) return addWorkingDays(today, 2);
+  if (!o.desiredStart || o.desiredStart <= today) return addWorkingDays(today, 2);
   const order = dayOf(o.referredAt);
   const bookable = (d: string) => d >= order && isWorkingDay(d) && `${d}T${time}` > o.now;
   let d = [o.desiredStart, today, order].sort().at(-1)!;

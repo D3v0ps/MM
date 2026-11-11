@@ -605,8 +605,8 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
             idPrefix="andra-akt"
             lockSchedule={scheduleLocked ? "Tillfället har redan börjat eller har registrerad närvaro." : undefined}
           />
-          {/* Ett tillfälle i en återkommande aktivitet följer seriens val: utan meddelanden skickas inget (Karims beslut 2026-11-11). */}
-          {timeOrPlace && v.participants.length > 0 && (!v.activity.series || v.activity.notify) && (
+          {/* Ny tid eller plats: rutan står alltid och är förvald – också för ett tillfälle i en återkommande aktivitet (Karims beslut 2026-11-11). */}
+          {timeOrPlace && v.participants.length > 0 && (
             <NotifyCheck id="andra-meddela" checked={notify} onChange={setNotify} label="Skicka ny tid och plats till deltagarna" upcoming={upcoming} />
           )}
           {problems.length > 0 && (

@@ -87,7 +87,7 @@ function Facts({ v }: { v: BonusReviewView }) {
           f.event ? ["Händelse", `${f.event.label} ${fmtDate(f.event.date)}${f.event.actor ? ` · ${f.event.actor}` : ""}${f.event.verificationKind ? ` · verifierad: ${f.event.verificationKind}` : ""}`] : null,
           f.windowEnd ? ["I anslutning till insatsen", `Senast ${fmtDate(f.windowEnd)}`] : null,
           f.step3 ? ["Steg 3", `${f.step3.statusText}${f.step3.reachedOn ? ` · resultatdatum ${fmtDate(f.step3.reachedOn)}` : ""}`] : null,
-          f.speedDeadline ? ["Snabbhetspremie", `Steg 3 senast ${fmtDate(f.speedDeadline)}`] : null,
+          f.speedDeadline ? ["Snabbt resultat", `Steg 3 senast ${fmtDate(f.speedDeadline)}`] : null,
           f.sustainDue ? ["Hållbart resultat", `Kan skickas från ${fmtDate(f.sustainDue)} med en ny verifiering daterad då eller senare`] : null,
           v.source ? ["Anspråket", v.source === "auto" ? "Förslag från reglerna" : "Skapat av Miljonbemanning"] : null,
         ]}

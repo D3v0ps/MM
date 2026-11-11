@@ -115,9 +115,9 @@ export function Persp({ role, userId, to, label }: { role: Role; userId?: string
 
 export const MIN_VECKA_CRUMB = { label: "Min vecka", to: "/min-vecka" };
 
-/** Brödsmulor för coachens sidor om ett ärende: Mina ärenden / BOT-26-0174 (deltagarkortet) / sidan. */
+/** Brödsmulor för coachens sidor om ett ärende: Ärenden / BOT-26-0174 (deltagarkortet) / sidan. */
 export function caseCrumbs(head: { caseId: string; caseNumber: string }, label: string): { label: string; to?: string }[] {
-  return [{ label: "Mina ärenden", to: "/arenden" }, { label: head.caseNumber, to: `/arenden/${encodeURIComponent(head.caseId)}` }, { label }];
+  return [{ label: "Ärenden", to: "/arenden" }, { label: head.caseNumber, to: `/arenden/${encodeURIComponent(head.caseId)}` }, { label }];
 }
 
 /** Knapp till deltagarkortet (t.ex. efter en godkänd avstämning). */

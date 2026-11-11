@@ -58,8 +58,15 @@ export const BONUS_CHECKLIST_LABEL: Record<(typeof BONUS_CHECKLIST_ITEMS)[number
   arbetsgivarnara_aktivitet: "Aktivt deltagande i arbetsgivarnära aktivitet",
 };
 
-/** Kort text för ett bonussteg: "Steg 3 · Arbete eller studier" (ordet bonus syns bara för ekonomen – Karims beslut 2026-11-11). */
-export const bonusStepTitle = (m: Pick<BonusModel, "steps"> | null, step: number): string => `Steg ${step} · ${bonusStepLabel(m, step)}`;
+/** Steg 5 i incitamentsmodellen: steg 3 nås inom avtalets antal veckor från start. */
+export const SPEED_STEP = 5;
+/**
+ * Stegets namn för coacherna och kommunen (Karims beslut 2026-11-11): steg 5 heter "Snabbt resultat" – "premie" är ett ord om
+ * pengar och står bara hos ekonomen och i prislistan (avtalets namn, bonusStepLabel).
+ */
+export const progressStepLabel = (m: Pick<BonusModel, "steps"> | null | undefined, step: number): string => (step === SPEED_STEP ? "Snabbt resultat" : bonusStepLabel(m, step));
+/** Kort text för ett steg: "Steg 3 · Arbete eller studier" (ordet bonus syns bara för ekonomen – Karims beslut 2026-11-11). */
+export const bonusStepTitle = (m: Pick<BonusModel, "steps"> | null, step: number): string => `Steg ${step} · ${progressStepLabel(m, step)}`;
 
 // ---------------------------------------------------------------- Tider
 /** Sista dagen i fönstret "i anslutning till insatsen" (slutdatum + resultWindowMonthsAfterEnd månader), null för en pågående insats. */

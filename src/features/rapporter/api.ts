@@ -172,6 +172,8 @@ export type PortalReportInfo = {
   recipientName: string;
   /** Miljonbemanning rättar rapporten (en ny version är ett utkast). */
   correcting: boolean;
+  /** Mottagaren får ett mejl när rapporten (den rättade versionen) levereras – reportDeliveryEmail. */
+  emailOnDelivery: boolean;
   superseded: boolean;
   /** Den rättade versionen om den är levererad. */
   newerId: string | null;
@@ -245,7 +247,8 @@ export type ReportView = {
    * Leveransen. outside = beställarrapporten, som lämnas till kommunen utanför Miljonmatch (ingen mottagare, inget mejl) –
    * notice är då texten vid knappen. Annars notice = mejlets notis till mottagaren.
    */
-  delivery: { outside: boolean; channel: string; recipientName: string | null; attachmentAllowed: boolean; notice: string };
+  /** email: mottagaren får ett mejl med notisen när rapporten levereras (reportDeliveryEmail – inte veckorapporten om närvaro i Botkyrkaavtalet, Karims beslut 2026-11-11). */
+  delivery: { outside: boolean; channel: string; recipientName: string | null; attachmentAllowed: boolean; notice: string; email: boolean };
   versions: ReportVersion[];
   /** Levererad men inte fryst än – skärmen kör snapshot. */
   needsSnapshot: boolean;

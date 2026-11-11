@@ -493,17 +493,24 @@ export const minVecka = query("coach.minVecka", z.object({})).returns<MinVeckaVi
 /** Vad SMS:et är: veckans tider eller ett meddelande som inte kunde skickas automatiskt (mallarna i participant-notify.ts). */
 export const SMS_KINDS = ["veckoschema", "kallelse", "aktivitetsinbjudan", "aktivitet_andrad", "aktivitet_installd"] as const;
 export type SmsKind = (typeof SMS_KINDS)[number];
+/** Ett tillfälle i veckans tider: id och tid (Markera som skickat jämför dem – oberoende av klockan). */
+export type SmsSlotRef = { id: string; startsAt: LocalDateTime };
 /**
  * En rad: deltagaren (bara i appen), numret att kopiera och texten att skicka – bara tid, plats och Miljonbemannings
- * telefonnummer (CLAUDE.md punkt 9). key = radens nyckel till Markera som skickat. week = veckans tider (veckonumret).
+ * telefonnummer (CLAUDE.md punkt 9). key = radens nyckel till Markera som skickat. week = veckans tider (veckonumret) och slots
+ * deras tillfällen; messageId = meddelandet som inte kunde skickas. mine = coachens egen deltagare (huvudcoach eller i teamet) –
+ * skärmen visar dem först, Visa alla visar resten med huvudcoachens förnamn.
  */
 export type SmsToSendRow = {
   key: string;
   kind: SmsKind;
   week: number | null;
+  slots: SmsSlotRef[] | null;
+  messageId: string | null;
   caseId: string;
   caseNumber: string;
   name: string;
+  mine: boolean;
   leadCoach: string | null;
   phone: string;
   text: string;
@@ -512,10 +519,16 @@ export type SmsToSendRow = {
 export const smsAttSkicka = query("coach.smsAttSkicka", z.object({})).returns<{ rows: SmsToSendRow[] }>();
 /**
  * Markera som skickat: en rad i utskicksloggen (SMS skickat för hand, vem och när – aldrig numret) och samordnarens uppgift att
- * ringa deltagaren stängs. text = texten som coachen kopierade – har den ändrats (nya tider) stoppas markeringen (changed).
- * already = raden var redan markerad (två coacher samtidigt).
+ * ringa deltagaren stängs. Det coachen såg jämförs utan klockan (granskningen 2026-11-11): veckans tider – tillfällena (slots,
+ * id och tid); meddelandet som inte kunde skickas – messageId. Har de ändrats (nya tider, ett nytt meddelande) stoppas
+ * markeringen (changed). text = texten som coachen kopierade. already = raden var redan markerad (två coacher samtidigt).
  */
-export const smsMarkSent = command("coach.smsMarkSent", z.object({ key: z.string().trim().min(1).max(200), text: z.string().min(1).max(2000) }), {
+export const smsMarkSent = command("coach.smsMarkSent", z.object({
+  key: z.string().trim().min(1).max(200),
+  text: z.string().min(1).max(2000),
+  slots: z.array(z.object({ id: IdSchema, startsAt: LocalDateTimeSchema })).max(60).optional(),
+  messageId: IdSchema.optional(),
+}), {
   invalidates: ["coach.minVecka", "coach.smsAttSkicka", NAV, INBOX, CASES, "admin.templates", ...LOG],
 }).returns<Result<{ already: boolean }, "not_found" | "changed">>();
 
@@ -537,6 +550,8 @@ export type NarvaroRow = {
   groupActivityId: string | null;
   /** Huvudcoachens förnamn – alla coacher ser alla deltagare (Karims beslut 2026-11-11). null utan huvudcoach. */
   leadCoach: string | null;
+  /** Coachens egen deltagare (huvudcoach eller i teamet) – valet Mina deltagare. */
+  mine: boolean;
 };
 export type NarvaroReport = {
   recipientId: string;
@@ -553,6 +568,8 @@ export type NarvaroReport = {
 export type NarvaroWeek = { key: WeekKey; no: number; mon: LocalDate; dueAt: LocalDateTime; sla: CoachSla; rows: NarvaroRow[]; reports: NarvaroReport[] };
 export type NarvaroView = {
   now: LocalDateTime;
+  /** Handläggaren får ett mejl när veckorapporten levereras (reportDeliveryEmail – av i Botkyrkaavtalet, Karims beslut 2026-11-11). */
+  weeklyEmail: boolean;
   dueText: string;
   pubText: string;
   /** "Frånvaronotis samma dag: …" (avtalets tillval). */

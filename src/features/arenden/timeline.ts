@@ -187,7 +187,7 @@ export function buildNotes(db: NoteDb & Pick<TimelineDb, "check_ins">, o: { case
   if (o.viewer.access === "full") {
     for (const ci of db.check_ins.filter((x) => x.caseId === c.id && x.status === "approved" && x.heldAt <= o.now && x.note.trim())) {
       rows.push({
-        id: `ci:${ci.id}`, at: ci.heldAt, sort: ci.heldAt, title: fromCheckIn(ci.heldAt, today), sub: `Skriven av ${name(ci.approvedBy)} · Kort anteckning i den godkända mötesrapporten`,
+        id: `ci:${ci.id}`, at: ci.heldAt, sort: ci.heldAt, title: fromCheckIn(ci.heldAt, today), sub: `Skriven av ${name(ci.approvedBy)}`,
         body: ci.note.trim(), context: null, note: null,
       });
     }

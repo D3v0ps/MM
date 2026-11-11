@@ -32,8 +32,12 @@ const query = <T,>(key: string, input: unknown, actor: Actor) => rt.run("query",
  * Coachens siffra vid Min vecka: beställningarna att ta emot och SMS att skicka (Karims beslut 2026-11-11). Den här filen prövar
  * beställningarna – SMS-raderna räknas fram och dras av.
  */
-const ordersCount = async (actor: Actor) =>
-  (await query<NavCounts>("session.navCounts", {}, actor)).tasks - (await query<{ rows: unknown[] }>("coach.smsAttSkicka", {}, actor)).rows.length;
+/** Beställningarna i siffran vid Min vecka: utan SMS att skicka (coachens egna, veckans tider som en sak – smsTaskCount). */
+const ordersCount = async (actor: Actor) => {
+  const sms = (await query<{ rows: { mine: boolean; kind: string }[] }>("coach.smsAttSkicka", {}, actor)).rows.filter((r) => r.mine);
+  const smsCount = sms.filter((r) => r.kind !== "veckoschema").length + (sms.some((r) => r.kind === "veckoschema") ? 1 : 0);
+  return (await query<NavCounts>("session.navCounts", {}, actor)).tasks - smsCount;
+};
 const rows = <N extends keyof Tables>(name: N) => rt.raw().all(name) as readonly Tables[N][];
 const amira = () => as("u-amira", "coach");
 const erik = () => as("u-erik", "coach");

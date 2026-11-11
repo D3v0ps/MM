@@ -597,7 +597,7 @@ function FollowUp({ v }: { v: MinVeckaView }) {
       summary={unread ? <Link to="/notiser" className="inline-flex min-h-11 items-center font-bold text-antracit underline underline-offset-3">{plural(unread, "oläst notis", "olästa notiser")}</Link> : undefined}
       empty={
         <>
-          Inget att följa upp – alla dina ärenden har dokumenterad progression och inga flaggor är öppna.{" "}
+          Inget att följa upp.{" "}
           <Link to="/notiser" className="font-bold text-antracit underline underline-offset-3">Öppna notiser</Link>
         </>
       }
@@ -683,15 +683,6 @@ function ToMap({ v }: { v: MinVeckaView }) {
       title={`Att kartlägga (${v.toMap.length})`}
       icon="layers"
       items={items}
-      foot={
-        <>
-          Här står dina deltagare. Nivån väljs i kartläggningen. Alla i avtalet som saknar nivå står på{" "}
-          <Link to="/grupper" className="inline-flex min-h-11 items-center font-bold text-antracit underline underline-offset-3">
-            Grupper och nivåer
-          </Link>
-          .
-        </>
-      }
     />
   );
 }

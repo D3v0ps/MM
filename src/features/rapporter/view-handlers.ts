@@ -5,7 +5,7 @@ import { fail, ok } from "@/api/contract";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
-import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
+import { isOperational, progressionRuleText, reportDeliveryEmail, type OperationalConfig } from "@/core/config";
 import { plural, withoutPrototypeWords } from "@/core/format";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
@@ -233,7 +233,7 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
       requestedId: req.id, title: reportTitle(r), caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null, participant: c && access !== "restricted" ? viewer.name(c) : null,
       deliveredText: wdFull(r.deliveredAt), version: r.version || 1, isRecipient: r.deliveredTo.includes(ctx.actor.userId), openedAt: r.openedAt,
       recipientName: personName(db.profiles, r.deliveredTo[0] || recipientOf(r, c)),
-      correcting: !!pend, superseded: r.superseded,
+      correcting: !!pend, emailOnDelivery: reportDeliveryEmail(info.cfg, r.kind), superseded: r.superseded,
       newerId: r.superseded ? chain.filter((v) => v.version > r.version && isDelivered(v)).pop()?.id ?? null : null,
       canMessage: !!c && access === "customer", leadCoachId: c?.leadCoachId ?? null,
     };
@@ -417,6 +417,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
           notice: info.cfg.reportDelivery.emailAttachmentAllowed
             ? "Rapporten lämnas till kommunen utanför Miljonmatch, till exempel på ett möte. Avtalet tillåter att den skickas som bilaga i e-post enligt kommunens skriftliga instruktion."
             : "Rapporten lämnas till kommunen utanför Miljonmatch, till exempel på ett möte. Skicka den inte som bilaga i vanlig e-post – avtalet tillåter inte det.",
+          email: false,
         }
       : {
           outside: false,
@@ -424,6 +425,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
           recipientName: toProfile?.fullName ?? null,
           attachmentAllowed: info.cfg.reportDelivery.emailAttachmentAllowed,
           notice: `${reportKindLabel(r.kind)}${c ? ` för ärende ${c.caseNumber}` : ""} finns i portalen – logga in för att läsa.`,
+          email: reportDeliveryEmail(info.cfg, r.kind),
         },
     versions,
     needsSnapshot: delivered && !hasSnapshot(r) && hasDocument(r.kind),

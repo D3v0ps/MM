@@ -13,7 +13,8 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { createSeed, decodeTestPnr, DEMO_START, normalizePnr } from "@/data/seed";
 import type { Activity, Tables } from "@/data/schema";
 import { groupActivityCreate } from "@/features/aktiviteter/api";
-import { attendanceSet } from "@/features/coach/api";
+import { attendanceSet, smsAttSkicka, type SmsToSendRow } from "@/features/coach/api";
+import { MESSAGING_OFF } from "@/features/_shared/messaging-port";
 import "@/api/handlers";
 import { activityMove } from "./api";
 
@@ -135,7 +136,7 @@ describe("arenden.activityMove – reglerna", () => {
     expect(await move(input(a, { startsAt: `${c.startDate}T08:00` }), amira())).toMatchObject({ ok: false, error: "past" });
     const end = c.endDate ?? c.plannedEnd!;
     expect(await move(input(a, { startsAt: "2031-01-07T10:00" }), amira())).toMatchObject({ ok: false, error: "date", message: expect.stringContaining(end.slice(0, 4)) });
-    expect(await move(input(a, { startsAt: "2027-02-06T10:00" }), amira())).toMatchObject({ ok: false, error: "not_working_day", message: "Dagen är inte en arbetsdag. Välj en vardag." });
+    expect(await move(input(a, { startsAt: "2027-02-06T10:00" }), amira())).toMatchObject({ ok: false, error: "not_working_day", message: "Dagen är inte en arbetsdag." });
     rt.store.updateRow("cases", NADIA, { pausedWeeks: ["2027-W06"] });
     expect(await move(input(a, { startsAt: "2027-02-09T10:00" }), amira())).toMatchObject({ ok: false, error: "paused_week", message: "Vecka 6 är ett uppehåll i insatsen. Välj en annan vecka." });
     rt.store.updateRow("cases", NADIA, { pausedWeeks: [] });
@@ -158,6 +159,35 @@ describe("arenden.activityMove – reglerna", () => {
     const reg = past ?? rows("activities").find((x) => x.caseId === NADIA && !x.groupActivityId && x.startsAt < DEMO_START)!;
     if (!rows("attendance").some((t) => t.activityId === reg.id)) expect(await rt.run("command", attendanceSet.key, { activityId: reg.id, status: "present" }, amira())).toMatchObject({ ok: true });
     expect(await move(input(reg), amira())).toMatchObject({ ok: false, error: "has_attendance", message: "Närvaron är redan registrerad för tillfället. Tiden kan inte ändras." });
+  });
+
+  it("ett tillfälle som har börjat flyttas inte – också utan registrerad närvaro (som gruppaktiviteterna)", async () => {
+    rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock("2027-02-01T11:00") });
+    const started = rows("activities").find((x) => x.caseId === NADIA && !x.groupActivityId && x.startsAt === "2027-02-01T10:00")!;
+    expect(started).toBeTruthy();
+    expect(rows("attendance").some((t) => t.activityId === started.id)).toBe(false);
+    expect(await move(input(started, { startsAt: "2027-02-03T14:00" }), amira())).toMatchObject({ ok: false, error: "started", message: "Tillfället har redan börjat. Tiden kan inte ändras." });
+    expect(rt.raw().get("activities", started.id)!.startsAt).toBe("2027-02-01T10:00");
+    expect(rows("audit_log").filter((l) => l.action === "activity.moved")).toEqual([]);
+  });
+
+  it("bara längden ändrad: inget meddelande, ingen uppgift till samordnaren och ingen rad i SMS att skicka", async () => {
+    rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START), messaging: { ...MESSAGING_OFF, emailReaches: () => false } });
+    const a = nextMeeting();
+    const out0 = rows("outbound_messages").length;
+    const tasks0 = rows("tasks").length;
+    const res = await move(input(a, { startsAt: a.startsAt, durationMin: a.durationMin + 30 }), amira());
+    expect(res).toMatchObject({ ok: true, changed: true, notified: null });
+    expect(rt.raw().get("activities", a.id)).toMatchObject({ startsAt: a.startsAt, durationMin: a.durationMin + 30 });
+    expect(rows("outbound_messages").length).toBe(out0);
+    expect(rows("tasks").length).toBe(tasks0);
+    const sms = ((await rt.run("query", smsAttSkicka.key, {}, amira())) as { rows: SmsToSendRow[] }).rows;
+    expect(sms.filter((r) => r.kind !== "veckoschema")).toEqual([]);
+  });
+
+  it("en plats som liknar ett personnummer stoppas – platsen står i meddelandet till deltagaren", async () => {
+    const a = nextMeeting();
+    expect(await move(input(a, { location: "Hos 19900101-1234" }), amira())).toMatchObject({ ok: false, error: "location", message: "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen." });
   });
 
   it("krockar: ett annat eget tillfälle eller en gruppaktivitet vid den nya tiden stoppar – en tid som slutar när nästa börjar går", async () => {
@@ -186,8 +216,9 @@ describe("reglerna som ren funktion och längden i klarspråk", () => {
   const p = (to: string, extra: Partial<Parameters<typeof activityMoveProblem>[0]> = {}) =>
     activityMoveProblem({ c, a, to: { startsAt: to, durationMin: 60 }, now: "2027-02-01T09:12", registered: false, others: [], billing: NO_BILLING, ...extra })?.code ?? null;
 
-  it("Stockholms tid: en tid senare i dag går, en tid som har passerat går inte", () => {
+  it("Stockholms tid: en tid senare i dag går, en tid som har passerat går inte – och ett tillfälle som har börjat flyttas inte", () => {
     expect(p("2027-02-01T09:13")).toBeNull();
+    expect(activityMoveProblem({ c, a: { id: "a-1", startsAt: "2027-02-01T09:12" }, to: { startsAt: "2027-02-03T10:00", durationMin: 60 }, now: "2027-02-01T09:12", registered: false, others: [], billing: NO_BILLING })?.code).toBe("started");
     expect(p("2027-02-01T09:12")).toBe("past");
     expect(p("2027-01-29T10:00")).toBe("past");
   });

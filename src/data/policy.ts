@@ -449,7 +449,7 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
 // ---------------------------------------------------------------- Gruppaktiviteter (0030)
 type GroupActivityRow = Tables["group_activities"];
 /** Fält som aldrig ändras efter att aktiviteten skapats (triggern group_activities_protect_columns, 0030). */
-const GROUP_FIXED = ["contractId", "createdBy", "createdAt", "seriesId"];
+const GROUP_FIXED = ["contractId", "createdBy", "createdAt", "seriesId", "seriesSlot"];
 const GROUP_KINDS: readonly string[] = ["yrkesmoment", "arbetsgivarbesök", "annat"];
 /** Tabellens kontroller (check i 0030 och 0033): namnets längd (btrim, kodpunkter), typen, längden, platsen, paren och gruppmålet. */
 function groupActivityShape(x: GroupActivityRow): boolean {
@@ -457,7 +457,9 @@ function groupActivityShape(x: GroupActivityRow): boolean {
   const nameChars = [...x.name.replace(/^ +| +$/g, "")].length;
   return nameChars >= 1 && nameChars <= 120 && GROUP_KINDS.includes(x.kind) && Number.isInteger(x.durationMin) && x.durationMin >= 1 && x.durationMin <= 720
     && [...x.location].length <= 200 && pair(x.updatedAt, x.updatedBy) && pair(x.cancelledAt, x.cancelledBy) && goalShape(x.goal)
-    && Number.isInteger(x.goalVersion) && x.goalVersion >= 0 && audienceShape(x.audience, x.audienceLevelId, x.audienceAreaCode, true);
+    && Number.isInteger(x.goalVersion) && x.goalVersion >= 0 && audienceShape(x.audience, x.audienceLevelId, x.audienceAreaCode, true)
+    // Seriens tid bara med en serie (check group_activities_series_slot_series, 0042).
+    && (x.seriesSlot == null || x.seriesId != null);
 }
 /** Målgruppens form (check group_activities_audience_shape och group_activity_series_audience_shape, 0035). */
 function audienceShape(audience: string, levelId: string | null, areaCode: string | null, manualAllowed: boolean): boolean {
@@ -533,7 +535,7 @@ function groupActivityWrite(x: GroupActivityRow, a: Actor, raw: Raw): boolean {
   if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !groupActivityShape(x) || !audienceConsistent(x, raw) || !seriesConsistent(x, raw)) return false;
   const cur = raw.get("group_activities", x.id);
   // Ny rad: i eget namn, varken ändrad eller inställd, och utan serie – tillfällena skapas bara av servern (0035).
-  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null && x.seriesId == null;
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null && x.seriesId == null && x.seriesSlot == null;
   if (cur.cancelledAt != null || !member(a, cur.contractId)) return false;
   // Gruppmålets version följer målet (triggern group_activities_goal_version, 0033): ett ändrat mål räknar upp den med ett.
   if (x.goalVersion !== ((x.goal ?? null) !== (cur.goal ?? null) ? cur.goalVersion + 1 : cur.goalVersion)) return false;

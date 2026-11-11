@@ -132,8 +132,7 @@ describe("acceptdialogens förvalda datum (Karims beslut 2026-11-11)", () => {
   it("kommunens önskade start när den går att boka", () => {
     expect(d("2027-02-08")).toBe("2027-02-08");
     expect(d("2027-02-03")).toBe("2027-02-03");
-    // I dag före det förvalda klockslaget 10.00 går också.
-    expect(d("2027-02-01")).toBe("2027-02-01");
+    expect(d("2027-02-02")).toBe("2027-02-02");
   });
 
   it("utan önskad start: två arbetsdagar fram, som förut", () => {
@@ -146,12 +145,13 @@ describe("acceptdialogens förvalda datum (Karims beslut 2026-11-11)", () => {
     expect(d("2027-03-26", "2027-03-22T08:00", "2027-03-22T08:00")).toBe("2027-03-30"); // långfredag och påskhelgen → tisdag
   });
 
-  it("en önskad start som har passerat ger i dag, eller nästa arbetsdag när klockslaget har passerat", () => {
-    expect(d("2027-01-27")).toBe("2027-02-01");
-    expect(d("2027-01-27", "2027-02-01T10:00")).toBe("2027-02-02");
-    expect(d("2027-02-01", "2027-02-01T14:30")).toBe("2027-02-02");
-    // Fredag eftermiddag → måndag.
-    expect(d("2027-01-29", "2027-01-29T15:00", "2027-01-28T08:00")).toBe("2027-02-01");
+  it("en önskad start som har passerat eller är i dag ger två arbetsdagar fram, som förut", () => {
+    expect(d("2027-01-27")).toBe("2027-02-03");
+    expect(d("2027-01-27", "2027-02-01T10:00")).toBe("2027-02-03");
+    expect(d("2027-02-01")).toBe("2027-02-03");
+    expect(d("2027-02-01", "2027-02-01T14:30")).toBe("2027-02-03");
+    // Fredag → tisdag (två arbetsdagar).
+    expect(d("2027-01-29", "2027-01-29T15:00", "2027-01-28T08:00")).toBe("2027-02-02");
   });
 
   it("aldrig före beställningens dag", () => {

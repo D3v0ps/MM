@@ -12,7 +12,7 @@ import { firstMeetingBookingProblem } from "@/core/first-meeting";
 import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
-  anchorTabs, PhaseBar, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
+  anchorTabs, PhaseBar, Select, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import { recordingOffered } from "@/features/coach/api";
@@ -54,8 +54,7 @@ export type TabProps = {
 type ModalKind = "coach" | "meeting" | "rebook" | "noshow" | "consent" | "start" | "plan" | "activity" | "team" | "contact" | "receive";
 
 function useCrumbs() {
-  const role = useSession().actor.role;
-  return [{ label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
+  return [{ label: "Ärenden", to: "/arenden" }];
 }
 
 export function DeltagarkortScreen({ params, query }: ScreenProps) {
@@ -888,7 +887,6 @@ function CoachModal({ card: c, onClose }: { card: CaseCard; onClose: () => void 
 function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: () => void; rebook?: boolean }) {
   const book = useCommand(caseBookFirstMeeting);
   const today = dayOf(c.now);
-  const due = c.firstMeeting.dueAt;
   const [at, setAt] = useState(`${addWorkingDays(today, 1)}T10:00`);
   const [err, setErr] = useState<string | null>(null);
   // Ingen varning för en tid efter avtalets gräns (Karims beslut 2026-11-11: "Det ska inte vara med") – nyckeltalet och
@@ -928,7 +926,6 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
           ["Ärende", <span key="n" className="font-bold tabular-nums">{c.caseNumber}</span>],
           ["Huvudcoach", c.leadCoach?.name ?? "–"],
           ["Beställt", fmtDateTimeLong(c.referredAt)],
-          ["Senast bokat", c.firstMeeting.sla ? <SlaBadge key="sla" sla={c.firstMeeting.sla} dueAt={due} /> : "–"],
           ...(rebook && c.noShow?.current ? [["Kom inte till", fmtDateTimeLong(c.noShow.current.meetingAt)] as [string, ReactNode]] : []),
         ]}
       />
@@ -937,7 +934,7 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
         id="arn-meet-at"
         required
         error={err}
-        help={`Mötet ska hållas ${c.firstMeeting.withinText}${due ? ` – senast ${fmtDateTimeLong(due)}` : ""}. Plats: Miljonbemanning ${c.location || ""}.`}
+        help={`Plats: Miljonbemanning ${c.location || ""}.`}
       >
         <DateTimeInput
           value={at}

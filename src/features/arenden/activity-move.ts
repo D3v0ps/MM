@@ -16,6 +16,7 @@ import type { Role } from "@/api/roles";
 import { handleCommand } from "@/api/server";
 import { activityMoveMonths, activityMoveProblem } from "@/core/activity-move";
 import { dayOf } from "@/core/time";
+import { looksLikePnr } from "@/core/validation";
 import { closeActivityTasks, notifyParticipant } from "../_shared/participant-notify";
 import { activityMove } from "./api";
 import { billingForMonths } from "./start-handlers";
@@ -24,6 +25,8 @@ import { billingForMonths } from "./start-handlers";
 const MOVERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 const NOT_FOUND = "Tillfället finns inte, eller så har du inte behörighet att se det.";
 const CONFLICT = "Tillfället har ändrats under tiden, kanske av en kollega. Ladda om sidan – inget har sparats.";
+/** Platsen står i meddelandet till deltagaren – samma kontroll i Lägg till tillfälle och veckoplanen. */
+export const PLACE_PNR = "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen.";
 
 handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   const acts = ctx.repo.table("activities");
@@ -37,6 +40,8 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   if (a.startsAt !== p.expectedStartsAt) return fail("conflict", CONFLICT);
   const location = p.location === undefined ? a.location : p.location.trim();
   if (!location) return fail("location", "Skriv plats.");
+  // Platsen står i SMS:et och mejlet till deltagaren (CLAUDE.md punkt 9): aldrig ett personnummer.
+  if (looksLikePnr(location)) return fail("location", PLACE_PNR);
   const to = { startsAt: p.startsAt, durationMin: p.durationMin };
   if (to.startsAt === a.startsAt && to.durationMin === a.durationMin && location === a.location) return ok({ changed: false, notified: null });
   const now = ctx.now();
@@ -56,6 +61,9 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
     action: "activity.moved", entity: "activity", entityId: a.id, contractId: c.contractId,
     details: { caseId: c.id, from: a.startsAt, to: to.startsAt, fromDurationMin: a.durationMin, toDurationMin: to.durationMin, ...(location !== a.location ? { locationChanged: true } : {}) },
   });
+  // Bara längden ändrad: deltagaren får inget meddelande (tid och plats är desamma) och uppgifterna gäller som förut.
+  const slotChanged = to.startsAt !== a.startsAt || location !== a.location;
+  if (!slotChanged) return ok({ changed: true, notified: null });
   // Den gamla tiden gäller inte längre: en öppen uppgift att ringa om den (en tidigare ändring) stängs.
   await closeActivityTasks(ctx, c, { when: a.startsAt, place: a.location }, "Tillfället har fått ny tid.");
   if (!p.notify) return ok({ changed: true, notified: null });

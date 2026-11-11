@@ -47,7 +47,7 @@ export const COLUMNS = {
   group_activities: {
     id: "text", contractId: "text", name: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", responsibleId: "text | null", createdBy: "text",
     createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", cancelledAt: "timestamptz | null", cancelledBy: "text | null", goal: "text | null",
-    goalVersion: "integer", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", seriesId: "text | null", notify: "boolean",
+    goalVersion: "integer", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", seriesId: "text | null", seriesSlot: "timestamptz | null", notify: "boolean",
   },
   // Återkommande nivå- och yrkesområdesaktiviteter (0035_yrkesomraden_nivaer.sql)
   group_activity_series: {

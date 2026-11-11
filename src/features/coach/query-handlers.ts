@@ -5,9 +5,10 @@ import { handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial, visibleNotifications } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
+import { progressStepLabel } from "@/core/bonus";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
 import { phaseSince, stuck } from "@/core/cases";
-import { autoAttendanceOf, bonusModel, bonusStepLabel, isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
+import { autoAttendanceOf, bonusModel, isOperational, isUnset, progressionRuleText, recordingMaxMinutes, reportDeliveryEmail, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
@@ -191,9 +192,18 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const todaysAll = db.activities.filter((a) => dayOf(a.startsAt) === today && activeIds.has(a.caseId)).sort(by("startsAt"));
   const todays = todaysAll.filter((a) => !a.groupActivityId);
   const myGroupIds = new Set(todaysAll.map((a) => a.groupActivityId).filter((x): x is string => !!x));
-  const groups = await todaysGroupActivities(ctx, today, (g) => g.responsibleId === me || myGroupIds.has(g.id));
-  const nextSingle = todays.find((a) => a.startsAt >= now) ?? null;
-  const nextGroup = groups.find((g) => g.startsAt >= now) ?? null;
+  // Nästa (den svarta knappen): bara coachens egna möten – huvudcoach eller i teamet – och gruppaktiviteter där coachen är
+  // ansvarig eller har egna deltagare. Alla coacher ser alla deltagare, men nästa möte är ens eget (granskningen 2026-11-11).
+  const teamCaseIds = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
+  const own = (caseId: string) => caseById.get(caseId)?.leadCoachId === me || teamCaseIds.has(caseId);
+  const ownGroupIds = new Set(todaysAll.filter((a) => own(a.caseId)).map((a) => a.groupActivityId).filter((x): x is string => !!x));
+  const ownGroup = new Set<string>();
+  const groups = await todaysGroupActivities(ctx, today, (g) => {
+    if (g.responsibleId === me || ownGroupIds.has(g.id)) ownGroup.add(g.id);
+    return g.responsibleId === me || myGroupIds.has(g.id);
+  });
+  const nextSingle = todays.find((a) => a.startsAt >= now && own(a.caseId)) ?? null;
+  const nextGroup = groups.find((g) => g.startsAt >= now && ownGroup.has(g.id)) ?? null;
   const next = nextGroup && (!nextSingle || nextGroup.startsAt < nextSingle.startsAt) ? null : nextSingle;
   const ciToday = (caseId: string): CheckIn | null => checkInsOf(all, caseId).find((x) => dayOf(x.heldAt) === today) ?? null;
 
@@ -243,7 +253,9 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const due = envs
     .flatMap((env) => deadlines(scopeToContract(all, env.contractId), { days: 7, coachId: me, allCases: true }, env))
     .filter((x) => x.kind !== "veckorapport_registrering");
-  const dueMonthly = due.filter((x) => x.kind === "manadsrapport");
+  // Månadsrapporterna som coachen själv bedömer och levererar: bara där hen är huvudcoach (rapporter/handlers.ts isLeadCoach) – alla
+  // coacher ser alla deltagare, men siffran gäller det coachen kan göra (granskningen 2026-11-11).
+  const dueMonthly = due.filter((x) => x.kind === "manadsrapport" && !!x.caseId && caseById.get(x.caseId)?.leadCoachId === me);
   const byStatus: Partial<Record<Report["status"], number>> = {};
   for (const x of dueMonthly) {
     const st = db.reports.find((r) => r.id === x.reportId)?.status;
@@ -349,7 +361,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1))
       .map((k) => {
         const c = caseById.get(k.caseId) as Case;
-        return { claimId: k.id, ...row(c), step: k.step as number, label: bonusStepLabel(bonusModelOf(c.contractId), k.step as number), sustain: k.step === 4 };
+        return { claimId: k.id, ...row(c), step: k.step as number, label: progressStepLabel(bonusModelOf(c.contractId), k.step as number), sustain: k.step === 4 };
       }),
     due: {
       monthly: dueMonthly.length ? { count: dueMonthly.length, byStatus, dueAt: dueMonthly[0].dueAt, sla: { label: dueMonthly[0].sla.label, tone: dueMonthly[0].sla.tone } } : null,
@@ -398,6 +410,9 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   });
   const caseById = new Map(cases.map((c) => [c.id, c]));
   const personById = new Map(db.persons.map((p) => [p.id, p]));
+  // Mina deltagare (valet på Närvaro): huvudcoach eller i teamet – tilldelningen visar vems deltagare det är, inte vem som får arbeta.
+  const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
+  const mineCase = (c: Case) => c.leadCoachId === me || myTeam.has(c.id);
   const repeated = new Map<string, boolean>();
   const isRepeated = async (c: Case) => {
     if (!repeated.has(c.id)) {
@@ -417,7 +432,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
         location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
-        referrerId: c.referrerId, groupActivityId: a.groupActivityId, leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId),
+        referrerId: c.referrerId, groupActivityId: a.groupActivityId, leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId), mine: mineCase(c),
       });
     }
     const open = rows.filter((r) => r.startsAt < now && !r.attendance);
@@ -440,6 +455,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   const same = main.cfg.attendance.sameDayNoticeOnInvalidAbsence;
   return {
     now,
+    weeklyEmail: reportDeliveryEmail(main.cfg, "weekly_attendance"),
     dueText: weeklyRuleText(main.cfg, "veckorapport_registrering"),
     pubText: weeklyRuleText(main.cfg, "veckorapport_publicering"),
     sameDayText: `Frånvaronotis samma dag: ${isUnset(same) ? "tillval som inte är fastställt – ingen notis skickas." : same ? "skickas till handläggaren." : "används inte."}`,

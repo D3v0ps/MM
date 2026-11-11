@@ -14,7 +14,7 @@ import { NoteActions, NoteDialog } from "./kort-tidslinje";
 import type { TabProps } from "./kort";
 
 const HEADING_ID = "anteckningar-rubrik";
-const EMPTY_TEXT = "Här samlas anteckningarna om deltagaren – från deltagarkortet, aktivitetsvyn och de godkända mötesrapporterna. Inga anteckningar än.";
+const EMPTY_TEXT = "Inga anteckningar än.";
 
 /** En anteckning: rubrik (typ), datum, vem som skrev, var den skrevs och texten. Ändra och Ta bort när rollen får. */
 function NoteRowItem({ r, card, onEdit, actions = true }: { r: CaseNoteRow; card: TabProps["card"]; onEdit: (n: TimelineNote) => void; actions?: boolean }) {

@@ -28,7 +28,7 @@
 import type { Ctx } from "@/api/server";
 import { audienceOf, belongsOn, planAudienceSync, type Audience, type AudienceCase, type AudienceSlot } from "@/core/audience";
 import { isOperational } from "@/core/config";
-import { isSystemSendTime, movedSeriesSlots, SERIES_OCCURRENCE_MOVED, seriesOccurrenceStarts, SERIES_HORIZON_DAYS } from "@/core/group-series";
+import { isSystemSendTime, seriesOccurrenceStarts, SERIES_HORIZON_DAYS } from "@/core/group-series";
 import { addDays, dayOf, type LocalDate } from "@/core/time";
 import { uniq } from "@/core/util";
 import { PolicyError, UniqueError } from "@/data/repo";
@@ -110,7 +110,7 @@ export async function removeParticipantRow(ctx: Ctx, repo: Ctx["repo"], id: stri
  */
 export async function syncAudienceInvites(
   ctx: Ctx,
-  opts: { contractId: string; caseIds?: readonly string[]; groupActivityIds?: readonly string[]; quiet?: boolean },
+  opts: { contractId: string; caseIds?: readonly string[]; groupActivityIds?: readonly string[]; quiet?: boolean; notify?: boolean },
 ): Promise<AudienceSyncResult> {
   const s = ctx.system;
   const now = ctx.now();
@@ -172,7 +172,8 @@ export async function syncAudienceInvites(
     });
     const removedCases = removed.map((id) => caseOf.get(id)).filter((c): c is Case & AudienceCase => !!c);
     if (removedCases.length) await supersedeTasks(ctx, removedCases, g, "Deltagaren hör inte längre till aktivitetens målgrupp.");
-    const send = g.notify && upcoming(ctx, g.startsAt);
+    // Meddelandet: aktivitetens val – eller anroparens (ny tid för ett tillfälle: dialogens val, Karims beslut 2026-11-11).
+    const send = (opts.notify ?? g.notify) && upcoming(ctx, g.startsAt);
     removedOf.set(g.id, { removed, notified: send ? await notifyAll(ctx, g, "aktivitet_installd", removed, { when: g.startsAt, place: g.location }) : null });
   }
   if (gone.size) {
@@ -221,7 +222,7 @@ export async function syncAudienceInvites(
         },
       });
     }
-    const send = g.notify && upcoming(ctx, g.startsAt);
+    const send = (opts.notify ?? g.notify) && upcoming(ctx, g.startsAt);
     const detail: AudienceSyncDetail = {
       added, removed, skipped,
       notifiedAdded: send && added.length ? await notifyAll(ctx, g, "aktivitetsinbjudan", added, { when: g.startsAt, place: g.location }) : null,
@@ -253,21 +254,22 @@ export async function ensureSeriesOccurrences(ctx: Ctx, opts: { contractId?: str
   const holidays = new Set((await s.table("holidays").list({ date: { gte: today, lte: addDays(today, SERIES_HORIZON_DAYS) } })).map((h) => h.date));
   const byContract = new Map<string, string[]>();
   for (const x of series) {
-    // Befintliga tider: seriens tillfällen (också inställda) och de tider som flyttade tillfällen lämnat (Karims beslut 2026-11-11) –
-    // ett tillfälle som fått ny tid skapas aldrig igen på den gamla.
-    const moved = movedSeriesSlots(await s.table("audit_log").list({ entity: "group_activity_series", entityId: x.id, action: SERIES_OCCURRENCE_MOVED }));
-    const existing = new Set([...(await s.table("group_activities").pick(["startsAt"], { seriesId: x.id })).map((g) => g.startsAt), ...moved]);
+    // Befintliga tider: seriens tillfällen (också inställda) – deras tid nu och seriens tid för dem (seriesSlot, 0042). Ett tillfälle
+    // som fått ny tid (Karims beslut 2026-11-11) skapas aldrig igen på den gamla: seriens tid står kvar på raden, och det unika
+    // indexet (seriesId, seriesSlot) stoppar en samtidig körning.
+    const existing = new Set((await s.table("group_activities").pick(["startsAt", "seriesSlot"], { seriesId: x.id })).flatMap((g) => [g.startsAt, ...(g.seriesSlot ? [g.seriesSlot] : [])]));
     const created: string[] = [];
     for (const startsAt of seriesOccurrenceStarts(x, { now, holidays, existing })) {
       const g: GroupActivity = {
         id: ctx.newId("ga"), contractId: x.contractId, name: x.name, kind: x.kind, startsAt, durationMin: x.durationMin, location: x.location, responsibleId: x.responsibleId,
         createdBy: x.createdBy, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: x.goal, goalVersion: 0,
-        audience: x.audience, audienceLevelId: x.audienceLevelId, audienceAreaCode: x.audienceAreaCode, seriesId: x.id, notify: x.notify,
+        audience: x.audience, audienceLevelId: x.audienceLevelId, audienceAreaCode: x.audienceAreaCode, seriesId: x.id, seriesSlot: startsAt, notify: x.notify,
       };
       try {
         await s.table("group_activities").insert(g);
       } catch (e) {
-        // En samtidig körning skapade tillfället (unikt series_id + starts_at).
+        // En samtidig körning skapade tillfället, eller ett flyttat tillfälle har seriens tid (unikt series_id + starts_at och
+        // series_id + series_slot).
         if (e instanceof UniqueError || isCode(e, "23505")) continue;
         throw e;
       }

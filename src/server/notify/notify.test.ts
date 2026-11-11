@@ -10,6 +10,9 @@ import { createMemoryRuntime, demoClock } from "@/data/memory-runtime";
 import type { Case } from "@/data/schema";
 import { createSeed, DEMO_START, decodeTestPnr, normalizePnr } from "@/data/seed";
 import { caseAccept, caseChangeCoach, caseCreate, caseDecline, messageSend } from "@/features/arenden/api";
+import { BOTKYRKA_CONFIG } from "@/core/config";
+import { assessmentSave } from "@/features/coach/api";
+import { reportApprove, reportDeliver } from "@/features/rapporter/api";
 import { runJobs } from "../jobs/runner";
 import { JOB_HANDLERS, type JobDeps } from "../jobs/registry";
 import { notifyEnv } from "./config";
@@ -429,6 +432,11 @@ describe("personnummer i utskick", () => {
     expect(await cmd(caseDecline, { caseId: "case-270048", reason: "Vi har inte kapacitet under önskad period" }, as("u-sara", "samordnare"))).toMatchObject({ ok: true });
     expect(await cmd(messageSend, { caseId: "case-260143", body: "Hej! Hur går praktiken?" }, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
     expect(await cmd(messageSend, { caseId: "case-260143", body: "Bra, tack!" }, as("u-amira", "coach"))).toMatchObject({ ok: true });
+    // Ny rapport: januaris månadsrapport levereras (testdatat har inget mejl om veckorapporten – avtalet lämnar den utan e-post).
+    const areas = Object.fromEntries(BOTKYRKA_CONFIG.progression.areas.map((k) => [k, { level: 1 as const, observation: "Följer instruktionen utan stöd.", nextStep: "Fortsätta öva." }]));
+    expect(await cmd(assessmentSave, { caseId: "case-260143", month: "2027-01", areas, summary: "Deltagaren följer planen.", overallStatus: "green", approve: true, reviewed: true }, as("u-amira", "coach"))).toMatchObject({ ok: true });
+    expect(await cmd(reportApprove, { reportId: "rep-16011" }, as("u-amira", "coach"))).toMatchObject({ ok: true });
+    expect(await cmd(reportDeliver, { reportId: "rep-16011" }, as("u-amira", "coach"))).toMatchObject({ ok: true });
     expect(await cmd(caseChangeCoach, { caseId: "case-260143", toCoachId: "u-erik", reason: "Föräldraledighet från vecka 8." }, as("u-sara", "samordnare"))).toMatchObject({ ok: true });
 
     const all = rt.store.rows("outbound_messages");

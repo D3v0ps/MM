@@ -302,7 +302,7 @@ function Week({ v }: { v: StartView }) {
       <UnreadNotices hideEmpty />
 
       {dialog?.kind === "ack" && <AckModal a={dialog.a} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "book" && <BookModal c={dialog.c} rebook={dialog.rebook} today={v.today} meetingText={v.meetingText} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "book" && <BookModal c={dialog.c} rebook={dialog.rebook} today={v.today} onClose={() => setDialog(null)} />}
       {dialog?.kind === "accept" && <AcceptModal caseId={dialog.caseId} caseNumber={dialog.caseNumber} onClose={() => setDialog(null)} />}
     </>
   );
@@ -345,9 +345,9 @@ function inboxPart(x: InboxRow, setDialog: (d: Dialog) => void): Part {
  * tel:-länk (CLAUDE.md punkt 2: inga personuppgifter i URL:er). navigator.clipboard.writeText anropas direkt i klickhändelsen;
  * går det inte (ingen behörighet, osäker sida eller ramen i prototypen) markeras numret så att det kan kopieras med tangentbordet.
  * Numret kommer bara med i vy-modellen när rollen redan får läsa personen (StartTask.call.phone, och SMS att skicka på coachens
- * Min vecka).
+ * Min vecka). onCopied: efter Kopiera numret – kopierat eller markerat (SMS att skicka visar då Öppna SMS).
  */
-export function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: string | null }) {
+export function PhoneToCopy({ phone, caseNumber, onCopied }: { phone: string; caseNumber: string | null; onCopied?: () => void }) {
   const ref = useRef<HTMLSpanElement>(null);
   const selectNumber = () => {
     const el = ref.current;
@@ -358,9 +358,11 @@ export function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: 
     try {
       await navigator.clipboard.writeText(phone);
       toast("Numret är kopierat.");
+      onCopied?.();
     } catch {
       selectNumber();
       toast("Numret kunde inte kopieras automatiskt. Det är markerat – kopiera det med Ctrl+C (Cmd+C på Mac).", "error");
+      onCopied?.();
     }
   };
   return (
@@ -598,7 +600,7 @@ function AckModal({ a, onClose }: { a: AlertView; onClose: () => void }) {
   );
 }
 
-function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; rebook?: boolean; today: string; meetingText: string; onClose: () => void }) {
+function BookModal({ c, rebook, today, onClose }: { c: Booking; rebook?: boolean; today: string; onClose: () => void }) {
   const bookCmd = useCommand(caseBookFirstMeeting);
   const [date, setDate] = useState(addWorkingDays(today, 1));
   const [time, setTime] = useState("10:00");
@@ -631,8 +633,7 @@ function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; reb
       }
     >
       <p>
-        Huvudcoach: <b>{c.coachName}</b>. Mötet ska vara bokat senast {c.dueText} (inom {meetingText} från avropet).
-        {rebook ? " Den nya tiden ersätter den gamla." : ""}
+        Huvudcoach: <b>{c.coachName}</b>.{rebook ? " Den nya tiden ersätter den gamla." : ""}
       </p>
       <FormGrid>
         <Field id="ink-b-date" label="Datum" required help="En vardag." error={tried ? err : null}>

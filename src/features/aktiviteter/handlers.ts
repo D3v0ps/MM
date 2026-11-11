@@ -535,8 +535,9 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const now = ctx.now();
   // Ett nytt mål (ändrat, borttaget eller inskrivet igen) får en ny version – coachens val för det tidigare målet gäller inte längre.
   const goalVersion = next.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
-  // Seriens tid för tillfället: den första flytten loggade den – annars är det tiden tillfället har nu (skapat av jobbet).
-  const seriesSlot = seriesSchedule && moved && g.seriesId ? await seriesSlotOf(ctx, g.seriesId, g.id, g.startsAt) : null;
+  // Seriens tid för tillfället (seriesSlot, 0042) står kvar på raden och ändras aldrig – loggen får den också. Rader utan seriesSlot
+  // (före 0042, där migrationen inte hunnit fylla i den) räknar tillfällets tid nu.
+  const seriesSlot = seriesSchedule && moved && g.seriesId ? (g.seriesSlot ?? g.startsAt) : null;
   try {
     await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
   } catch (e) {
@@ -577,9 +578,9 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const staying = cases.filter((c) => !droppedIds.has(c.id));
   const droppedCases = cases.filter((c) => droppedNow.includes(c.id));
   if (droppedCases.length) await supersedeTasks(ctx, droppedCases, g, "Deltagaren kan inte vara med vid aktivitetens nya tid och är borttagen.");
-  // Meddelandet: aktiviteten själv – dialogens val. Ett tillfälle i en återkommande aktivitet följer seriens val (notify): på =
-  // deltagarna får aktivitet_andrad (dialogen kan välja bort det), av = inga meddelanden, som för seriens övriga utskick.
-  const notifyOn = g.seriesId ? g.notify && !!p.notify : !!p.notify;
+  // Meddelandet: dialogens val – också för ett tillfälle i en återkommande aktivitet, oavsett seriens val (Karims beslut
+  // 2026-11-11: "kallelse måste dock följa med med uppdaterad datum/tid"). Rutan står alltid i dialogen och är förvald.
+  const notifyOn = !!p.notify;
   if (moved || next.location !== g.location) {
     await supersedeTasks(ctx, staying, g, "Aktiviteten har fått ny tid eller plats.");
     if (notifyOn && upcoming(ctx, next.startsAt)) add(await notifyAll(ctx, g, "aktivitet_andrad", staying.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt));
@@ -587,7 +588,14 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (droppedCases.length && notifyOn && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
   // Med målgrupp och ny dag: de som hör till målgruppen och kan vara med den nya dagen bjuds in (en insats som slutar före den
   // nya dagen har redan fallit bort ovan).
-  if (moved && g.audience !== "manual") await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id] });
+  // Den som synkningen tar bort på grund av den nya tiden får aktivitet_installd, den som bjuds in aktivitetsinbjudan – dialogens val.
+  if (moved && g.audience !== "manual") {
+    const synced = (await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id], notify: notifyOn })).details[g.id];
+    if (synced) {
+      add(synced.notifiedRemoved);
+      add(synced.notifiedAdded);
+    }
+  }
   return ok({ changed: fields.length, replaced: replacedActivityIds.length, dropped: droppedNow.length, notified });
 });
 
@@ -777,16 +785,6 @@ handleCommand(groupActivityNotes, { roles: GROUP_WRITERS }, async (ctx, p) => {
   }
   return ok({ saved: noteIds.length, noteIds });
 });
-
-/**
- * Seriens tid för tillfället (den tid jobbet skapade det på): den första flyttens seriesSlot i loggen, annars tillfällets tid nu.
- * ctx.system: loggen läses annars bara av chef och admin – här bara tiden för aktivitetens id, inget lämnas ut.
- */
-async function seriesSlotOf(ctx: Ctx, seriesId: string, groupActivityId: string, current: string): Promise<string> {
-  const logged = await ctx.system.table("audit_log").list({ entity: "group_activity_series", entityId: seriesId, action: SERIES_OCCURRENCE_MOVED });
-  const first = logged.filter((l) => l.details?.groupActivityId === groupActivityId).sort((a, b) => (a.occurredAt < b.occurredAt ? -1 : 1))[0];
-  return typeof first?.details?.seriesSlot === "string" ? first.details.seriesSlot : current;
-}
 
 // ================================================================ Återkommande aktiviteter (Karims beslut 2026-10-22)
 const SERIES_NOT_FOUND = "Den återkommande aktiviteten finns inte, eller så har du inte behörighet att se den.";

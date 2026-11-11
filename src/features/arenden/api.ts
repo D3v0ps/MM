@@ -270,7 +270,7 @@ export const caseScheduleChange = command("arenden.caseScheduleChange", z.object
   caseId: IdSchema,
   plan: WeekPlanSchema,
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
-  Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan">
+  Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan" | "location">
 >();
 
 /** Lägg till ett enstaka tillfälle i ett pågående ärende (den som arbetar i ärendet). Logg activity.added. */
@@ -281,7 +281,7 @@ export const activityAdd = command("arenden.activityAdd", z.object({
   durationMin: z.number().int().min(15).max(600),
   location: ShortText,
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] }).returns<
-  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate">
+  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate" | "location">
 >();
 
 /**
@@ -312,7 +312,7 @@ export const activityMove = command("arenden.activityMove", z.object({
 }).returns<
   Result<
     { changed: boolean; notified: string | null },
-    "not_found" | "group_activity" | "wrong_status" | "conflict" | "has_attendance" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap" | "location"
+    "not_found" | "group_activity" | "wrong_status" | "conflict" | "has_attendance" | "started" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap" | "location"
   >
 >();
 

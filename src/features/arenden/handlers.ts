@@ -25,7 +25,10 @@ import {
   areaName, attLabel, contactLabel, END_REASONS, participantContactLabel, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
 } from "@/core/labels";
 import { monthReportNeed } from "@/core/report-schedule";
-import { defaultWeekPlan, normalizePlan, planActivities, planFromActivities, type PlannedActivity, type WeekPlanRow } from "@/core/schedule";
+import {
+  activityPlanKey, defaultWeekPlan, hiddenPlanRows, isOwnPlanRow, isPlanRow, isPracticeDay, normalizePlan, planActivities, planFromActivities,
+  type PlanContext, type PlannedActivity, type WeekPlanRow,
+} from "@/core/schedule";
 import { scopeToContract } from "@/core/scope";
 import { avropDue, finalReportDueAt, firstMeetingDays, firstMeetingDue, isProvisionalDue, slaStatus, type SlaTone } from "@/core/sla";
 import {
@@ -37,12 +40,12 @@ import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
 import {
   canRegisterNoShow, currentNoShow, firstMeetingBookingProblem, NO_SHOW_KIND_LABEL, NO_SHOW_REGISTRARS, noShowOpen, noShowSentence, noShowStartText,
 } from "@/core/first-meeting";
-import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
+import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, CaseNote, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, Report, ResultClass,
-  TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, CaseNote, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, Placement, Report,
+  ResultClass, TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
@@ -64,7 +67,8 @@ import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
 import { billingForMonths } from "./start-handlers";
 import "./no-show-handlers";
-import "./activity-move";
+import { PLACE_PNR } from "./activity-move";
+import { closeActivityTasks } from "../_shared/participant-notify";
 import "./attachment-handlers";
 import "./contact-handlers";
 import { participantFilesFor } from "./participant-file-handlers";
@@ -598,9 +602,12 @@ handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
   if (!end || end < today) return fail("no_end", "Insatsens planerade slut har passerat – inga nya tillfällen kan planeras.");
   const plan = normalizePlan(p.plan);
   if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
+  // Platsen står i meddelandet till deltagaren (SMS att skicka) – aldrig ett personnummer (samma kontroll som Ändra tid).
+  if (plan.some((r) => looksLikePnr(r.location))) return fail("location", PLACE_PNR);
   const acts = ctx.repo.table("activities");
   const existing = await acts.list({ caseId: c.id });
   const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
+  const placements = await ctx.repo.table("placements").list({ caseId: c.id });
   // Framtida tillfällen utan närvaro ersätts. Praktikdagar hör till praktiken och rörs bara om planen själv har praktikdagar.
   // Gruppaktiviteter (group_activity_id) hör till aktiviteten och rörs aldrig här – en deltagare tas bort ur en gruppaktivitet
   // bara i aktivitetsvyn (aktiviteter.taBort, loggad på aktiviteten). Planens tillfällen som krockar med en gruppaktivitet hoppas
@@ -608,21 +615,36 @@ handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
   // Tillfällen som redan stämmer med den nya planen (dag, tid, typ, längd och plats) ligger kvar som de är – en plan som sparas
   // oförändrad ändrar ingenting (Karims beslut 2026-11-11). Ett tillfälle som fått ny tid med Ändra tid ligger också kvar, och
   // planen lägger inget nytt tillfälle på tiden det flyttades från – annars ångrade Ändra veckoplan flytten.
-  const replacesPractice = plan.some((r) => r.kind === "praktikdag");
+  // Bara planens rader ersätts (granskningen 2026-11-11, isPlanRow): ett enstaka tillfälle (Lägg till tillfälle) och praktikens
+  // dagar ligger kvar, och en andra rad samma veckodag – som redigeraren inte visar – ligger också kvar (hiddenPlanRows).
   const from = c.startDate && c.startDate > today ? c.startDate : today;
   const planned = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now });
   const same = (a: { startsAt: string; kind: string; durationMin: number; location: string }) => `${a.startsAt}|${a.kind}|${a.durationMin}|${a.location}`;
   const plannedKeys = new Set(planned.map(same));
   const moved = await movedOrigins(ctx, existing);
+  const read = await planContextFor(ctx, c, existing, placements);
+  const hidden = hiddenPlanRows(planFromActivities(existing.map((a) => ({ ...a, ...(moved.get(a.id) ?? {}) })), today, read));
   const removable = existing.filter(
-    (a) => !a.groupActivityId && a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice)
-      && !plannedKeys.has(same(a)) && !moved.has(a.id),
+    (a) => a.startsAt >= now && !registered.has(a.id) && isPlanRow(a, read) && !plannedKeys.has(same(a)) && !moved.has(a.id) && !hidden.has(activityPlanKey(a)),
   );
   for (const a of removable) await acts.remove(a.id);
+  // Öppna uppgifter att ringa deltagaren om ett borttaget tillfälle gäller inte längre (granskningen 2026-11-11).
+  if (removable.length) await closeActivityTasks(ctx, c, removable.map((a) => ({ when: a.startsAt, place: a.location })), "Tillfället är borttaget.");
   const kept = new Set(existing.filter((a) => !removable.includes(a)).map((a) => `${a.startsAt}|${a.kind}`));
   const movedFrom = new Set(existing.filter((a) => moved.has(a.id)).map((a) => `${moved.get(a.id)!.startsAt}|${a.kind}`));
   const groupRows = existing.filter((a) => a.groupActivityId);
-  const rows = planned.filter((r) => !kept.has(`${r.startsAt}|${r.kind}`) && !movedFrom.has(`${r.startsAt}|${r.kind}`) && !groupRows.some((g) => overlaps(g, r)));
+  // Ett tillfälle som tagits bort för hand (Ta bort) läggs inte tillbaka. Praktikens dagar (praktik.placementCreate ersatte dagens
+  // yrkesmoment): planen lägger inget nytt där utom ett möte som inte krockar med praktiken. Praktikdagar aldrig efter praktikens
+  // slut (den sista praktikperioden).
+  const practice = existing.filter((a) => isPracticeDay(a, read.practice ?? []));
+  const practiceDays = new Set(practice.map((a) => dayOf(a.startsAt)));
+  const practiceEnd = placements.length ? placements.map((pl) => pl.endsOn ?? end).sort().at(-1)! : null;
+  const rows = planned.filter(
+    (r) => !kept.has(`${r.startsAt}|${r.kind}`) && !movedFrom.has(`${r.startsAt}|${r.kind}`) && !read.removedSlots.has(`${r.startsAt}|${r.kind}`)
+      && !groupRows.some((g) => overlaps(g, r))
+      && !(practiceDays.has(dayOf(r.startsAt)) && (r.kind !== "möte" || practice.some((pr) => overlaps(pr, r))))
+      && !(r.kind === "praktikdag" && practiceEnd !== null && dayOf(r.startsAt) > practiceEnd),
+  );
   for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
   const meet = plan.find((r) => r.kind === "möte");
   if (meet) await ctx.repo.table("cases").update(c.id, { meetingDay: meet.weekday, meetingTime: meet.time });
@@ -635,6 +657,8 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (!c) return fail("not_found", NOT_FOUND);
   if (c.status !== "active" && c.status !== "paused") return fail("wrong_status", "Tillfällen kan läggas till när insatsen pågår.");
   if (c.startDate && dayOf(p.startsAt) < c.startDate) return fail("date", `Tillfället kan inte ligga före startdatumet ${fmtDate(c.startDate)}.`);
+  // Platsen står i meddelandet till deltagaren (SMS att skicka) – aldrig ett personnummer (samma kontroll som Ändra tid).
+  if (looksLikePnr(p.location)) return fail("location", PLACE_PNR);
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
@@ -652,6 +676,8 @@ handleCommand(activityRemove, { roles: CASE_WORKERS }, async (ctx, p) => {
   // Ett tillfälle i en gruppaktivitet tas bort i aktivitetsvyn (aktiviteter.taBort), så att det loggas på aktiviteten.
   if (a.groupActivityId) return fail("group_activity", "Tillfället hör till en gruppaktivitet. Öppna aktiviteten och ta bort deltagaren där.");
   await ctx.repo.table("activities").remove(a.id);
+  // Öppna uppgifter att ringa deltagaren om tillfället gäller inte längre (granskningen 2026-11-11).
+  await closeActivityTasks(ctx, c, { when: a.startsAt, place: a.location }, "Tillfället är borttaget.");
   await ctx.audit({ action: "activity.removed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, kind: a.kind, startsAt: a.startsAt } });
   return ok({});
 });
@@ -1210,7 +1236,9 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       : null,
     // Ta emot (Karims beslut 2026-11-09): bara avtalets intagsansvarige, i en beställning som väntar på svar.
     canReceive: access === "full" && isOpenOrder(c) && isIntakeCoach(ctx.actor, contract),
-    weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c, await movedOrigins(ctx, db.activities)) : null,
+    weekPlan: edit && (c.status === "active" || c.status === "paused")
+      ? currentWeekPlan(db.activities, dayOf(now), cfg, c, await movedOrigins(ctx, db.activities), await planContextFor(ctx, c, db.activities, placementsOf(db, c.id)))
+      : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
     // Ändra startdatum (Karims beslut 2026-10-29): knappen och om raden med ändringarna ska hämtas (arenden.startdatum) – så att
     // kortet inte gör en egen fråga för startdatumet när ärendet aldrig har ändrat det.
@@ -1242,12 +1270,39 @@ function noShowFor(ctx: Ctx, c: Case, rows: readonly FirstMeetingNoShow[], o: { 
 }
 
 /**
- * Den gällande veckoplanen: ur deltagarens egna kommande tillfällen (aldrig gruppaktiviteternas rader – planFromActivities), annars
- * avtalets standard. Ett tillfälle som fått ny tid med Ändra tid räknas på tiden det hade i planen.
+ * Den gällande veckoplanen: ur deltagarens egna tillfällen från måndagen i veckan (planFromActivities – aldrig gruppaktiviteternas
+ * rader, enstaka tillfällen eller praktikens dagar), annars avtalets standard. Ett tillfälle som fått ny tid med Ändra tid räknas
+ * på tiden det hade i planen.
  */
-function currentWeekPlan(acts: readonly Activity[], today: string, cfg: OperationalConfig, c: Case, moved: MovedOrigins): WeekPlanRow[] {
-  const fromActs = planFromActivities(acts.map((a) => ({ ...a, ...(moved.get(a.id) ?? {}) })), today);
+function currentWeekPlan(acts: readonly Activity[], today: string, cfg: OperationalConfig, c: Case, moved: MovedOrigins, read: PlanContext): WeekPlanRow[] {
+  const fromActs = planFromActivities(acts.map((a) => ({ ...a, ...(moved.get(a.id) ?? {}) })), today, read);
   return fromActs.length ? fromActs : defaultWeekPlan(cfg, c.firstMeetingAt);
+}
+
+/**
+ * Underlaget för att läsa veckoplanen (PlanContext i src/core/schedule.ts): enstaka tillfällen (activity.added), dagar där ett
+ * tillfälle tagits bort för hand (activity.removed), senaste Ändra veckoplan (case.schedule_changed), praktikperioderna, pauser,
+ * start och slut. ctx.system: bara id:n, tider och dagar ur loggen för ärendets egna tillfällen och ärendet, som läsaren redan
+ * ser (loggen läses annars bara av chef och admin).
+ */
+async function planContextFor(ctx: Ctx, c: Case, acts: readonly Activity[], placements: readonly Placement[]): Promise<PlanContext & { removedSlots: ReadonlySet<string> }> {
+  const log = ctx.system.table("audit_log");
+  const ids = acts.filter((a) => a.caseId === c.id && isOwnPlanRow(a)).map((a) => a.id);
+  const [added, removed, changed] = await Promise.all([
+    ids.length ? log.list({ entity: "activity", entityId: { in: ids }, action: "activity.added" }) : Promise.resolve([]),
+    log.list({ entity: "activity", contractId: c.contractId, action: "activity.removed" }),
+    log.list({ entity: "case", entityId: c.id, action: "case.schedule_changed" }),
+  ]);
+  const removedRows = removed.filter((l) => l.details?.caseId === c.id && typeof l.details?.startsAt === "string" && typeof l.details?.kind === "string");
+  return {
+    oneOff: new Set(added.flatMap((l) => (l.entityId ? [l.entityId] : []))),
+    practice: placements.filter((pl) => pl.caseId === c.id).map((pl) => ({ startsOn: pl.startsOn, endsOn: pl.endsOn })),
+    removedDays: new Set(removedRows.map((l) => dayOf(l.details!.startsAt as string))),
+    // Tiderna (tid och typ) – planen lägger inget nytt tillfälle där ett tagits bort för hand.
+    removedSlots: new Set(removedRows.map((l) => `${l.details!.startsAt as string}|${l.details!.kind as string}`)),
+    pausedWeeks: c.pausedWeeks, startDate: c.startDate, end: c.endDate ?? c.plannedEnd,
+    changedAt: changed.reduce<string | null>((m, l) => (!m || l.occurredAt > m ? l.occurredAt : m), null),
+  };
 }
 
 /** Tillfällen som fått ny tid med Ändra tid: tiden och längden de hade före den första flytten (aktivitetens id → tiden). */
@@ -1259,8 +1314,9 @@ type MovedOrigins = ReadonlyMap<string, { startsAt: string; durationMin: number 
  * (loggen läses annars bara av chef och admin).
  */
 async function movedOrigins(ctx: Ctx, acts: readonly Activity[]): Promise<MovedOrigins> {
-  const now = ctx.now();
-  const ids = acts.filter((a) => !a.groupActivityId && a.startsAt >= now && isPlanKind(a.kind)).map((a) => a.id);
+  // Från måndagen i veckan – planen läses också av veckans dagar som har varit (planFromActivities).
+  const since = `${monday(dayOf(ctx.now()))}T00:00`;
+  const ids = acts.filter((a) => !a.groupActivityId && a.startsAt >= since && isPlanKind(a.kind)).map((a) => a.id);
   const out = new Map<string, { startsAt: string; durationMin: number }>();
   if (!ids.length) return out;
   const log = (await ctx.system.table("audit_log").list({ entity: "activity", entityId: { in: ids }, action: "activity.moved" }))
@@ -1822,6 +1878,9 @@ const AUDIT_TEXT: Record<string, string> = {
   "attachment.upload_started": "Började ladda upp en bilaga", "attachment.uploaded": "Laddade upp en bilaga", "attachment.rejected": "En bilaga togs inte emot",
   "attachment.linked": "Bilagor kopplades till beställningen", "attachment.removed": "Tog bort en bilaga", "attachment.viewed": "Hämtade en bilaga",
   "attachment.deleted": "En bilaga raderades",
+  // Karims beslut 2026-11-11: Ändra tid och SMS att skicka.
+  "activity.moved": "Tillfället fick ny tid", "group_activity_series.occurrence_moved": "Ett tillfälle i den återkommande aktiviteten fick ny tid",
+  "outbound_message.sent_manually": "SMS till deltagaren skickades för hand",
 };
 /** Filerna på deltagarkortet (details.fileKind participant, Karims beslut 2026-10-29) – egna texter, aldrig filnamnet. */
 const PARTICIPANT_FILE_AUDIT_TEXT: Record<string, string> = {

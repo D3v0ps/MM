@@ -18,7 +18,7 @@ import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
 import { coachCases } from "@/features/_shared/coach-cases";
 import { ordersToReceive } from "@/features/_shared/intake";
-import { smsToSend } from "@/features/_shared/sms-to-send";
+import { smsTaskCount, smsToSend } from "@/features/_shared/sms-to-send";
 import { deadlineItems, deadlineRow, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
 import { navCounts, type NavCounts } from "./nav-api";
 
@@ -76,8 +76,9 @@ handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   if (role === "coach") out.unregistered = await unregisteredCount(ctx, e);
   if (TASK_ROLES.includes(role)) out.tasks = await openTaskCount(ctx);
   // Avtalets intagsansvarige: beställningarna som väntar på Ta emot står på Min vecka (0 för andra coacher).
-  // SMS att skicka (Karims beslut 2026-11-11): raderna på Min vecka räknas med – bara antalet lämnas ut.
-  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length + (await smsToSend(ctx)).length;
+  // SMS att skicka (Karims beslut 2026-11-11): coachens egna meddelanden och veckans tider som en sak (granskningen 2026-11-11) –
+  // bara antalet lämnas ut.
+  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length + smsTaskCount(await smsToSend(ctx));
   out.notifications = await notificationCount(ctx, e);
   return out;
 });

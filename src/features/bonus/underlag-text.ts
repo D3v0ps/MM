@@ -66,7 +66,7 @@ export function underlagSections(u: BonusUnderlag, participantName: string): Und
   const result: (readonly [string, string])[] = [];
   if (u.reachedOn) result.push([u.step >= 3 ? "Resultatdatum" : "Datum", date(u.reachedOn)]);
   if (u.event) result.push(["Händelse", `${u.event.label} ${date(u.event.date)}`]);
-  if (u.speed) result.push(["Senast för snabbhetspremie", `${date(u.speed.deadline)} (${u.speed.weeks} veckor från start)`]);
+  if (u.speed) result.push(["Senast för snabbt resultat", `${date(u.speed.deadline)} (${u.speed.weeks} veckor från start)`]);
   if (u.sustain) result.push(["Hållbart resultat", `Från ${date(u.sustain.since)} till ${date(u.sustain.until)} (${u.sustain.months} månader)`]);
   result.push(["Verifiering", u.verification ? `${u.verification.kind}${u.verification.on ? `, daterad ${date(u.verification.on)}` : ""}` : "Framgår inte"]);
   if (u.actor) {

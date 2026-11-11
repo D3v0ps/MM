@@ -58,8 +58,12 @@ describe("sidopanelens räknare (navCounts)", () => {
     // (eskalerad från coachen), två svar på avrop och två veckorapporter – inte coachens närvaroregistrering. Avtalsansvarig: inget
     // av det är hans. Chefen: slutrapporten, som har eskalerats till chefen. Uppgifter: inga öppna i testdatat. Amira är avtalets
     // intagsansvarige (Karims beslut 2026-11-09): de tre beställningarna som väntar på svar står vid Min vecka – inte hos en annan coach.
-    // Coachens siffra räknar också SMS att skicka (Karims beslut 2026-11-11) – samma rader för alla coacher.
-    const smsRows = async (actor: Actor) => (await rt.run("query", "coach.smsAttSkicka", {}, actor) as { rows: unknown[] }).rows.length;
+    // Coachens siffra räknar också SMS att skicka (Karims beslut 2026-11-11): coachens egna, veckans tider som en sak
+    // (granskningen 2026-11-11).
+    const smsRows = async (actor: Actor) => {
+      const own = (await rt.run("query", "coach.smsAttSkicka", {}, actor) as { rows: { mine: boolean; kind: string }[] }).rows.filter((r) => r.mine);
+      return own.filter((r) => r.kind !== "veckoschema").length + (own.some((r) => r.kind === "veckoschema") ? 1 : 0);
+    };
     expect(await q(navCounts, {}, sara())).toEqual({ inbox: 6, deadlines: 5, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, johan())).toEqual({ inbox: 6, deadlines: 0, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, karin())).toEqual({ inbox: 0, deadlines: 1, unregistered: 0, tasks: 0, notifications: 3 });

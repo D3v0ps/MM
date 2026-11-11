@@ -16,8 +16,9 @@ import { loadDb } from "@/api/load";
 import {
   approvedAssessments, bonusAttendance, BONUS_CHECKLIST_LABEL, BONUS_STATUS_TEXT, FOLLOWS_STEP3, isActiveClaim, manualCreateProblem, speedDeadline, step3For, stepKind, submitProblems,
   sustainDate,
+  progressStepLabel, SPEED_STEP,
 } from "@/core/bonus";
-import { bonusModel, bonusStepLabel, isOperational, type BonusModel, type OperationalConfig } from "@/core/config";
+import { bonusModel, isOperational, type BonusModel, type OperationalConfig } from "@/core/config";
 import { eventLabel, personName } from "@/core/labels";
 import { dayOf } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
@@ -105,13 +106,13 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
       const shown = mine.find(isActiveClaim) ?? mine[0] ?? null;
       const problem = manualCreateProblem(c, claims, s.step);
       return {
-        step: s.step, label: s.label, status: shown?.status ?? "none", ...statusOf(shown?.status ?? "none"), claimId: shown?.id ?? null, source: shown?.source ?? null,
+        step: s.step, label: progressStepLabel(m, s.step), status: shown?.status ?? "none", ...statusOf(shown?.status ?? "none"), claimId: shown?.id ?? null, source: shown?.source ?? null,
         // Steg 4 och 5: resultatdatum är bonussteg 3:s (det levande), aldrig kopian på anspråket.
         reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
         history: mine.filter((k) => k !== shown).map((k) => ({ claimId: k.id, status: k.status, statusText: BONUS_STATUS_TEXT[k.status].text, at: k.decidedAt ?? k.withdrawnAt ?? k.createdAt })),
       };
     });
-  return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, steps, rules: m.steps.map((s) => `Steg ${s.step} · ${s.label}: ${bonusRuleText(m, s.step)}`) };
+  return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, steps, rules: m.steps.map((s) => `Steg ${s.step} · ${progressStepLabel(m, s.step)}: ${bonusRuleText(m, s.step)}`) };
 });
 
 // ---------------------------------------------------------------- bonus.granska (Granska och skicka)
@@ -135,7 +136,7 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
   const problems = k.status === "suggested" ? submitProblems({ claim: k, case: c, step3, attendance: att, approvedAssessments: nApproved, today }, m) : [];
   const resultDay = step3?.reachedOn ?? null;
   return {
-    claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, participantName: nameOf(person), step: k.step, label: bonusStepLabel(m, k.step), status: k.status, ...statusOf(k.status), source: k.source,
+    claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, participantName: nameOf(person), step: k.step, label: progressStepLabel(m, k.step), status: k.status, ...statusOf(k.status), source: k.source,
     canAct: canWork && k.status === "suggested", canWithdraw: canWork && (k.status === "suggested" || k.status === "submitted"),
     canRecordMail: MAIL_RECORDERS.includes(ctx.actor.role) && canWork && k.status === "submitted" && !waitsForStep3(k, step3),
     rule: bonusRuleText(m, k.step),
@@ -169,7 +170,7 @@ handleQuery(bonusPortal, { roles: ["kommun_handlaggare"], commercial: true }, as
   const u = k.snapshot as unknown as BonusUnderlag;
   const waiting = k.status === "submitted" && waitsForStep3(k, step3);
   return {
-    claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, participantName: nameOf(person), step: k.step, label: u.stepLabel, status: k.status, ...statusOf(k.status), sentAt: k.submittedAt,
+    claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, participantName: nameOf(person), step: k.step, label: k.step === SPEED_STEP ? progressStepLabel(null, k.step) : u.stepLabel, status: k.status, ...statusOf(k.status), sentAt: k.submittedAt,
     // Bara handläggaren som beställde insatsen beslutar (bonus_claim_decisions_insert, 0039) – också när synligheten är vidare.
     underlag: u, canDecide: k.status === "submitted" && !k.customerDecision && !waiting && c.referrerId === ctx.actor.userId, waitingForStep3: waiting, decision,
   };

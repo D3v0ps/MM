@@ -9,11 +9,13 @@
 // src/features/aktiviteter/audience-sync.ts – tillfällen som redan har börjat rörs aldrig) och de förifyllda
 // månadsbedömningarna för månaden att bedöma nu med AI-utkasten till dem (ensureMonthlyAssessments,
 // src/features/coach/ensure-assessments.ts – AI-jobben läggs i kön och körs av samma jobbkörning eller nästa).
+// Efter tillfällena stänger jobbet samordnarens uppgifter att ringa deltagaren om en inbjudan, ändrad eller inställd aktivitet
+// vars tid har passerat (granskningen 2026-11-11, closeExpiredContactTasks i src/features/_shared/participant-notify.ts).
 // Sedan gör jobbet klart ändringar av startdatum som inte blev klara (Karims beslut 2026-10-29, finishStartChanges i
 // src/features/arenden/start-finish.ts – städningen efter en ändring som avbröts), och sist förslagen till bonusanspråk
 // (beslut 2026-11-04, ensureBonusClaims i src/features/bonus/ensure.ts – bara när bonus är påslagen i avtalet).
-// Ordningen: rapportutkasten, tillfällena och inbjudningarna, månadsbedömningarna, fakturakörningen, ändringarna av startdatum,
-// bonusförslagen.
+// Ordningen: rapportutkasten, tillfällena och inbjudningarna, uppgifterna som har passerat, månadsbedömningarna,
+// fakturakörningen, ändringarna av startdatum, bonusförslagen.
 // Ett fel i ett steg stoppar inte de andra (som i minnesläget, src/data/memory-runtime.ts) – det första felet kastas efteråt, så
 // att jobbet sparar felorsaken och försöker igen. Alla steg är idempotenta, så ett nytt försök skapar bara det som fattas.
 //
@@ -35,6 +37,7 @@ import { finishStartChanges } from "@/features/arenden/start-finish";
 import { ensureMonthlyAssessments } from "@/features/coach/ensure-assessments";
 import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
+import { closeExpiredContactTasks } from "@/features/_shared/participant-notify";
 import { parseDemoEpoch, type ClockSettings } from "../clock";
 import { JobError } from "./errors";
 import type { JobHandler } from "./runner";
@@ -99,6 +102,7 @@ export type ReportDeps = { reportSchedule?: () => Promise<{ ctx: Ctx; state: Rep
 
 /**
  * Jobbet: kör ensureReports, ensureGroupActivities (nivåaktiviteternas tillfällen och målgruppernas inbjudningar),
+ * closeExpiredContactTasks (uppgifterna att ringa om en aktivitet vars tid har passerat),
  * ensureMonthlyAssessments (förifyllda månadsbedömningar), ensureBillingRuns (månadens fakturakörning), finishStartChanges
  * (ändringar av startdatum som inte blev klara) och ensureBonusClaims (förslagen till bonusanspråk) – i den ordningen,
  * alla steg också när ett tidigare steg kastar (det första felet kastas sist). Utfallet är "created" (något skapades eller
@@ -123,6 +127,7 @@ export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
         const groups = await ensureGroupActivities(ctx);
         return groups.created > 0 || groups.changed > 0;
       });
+      await step(async () => (await closeExpiredContactTasks(ctx)) > 0);
       await step(async () => {
         const assessments = await ensureMonthlyAssessments(ctx, { floor: state.floor });
         return assessments.created.length > 0 || assessments.aiQueued.length > 0;

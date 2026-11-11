@@ -273,9 +273,8 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
     if (move) {
       const res = await change.run({ activityId: move.activityId, expectedStartsAt: move.startsAt, startsAt: at, durationMin: duration, location: loc.trim(), notify }).catch(() => null);
       if (!res || !res.ok) {
-        const msg = res && !res.ok && res.message ? res.message : "Tiden kunde inte ändras.";
-        setServerErr(msg);
-        toast(msg, "error");
+        // Felet visas en gång – i dialogen, bredvid fälten (ingen toast samtidigt).
+        setServerErr(res && !res.ok && res.message ? res.message : "Tiden kunde inte ändras.");
         return;
       }
       toast(res.changed ? `${ALL_KIND_LABEL[move.kind]} för ${move.caseNumber} är flyttat till ${fmtDateTimeLong(at)}.${res.notified ? ` ${res.notified}` : ""}` : "Inget var ändrat.");
@@ -340,7 +339,7 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
         {at && !isWorkingDay(at) && (
           <div className="col-span-full">
             <Notice tone="warn" title="Inte en arbetsdag">
-              {holidayName(at) ?? "Dagen är en helg"}. {move ? "Välj en vardag." : "Tillfället läggs ändå till om du vill."}
+              {holidayName(at) ?? "Dagen är en helg"}.{move ? "" : " Tillfället läggs ändå till om du vill."}
             </Notice>
           </div>
         )}
