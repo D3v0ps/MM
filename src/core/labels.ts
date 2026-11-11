@@ -86,11 +86,13 @@ export const CASE_NOTE_KIND_LABEL: Record<CaseNoteKind, string> = {
 };
 export const caseNoteKindLabel = (k: string): string => lookup(CASE_NOTE_KIND_LABEL, k) ?? k;
 /**
- * Vem ser anteckningen (kort etikett i tidslinjen). Systemadministratören har full åtkomst i ärenden utan skyddade
- * personuppgifter (caseAccess) och läser därför anteckningarna – texterna säger det.
+ * Vem ser anteckningen (kort etikett i tidslinjen och fliken Anteckningar). Alla coacher i avtalet läser anteckningarna, inte
+ * bara huvudcoachen (beslut 2026-10-09: alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet). Systemadministratören
+ * har full åtkomst i ärenden utan skyddade personuppgifter (caseAccess) och läser därför anteckningarna – texterna säger det.
+ * Aldrig kommunen och aldrig ekonomen.
  */
 export const CASE_NOTE_AUDIENCE_LABEL: Record<CaseNoteAudience, string> = {
-  full: "Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör", team: "Även teamet",
+  full: "Alla coacher, samordnare, avtalsansvarig, chef och systemadministratör", team: "Även teamet",
 };
 /** I ärenden med skyddade personuppgifter, oavsett audience. */
 export const CASE_NOTE_PROTECTED_AUDIENCE = "Bara namngiven huvudcoach och avtalsansvarig";

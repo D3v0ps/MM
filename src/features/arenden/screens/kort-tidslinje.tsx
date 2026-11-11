@@ -274,7 +274,8 @@ function focusAfterRemove(headingId: string) {
   el?.focus();
 }
 
-function NoteActions({ note, card, onEdit, headingId }: { note: TimelineNote; card: TabProps["card"]; onEdit: (n: TimelineNote) => void; headingId: string }) {
+/** Ändra och Ta bort för en anteckning – i tidslinjen och i fliken Anteckningar. headingId = rubriken som får fokus efter Ta bort. */
+export function NoteActions({ note, card, onEdit, headingId }: { note: TimelineNote; card: TabProps["card"]; onEdit: (n: TimelineNote) => void; headingId: string }) {
   const confirm = useConfirm();
   const remove = useCommand(caseNoteRemove);
   const del = async () => {
@@ -448,7 +449,7 @@ export function NoteDialog({ card, note, onClose, presetKind }: { card: TabProps
       )}
       {team ? (
         <Notice tone="info" icon="users" title="Vem ser anteckningen?">
-          Teamet, huvudcoachen, samordnaren, avtalsansvarig och chef.
+          Teamet, alla coacher, samordnaren, avtalsansvarig och chef.
         </Notice>
       ) : (
         <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">

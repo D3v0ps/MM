@@ -41,7 +41,7 @@ import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, Report, ResultClass,
+  Activity, AlertKind, AlertSeverity, Case, CaseNote, Contract, Db, FirstMeetingNoShow, FirstMeetingNoShowKind, GroupingKind, Message, OutcomeEventKind, Person, Report, ResultClass,
   TeamRole,
 } from "@/data/schema";
 import {
@@ -59,7 +59,7 @@ import { docBase, monthlyDocView } from "../rapporter/doc-view";
 import { freezeReport } from "../rapporter/freeze";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
 import { deliveredOk } from "../rapporter/report-helpers";
-import { buildTimeline, monthReportState } from "./timeline";
+import { buildNotes, buildTimeline, monthReportState, type NoteContexts } from "./timeline";
 import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
 import { billingForMonths } from "./start-handlers";
@@ -73,11 +73,11 @@ import {
   activityAdd, activityRemove, caseAccept, caseAcceptForm, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseScheduleChange, caseSetBuyerRef, caseSetTeam, caseStart,
   caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
-  caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
+  caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave, caseNotes,
   caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, CONTACT_EDITORS, TEAM_TABS,
   type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
   type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseMessageRow, type CaseOverview, type CasePlacements, type CaseReportRow,
-  type CaseTab, type TimelineText,
+  type CaseNotes, type CaseTab, type TimelineText,
 } from "./api";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -1388,7 +1388,51 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
     : await loadDb(ctx.repo, ["check_ins", "intake_assessments", "monthly_assessments", "deviations", "consents", "reports", "messages", "organizations"], {
         check_ins: q, intake_assessments: q, monthly_assessments: q, deviations: q, consents: q, reports: q, messages: q, organizations: { kind: "customer" },
       });
-  return buildTimeline({ cases: [c], ...base, ...fullDb }, { caseId: c.id, viewer: { access, role, userId: me }, cfg, now: env.now, visa: p.visa, fore: p.fore });
+  const noteContexts = await noteContextsFor(ctx, base.case_notes);
+  return buildTimeline({ cases: [c], ...base, ...fullDb }, { caseId: c.id, viewer: { access, role, userId: me }, cfg, now: env.now, visa: p.visa, fore: p.fore, noteContexts });
+});
+
+/**
+ * Aktiviteten som en anteckning skrevs i (aktivitetsvyns anteckningsrader – Karims beslut 2026-11-11: "Anteckningar borde hamna
+ * under deltagarkortet"). case_notes har ingen kolumn för det och de sparade raderna ändras inte: länken står i revisionsloggen
+ * (case_note.created med details.groupActivityId, aktiviteter/handlers.ts). ctx.system: bara loggradernas id:n för anteckningar
+ * som läsaren redan ser – loggen läses annars bara av chef och admin. Aktiviteten (namn och tid) läses med läsarens behörighet
+ * (group_activities, 0030): den som inte får läsa aktiviteten får ingen kontext.
+ */
+async function noteContextsFor(ctx: Ctx, notes: readonly CaseNote[]): Promise<NoteContexts> {
+  const ids = notes.filter((n) => n.kind === "other").map((n) => n.id);
+  const out = new Map<string, { name: string; startsAt: string }>();
+  if (!ids.length) return out;
+  const logged = await ctx.system.table("audit_log").list({ entity: "case_note", entityId: { in: ids }, action: "case_note.created" });
+  const groupOf = new Map<string, string>();
+  for (const l of logged) {
+    const g = l.details?.groupActivityId;
+    if (l.entityId && typeof g === "string") groupOf.set(l.entityId, g);
+  }
+  if (!groupOf.size) return out;
+  const groups = await ctx.repo.table("group_activities").list({ id: { in: [...new Set(groupOf.values())] } });
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  for (const [noteId, gid] of groupOf) {
+    const g = byId.get(gid);
+    if (g) out.set(noteId, { name: g.name, startsAt: g.startsAt });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- Flik: Anteckningar (Karims beslut 2026-11-11)
+// Samma läsning som tidslinjens anteckningar: ctx.repo efter loadCase (kommunen och ekonomen får null), teamet bara audience
+// team och inga avstämningar. Mötesrapporternas korta anteckning bara när rapporten är godkänd (buildNotes).
+handleQuery(caseNotes, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseNotes | null> => {
+  const L = await loadCase(ctx, p.caseId, "anteckningar");
+  if (!L) return null;
+  const { c, env, team, role, me, access } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["persons", "case_notes", "profiles", "case_area_changes", "case_start_changes"], {
+    persons: { id: c.personId }, case_notes: q, case_area_changes: q, case_start_changes: q,
+  });
+  const check_ins = team ? [] : await ctx.repo.table("check_ins").list({ caseId: c.id, status: "approved" });
+  const noteContexts = await noteContextsFor(ctx, db.case_notes);
+  return buildNotes({ cases: [c], ...db, check_ins }, { caseId: c.id, viewer: { access, role, userId: me }, now: env.now, noteContexts, limit: p.limit });
 });
 
 // ---------------------------------------------------------------- Fria anteckningar (case_notes)

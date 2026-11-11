@@ -52,6 +52,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortOversikt": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })], "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvstamningar": one("u-amira", { caseId: NADIA }), "arenden.kortNarvaro": one("u-amira", { caseId: NADIA }),
   "arenden.kortTidslinje": [...one("u-amira", { caseId: NADIA, visa: "alla" }), ...one("u-petra", { caseId: "case-260167", visa: "alla" })],
+  "arenden.kortAnteckningar": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: NADIA, limit: 3 }), ...one("u-petra", { caseId: "case-260167" })],
   "arenden.kortTidslinjeText": [...one("u-amira", { caseId: NADIA, id: "msg:msg-3" }), ...one("u-amira", { caseId: NADIA, id: "ci:ci-12498" })],
   "arenden.kortManad": one("u-amira", { caseId: NADIA, manad: "2027-01" }), "arenden.kortHandelser": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvvikelser": one("u-amira", { caseId: "case-260148" }), "arenden.kortPraktik": one("u-amira", { caseId: NADIA }),
@@ -217,6 +218,10 @@ const AUDIT_READS: Record<string, string[]> = {
   // Rapportens modell läser när händelser registrerades (event.added) – skrivs bara av coach.eventAdd.
   "rapporter.dokument": ["audit_log:event"],
   "rapporter.visa": ["audit_log:event"],
+  // Aktiviteten som en anteckning skrevs i (Karims beslut 2026-11-11): loggraden case_note.created skrivs av samma kommando som
+  // anteckningen (case_notes) – tabellen räcker, ingen egen tagg.
+  "arenden.kortAnteckningar": [],
+  "arenden.kortTidslinje": [],
 };
 
 /**

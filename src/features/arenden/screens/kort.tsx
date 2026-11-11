@@ -17,13 +17,14 @@ import {
 import { auditView } from "@/features/session/api";
 import { recordingOffered } from "@/features/coach/api";
 import {
-  caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis,
+  caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis, caseNotes,
   caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
 } from "../api";
 import { canOpen, cap, fd, Facts, Label, MiniList } from "./common";
 import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kort-flikar";
 import { TabManad } from "./kort-manad";
 import { TabTidslinje } from "./kort-tidslinje";
+import { TabAnteckningar } from "./kort-anteckningar";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
 import { ContactModal } from "./kort-kontakt";
 import { ActivityModal, StartModal, TeamModal } from "./kort-start";
@@ -36,7 +37,7 @@ import { NoShowModal } from "./kort-uteblev";
 import { CaseAreaChange, CaseAreaHistory } from "./kort-yrkesomrade";
 
 const TAB_LABEL: Record<CaseTab, string> = {
-  oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
+  oversikt: "Översikt", tidslinje: "Tidslinje", anteckningar: "Anteckningar", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
   handelser: "Händelser och utfall", avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
 };
 const CUST_WHO = { kommun_handlaggare: "kommunen" } as const;
@@ -127,6 +128,7 @@ function prefetchCaseTab(prefetch: ReturnType<typeof usePrefetch>, t: CaseTab, c
   switch (t) {
     case "oversikt": return prefetch(caseOverview, p);
     case "tidslinje": return prefetch(caseTimeline, { caseId, visa: "alla" });
+    case "anteckningar": return prefetch(caseNotes, p);
     case "kartlaggning": return prefetch(caseIntake, p);
     case "avstamningar": return prefetch(caseCheckIns, p);
     case "narvaro": return prefetch(caseAttendance, p);
@@ -305,6 +307,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
         <TabPanel tabsId="arende" active={tab} className="min-h-[calc(100dvh-var(--mm-sticky-top,0px)-9rem)]">
           {tab === "oversikt" && <TabOversikt {...props} />}
           {tab === "tidslinje" && <TabTidslinje {...props} />}
+          {tab === "anteckningar" && <TabAnteckningar {...props} />}
           {tab === "kartlaggning" && <TabKartlaggning {...props} />}
           {tab === "avstamningar" && <TabAvstamningar {...props} />}
           {tab === "narvaro" && <TabNarvaro {...props} />}

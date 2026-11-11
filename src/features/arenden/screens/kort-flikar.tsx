@@ -15,6 +15,7 @@ import {
 import { CaseBackgroundCard } from "./attachments";
 import { ParticipantFilesCard } from "./participant-files";
 import { NoteDialog } from "./kort-tidslinje";
+import { LatestNotesCard } from "./kort-anteckningar";
 import { NoShowNotice } from "./kort-uteblev";
 import { recordingOffered } from "@/features/coach/api";
 import type { TabProps } from "./kort";
@@ -45,7 +46,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 <Button kind="secondary" icon="edit" onClick={() => setWriting(true)}>
                   Skriv anteckning
                 </Button>
-                <span className="text-body text-text-muted">Anteckningen hamnar i Tidslinje.</span>
+                <span className="text-body text-text-muted">Anteckningen hamnar under Anteckningar och i Tidslinje.</span>
               </div>
             )}
             {writing && <NoteDialog card={card} note={null} presetKind="conversation" onClose={() => setWriting(false)} />}
@@ -225,6 +226,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 <FourBadges rights={pl.fourRights} className="mt-2" />
               </Card>
             )}
+            {/* De tre senaste anteckningarna (Karims beslut 2026-11-11) – samma läsregler som fliken Anteckningar. */}
+            <LatestNotesCard card={card} setTab={setTab} />
             {/* Filer på deltagarkortet (CV, personligt brev, betyg och intyg) – bara Miljonbemanning (Karims beslut 2026-10-29). */}
             {card.files && o.files && <ParticipantFilesCard card={card} files={o.files} />}
             {/* Beställningens bakgrund och bilagor – bara med full åtkomst (samordnare, avtalsansvarig, huvudcoach). */}

@@ -515,7 +515,7 @@ test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven a
   await expect(page.getByText("Anteckningen är sparad.")).toBeVisible();
   await expect(dialog(page)).toHaveCount(0);
   await expect(main(page)).toContainText(NOTE_FULL);
-  await expect(main(page)).toContainText("Skriven av Amira Haddad · Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör");
+  await expect(main(page)).toContainText("Skriven av Amira Haddad · Alla coacher, samordnare, avtalsansvarig, chef och systemadministratör");
   // Filtret Anteckningar visar bara anteckningar.
   await page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Anteckningar" }).click();
   await expect(main(page)).toContainText(NOTE_FULL);

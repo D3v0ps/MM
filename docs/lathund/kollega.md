@@ -216,6 +216,17 @@ Tryck på **Hämta** för att ladda ned en fil till datorn och läsa den. Tryck 
 
 Samordnaren, avtalsansvarig och coacherna kan ladda upp, hämta och ta bort filerna. En deltagare kan ha högst 30 filer. Du kan ladda upp filer när beställningen är bekräftad, och också efter att insatsen är avslutad. Bilagorna som kommunen skickade med beställningen ligger kvar i kortet **Bakgrund från beställningen**.
 
+### Anteckningar på deltagarkortet
+
+Alla anteckningar om deltagaren står under fliken **Anteckningar** på deltagarkortet, med den senaste först. Varje rad visar datum, vem som skrev, vad anteckningen gäller och texten. På **Översikt** visar kortet **Senaste anteckningar** de tre senaste. Tryck på **Visa alla anteckningar** för att öppna fliken.
+
+1. Tryck på **Skriv anteckning** för att skriva en ny.
+2. Tryck på **Ändra** eller **Ta bort** på en anteckning som du har skrivit.
+3. Anteckningar från aktivitetsvyn visar aktivitetens namn och tid, till exempel **Från aktiviteten CV-verkstad 1 feb kl. 08.00**.
+4. Den korta anteckningen i en godkänd mötesrapport står som **Från mötesrapport** med datumet. Den ändras i mötesrapporten. Utkast visas inte.
+
+Alla coacher, samordnaren, avtalsansvarig, chefen och systemadministratören ser anteckningarna. Kommunen och ekonomen ser dem aldrig.
+
 ### Mina ärenden och Alla ärenden
 
 Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **Alla ärenden i avtalet** i listan för att se alla ärenden.
@@ -231,7 +242,7 @@ Den som kartlägger väljer deltagarens nivå och taggar i kortet **Nivå och yr
 1. Välj **Nivå**: en av fem nivåer, från **Nivå 1 – Långt från arbete** till **Nivå 5 – Redo för arbete**. En deltagare har alltid exakt en nivå.
 2. Välj **Vill arbeta**: **Heltid**, **Deltid** eller **Vet inte än**. Det är deltagarens eget svar.
 3. Valen sparas direkt. Deltagaren bjuds in automatiskt till nivåns aktiviteter.
-4. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. **Samtal med deltagaren** och dagens datum är förvalda.
+4. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. **Samtal med deltagaren** och dagens datum är förvalda. Anteckningen hamnar under fliken **Anteckningar** och i **Tidslinje**.
 
 Går deltagaren framåt? I deltagarkortets huvud står nivån, yrkesområdet och taggarna. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
 
