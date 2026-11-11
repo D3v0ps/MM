@@ -131,6 +131,15 @@ Bra att veta:
 2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
+### Ändra veckoplan
+
+Ska deltagaren ha andra dagar eller tider varje vecka efter starten? Tryck på **Ändra veckoplan** överst på deltagarkortet. Knappen finns också i **Närvaro** när listan visar en deltagare.
+
+1. Planen är ifylld med deltagarens egna tillfällen. Gruppaktiviteter och nivåaktiviteter står inte i planen – de ändras i aktiviteten.
+2. Ändra dag, typ, tid, längd eller plats och spara.
+3. Kommande tillfällen utan närvaro som inte stämmer med planen byts ut. Tillfällen med närvaro ändras aldrig. Sparar du planen utan att ändra något händer ingenting.
+4. Har du flyttat ett tillfälle med **Ändra tid** ligger det kvar.
+
 ### Deltagaren kom före det bokade första mötet
 
 Kom deltagaren tidigare än det bokade första mötet? Starta insatsen den dag hen kom.

@@ -224,6 +224,9 @@ const AUDIT_READS: Record<string, string[]> = {
   // anteckningen (case_notes) – tabellen räcker, ingen egen tagg.
   "arenden.kortAnteckningar": [],
   "arenden.kortTidslinje": [],
+  // Veckoplanen räknar ett flyttat tillfälle på sin tidigare tid (activity.moved) – loggraden skrivs av arenden.activityMove,
+  // som skriver activities och räknar om kortet.
+  "arenden.kort": [],
 };
 
 /**

@@ -407,6 +407,12 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
                 Lägg till tillfälle
               </Button>
             )}
+            {/* Ändra veckoplan (Karims beslut 2026-11-11): för deltagaren som listan visar – dialogen på deltagarkortet. */}
+            {caseId && v.cases.some((x) => x.caseId === caseId) && (
+              <Button icon="calendar" to={`/arenden/${encodeURIComponent(caseId)}?flik=narvaro&veckoplan=1`}>
+                Ändra veckoplan
+              </Button>
+            )}
           </Row>
         }
       >

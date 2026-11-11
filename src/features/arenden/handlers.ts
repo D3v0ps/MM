@@ -605,15 +605,24 @@ handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
   // Gruppaktiviteter (group_activity_id) hör till aktiviteten och rörs aldrig här – en deltagare tas bort ur en gruppaktivitet
   // bara i aktivitetsvyn (aktiviteter.taBort, loggad på aktiviteten). Planens tillfällen som krockar med en gruppaktivitet hoppas
   // över, så att deltagaren inte räknas två gånger samma tid.
+  // Tillfällen som redan stämmer med den nya planen (dag, tid, typ, längd och plats) ligger kvar som de är – en plan som sparas
+  // oförändrad ändrar ingenting (Karims beslut 2026-11-11). Ett tillfälle som fått ny tid med Ändra tid ligger också kvar, och
+  // planen lägger inget nytt tillfälle på tiden det flyttades från – annars ångrade Ändra veckoplan flytten.
   const replacesPractice = plan.some((r) => r.kind === "praktikdag");
-  const removable = existing.filter((a) => !a.groupActivityId && a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice));
+  const from = c.startDate && c.startDate > today ? c.startDate : today;
+  const planned = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now });
+  const same = (a: { startsAt: string; kind: string; durationMin: number; location: string }) => `${a.startsAt}|${a.kind}|${a.durationMin}|${a.location}`;
+  const plannedKeys = new Set(planned.map(same));
+  const moved = await movedOrigins(ctx, existing);
+  const removable = existing.filter(
+    (a) => !a.groupActivityId && a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice)
+      && !plannedKeys.has(same(a)) && !moved.has(a.id),
+  );
   for (const a of removable) await acts.remove(a.id);
   const kept = new Set(existing.filter((a) => !removable.includes(a)).map((a) => `${a.startsAt}|${a.kind}`));
+  const movedFrom = new Set(existing.filter((a) => moved.has(a.id)).map((a) => `${moved.get(a.id)!.startsAt}|${a.kind}`));
   const groupRows = existing.filter((a) => a.groupActivityId);
-  const from = c.startDate && c.startDate > today ? c.startDate : today;
-  const rows = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now }).filter(
-    (r) => !kept.has(`${r.startsAt}|${r.kind}`) && !groupRows.some((g) => overlaps(g, r)),
-  );
+  const rows = planned.filter((r) => !kept.has(`${r.startsAt}|${r.kind}`) && !movedFrom.has(`${r.startsAt}|${r.kind}`) && !groupRows.some((g) => overlaps(g, r)));
   for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
   const meet = plan.find((r) => r.kind === "möte");
   if (meet) await ctx.repo.table("cases").update(c.id, { meetingDay: meet.weekday, meetingTime: meet.time });
@@ -1201,7 +1210,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       : null,
     // Ta emot (Karims beslut 2026-11-09): bara avtalets intagsansvarige, i en beställning som väntar på svar.
     canReceive: access === "full" && isOpenOrder(c) && isIntakeCoach(ctx.actor, contract),
-    weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
+    weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c, await movedOrigins(ctx, db.activities)) : null,
     teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
     // Ändra startdatum (Karims beslut 2026-10-29): knappen och om raden med ändringarna ska hämtas (arenden.startdatum) – så att
     // kortet inte gör en egen fråga för startdatumet när ärendet aldrig har ändrat det.
@@ -1232,10 +1241,37 @@ function noShowFor(ctx: Ctx, c: Case, rows: readonly FirstMeetingNoShow[], o: { 
   };
 }
 
-/** Den gällande veckoplanen: ur kommande tillfällen, annars avtalets standard. */
-function currentWeekPlan(acts: readonly Activity[], today: string, cfg: OperationalConfig, c: Case): WeekPlanRow[] {
-  const fromActs = planFromActivities(acts, today);
+/**
+ * Den gällande veckoplanen: ur deltagarens egna kommande tillfällen (aldrig gruppaktiviteternas rader – planFromActivities), annars
+ * avtalets standard. Ett tillfälle som fått ny tid med Ändra tid räknas på tiden det hade i planen.
+ */
+function currentWeekPlan(acts: readonly Activity[], today: string, cfg: OperationalConfig, c: Case, moved: MovedOrigins): WeekPlanRow[] {
+  const fromActs = planFromActivities(acts.map((a) => ({ ...a, ...(moved.get(a.id) ?? {}) })), today);
   return fromActs.length ? fromActs : defaultWeekPlan(cfg, c.firstMeetingAt);
+}
+
+/** Tillfällen som fått ny tid med Ändra tid: tiden och längden de hade före den första flytten (aktivitetens id → tiden). */
+type MovedOrigins = ReadonlyMap<string, { startsAt: string; durationMin: number }>;
+
+/**
+ * Tillfällena som fått ny tid med Ändra tid (activity.moved, Karims beslut 2026-11-11) och tiden de hade i veckoplanen – den
+ * första flyttens from. ctx.system: bara id:n och tider ur loggen för ärendets egna kommande tillfällen, som läsaren redan ser
+ * (loggen läses annars bara av chef och admin).
+ */
+async function movedOrigins(ctx: Ctx, acts: readonly Activity[]): Promise<MovedOrigins> {
+  const now = ctx.now();
+  const ids = acts.filter((a) => !a.groupActivityId && a.startsAt >= now && isPlanKind(a.kind)).map((a) => a.id);
+  const out = new Map<string, { startsAt: string; durationMin: number }>();
+  if (!ids.length) return out;
+  const log = (await ctx.system.table("audit_log").list({ entity: "activity", entityId: { in: ids }, action: "activity.moved" }))
+    .sort((a, b) => (a.occurredAt < b.occurredAt ? -1 : a.occurredAt > b.occurredAt ? 1 : a.id < b.id ? -1 : 1));
+  for (const l of log) {
+    const from = l.details?.from;
+    const dur = l.details?.fromDurationMin;
+    if (!l.entityId || out.has(l.entityId) || typeof from !== "string" || typeof dur !== "number") continue;
+    out.set(l.entityId, { startsAt: from, durationMin: dur });
+  }
+  return out;
 }
 
 /** Kandidater till teamet ur medlemskapens roller (beslut 2026-10-08) – huvudcoachen själv visas inte. */

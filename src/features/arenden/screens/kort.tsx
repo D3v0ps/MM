@@ -88,7 +88,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
   return (
     <CaseView
       card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} starta={query.get("starta") === "1"}
-      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"} taemot={query.get("taemot") === "1"}
+      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"} taemot={query.get("taemot") === "1"} veckoplan={query.get("veckoplan") === "1"}
     />
   );
 }
@@ -190,12 +190,14 @@ function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
 /** "Visa alla uppgifter" kommer ihåg läget under sessionen (bara i minnet, aldrig i adressen). */
 let showAllFacts = false;
 
-function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka, taemot }: {
+function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka, taemot, veckoplan }: {
   card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean;
   /** ?uteblev=1 ("Deltagaren kom inte" på Min vecka) och ?boka=1 ("Boka nytt första möte" på Min vecka): dialogen öppnas en gång. */
   uteblev: boolean; boka: boolean;
   /** ?taemot=1 (notisen "Ny beställning att ta emot"): dialogen Ta emot öppnas en gång – bara för avtalets intagsansvarige. */
   taemot: boolean;
+  /** ?veckoplan=1 ("Ändra veckoplan" på coachens Närvaro, Karims beslut 2026-11-11): dialogen öppnas en gång. */
+  veckoplan?: boolean;
 }) {
   const nav = useNav();
   const role = useSession().actor.role;
@@ -211,7 +213,8 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): ?uteblev=1 och ?boka=1 från Min vecka öppnar dialogerna på samma sätt.
   const canNoShow = !!card.noShow?.canRegister;
   const canRebook = !!card.noShow?.current && !!card.noShow.canRebook;
-  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : taemot && card.canReceive ? "receive" : null;
+  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : taemot && card.canReceive ? "receive"
+    : veckoplan && card.weekPlan ? "plan" : null;
   useEffect(() => {
     if (auto && !autoStarted.current) {
       autoStarted.current = true;
@@ -788,6 +791,8 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
   // Ändra startdatum (Karims beslut 2026-10-29): coach, samordnare och avtalsansvarig i en pågående eller pausad insats.
   if (c.startChange.canChange) btns.push(<CaseStartChange key="startdate" card={c} className={btn} />);
+  // Ändra veckoplan (Karims beslut 2026-11-11: lätt att hitta) – den som får ändra i en pågående eller pausad insats (card.weekPlan).
+  if (c.weekPlan) btns.push(<Button key="plan" icon="calendar" className={btn} onClick={() => openModal("plan")}>Ändra veckoplan</Button>);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
   if (c.manage && active && c.teamOptions) btns.push(<Button key="team" icon="users" className={btn} onClick={() => openModal("team")}>Ändra team</Button>);
   return (

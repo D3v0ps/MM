@@ -81,16 +81,21 @@ export function planActivities(
   return out;
 }
 
+/** Ett tillfälle som planen läses av: gruppaktiviteternas rader (groupActivityId) hör till aktiviteten, aldrig till veckoplanen. */
+export type PlanSource = { kind: string; startsAt: LocalDateTime; durationMin: number; location: string; groupActivityId?: string | null };
+
+/** Hör tillfället till deltagarens egen veckoplan? Veckoplanens typer – och inte en rad i en gruppaktivitet (t.ex. en nivåserie). */
+export const isOwnPlanRow = (a: Pick<PlanSource, "kind" | "groupActivityId">): boolean =>
+  (a.kind === "möte" || a.kind === "yrkesmoment" || a.kind === "praktikdag") && !a.groupActivityId;
+
 /**
  * Den gällande veckoplanen ur ärendets tillfällen: raderna i den första veckan från och med måndagen `mon` som har
- * tillfällen av veckoplanens typer. Tom lista om det inte finns några – då används avtalets standard.
+ * deltagarens egna tillfällen av veckoplanens typer. Gruppaktiviteternas rader räknas aldrig – annars blev en nivåaktivitet
+ * deltagarens eget yrkesmoment när planen sparades oförändrad (Karims beslut 2026-11-11). Tom lista om det inte finns några –
+ * då används avtalets standard.
  */
-export function planFromActivities(
-  acts: readonly { kind: string; startsAt: LocalDateTime; durationMin: number; location: string }[],
-  mon: LocalDate,
-): WeekPlanRow[] {
-  const isPlanKind = (k: string): k is WeekPlanKind => k === "möte" || k === "yrkesmoment" || k === "praktikdag";
-  const future = acts.filter((a) => isPlanKind(a.kind) && dayOf(a.startsAt) >= mon).sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
+export function planFromActivities(acts: readonly PlanSource[], mon: LocalDate): WeekPlanRow[] {
+  const future = acts.filter((a) => isOwnPlanRow(a) && dayOf(a.startsAt) >= mon).sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
   if (!future.length) return [];
   const first = monday(future[0].startsAt);
   const week = future.filter((a) => dayOf(a.startsAt) < addDays(first, 7));
