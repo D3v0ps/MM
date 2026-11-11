@@ -9,6 +9,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { PgClient, PgFilter, PgResult } from "./repo";
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 export const MIGRATIONS_DIR = `${ROOT}supabase/migrations`;
@@ -162,3 +163,111 @@ export async function attempt(tx: Tx, sql: string, params: readonly unknown[] = 
 
 /** Tillåtet enligt databasen: satsen gick igenom och påverkade minst en rad. */
 export const allowed = (a: Attempt): boolean => a.ok && a.rows > 0;
+
+// ---------------------------------------------------------------- SupabaseRepo mot PGlite
+const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
+
+/**
+ * En PgClient (den del av supabase-js som SupabaseRepo använder) mot en transaktion i PGlite. Satserna skrivs som PostgREST
+ * skriver dem: värdena kommer in som JSON (json_populate_recordset mot tabellens radtyp), filtren står mot tabellens kolumner
+ * (update … where "public"."t"."id" = $n and "public"."t"."status" in (…) returning "public"."t"."id") och svaret är raderna som
+ * JSON (tider som ISO-text, som i appen). Kolumnerna i set, where och returning är desamma som i produktionen – alltså krävs
+ * samma rättigheter. Så kör testerna den riktiga SupabaseRepo (userRepo, appRepo) som en inloggad användare (asUser) och ser
+ * det som bara databasen vet: kolumnrättigheter, policyer och triggrar.
+ * Varje anrop körs i en egen savepoint (PostgREST: en transaktion per anrop) – ett fel lämnar resten av transaktionen orörd.
+ * Stöder det SupabaseRepo skickar: select (kolumner, filter, ordning, range, count/head, maybeSingle), insert, update och delete
+ * med filtren eq, neq, gt, gte, lt, lte, in, is och not … is null. or() stöds inte (kastar).
+ */
+export function postgrestClient(tx: Tx): PgClient {
+  const from = (table: string) => {
+    const rel = `"public".${ident(table)}`;
+    const col = (c: string) => `${rel}.${ident(c.trim())}`;
+    const cols = (list: string | null) => (!list || list === "*" ? `${rel}.*` : list.split(",").map(col).join(", "));
+    const mk = (op: "select" | "insert" | "update" | "delete", values: unknown, columns: string | null, head = false) => {
+      const st = { filters: [] as string[], params: [] as unknown[], order: [] as string[], range: null as [number, number] | null, returning: columns, single: false };
+      const p = (v: unknown) => `$${st.params.push(v)}`;
+      const run = async (): Promise<PgResult> => {
+        const where = st.filters.length ? ` where ${st.filters.join(" and ")}` : "";
+        let sql: string;
+        if (op === "select") {
+          const tail = `${st.order.length ? ` order by ${st.order.join(", ")}` : ""}${st.range ? ` limit ${st.range[1] - st.range[0] + 1} offset ${st.range[0]}` : ""}`;
+          sql = head ? `select count(*)::int as body from ${rel}${where}` : `select coalesce(json_agg(t), '[]')::json as body from (select ${cols(st.returning)} from ${rel}${where}${tail}) t`;
+        } else {
+          const ret = st.returning ? ` returning ${cols(st.returning)}` : "";
+          let dml: string;
+          if (op === "delete") {
+            dml = `delete from ${rel}${where}${ret}`;
+          } else {
+            const rows = (Array.isArray(values) ? values : [values]) as Record<string, unknown>[];
+            const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+            const body = `(select * from json_populate_recordset(null::${rel}, ${p(JSON.stringify(rows))}::json)) pgrst_body`;
+            dml = op === "insert"
+              ? `insert into ${rel} (${keys.map(ident).join(", ")}) select ${keys.map((k) => `pgrst_body.${ident(k)}`).join(", ")} from ${body}${ret}`
+              : `update ${rel} set ${keys.map((k) => `${ident(k)} = pgrst_body.${ident(k)}`).join(", ")} from ${body}${where}${ret}`;
+          }
+          sql = st.returning ? `with pgrst_source as (${dml}) select coalesce(json_agg(pgrst_source), '[]')::json as body from pgrst_source` : dml;
+        }
+        await tx.exec("savepoint pgrst");
+        try {
+          const r = await tx.query<{ body: unknown }>(sql, st.params);
+          await tx.exec("release savepoint pgrst");
+          if (op === "select" && head) return { data: null, error: null, count: r.rows[0].body as number };
+          const rows = op !== "select" && !st.returning ? null : ((r.rows[0]?.body ?? []) as unknown[]);
+          return { data: st.single ? (rows?.[0] ?? null) : rows, error: null };
+        } catch (e) {
+          await tx.exec("rollback to savepoint pgrst");
+          const err = e as { code?: string; message?: string };
+          return { data: null, error: { code: err.code ?? "", message: err.message ?? String(e) } };
+        }
+      };
+      const cmp = (sign: string) => (c: string, v: unknown) => {
+        st.filters.push(`${col(c)} ${sign} ${p(v)}`);
+        return b;
+      };
+      const b = {
+        eq: cmp("="), neq: cmp("<>"), gt: cmp(">"), gte: cmp(">="), lt: cmp("<"), lte: cmp("<="),
+        in: (c: string, vs: readonly unknown[]) => {
+          st.filters.push(vs.length ? `${col(c)} in (${vs.map(p).join(", ")})` : "false");
+          return b;
+        },
+        is: (c: string, v: null | boolean) => {
+          st.filters.push(`${col(c)} is ${v === null ? "null" : String(v)}`);
+          return b;
+        },
+        not: (c: string, operator: string, v: unknown) => {
+          if (operator !== "is" || v !== null) throw new Error(`postgrestClient: not(${operator}) stöds inte`);
+          st.filters.push(`${col(c)} is not null`);
+          return b;
+        },
+        or: (): never => {
+          throw new Error("postgrestClient: or() stöds inte");
+        },
+        order: (c: string, o: { ascending: boolean; nullsFirst: boolean }) => {
+          st.order.push(`${col(c)} ${o.ascending ? "asc" : "desc"} nulls ${o.nullsFirst ? "first" : "last"}`);
+          return b;
+        },
+        range: (a: number, z: number) => {
+          st.range = [a, z];
+          return b;
+        },
+        select: (c?: string) => {
+          st.returning = c ?? "*";
+          return b;
+        },
+        maybeSingle: () => {
+          st.single = true;
+          return run();
+        },
+        then: <A, B>(res: (v: PgResult) => A, rej?: (e: unknown) => B) => run().then(res, rej),
+      };
+      return b as unknown as PgFilter;
+    };
+    return {
+      select: (c?: string, o?: { count?: "exact"; head?: boolean }) => mk("select", null, c ?? "*", !!o?.head),
+      insert: (v: Record<string, unknown> | Record<string, unknown>[]) => mk("insert", v, null),
+      update: (v: Record<string, unknown>) => mk("update", v, null),
+      delete: () => mk("delete", null, null),
+    };
+  };
+  return { from };
+}

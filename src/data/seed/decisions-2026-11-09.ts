@@ -13,7 +13,21 @@
 //                     Planerat slut räknas från mötesdagen (beslut 7, 2026-10-08): tio veckor från vecka 4 – fredag 2 april.
 //                     Notisen till Erik om tilldelningen säger det nya mötet. Paritetstestet mot den gamla prototypen jämför
 //                     testdatat utan ändringen (withoutFirstMeetingDemo nedan).
+//
+//   Intagsansvarig    Amira Haddad (prototypens coach) är intagsansvarig i Botkyrkaavtalet (contracts.intake_coach_id, 0041): hon
+//                     får avtalets nya beställningar, och de tre som väntar på svar står på hennes Min vecka som "Ny beställning
+//                     att ta emot". Testdatat har inga notiser om dem – notisen skrivs när en beställning kommer in.
 import type { Activity, Consent, Db } from "../schema";
+
+/** Intagsansvarig i testdatats avtal (applyIntakeCoach). */
+export const SEED_INTAKE_CONTRACT = "c-bot";
+export const SEED_INTAKE_COACH = "u-amira";
+
+/** Karims beslut 2026-11-09: testdatats avtal får en intagsansvarig – bara om personen har rollen coach i avtalet. */
+export function applyIntakeCoach(db: Db): void {
+  const c = db.contracts.find((x) => x.id === SEED_INTAKE_CONTRACT);
+  if (c && db.memberships.some((m) => m.userId === SEED_INTAKE_COACH && m.contractId === c.id && m.role === "coach")) c.intakeCoachId = SEED_INTAKE_COACH;
+}
 
 /** Ärendet vars första möte har varit (BOT-27-0043). */
 export const SEED_NO_SHOW_CASE = "case-270043";

@@ -79,6 +79,17 @@ export const SEED_TABLE_ORDER: readonly TableName[] = (() => {
  */
 export const BOOTSTRAP_TABLES: readonly TableName[] = ["holidays", "organizations", "contracts", "contract_areas", "price_items"];
 
+/**
+ * Avtalets intagsansvarige (contracts.intake_coach_id, 0041) pekar på en profil med rollen coach i avtalet – men avtalen läses in
+ * före profilerna och medlemskapen. Avtalen läses därför in utan intagsansvarig (contractsWithoutIntake), och kolumnen sätts
+ * sist, när allt annat finns (contractIntakeCoaches). Samma ordning i seed.sql, bootstrap-staging.sql (som aldrig sätter den –
+ * testpersonerna finns inte där) och "Läs in testdata på nytt" (src/server/staging/load.ts).
+ */
+export const contractsWithoutIntake = <T extends { intakeCoachId?: string | null }>(rows: readonly T[]): T[] => rows.map((r) => ({ ...r, intakeCoachId: null }));
+/** Avtalen som har en intagsansvarig i testdatat: avtalets id och personen. */
+export const contractIntakeCoaches = (rows: readonly { id: string; intakeCoachId?: string | null }[]): { id: string; intakeCoachId: string }[] =>
+  rows.flatMap((r) => (r.intakeCoachId ? [{ id: r.id, intakeCoachId: r.intakeCoachId }] : []));
+
 /** Extra kolumner för profiler i databasen: deterministiskt auth_user_id för testpersonerna, testarna kopplas vid inloggning. */
 export function profileExtras(profileId: string): { authUserId: string | null; isTester: boolean } {
   const tester = TESTER_IDS.has(profileId);

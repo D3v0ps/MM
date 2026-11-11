@@ -11,10 +11,13 @@ Vem: kommunens handläggare och samordnaren.
 1. Kommunen beställer med ett mejl till **avrop@miljonbemanning.se** eller i portalen under **Beställ ny insats**. Yrkesområdet ska vara med.
 2. Beställningen blir ett ärende med ett ärendenummer. Ordererkännandet skickas automatiskt till handläggaren. Saknas något, till exempel yrkesområdet, frågar ordererkännandet efter det.
 3. Kom beställningen per telefon, eller i ett mejl som inte gick att läsa in? Samordnaren trycker på **Registrera beställning** i **Avropsinkorg**.
+4. Har avtalet en intagsansvarig får hen notisen **Ny beställning att ta emot – BOT-…** i appen. Beställningen står också på hens Min vecka.
 
 ### 2. Acceptera och boka första mötet
 
-Vem: samordnaren eller avtalsansvarig, inom den tid som står i avtalet.
+Vem: avtalets intagsansvarige, samordnaren eller avtalsansvarig, inom den tid som står i avtalet.
+
+Avtalets intagsansvarige är en coach som systemadministratören har valt. Hen tar emot nya beställningar själv med **Ta emot** på Min vecka eller på deltagarkortet. Dialogen och stegen är desamma som nedan, och hen är förvald som huvudcoach. Samordnarna får notisen **Ny deltagare mottagen – BOT-…** i appen. Har avtalet ingen intagsansvarig tar samordnaren emot, som förut. Bara samordnaren och avtalsansvarig avböjer en beställning.
 
 1. Öppna beställningen i **Avropsinkorg** och tryck på **Acceptera avropet**.
 2. Kontrollera **Avtalsområde**. Det är ifyllt från beställningen.
@@ -30,6 +33,7 @@ Vem: huvudcoachen eller den som kartlägger (i dag Adam).
 1. Kontrollera deltagarens telefonnummer och e-postadress. Fråga hur deltagaren vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och spara.
 2. Ska möten spelas in, eller ska AI få skriva utkast? Berätta vad det innebär och fråga deltagaren. Säger deltagaren ja: tryck på **Registrera samtycke**. Ett nej får inga följder.
 3. Tryck på **Starta insatsen** i deltagarkortet eller i listan **Att göra i dag** på Min vecka. Välj startdatum och veckoplan. Tillfällena skapas från startdatumet.
+   Kom deltagaren före det bokade mötet? Välj dagen hen kom som startdatum och fyll i **Klockslag för mötet**. Första mötet flyttas dit och planerat slut räknas om. Kommunen får en uppdaterad orderbekräftelse. Deltagaren får ingen kallelse. Läs mer under **Deltagaren kom före det bokade första mötet** i lathunden för kollegor.
 4. Kom deltagaren inte till första mötet? Starta inte insatsen. Tryck på **Deltagaren kom inte**, välj **Uteblev utan att meddela** eller **Giltig frånvaro** och spara. Boka sedan ett nytt första möte, eller avsluta insatsen om deltagaren aldrig kom. Insatsen startas först efter det nya mötet. Kommunen får inget besked, och inget faktureras. Läs mer under **Deltagaren kom inte till första mötet** i lathunden för kollegor.
 5. Blev startdatumet fel? Tryck på **Ändra startdatum** i deltagarkortets huvud och skriv en kort motivering. Det går i en pågående eller pausad insats. Tillfällen före det nya datumet tas bort om de saknar registrerad närvaro eller bara har automatisk närvaro. Inga tillfällen skapas bakåt – lägg till dem som hände och registrera närvaron. Planerat slut ändras inte. Är månaden redan fakturerad eller godkänd av ekonomen går det inte att ändra – kontakta ekonomen. Läs mer under **Ändra startdatum** i lathunden för kollegor.
 

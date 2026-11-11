@@ -165,12 +165,20 @@ handleCommand(caseChangeStart, { roles: START_CHANGERS }, async (ctx, p) => {
  */
 async function billingFor(ctx: Ctx, c: Case, to: LocalDate): Promise<StartChangeBilling> {
   if (!c.startDate || c.startDate === to) return NO_BILLING;
-  const months = startChangeMonths(c.startDate, to, c.pausedWeeks);
+  return billingForMonths(ctx, c, startChangeMonths(c.startDate, to, c.pausedWeeks));
+}
+
+/**
+ * Fakturornas läge för de angivna månaderna i ärendets avtal – samma uppslag för Ändra startdatum och för Starta insatsen före det
+ * bokade första mötet (arenden.caseStart, Karims beslut 2026-11-09). ctx.system av samma skäl som ovan: bara status, grupp och
+ * vilka ärenden en faktura har rader för – inga belopp, och inget lämnas ut.
+ */
+export async function billingForMonths(ctx: Ctx, c: Pick<Case, "id" | "contractId">, months: readonly MonthKey[]): Promise<StartChangeBilling> {
   if (!months.length) return NO_BILLING;
   const s = ctx.system;
   const [drafts, runs] = await Promise.all([
-    s.table("invoice_drafts").pick(["contractId", "month", "kind", "groupingKey", "status"], { contractId: c.contractId, month: { in: months } }),
-    s.table("billing_runs").pick(["contractId", "month", "status"], { contractId: c.contractId, month: { in: months } }),
+    s.table("invoice_drafts").pick(["contractId", "month", "kind", "groupingKey", "status"], { contractId: c.contractId, month: { in: [...months] } }),
+    s.table("billing_runs").pick(["contractId", "month", "status"], { contractId: c.contractId, month: { in: [...months] } }),
   ]);
   const lines = drafts.length ? await s.table("invoice_lines").pick(["invoiceDraftId", "caseId"], { caseId: c.id, invoiceDraftId: { in: drafts.map((d) => d.id) } }) : [];
   return { drafts, lines, runs };

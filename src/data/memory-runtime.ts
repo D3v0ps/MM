@@ -38,7 +38,7 @@ import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/fe
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
 import { TEST_PNR_CRYPTO } from "./seed/pnr";
-import { UNIQUE_KEYS, type AppRepo, type Tables } from "./schema";
+import { UNIQUE_KEYS, USER_FILTER_COLUMNS, type AppRepo, type Tables } from "./schema";
 
 export type DemoClock = { now(): LocalDateTime; tick(): void; set(t: LocalDateTime): void };
 
@@ -104,7 +104,8 @@ export function createMemoryRuntime(opts: {
     return {
       actor,
       now: opts.clock.now,
-      repo: new MemoryRepo<Tables>(store, actor, POLICIES) as unknown as AppRepo,
+      // filterColumns: samma spärr som databasens kolumnrättigheter ger en villkorad ändring (USER_FILTER_COLUMNS).
+      repo: new MemoryRepo<Tables>(store, actor, POLICIES, { filterColumns: USER_FILTER_COLUMNS }) as unknown as AppRepo,
       system,
       newId,
       audit: async (e) => {

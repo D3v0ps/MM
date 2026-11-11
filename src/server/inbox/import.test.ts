@@ -85,6 +85,11 @@ describe("importInbox", () => {
     expect(t.notified).toEqual([expect.objectContaining({ to: "linda.karlsson@botkyrka.se", template: "ordererkannande", caseId: c.id })]);
     expect(t.notified[0].body).toContain("BOT-27-0051");
     expect(t.notified[0].body).not.toMatch(/Yonas|Tesfay|19920202|Vi saknar/);
+    // Avtalets intagsansvarige (Amira i testdatat, 0041) får notisen i appen – bara ärendenumret och svarstiden, aldrig e-post.
+    const notices = t.store.rows("user_notifications").filter((n) => n.caseId === c.id);
+    expect(notices.map((n) => [n.recipientId, n.kind, n.channels, n.emailBody, n.title])).toEqual([["u-amira", "new_order", ["app"], "", "Ny beställning att ta emot – BOT-27-0051"]]);
+    expect(notices[0].body).toBe("Boka första mötet och tryck på Ta emot. Kommunen ska ha svar senast 2 feb kl. 08.50.");
+    expect(JSON.stringify(notices)).not.toMatch(/Yonas|Tesfay|19920202|linda/);
     expect(t.audits.map((a) => a.action)).toEqual(["case.created", "attachment.linked", "email.received"]);
     expect(t.audits[2]).toMatchObject({ entityId: m.id, details: { parseMethod: "template", classification: "order", caseId: c.id, attachments: 2 } });
     expect(JSON.stringify(t.audits)).not.toMatch(/Yonas|19920202|linda/);
@@ -93,6 +98,7 @@ describe("importInbox", () => {
     graph.moved.length = 0;
     expect(await importInbox({ graph, ctx: t.ctx, now: NOW })).toMatchObject({ seen: 1, imported: 0, skipped: 1, moved: 1 });
     expect(t.store.rows("inbound_emails").filter((e) => e.graphMessageId === "<m1@botkyrka.se>")).toHaveLength(1);
+    expect(t.store.rows("user_notifications").filter((n) => n.caseId === c.id)).toHaveLength(1);
   });
 
   it("ett äldre mejl med bostadsort och kontaktväg tolkas som förut – ordererkännandet frågar efter yrkesområdet", async () => {
@@ -156,6 +162,8 @@ describe("importInbox", () => {
     expect(ack.body).toContain("och yrkesområde");
     expect(ack.body).toContain("svara på det här mejlet");
     expect(t.store.getRow("cases", f2.caseId!)).toMatchObject({ referrerId: "k-linda", orderPeriodMonths: null, plannedEnd: null, desiredStart: null });
+    // Den intagsansvariges notis kommer först när det finns ett ärende att ta emot: mejlet som väntar på registrering ger ingen.
+    expect(t.store.rows("user_notifications").filter((n) => n.kind === "new_order").map((n) => [n.recipientId, n.caseId])).toEqual([["u-amira", f2.caseId]]);
   });
 
   it("svar med ärendenumret: komplettering till ett öppet ärende, övrigt till ett pågående; okänt prefix blir övrigt", async () => {

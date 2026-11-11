@@ -6,7 +6,7 @@
 //   - fel blir PolicyError (behörighet) eller DataError – aldrig med värden eller personuppgifter i meddelandet
 // Klienten skickas in utifrån: användarens klient (RLS) för ctx.repo, service role för ctx.system (src/server/runtime.ts).
 import { PolicyError, UniqueError } from "../memory";
-import { applyOpts, checkJsonPaths, pickFields, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
+import { applyOpts, checkFilterColumns, checkJsonPaths, pickFields, type FilterColumns, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
 import { fromDbRow, toColumn, toDbRow, toDbValue } from "./columns";
 
 // ---------------------------------------------------------------- Den del av supabase-js som används (gör det lätt att fejka i tester)
@@ -149,18 +149,24 @@ export type SupabaseRepoOpts = {
    * detaljerna i skyddade ärenden och för ekonomen (0013). Service role läser tabellerna direkt.
    */
   readFrom?: Readonly<Record<string, string>>;
+  /**
+   * Kolumnerna (fälten) som en villkorad ändring får villkoras på per tabell – för tabeller där inloggade inte får läsa alla
+   * kolumner direkt (USER_FILTER_COLUMNS i src/data/schema.ts). Ett villkor på en annan kolumn stoppas här (FilterColumnError)
+   * i stället för att nekas av databasen med 42501. Service role (appRepo) har ingen lista.
+   */
+  filterColumns?: FilterColumns;
 };
 
 export class SupabaseRepo<TT extends Record<string, Row>> implements Repo<TT> {
   constructor(private readonly db: PgClient, private readonly opts: SupabaseRepoOpts = {}) {}
 
   table<N extends keyof TT & string>(name: N): Table<TT[N]> {
-    return new SupabaseTable<TT[N]>(this.db, name, this.opts.readFrom?.[name] ?? name);
+    return new SupabaseTable<TT[N]>(this.db, name, this.opts.readFrom?.[name] ?? name, this.opts.filterColumns);
   }
 }
 
 class SupabaseTable<T extends Row> implements Table<T> {
-  constructor(private readonly db: PgClient, private readonly name: string, private readonly readName: string) {}
+  constructor(private readonly db: PgClient, private readonly name: string, private readonly readName: string, private readonly filterColumns?: FilterColumns) {}
 
   private fail(error: PgError): never {
     throw toRepoError(this.name, error);
@@ -278,6 +284,8 @@ class SupabaseTable<T extends Row> implements Table<T> {
     delete rest.id;
     const values = toDbRow(rest);
     if (!Object.keys(values).length) throw new DataError(this.name, "empty_patch");
+    // Villkoret kräver läsrätt på kolumnerna i tabellen: en kolumn som inloggade inte får läsa stoppas här, inte i databasen.
+    checkFilterColumns(this.name, where, this.filterColumns);
     // update … where id = ? and <where> returning: noll rader = raden matchar inte längre (eller får inte ändras).
     const viaView = this.readName !== this.name;
     const { data, error } = await applyWhere(this.db.from(this.name).update(values).eq("id", id), where as Record<string, unknown>).select(viaView ? "id" : "*");

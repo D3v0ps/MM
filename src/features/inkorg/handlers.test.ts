@@ -56,11 +56,13 @@ describe("sidopanelens räknare (navCounts)", () => {
   it("samma tal som prototypens navCount och olästa notiser – Förfaller räknar det som är mitt ansvar (paket 2, S7)", async () => {
     // Förfaller: försenat och i dag som är användarens eget ansvar (Förfallers förval). Samordnaren: den försenade slutrapporten
     // (eskalerad från coachen), två svar på avrop och två veckorapporter – inte coachens närvaroregistrering. Avtalsansvarig: inget
-    // av det är hans. Chefen: slutrapporten, som har eskalerats till chefen. Uppgifter: inga öppna i testdatat.
+    // av det är hans. Chefen: slutrapporten, som har eskalerats till chefen. Uppgifter: inga öppna i testdatat. Amira är avtalets
+    // intagsansvarige (Karims beslut 2026-11-09): de tre beställningarna som väntar på svar står vid Min vecka – inte hos en annan coach.
     expect(await q(navCounts, {}, sara())).toEqual({ inbox: 6, deadlines: 5, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, johan())).toEqual({ inbox: 6, deadlines: 0, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, karin())).toEqual({ inbox: 0, deadlines: 1, unregistered: 0, tasks: 0, notifications: 3 });
-    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 0, notifications: 4 });
+    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 3, notifications: 4 });
+    expect((await q(navCounts, {}, as("u-erik", "coach"))).tasks).toBe(0);
   });
 });
 

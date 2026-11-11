@@ -10,9 +10,11 @@ import {
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
 import type { SlaTone } from "@/core/sla";
-import { WEEK_PLAN_KINDS } from "@/core/config";
+import { WEEK_PLAN_KINDS, type WeekPlanDay } from "@/core/config";
+import type { OrderPeriodBasis } from "@/core/early-start";
 import type { WeekPlanRow } from "@/core/schedule";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText, WeekKeySchema } from "../_shared/schemas";
+import type { DecisionForm } from "../inkorg/api";
 import type { ReportDocView } from "../rapporter/api";
 import type { MonthlyGaps } from "../rapporter/model";
 
@@ -93,8 +95,15 @@ export const caseCreate = command("arenden.caseCreate", z.object({
  * Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till kommunen och kallelse till
  * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens. Första mötet ska vara en arbetsdag som inte har passerat och
  * inte före beställningens dag (past, before_order, not_working_day – firstMeetingBookingProblem, samma regel som bokningen).
+ *
+ * Vem (Karims beslut 2026-11-09, migration 0041): samordnaren och avtalsansvarig – och avtalets intagsansvarige
+ * (contracts.intake_coach_id): en coach tar emot bara i avtal där hen är intagsansvarig, andra coacher nekas (forbidden).
+ * Efter en lyckad accept får avtalets samordnare, utom den som tog emot, notisen "Ny deltagare mottagen – BOT-…" i appen (aldrig
+ * e-post eller SMS), och den intagsansvariges notis om beställningen märks som läst. Två som tar emot samtidigt: bara den första
+ * går igenom (wrong_status för den andra – inget skrivs två gånger).
  */
-// Omräkning brett med flit: skapar orderbekräftelsen (reports), ändrar inkorgen och deadlines, och ger coachen ärendet.
+// Omräkning brett med flit: skapar orderbekräftelsen (reports), ändrar inkorgen och deadlines, och ger coachen ärendet. Den
+// intagsansvariges egen notis märks som läst – därför "notiser.".
 export const caseAccept = command("arenden.caseAccept", z.object({
   caseId: IdSchema,
   leadCoachId: IdSchema,
@@ -108,20 +117,38 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   orderPeriodReason: z.string().max(ORDER_REASON_MAX).nullable().optional(),
   buyerReference: z.string().max(40).nullable().optional(),
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", "notiser.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   /** invitation: hur kallelsen går, i klarspråk (t.ex. "Kallelsen skickas med e-post.") – notifyParticipant. */
   Result<
     { reportId: string; caseNumber: string; invitation: string },
-    "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period" | "past" | "before_order" | "not_working_day"
+    | "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period" | "past" | "before_order" | "not_working_day"
+    // Den intagsansvarige: en komplettering från kommunen väntar i avropsinkorgen – samordnaren för in den först.
+    | "pending_supplement"
   >
 >();
 
-/** Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. */
+/**
+ * Underlaget till dialogen som tar emot en beställning – samma dialog för alla (src/features/inkorg/screens/modals.tsx):
+ * Acceptera i avropsinkorgen (samordnare och avtalsansvarig) och Ta emot för avtalets intagsansvarige (Karims beslut
+ * 2026-11-09). intake = dialogen visas för den intagsansvarige (rubriken Ta emot, ingen kvittens ur inkorgen);
+ * defaultCoachId = huvudcoachen som är förvald – den intagsansvarige själv, annars ingen. supplementPending = kommunen har
+ * skickat en komplettering som väntar i avropsinkorgen: den intagsansvarige tar inte emot förrän samordnaren har fört in den
+ * (bara ja eller nej – coachen läser aldrig mejlet; alltid false för samordnaren och avtalsansvarig, som ser kompletteringen i
+ * pendingSup). null = beställningen finns inte, är redan besvarad (för den intagsansvarige) eller så får rollen inte ta emot
+ * den (andra coacher).
+ */
+export type AcceptFormView = DecisionForm & { intake: boolean; defaultCoachId: string | null; supplementPending: boolean };
+export const caseAcceptForm = query("arenden.acceptForm", z.object({ caseId: IdSchema })).returns<AcceptFormView | null>();
+
+/**
+ * Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. Bara samordnaren och
+ * avtalsansvarig – aldrig den intagsansvarige (0041).
+ */
 // Omräkning som caseAccept (samma listor, inkorg och deadlines berörs).
 export const caseDecline = command("arenden.caseDecline", z.object({
   caseId: IdSchema,
   reason: z.string().max(2000),
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<Result<object, "not_found" | "reason" | "wrong_status" | "forbidden">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", "notiser.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<Result<object, "not_found" | "reason" | "wrong_status" | "forbidden">>();
 
 /** Fält som kan ändras med arenden.caseUpdate. Kommunens handläggare får bara ändra beställarens kontaktuppgifter. */
 export const CasePatchSchema = z.strictObject({
@@ -209,14 +236,29 @@ export const WeekPlanSchema = z.array(WeekPlanRowSchema).min(1).max(10);
  * veckoplanen (helgdagar hoppas över, högst 60 veckor), statushistorik och loggen case.started. Huvudcoachen, samordnare
  * och avtalsansvarig. Kom deltagaren inte till det bokade första mötet (Karims beslut 2026-11-09) nekas starten (no_show) tills
  * ett nytt första möte är bokat – sedan gäller den vanliga regeln (tidigast det nya mötets dag).
+ *
+ * Deltagaren kom före det bokade första mötet (Karims beslut 2026-11-09): startdatumet får ligga före mötets dag när dagen är i
+ * dag eller har varit (start_date annars – en kommande dag före mötet bokas om), inte ligger före beställningens dag
+ * (before_order), är en arbetsdag (not_working_day) och inte hör till en fakturerad eller godkänd månad (invoiced). Första mötet
+ * flyttas då till startdagen med klockslaget meetingTime (annars det bokade mötets klockslag; no_show om det flyttade mötet inte
+ * ligger efter ett möte som deltagaren enligt en registrering inte kom till), planerat slut räknas om från startdagen (order_period om omfattningen inte går att
+ * räkna), kommunen får en ny version av orderbekräftelsen och mejlet "Orderbekräftelsen … är uppdaterad" – och deltagaren får
+ * ingen kallelse. Loggen får case.first_meeting_booked (rebooked, reason came_earlier) och case.started. Svaret: movedMeetingAt
+ * (det flyttade mötet, annars null) och plannedEnd (det slut som gäller efter starten).
  */
 // Omräkning brett med flit: statusen och tillfällena syns i listor, Min vecka, närvaro, portal, rapporter, KPI:er och fakturering.
 export const caseStart = command("arenden.caseStart", z.object({
   caseId: IdSchema,
   startDate: LocalDateSchema,
   plan: WeekPlanSchema,
+  /** Klockslaget för första mötet när startdatumet ligger före det bokade mötet (TT:MM). Läses bara då. */
+  meetingTime: TimeSchema.optional(),
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
-  Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "no_show" | "start_date" | "no_end" | "plan">
+  Result<
+    { activities: number; firstActivityAt: string | null; movedMeetingAt: string | null; plannedEnd: string | null },
+    | "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "no_show" | "start_date" | "before_order" | "not_working_day" | "invoiced" | "order_period"
+    | "no_end" | "plan"
+  >
 >();
 
 /**
@@ -520,13 +562,13 @@ export const attachmentStart = command("arenden.bilagaStart", z.object({
 export const attachmentDone = command("arenden.bilagaKlar", z.object({
   attachmentId: IdSchema,
   contentBase64: z.string().max(14_500_000).optional(),
-}), { invalidates: [CARD, PORTAL, INBOX, ...LOG] }).returns<Result<{ attachment: AttachmentRow }, "not_found" | "invalid">>();
+}), { invalidates: [CARD, "arenden.acceptForm", PORTAL, INBOX, ...LOG] }).returns<Result<{ attachment: AttachmentRow }, "not_found" | "invalid">>();
 
 /**
  * Ta bort en bilaga: den som laddade upp innan beställningen skickats, eller samordnare/avtalsansvarig i ärendet – tidigast när
  * ärendet är avslutat eller beställningen avböjd (beslut 5, 2026-10-08; ingen automatisk gallring av bilagor).
  */
-export const attachmentRemove = command("arenden.bilagaTaBort", z.object({ attachmentId: IdSchema }), { invalidates: [CARD, PORTAL, INBOX, ...LOG] }).returns<
+export const attachmentRemove = command("arenden.bilagaTaBort", z.object({ attachmentId: IdSchema }), { invalidates: [CARD, "arenden.acceptForm", PORTAL, INBOX, ...LOG] }).returns<
   Result<object, "not_found" | "forbidden">
 >();
 
@@ -739,8 +781,24 @@ export type CaseCard = {
   /**
    * Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte, för den som får ändra i ärendet.
    * Standardplanen ur avtalet med första mötets dag och tid, och startdatumet (första mötets dag).
+   * Deltagaren kom före det bokade mötet (Karims beslut 2026-11-09): earliest = beställningens dag (tidigaste startdatum),
+   * period = omfattningen som planerat slut räknas om från (plannedEndFrom i src/core/early-start.ts) och planRows = avtalets
+   * standardveckoplan, så att dialogen kan föreslå planen för det flyttade mötet (defaultWeekPlan).
    */
-  start: { firstMeetingAt: string; startDate: string; plan: WeekPlanRow[] } | null;
+  start: {
+    firstMeetingAt: string;
+    startDate: string;
+    plan: WeekPlanRow[];
+    earliest: LocalDate;
+    period: OrderPeriodBasis;
+    planRows: WeekPlanDay[] | null;
+  } | null;
+  /**
+   * Ta emot (Karims beslut 2026-11-09, 0041): beställningen väntar på svar och den inloggade är avtalets intagsansvarige – knappen
+   * Ta emot på kortet öppnar samma dialog som inkorgens Acceptera. False för andra coacher och för alla andra roller (samordnaren
+   * och avtalsansvarig hanterar avropet i inkorgen, som förut).
+   */
+  canReceive: boolean;
   /** Nuvarande veckoplan i ett pågående ärende (ur kommande tillfällen, annars avtalets standard) – för Ändra veckoplan. */
   weekPlan: WeekPlanRow[] | null;
   /**

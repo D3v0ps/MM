@@ -8,6 +8,7 @@ import { TABLE_NAMES } from "../schema";
 import { fromTimestamptz, toColumn, toDbRow, toField, toTimestamptz } from "./columns";
 import { appRepo, userRepo } from "./index";
 import { DataError, IN_CHUNK, PAGE_SIZE, SupabaseRepo, type PgClient, type PgResult } from "./repo";
+import { FilterColumnError } from "../repo";
 
 type Rows = Record<string, unknown>[];
 type Call = { table: string; op: "select" | "insert" | "update" | "delete"; args: unknown[]; chain: unknown[][] };
@@ -422,5 +423,24 @@ describe("updateIf (villkorad uppdatering)", () => {
     expect(filters(hit.calls[0])).toEqual([["eq", "id", "c1"], ["eq", "status", "waiting"]]);
     const miss = fake(() => ({ data: [], error: null }));
     expect(await repoOf(miss.client).updateIf("c1", { status: "waiting" }, { status: "delivered" })).toBeNull();
+  });
+
+  it("användarens repo: villkoret får bara stå på kolumner som inloggade får läsa direkt i tabellen (USER_FILTER_COLUMNS) – annat stoppas innan något skickas", async () => {
+    // I databasen kräver villkoret läsrätt på kolumnen: cases har bara id och status (0013, 0041), bonus_claims id, ärende, avtal, steg och läge (0039).
+    const f = fake((c) => (c.op === "update" ? { data: [{ id: "c1" }], error: null } : { data: { id: "c1", status: "confirmed" }, error: null }));
+    const user = userRepo(f.client);
+    await expect(user.table("cases").updateIf("c1", { leadCoachId: null }, { location: "Alby" })).rejects.toBeInstanceOf(FilterColumnError);
+    await expect(user.table("cases").updateIf("c1", { status: "confirmed", startDate: null }, { location: "Alby" })).rejects.toThrow(/startDate/);
+    await expect(user.table("bonus_claims").updateIf("b1", { basis: "" }, { basis: "x" })).rejects.toBeInstanceOf(FilterColumnError);
+    expect(f.calls).toEqual([]);
+    // Statusen går – villkoret skickas mot tabellen och raden läses tillbaka via vyn.
+    expect(await user.table("cases").updateIf("c1", { status: { in: ["received", "acknowledged"] } }, { status: "confirmed" })).toMatchObject({ id: "c1", status: "confirmed" });
+    expect(f.calls.map((c) => [c.table, c.op])).toEqual([["cases", "update"], ["cases_public", "select"]]);
+    expect(filters(f.calls[0])).toEqual([["eq", "id", "c1"], ["in", "status", ["received", "acknowledged"]]]);
+    await user.table("bonus_claims").updateIf("b1", { status: "suggested", step: 1 }, { basis: "x" });
+    // Tabeller utan begränsning (hela tabellen får läsas) och service role (ctx.system) har ingen lista.
+    await user.table("reports").updateIf("r1", { status: "waiting", deliveredAt: null }, { status: "delivered" });
+    await appRepo(f.client).table("cases").updateIf("c1", { leadCoachId: null }, { location: "Alby" });
+    expect(f.calls.filter((c) => c.op === "update")).toHaveLength(4);
   });
 });

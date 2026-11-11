@@ -1,6 +1,6 @@
 // Datalagret mot Supabase. Klienterna skapas i src/server/supabase.ts (användarens session eller service role).
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AppRepo, Tables } from "../schema";
+import { USER_FILTER_COLUMNS, type AppRepo, type Tables } from "../schema";
 import { SupabaseRepo, type PgClient } from "./repo";
 
 export { SupabaseRepo, DataError, toRepoError, applyWhere, PAGE_SIZE, IN_CHUNK, type PgClient, type PgError, type PgResult, type SupabaseRepoOpts } from "./repo";
@@ -17,7 +17,10 @@ export function appRepo(client: SupabaseClient | PgClient): AppRepo {
   return new SupabaseRepo<Tables>(client as unknown as PgClient);
 }
 
-/** Repo med användarens session (ctx.repo): RLS gäller, och contracts och cases läses via sina vyer. */
+/**
+ * Repo med användarens session (ctx.repo): RLS gäller, och contracts, cases och bonus_claims läses via sina vyer. En villkorad
+ * ändring får bara villkoras på kolumner som inloggade får läsa direkt i tabellen (USER_FILTER_COLUMNS).
+ */
 export function userRepo(client: SupabaseClient | PgClient): AppRepo {
-  return new SupabaseRepo<Tables>(client as unknown as PgClient, { readFrom: USER_READ_VIEWS });
+  return new SupabaseRepo<Tables>(client as unknown as PgClient, { readFrom: USER_READ_VIEWS, filterColumns: USER_FILTER_COLUMNS });
 }

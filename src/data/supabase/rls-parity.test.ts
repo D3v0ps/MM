@@ -123,7 +123,8 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   // och kommunen ser inga individrapporter där.
   const bot = data.contracts.find((c) => c.id === "c-bot")!;
   const other: Tables["contracts"] = {
-    ...bot, id: "c-ny", name: "Nytt kommunavtal (påhittat)", contractNumber: "000000000", dnr: null, startsOn: "2027-06-01", endsOn: null, casePrefix: "NYK", status: "draft",
+    // Ingen intagsansvarig (0041): Amira, Botkyrkaavtalets intagsansvarige, har ingen roll i det här avtalet.
+    ...bot, id: "c-ny", name: "Nytt kommunavtal (påhittat)", contractNumber: "000000000", dnr: null, startsOn: "2027-06-01", endsOn: null, casePrefix: "NYK", status: "draft", intakeCoachId: null,
     config: { casePrefix: "NYK", dataRole: "processor", customerVisibility: { seesIndividualReports: false, seesCoachNotes: false }, reportSchedule: { automatic: [] } },
   };
   // Rapportbyggaren (0021): en arkiverad mb-rad, en rad i c-ny och en rad som ägs av samordnaren och delades inom
@@ -830,6 +831,9 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
   if (t === "cases") c.caseNumber = `${row.caseNumber}-NY`;
   if (t === "voice_links" && row.tokenHash) c.tokenHash = `${row.tokenHash}-ny`;
   if (t === "contract_areas") c.code = `${row.code}NY`;
+  // Intagsansvarig (0041): personen har rollen coach i avtalet – kopian är ett nytt avtal där ingen har en roll, så den har
+  // ingen intagsansvarig (regeln prövas i blocket för 0041, också för servern).
+  if (t === "contracts") c.intakeCoachId = null;
   // Rapportutkastens unika nycklar (0018): samma typ, mottagare/ärende och period får bara finnas en gång.
   if (t === "reports" && row.week) c.week = "2099-W01";
   if (t === "reports" && row.month) c.month = "2099-12";
@@ -4112,5 +4116,606 @@ describe("deltagaren kom inte till första mötet (0040): läsning och skrivning
       await tx.rollback();
     });
     expect(res).toEqual({ before: 1, after: 1, policies: 2, triggers: 3, checks: 2 });
+  });
+});
+
+describe("starta insatsen före det bokade första mötet (Karims beslut 2026-11-09): inga nya regler i databasen – samma svar i RLS, triggrarna och policy.ts", () => {
+  // BOT-27-0042 (huvudcoach Mats, handläggare Ahmed): bekräftat, första mötet tisdag 2 februari kl. 14.00 och orderbekräftelsen
+  // rep-16614 levererad. Deltagaren kom måndag 1 februari: hanteraren arenden.caseStart startar insatsen och flyttar första mötet
+  // i en och samma ändring av ärendet, och kommunen får en ny version av orderbekräftelsen. Inga nya regler behövs för det
+  // (ändringen skrivs med ett villkor på statusen – läsrätten på cases.status kommer med 0041, se villkorade-andringar.test.ts) –
+  // testerna visar att varje skrivning går för coach, samordnare och avtalsansvarig, och nekas för alla andra.
+  const CASE = "case-270042";
+  const at = "2027-02-01T09:12";
+  const PATCH: Partial<Case> = {
+    status: "active", startDate: "2027-02-01", firstMeetingAt: "2027-02-01T14:00", plannedStart: "2027-02-01", plannedEnd: "2027-03-12", plannedWeeks: 6, orderValueWeeks: 6,
+    meetingDay: 0, meetingTime: "14:00", phase: 1, phaseSince: "2027-02-01",
+  };
+  const START = `update public.cases set status = 'active', start_date = '2027-02-01', first_meeting_at = '2027-02-01 14:00+01', planned_start = '2027-02-01',
+    planned_end = '2027-03-12', planned_weeks = 6, order_value_weeks = 6, meeting_day = 0, meeting_time = '14:00', phase = 1, phase_since = '2027-02-01' where id = '${CASE}'`;
+  const memStore = () => {
+    const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    s.clock = () => at;
+    return s;
+  };
+  const memOk = (p: Promise<unknown>) => p.then(() => true, () => false);
+  const repoFor = (s: MemoryStore<Tables>, key: string) => new MemoryRepo<Tables>(s, actorOf(findPersona(key)), POLICIES);
+  const pgWrite = async (key: string, sql: string, prep: readonly string[] = []) => {
+    const p = findPersona(key);
+    const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+    return asUser(db, authOf(p.actor.userId), (tx) => attempt(tx, sql), {
+      before: async (tx) => {
+        for (const x of prep) await tx.exec(x);
+        if (roles.size > 1) await chooseRole(p.actor.userId, p.actor.role)(tx);
+      },
+    });
+  };
+  const WRITERS = ["u-mats", "u-amira", "u-sara", "u-johan"];
+  const REFUSED = ["k-ahmed", "k-maria", "u-lars", "u-karin", "u-robin", SUPERVISOR];
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
+
+  it("testdatat: BOT-27-0042 är bekräftat med första mötet tisdag 2 februari och en levererad orderbekräftelse", () => {
+    expect(data.cases.find((c) => c.id === CASE)).toMatchObject({ status: "confirmed", firstMeetingAt: "2027-02-02T14:00", leadCoachId: "u-mats", referrerId: "k-ahmed", referredAt: "2027-01-27T14:00" });
+    expect(data.reports.filter((r) => r.caseId === CASE && r.kind === "order_confirmation").map((r) => [r.id, r.status, r.version])).toEqual([["rep-16614", "delivered", 1]]);
+  });
+
+  it("ärendet: starten och det flyttade mötet i en enda ändring – coach, samordnare och avtalsansvarig; aldrig kommunen, ekonomen, chefen, admin eller den vilande rollen handledare", async () => {
+    for (const key of WRITERS) {
+      const pg = await pgWrite(key, START);
+      expect({ pg: pg.ok ? pg.rows : pg.code, mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, PATCH)) }, key).toEqual({ pg: 1, mem: true });
+    }
+    for (const key of REFUSED) {
+      const pg = await pgWrite(key, START);
+      expect({ pg: allowed(pg), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, PATCH)) }, key).toEqual({ pg: false, mem: false });
+    }
+    // Raden efter ändringen är den hanteraren skrev – läst av coachen via vyn (Stockholms tid).
+    const after = await asUser(db, authOf("u-mats"), async (tx) => {
+      await tx.exec(START);
+      return (await tx.query<Record<string, unknown>>(
+        `select status, start_date::text as start_date, to_char(first_meeting_at at time zone 'Europe/Stockholm', 'YYYY-MM-DD"T"HH24:MI') as first_meeting_at,
+                planned_start::text as planned_start, planned_end::text as planned_end from public.cases_public where id = '${CASE}'`,
+      )).rows[0];
+    });
+    expect(after).toEqual({ status: "active", start_date: "2027-02-01", first_meeting_at: "2027-02-01T14:00", planned_start: "2027-02-01", planned_end: "2027-03-12" });
+  });
+
+  it("det flyttade mötet får inte vara ett möte som deltagaren enligt en registrering inte kom till – för inloggade, servern och i minnet (triggern från 0040)", async () => {
+    // Registreringen för måndag 1 februari kl. 14.00 läggs in som postgres (mötet var då ärendets första möte), och mötet bokas om
+    // till tisdag igen. Flyttas mötet tillbaka till den registrerade tiden med starten nekas hela ändringen (23514).
+    const noShow: Tables["first_meeting_no_shows"] = {
+      id: "fmns-t-0042", caseId: CASE, contractId: "c-bot", meetingAt: "2027-02-01T14:00", kind: "uteblev", reason: null, registeredBy: "u-mats", registeredAt: at,
+    };
+    const prep = [
+      `update public.cases set start_date = null where id = '${CASE}'`,
+      `alter table public.first_meeting_no_shows disable trigger first_meeting_no_shows_check`,
+      insertSql("first_meeting_no_shows", noShow as unknown as Record<string, unknown>),
+      `alter table public.first_meeting_no_shows enable trigger first_meeting_no_shows_check`,
+    ];
+    const mem = (key: string | null, patch: Partial<Case>) => {
+      const s = memStore();
+      s.updateRow("cases", CASE, { startDate: null });
+      s.insertRow("first_meeting_no_shows", noShow);
+      const repo = key ? repoFor(s, key) : new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
+      return memOk(repo.table("cases").update(CASE, patch));
+    };
+    const pg = await pgWrite("u-mats", START, prep);
+    const service = await asUser(db, null, (tx) => attempt(tx, START), { role: "service_role", before: async (tx) => { for (const x of prep) await tx.exec(x); } });
+    expect({ pg: pg.ok ? null : pg.code, service: service.ok ? null : service.code, mem: await mem("u-mats", PATCH), sys: await mem(null, PATCH) })
+      .toEqual({ pg: "23514", service: "23514", mem: false, sys: false });
+    // Ett senare klockslag samma dag går (deltagaren kom senare samma dag).
+    const LATER = START.replace("2027-02-01 14:00+01", "2027-02-01 16:00+01");
+    const ok = await pgWrite("u-mats", LATER, prep);
+    expect({ pg: allowed(ok), mem: await mem("u-mats", { ...PATCH, firstMeetingAt: "2027-02-01T16:00" }) }).toEqual({ pg: true, mem: true });
+  });
+
+  it("orderbekräftelsen: den nya versionen skapas och den gamla märks ersatt av den som arbetar i ärendet – aldrig av kommunen eller ekonomen", async () => {
+    const prev = data.reports.find((r) => r.id === "rep-16614")!;
+    const next: Tables["reports"] = {
+      ...prev, id: "rep-t-0042-v2", version: 2, previousId: prev.id, periodStart: "2027-02-01", periodEnd: "2027-02-01", approvedAt: at, deliveredAt: at, snapshot: null,
+      superseded: false, supersededAt: null, supersededBy: null,
+    };
+    const insert = insertSql("reports", next as unknown as Record<string, unknown>);
+    const supersede = `update public.reports set superseded = true, superseded_at = '2027-02-01 09:12+01', superseded_by = '${next.id}' where id = '${prev.id}'`;
+    const memInsert = (key: string, by: string) => canWriteRow("reports", { ...next, approvedBy: by }, actorOf(findPersona(key)), memStore().raw());
+    const memSupersede = (key: string) => {
+      const s = memStore();
+      s.insertRow("reports", next);
+      return memOk(repoFor(s, key).table("reports").update(prev.id, { superseded: true, supersededAt: at, supersededBy: next.id }));
+    };
+    for (const key of WRITERS) {
+      const by = findPersona(key).actor.userId;
+      const sql = insertSql("reports", { ...next, approvedBy: by } as unknown as Record<string, unknown>);
+      expect({ pg: allowed(await pgWrite(key, sql)), mem: memInsert(key, by) }, `${key} ny version`).toEqual({ pg: true, mem: true });
+      const upd = await pgWrite(key, supersede, [insert]);
+      expect({ pg: upd.ok ? upd.rows : upd.code, mem: await memSupersede(key) }, `${key} ersatt`).toEqual({ pg: 1, mem: true });
+    }
+    for (const key of ["k-ahmed", "k-maria", "u-lars", SUPERVISOR]) {
+      const by = findPersona(key).actor.userId;
+      const sql = insertSql("reports", { ...next, approvedBy: by } as unknown as Record<string, unknown>);
+      expect({ pg: allowed(await pgWrite(key, sql)), mem: memInsert(key, by) }, `${key} ny version`).toEqual({ pg: false, mem: false });
+      expect({ pg: allowed(await pgWrite(key, supersede, [insert])), mem: await memSupersede(key) }, `${key} ersatt`).toEqual({ pg: false, mem: false });
+    }
+  });
+
+  it("tillfällena och statushistoriken skrivs av samma roller som förut", async () => {
+    const act: Tables["activities"] = { id: "a-t-0042", caseId: CASE, kind: "möte", startsAt: "2027-02-01T14:00", durationMin: 60, location: "Miljonbemanning Alby", note: "", groupActivityId: null, inviteSource: "manual" };
+    const hist = (by: string): Tables["case_status_history"] => ({
+      id: `csh-t-0042-${by}`, caseId: CASE, fromStatus: "confirmed", toStatus: "active", fromCoach: null, toCoach: "u-mats", reason: "Insatsen startad", customerNotifiedAt: null, changedBy: by, changedAt: at,
+    });
+    // Tillfällen: den som arbetar i ärendet. Statushistoriken följer rätten att ändra ärendet (caseWriteById) – handläggaren som
+    // beställde skriver raden när beställningen skapas, som förut; en annan handläggare och ekonomen (som inte ser personen) gör det inte.
+    for (const [key, activity, history] of [["u-mats", true, true], ["u-amira", true, true], ["u-sara", true, true], ["k-ahmed", false, true], ["k-maria", false, false], ["u-karin", false, false]] as const) {
+      const by = findPersona(key).actor.userId;
+      const rawNow = memStore().raw();
+      expect({ pg: allowed(await pgWrite(key, insertSql("activities", act as unknown as Record<string, unknown>))), mem: canWriteRow("activities", act, actorOf(findPersona(key)), rawNow) }, `${key} tillfälle`)
+        .toEqual({ pg: activity, mem: activity });
+      expect({
+        pg: allowed(await pgWrite(key, insertSql("case_status_history", hist(by) as unknown as Record<string, unknown>))),
+        mem: canWriteRow("case_status_history", hist(by), actorOf(findPersona(key)), rawNow),
+      }, `${key} historik`).toEqual({ pg: history, mem: history });
+    }
+  });
+});
+
+describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS, triggrarna och policy.ts", () => {
+  // Karims beslut 2026-11-09: avtalets intagsansvarige (contracts.intake_coach_id – Amira i testdatat) tar emot nya beställningar
+  // utan samordnarens OK. BOT-27-0050 (Marias mejlavrop em-101) väntar på svar. Hanteraren arenden.caseAccept skriver som den
+  // inloggade: ärendet, teamet, statushistoriken och orderbekräftelsen – och som servern: avropsmejlet och notiserna. Varje
+  // skrivning prövas här mot databasen och mot policy.ts.
+  const CASE = "case-270050";
+  const at = "2027-02-01T09:12";
+  const PATCH: Partial<Case> = {
+    status: "confirmed", confirmedAt: at, leadCoachId: "u-amira", plannedStart: "2027-02-08", firstMeetingAt: "2027-02-08T10:00", primaryAreaCode: "G", secondaryAreaCode: null,
+    orderPeriodMonths: 6, plannedEnd: "2027-08-07", plannedWeeks: 26, orderValueWeeks: 26,
+  };
+  const ACCEPT = `update public.cases set status = 'confirmed', confirmed_at = '2027-02-01 09:12+01', lead_coach_id = 'u-amira', planned_start = '2027-02-08',
+    first_meeting_at = '2027-02-08 10:00+01', primary_area_code = 'G', secondary_area_code = null, order_period_months = 6, planned_end = '2027-08-07', planned_weeks = 26,
+    order_value_weeks = 26 where id = '${CASE}'`;
+  const DECLINE = `update public.cases set status = 'declined', decline_reason = 'Fullt just nu', declined_at = '2027-02-01 09:12+01' where id = '${CASE}'`;
+  const memStore = () => {
+    const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    s.clock = () => at;
+    return s;
+  };
+  const memOk = (p: Promise<unknown>) => p.then(() => true, () => false);
+  const repoFor = (s: MemoryStore<Tables>, key: string) => new MemoryRepo<Tables>(s, actorOf(findPersona(key)), POLICIES);
+  const systemRepo = (s: MemoryStore<Tables>) => new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
+  const before = (key: string, prep: readonly string[] = []) => {
+    const p = findPersona(key);
+    const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+    return async (tx: Tx) => {
+      for (const x of prep) await tx.exec(x);
+      if (roles.size > 1) await chooseRole(p.actor.userId, p.actor.role)(tx);
+    };
+  };
+  const pgWrite = (key: string, sql: string, prep: readonly string[] = []) =>
+    asUser(db, authOf(findPersona(key).actor.userId), (tx) => attempt(tx, sql), { before: before(key, prep) });
+  const service = (sql: string, prep: readonly string[] = []) =>
+    asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role", before: async (tx) => { for (const x of prep) await tx.exec(x); } });
+  const sql = (t: TableName, row: object) => insertSql(t, row as Record<string, unknown>);
+  const code = (a: Attempt) => (a.ok ? a.rows : a.code);
+  /** Coacher som inte är intagsansvariga. */
+  const OTHER_COACHES = ["u-erik", "u-mats"];
+  /** Rollerna som aldrig tar emot eller avböjer: kommunen (också handläggaren som beställde), ekonomen, chefen, admin och den vilande rollen handledare. */
+  const NEVER = ["k-maria", "k-ahmed", "u-lars", "u-karin", "u-robin", SUPERVISOR];
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
+
+  it("testdatat: Amira är intagsansvarig i Botkyrkaavtalet – i minnet och i databasen – och BOT-27-0050 väntar på svar", async () => {
+    expect(data.contracts.map((c) => [c.id, c.intakeCoachId])).toEqual([["c-bot", "u-amira"], ["c-ny", null]]);
+    expect(data.memberships.some((m) => m.userId === "u-amira" && m.contractId === "c-bot" && m.role === "coach")).toBe(true);
+    const pg = (await db.query<{ id: string; intake_coach_id: string | null }>("select id, intake_coach_id from public.contracts order by id")).rows;
+    expect(pg).toEqual([{ id: "c-bot", intake_coach_id: "u-amira" }, { id: "c-ny", intake_coach_id: null }]);
+    expect(data.cases.find((c) => c.id === CASE)).toMatchObject({ status: "acknowledged", referrerId: "k-maria", contractId: "c-bot", primaryAreaCode: "J" });
+    expect(data.inbound_emails.filter((e) => e.caseId === CASE).map((e) => [e.id, e.status])).toEqual([["em-101", "acknowledged"]]);
+  });
+
+  it("ta emot: avtalets intagsansvarige, samordnaren och avtalsansvarig – aldrig en annan coach, kommunen, ekonomen, chefen, admin eller handledaren", async () => {
+    for (const key of ["u-amira", "u-sara", "u-johan"]) {
+      const pg = await pgWrite(key, ACCEPT);
+      expect({ pg: code(pg), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, PATCH)) }, key).toEqual({ pg: 1, mem: true });
+    }
+    // En annan coach har samma åtkomst till ärendet som förut (alla coacher arbetar i alla ärenden) – men tar inte emot det:
+    // triggern cases_accept_guard svarar 42501. Det gäller också den som försöker hoppa över bekräftelsen.
+    for (const key of OTHER_COACHES) {
+      for (const status of ["confirmed", "active", "paused"] as const) {
+        const pg = await pgWrite(key, ACCEPT.replace("status = 'confirmed'", `status = '${status}'`));
+        expect({ pg: code(pg), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, { ...PATCH, status })) }, `${key} ${status}`).toEqual({ pg: "42501", mem: false });
+      }
+    }
+    for (const key of NEVER) {
+      const pg = await pgWrite(key, ACCEPT);
+      expect({ pg: allowed(pg), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, PATCH)) }, key).toEqual({ pg: false, mem: false });
+    }
+    // Raden efter ändringen är den hanteraren skrev – läst av den intagsansvarige via vyn (Stockholms tid), och kommunens
+    // handläggare ser sin beställning som bekräftad.
+    const read = `select status, lead_coach_id, planned_start::text as planned_start, planned_end::text as planned_end, primary_area_code,
+      to_char(first_meeting_at at time zone 'Europe/Stockholm', 'YYYY-MM-DD"T"HH24:MI') as first_meeting_at from public.cases_public where id = '${CASE}'`;
+    const after = await asUser(db, authOf("u-amira"), async (tx) => {
+      await tx.exec(ACCEPT);
+      return (await tx.query<Record<string, unknown>>(read)).rows[0];
+    });
+    expect(after).toEqual({ status: "confirmed", lead_coach_id: "u-amira", planned_start: "2027-02-08", planned_end: "2027-08-07", primary_area_code: "G", first_meeting_at: "2027-02-08T10:00" });
+  });
+
+  it("utan intagsansvarig är allt som förut: bara samordnaren och avtalsansvarig tar emot – ingen coach", async () => {
+    const prep = ["update public.contracts set intake_coach_id = null where id = 'c-bot'"];
+    const mem = (key: string) => {
+      const s = memStore();
+      s.updateRow("contracts", "c-bot", { intakeCoachId: null });
+      return memOk(repoFor(s, key).table("cases").update(CASE, PATCH));
+    };
+    for (const key of ["u-sara", "u-johan"]) expect({ pg: code(await pgWrite(key, ACCEPT, prep)), mem: await mem(key) }, key).toEqual({ pg: 1, mem: true });
+    for (const key of ["u-amira", ...OTHER_COACHES]) expect({ pg: code(await pgWrite(key, ACCEPT, prep)), mem: await mem(key) }, key).toEqual({ pg: "42501", mem: false });
+    // Byts personen gäller den nya direkt – och den förra tar inte längre emot.
+    const swap = ["update public.contracts set intake_coach_id = 'u-erik' where id = 'c-bot'"];
+    const memSwap = (key: string) => {
+      const s = memStore();
+      s.updateRow("contracts", "c-bot", { intakeCoachId: "u-erik" });
+      return memOk(repoFor(s, key).table("cases").update(CASE, PATCH));
+    };
+    expect({ pg: code(await pgWrite("u-erik", ACCEPT, swap)), mem: await memSwap("u-erik") }).toEqual({ pg: 1, mem: true });
+    expect({ pg: code(await pgWrite("u-amira", ACCEPT, swap)), mem: await memSwap("u-amira") }).toEqual({ pg: "42501", mem: false });
+  });
+
+  it("avböja: bara samordnaren och avtalsansvarig – aldrig den intagsansvarige eller någon annan", async () => {
+    const patch: Partial<Case> = { status: "declined", declineReason: "Fullt just nu", declinedAt: at };
+    for (const key of ["u-sara", "u-johan"]) {
+      expect({ pg: code(await pgWrite(key, DECLINE)), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, patch)) }, key).toEqual({ pg: 1, mem: true });
+    }
+    for (const key of ["u-amira", ...OTHER_COACHES]) {
+      expect({ pg: code(await pgWrite(key, DECLINE)), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, patch)) }, key).toEqual({ pg: "42501", mem: false });
+    }
+    for (const key of NEVER) {
+      expect({ pg: allowed(await pgWrite(key, DECLINE)), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, patch)) }, key).toEqual({ pg: false, mem: false });
+    }
+  });
+
+  it("övriga ändringar av en väntande beställning prövas som förut – spärren gäller bara statusen", async () => {
+    // Coachen (också en som inte är intagsansvarig) arbetar i ärendet: plats och bakgrund ändras, och en beställning som aldrig
+    // togs emot kan avslutas – samma svar i databasen och i minnet.
+    const cases: [string, string, Partial<Case>][] = [
+      ["plats", `update public.cases set location = 'Miljonbemanning Alby' where id = '${CASE}'`, { location: "Miljonbemanning Alby" }],
+      ["avslut", `update public.cases set status = 'closed', closed_at = '2027-02-01 09:12+01', end_date = '2027-02-01', end_reason = 'avbrott' where id = '${CASE}'`,
+        { status: "closed", closedAt: at, endDate: "2027-02-01", endReason: "avbrott" as never }],
+    ];
+    for (const key of ["u-erik", "u-amira", "u-sara"]) {
+      for (const [label, stmt, patch] of cases) {
+        const pg = await pgWrite(key, stmt);
+        expect({ pg: pg.ok ? pg.rows : pg.message, mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, patch)) }, `${key} ${label}`).toEqual({ pg: 1, mem: true });
+      }
+    }
+    // Servern (service role) rörs inte av spärren – och i minnet gäller den inte systemet.
+    expect({ pg: code(await service(ACCEPT)), mem: await memOk(systemRepo(memStore()).table("cases").update(CASE, PATCH)) }).toEqual({ pg: 1, mem: true });
+  });
+
+  it("allt hanteraren skriver som den intagsansvarige går igenom: ärendet, teamet, statushistoriken och orderbekräftelsen", async () => {
+    const team: Tables["case_team"] = { id: `${CASE}:u-amira`, caseId: CASE, userId: "u-amira", role: "lead_coach" };
+    const hist = (by: string): Tables["case_status_history"] => ({
+      id: `csh-t-0050-${by}`, caseId: CASE, fromStatus: "acknowledged", toStatus: "confirmed", fromCoach: null, toCoach: "u-amira", reason: "Avrop accepterat", customerNotifiedAt: null, changedBy: by, changedAt: at,
+    });
+    const template = data.reports.find((r) => r.id === "rep-16614")!;
+    const rep = (by: string): Tables["reports"] => ({
+      ...template, id: `rep-t-0050-${by}`, caseId: CASE, version: 1, previousId: null, periodStart: "2027-02-01", periodEnd: "2027-02-01", status: "delivered", dueAt: "2027-02-02T08:41",
+      approvedBy: by, approvedAt: at, deliveredAt: at, deliveredTo: ["k-maria"], snapshot: null, superseded: false, supersededAt: null, supersededBy: null,
+    });
+    const run = async (key: string) => {
+      const by = findPersona(key).actor.userId;
+      const steps = [ACCEPT, `delete from public.case_team where case_id = '${CASE}'`, sql("case_team", team), sql("case_status_history", hist(by)), sql("reports", rep(by))];
+      const pg = await asUser(db, authOf(by), async (tx) => {
+        const out: (number | string)[] = [];
+        for (const s of steps) out.push(code(await attempt(tx, s, [], { keep: true })));
+        return out;
+      }, { before: before(key) });
+      const s = memStore();
+      const repo = repoFor(s, key);
+      const mem = [
+        await memOk(repo.table("cases").update(CASE, PATCH)),
+        await memOk((async () => { for (const t of await repo.table("case_team").list({ caseId: CASE })) await repo.table("case_team").remove(t.id); })()),
+        await memOk(repo.table("case_team").insert(team)),
+        await memOk(repo.table("case_status_history").insert(hist(by))),
+        await memOk(repo.table("reports").insert(rep(by))),
+      ];
+      return { pg, mem };
+    };
+    // Ärendet har inget team före accept: borttagningen berör inga rader (0) och är inget fel.
+    expect(await run("u-amira")).toEqual({ pg: [1, 0, 1, 1, 1], mem: [true, true, true, true, true] });
+    expect(await run("u-sara")).toEqual({ pg: [1, 0, 1, 1, 1], mem: [true, true, true, true, true] });
+    // En annan coach: ärendet tas inte emot (42501). Det är hanterarens första skrivning – resten görs aldrig.
+    const other = await run("u-erik");
+    expect({ pg: other.pg[0], mem: other.mem[0] }).toEqual({ pg: "42501", mem: false });
+  });
+
+  it("avropsinkorgens mejl läser och ändrar coachen aldrig – inte heller den intagsansvarige; bokföringen gör servern", async () => {
+    const upd = `update public.inbound_emails set status = 'accepted', handled_by = 'u-amira', handled_at = '2027-02-01 09:12+01' where case_id = '${CASE}'`;
+    for (const key of ["u-amira", "u-erik"]) {
+      const pg = await asUser(db, authOf(key), async (tx) => ({
+        seen: (await tx.query<{ n: number }>("select count(*)::int as n from public.inbound_emails")).rows[0].n,
+        update: code(await attempt(tx, upd)),
+      }));
+      const s = memStore();
+      const repo = repoFor(s, key);
+      const mem = { seen: await repo.table("inbound_emails").count(), update: (await memOk(repo.table("inbound_emails").update("em-101", { status: "accepted", handledBy: "u-amira", handledAt: at }))) ? 1 : 0 };
+      expect({ pg, mem }, key).toEqual({ pg: { seen: 0, update: 0 }, mem: { seen: 0, update: 0 } });
+    }
+    // Samordnaren som förut, och servern åt den intagsansvarige.
+    expect({ pg: code(await pgWrite("u-sara", upd)), mem: await memOk(repoFor(memStore(), "u-sara").table("inbound_emails").update("em-101", { status: "accepted", handledBy: "u-sara", handledAt: at })) })
+      .toEqual({ pg: 1, mem: true });
+    expect({ pg: code(await service(upd)), mem: await memOk(systemRepo(memStore()).table("inbound_emails").update("em-101", { status: "accepted", handledBy: "u-amira", handledAt: at })) })
+      .toEqual({ pg: 1, mem: true });
+  });
+
+  it("notiserna skrivs bara av servern och läses bara av mottagaren: Ny beställning att ta emot och Ny deltagare mottagen", async () => {
+    const notice = (id: string, recipientId: string, kind: Tables["user_notifications"]["kind"]): Tables["user_notifications"] => ({
+      id, recipientId, kind, caseId: CASE, createdAt: at, channels: ["app"], title: kind === "new_order" ? "Ny beställning att ta emot – BOT-27-0050" : "Ny deltagare mottagen – BOT-27-0050",
+      body: "Text utan personuppgifter", emailBody: "",
+    });
+    const toCoach = notice("un-t-new", "u-amira", "new_order");
+    const toSara = notice("un-t-rec", "u-sara", "case_received");
+    // Ingen inloggad skriver en notis – inte den som tar emot beställningen, inte samordnaren, inte admin.
+    for (const key of ["u-amira", "u-sara", "u-robin", "k-maria"]) {
+      for (const n of [toCoach, toSara]) {
+        expect({ pg: allowed(await pgWrite(key, sql("user_notifications", n))), mem: canWriteRow("user_notifications", n, actorOf(findPersona(key)), memStore().raw()) }, `${key} ${n.kind}`)
+          .toEqual({ pg: false, mem: false });
+      }
+    }
+    for (const n of [toCoach, toSara]) expect(code(await service(sql("user_notifications", n))), n.kind).toBe(1);
+    // Läsning: bara mottagaren ser sin notis.
+    const prep = [sql("user_notifications", toCoach), sql("user_notifications", toSara)];
+    for (const key of ["u-amira", "u-erik", "u-sara", "u-johan", "u-karin", "k-maria"]) {
+      const p = findPersona(key);
+      const pg = await asUser(db, authOf(p.actor.userId), async (tx) =>
+        (await tx.query<{ id: string }>("select id from public.user_notifications where id in ('un-t-new', 'un-t-rec') order by id")).rows.map((r) => r.id), { before: before(key, prep) });
+      const mem = [toCoach, toSara].filter((n) => canReadRow("user_notifications", n, actorOf(p), memStore().raw())).map((n) => n.id);
+      expect({ pg, mem }, key).toEqual({ pg: mem, mem: key === "u-amira" ? ["un-t-new"] : key === "u-sara" ? ["un-t-rec"] : [] });
+    }
+    // Läsmarkeringen åt en annan användare (beställningen är besvarad) gör bara servern – en kollega märker aldrig någon annans notis.
+    const read: Tables["notification_reads"] = { id: "u-amira:un-t-new", userId: "u-amira", notificationKey: "un-t-new", readAt: at };
+    expect({ pg: allowed(await pgWrite("u-sara", sql("notification_reads", read), prep)), mem: canWriteRow("notification_reads", read, actorOf(findPersona("u-sara")), memStore().raw()) }).toEqual({ pg: false, mem: false });
+    expect({ pg: allowed(await pgWrite("u-amira", sql("notification_reads", read), prep)), mem: canWriteRow("notification_reads", read, actorOf(findPersona("u-amira")), memStore().raw()) }).toEqual({ pg: true, mem: true });
+    expect(code(await service(sql("notification_reads", read), prep))).toBe(1);
+  });
+
+  it("avtalet: bara systemadministratören utser, byter och tar bort intagsansvarig", async () => {
+    const set = (id: string | null) => `update public.contracts set intake_coach_id = ${id ? `'${id}'` : "null"} where id = 'c-bot'`;
+    const mem = (key: string, id: string | null) => memOk(repoFor(memStore(), key).table("contracts").update("c-bot", { intakeCoachId: id }));
+    for (const id of ["u-erik", null]) {
+      expect({ pg: code(await pgWrite("u-robin", set(id))), mem: await mem("u-robin", id) }, `admin ${id}`).toEqual({ pg: 1, mem: true });
+      for (const key of ["u-sara", "u-johan", "u-amira", "u-erik", "u-karin", "u-lars", "k-maria", SUPERVISOR]) {
+        expect({ pg: allowed(await pgWrite(key, set(id))), mem: await mem(key, id) }, `${key} ${id}`).toEqual({ pg: false, mem: false });
+      }
+    }
+  });
+
+  it("intagsansvarig har rollen coach i avtalet – för alla, också servern och systemet", async () => {
+    const set = (contractId: string, id: string) => `update public.contracts set intake_coach_id = '${id}' where id = '${contractId}'`;
+    // Samordnaren, ekonomen, chefen, kommunens handläggare och en person som inte finns: ingen av dem har rollen coach i avtalet.
+    for (const id of ["u-sara", "u-lars", "u-karin", "k-maria", "u-finns-inte"]) {
+      const s = memStore();
+      expect({
+        admin: code(await pgWrite("u-robin", set("c-bot", id))), service: code(await service(set("c-bot", id))),
+        mem: await memOk(repoFor(s, "u-robin").table("contracts").update("c-bot", { intakeCoachId: id })),
+        sys: await memOk(systemRepo(s).table("contracts").update("c-bot", { intakeCoachId: id })),
+      }, id).toEqual({ admin: "23514", service: "23514", mem: false, sys: false });
+    }
+    // Rollen coach i ett annat avtal räcker inte: Amira har ingen roll i det andra avtalet (c-ny).
+    expect({ service: code(await service(set("c-ny", "u-amira"))), sys: await memOk(systemRepo(memStore()).table("contracts").update("c-ny", { intakeCoachId: "u-amira" })) })
+      .toEqual({ service: "23514", sys: false });
+    // Ett nytt avtal: med en intagsansvarig utan roll i avtalet nekas raden, utan intagsansvarig går den.
+    const ny = data.contracts.find((c) => c.id === "c-ny")!;
+    const fresh = (intakeCoachId: string | null): Tables["contracts"] => ({ ...ny, id: "c-t-0041", contractNumber: "000000001", casePrefix: "NYT", intakeCoachId });
+    expect({ service: code(await service(sql("contracts", fresh("u-amira")))), sys: await memOk(systemRepo(memStore()).table("contracts").insert(fresh("u-amira"))) }).toEqual({ service: "23514", sys: false });
+    expect({ service: code(await service(sql("contracts", fresh(null)))), sys: await memOk(systemRepo(memStore()).table("contracts").insert(fresh(null))) }).toEqual({ service: 1, sys: true });
+    // Kolumnen prövas bara när den sätts eller byts: andra ändringar av avtalet går även om medlemskapet har tagits bort utanför
+    // appen (appen tömmer då kolumnen – admin.setStaffRoles och admin.setStaffActive).
+    const prep = ["delete from public.memberships where user_id = 'u-amira' and contract_id = 'c-bot' and role = 'coach'"];
+    const s = memStore();
+    for (const m of s.raw().all("memberships").filter((x) => x.userId === "u-amira" && x.role === "coach")) s.removeRow("memberships", m.id);
+    expect({ service: code(await service("update public.contracts set name = name || ' ' where id = 'c-bot'", prep)), sys: await memOk(systemRepo(s).table("contracts").update("c-bot", { name: "Botkyrka (nytt namn)" })) })
+      .toEqual({ service: 1, sys: true });
+    expect({ service: code(await service(set("c-bot", "u-amira"), prep)), sys: await memOk(systemRepo(s).table("contracts").update("c-bot", { intakeCoachId: "u-amira" })) }).toEqual({ service: 1, sys: true });
+  });
+
+  it("kommunen läser aldrig vem som är intagsansvarig – Miljonbemanning gör det (vyn contracts_public = project i policy.ts)", async () => {
+    const read = async (key: string) => {
+      const p = findPersona(key);
+      const pg = await asPersona(p, async (tx) => ({
+        rows: (await tx.query<{ intake_coach_id: string | null }>("select intake_coach_id from public.contracts_public where id = 'c-bot'")).rows.map((r) => r.intake_coach_id),
+        filtered: (await tx.query<{ n: number }>("select count(*)::int as n from public.contracts_public where intake_coach_id = 'u-amira'")).rows[0].n,
+      }));
+      const repo = new MemoryRepo<Tables>(store, actorOf(p), POLICIES);
+      const row = await repo.table("contracts").get("c-bot");
+      const mem = { rows: row ? [row.intakeCoachId] : [], filtered: (await repo.table("contracts").list({ intakeCoachId: "u-amira" })).length };
+      return { pg, mem };
+    };
+    for (const key of ["k-maria", "k-ahmed", "k-omar", "k-linda"]) expect(await read(key), key).toEqual({ pg: { rows: [null], filtered: 0 }, mem: { rows: [null], filtered: 0 } });
+    for (const key of ["u-amira", "u-erik", "u-sara", "u-johan", "u-karin", "u-lars", "u-robin"]) {
+      expect(await read(key), key).toEqual({ pg: { rows: ["u-amira"], filtered: 1 }, mem: { rows: ["u-amira"], filtered: 1 } });
+    }
+    // Vyn har tabellens kolumner i tabellens ordning – den nya sist.
+    const cols = async (name: string) => (await db.query<{ c: string }>(
+      "select column_name as c from information_schema.columns where table_schema = 'public' and table_name = $1 order by ordinal_position", [name])).rows.map((r) => r.c);
+    expect(await cols("contracts_public")).toEqual(await cols("contracts"));
+    expect((await cols("contracts")).at(-1)).toBe("intake_coach_id");
+  });
+
+  it("mm.is_intake_coach: bara den utsedda, bara i sitt avtal och bara i rollen coach", async () => {
+    const ask = (key: string, prep: readonly string[] = []) => asUser(db, authOf(findPersona(key).actor.userId), async (tx) =>
+      (await tx.query<{ bot: boolean; ny: boolean }>("select mm.is_intake_coach('c-bot') as bot, mm.is_intake_coach('c-ny') as ny")).rows[0], { before: before(key, prep) });
+    expect(await ask("u-amira")).toEqual({ bot: true, ny: false });
+    for (const key of ["u-erik", "u-sara", "u-johan", "u-karin", "u-lars", "u-robin", "k-maria"]) expect(await ask(key), key).toEqual({ bot: false, ny: false });
+    // Den som också har en annan roll och agerar i den (rollvalet, 0027) är inte intagsansvarig i den rollen – som i policy.ts
+    // (isIntakeCoach: a.role === "coach").
+    const twoRoles = [
+      "insert into public.memberships (id, user_id, contract_id, role) values ('u-amira:c-bot:chef', 'u-amira', 'c-bot', 'chef')",
+      "insert into public.role_choices (id, user_id, role, chosen_at) values ('u-amira', 'u-amira', 'chef', '2027-02-01T06:00') on conflict (id) do update set role = excluded.role",
+    ];
+    expect(await ask("u-amira", twoRoles)).toEqual({ bot: false, ny: false });
+    const asChef = await pgWrite("u-amira", ACCEPT, twoRoles);
+    const s = memStore();
+    const chef = { ...actorOf(findPersona("u-amira")), role: "chef" as const };
+    expect({ pg: allowed(asChef), mem: await memOk(new MemoryRepo<Tables>(s, chef, POLICIES).table("cases").update(CASE, PATCH)) }).toEqual({ pg: false, mem: false });
+    // Anon kör inte funktionen.
+    expect((await asUser(db, null, (tx) => attempt(tx, "select mm.is_intake_coach('c-bot')"))).ok).toBe(false);
+  });
+
+  it("en beställning som aldrig togs emot tas aldrig emot i efterhand: avslutad eller avböjd först och sedan pågående går inte – för någon", async () => {
+    // Coachen får avsluta en väntande beställning (som förut). Utan spärren kunde hen sedan sätta den som pågående i ett andra
+    // steg (granskningen 2026-11-10). Regeln gäller alla inloggade – ingen hanterare gör en sådan ändring.
+    const states: [string, string, Partial<Case>][] = [
+      ["avslutad", `update public.cases set status = 'closed', closed_at = '2027-02-01 09:12+01', end_date = '2027-02-01', end_reason = 'avbrott_deltagarens_val' where id = '${CASE}'`,
+        { status: "closed", closedAt: at, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" }],
+      ["avböjd", DECLINE, { status: "declined", declineReason: "Fullt just nu", declinedAt: at }],
+    ];
+    for (const [label, prep, from] of states) {
+      for (const key of ["u-erik", "u-amira", "u-sara", "u-johan"]) {
+        for (const status of ["confirmed", "active", "paused"] as const) {
+          const pg = await pgWrite(key, `update public.cases set status = '${status}' where id = '${CASE}'`, [prep]);
+          const mem = memStore();
+          mem.updateRow("cases", CASE, from);
+          expect({ pg: code(pg), mem: await memOk(repoFor(mem, key).table("cases").update(CASE, { status })) }, `${label} ${key} ${status}`).toEqual({ pg: "42501", mem: false });
+        }
+      }
+    }
+    // Servern (service role) rörs inte, och i minnet gäller spärren inte systemet.
+    const sys = memStore();
+    sys.updateRow("cases", CASE, states[0][2]);
+    expect({ pg: code(await service(`update public.cases set status = 'active' where id = '${CASE}'`, [states[0][1]])), mem: await memOk(systemRepo(sys).table("cases").update(CASE, { status: "active" })) })
+      .toEqual({ pg: 1, mem: true });
+  });
+
+  it("tiden för mottagandet (confirmed_at) ändras bara när beställningen tas emot – annars kunde den sättas först och spärren gås runt", async () => {
+    const setAt = `update public.cases set confirmed_at = '2027-02-01 09:12+01' where id = '${CASE}'`;
+    // I en väntande beställning, utan att ta emot den.
+    for (const key of ["u-erik", "u-amira", "u-sara"]) {
+      expect({ pg: code(await pgWrite(key, setAt)), mem: await memOk(repoFor(memStore(), key).table("cases").update(CASE, { confirmedAt: at })) }, key).toEqual({ pg: "42501", mem: false });
+    }
+    // I en beställning som avslutades utan att ha tagits emot (steg två i kringgåendet).
+    const closeSql = `update public.cases set status = 'closed', closed_at = '2027-02-01 09:12+01', end_date = '2027-02-01', end_reason = 'avbrott_deltagarens_val' where id = '${CASE}'`;
+    const closed = memStore();
+    closed.updateRow("cases", CASE, { status: "closed", closedAt: at, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" });
+    expect({ pg: code(await pgWrite("u-erik", setAt, [closeSql])), mem: await memOk(repoFor(closed, "u-erik").table("cases").update(CASE, { confirmedAt: at })) }).toEqual({ pg: "42501", mem: false });
+    // I ett bekräftat ärende ändras och töms tiden inte i efterhand – men en ändring som lämnar den som den är går.
+    const conf = data.cases.find((c) => c.status === "confirmed" && c.confirmedAt)!;
+    for (const [label, stmt, patch] of [
+      ["töm", `update public.cases set confirmed_at = null where id = '${conf.id}'`, { confirmedAt: null }],
+      ["ändra", `update public.cases set confirmed_at = '2027-02-01 09:12+01' where id = '${conf.id}'`, { confirmedAt: at }],
+    ] as const) {
+      expect({ pg: code(await pgWrite("u-sara", stmt)), mem: await memOk(repoFor(memStore(), "u-sara").table("cases").update(conf.id, patch)) }, label).toEqual({ pg: "42501", mem: false });
+    }
+    expect({
+      // Samma värde som står i raden (sessionens tidszon är Stockholm) – så som appen skickar värdet i en ändring.
+      pg: code(await pgWrite("u-sara", `update public.cases set confirmed_at = '${(conf.confirmedAt as string).replace("T", " ")}', location = 'Miljonbemanning Alby' where id = '${conf.id}'`)),
+      mem: await memOk(repoFor(memStore(), "u-sara").table("cases").update(conf.id, { confirmedAt: conf.confirmedAt, location: "Miljonbemanning Alby" })),
+    }).toEqual({ pg: 1, mem: true });
+    // Mottagandet sätter tiden (samma ändring som tar emot) – prövat ovan med ACCEPT. Servern rörs inte.
+    expect(code(await service(setAt))).toBe(1);
+  });
+
+  it("avtalet är ärendets avtal före ändringen: den som är intagsansvarig i ett annat avtal kan inte flytta ärendet dit och ta emot det i samma ändring", async () => {
+    // Erik får rollen coach i det andra avtalet (c-ny) och blir intagsansvarig där. I Botkyrkaavtalet är han en vanlig coach.
+    const prep = [
+      "insert into public.memberships (id, user_id, contract_id, role) values ('u-erik:c-ny:coach', 'u-erik', 'c-ny', 'coach')",
+      "update public.contracts set intake_coach_id = 'u-erik' where id = 'c-ny'",
+    ];
+    const elsewhere = await asUser(db, authOf("u-erik"), async (tx) =>
+      (await tx.query<{ bot: boolean; ny: boolean }>("select mm.is_intake_coach('c-bot') as bot, mm.is_intake_coach('c-ny') as ny")).rows[0], { before: before("u-erik", prep) });
+    expect(elsewhere).toEqual({ bot: false, ny: true });
+    const memErik = () => {
+      const s = memStore();
+      s.insertRow("memberships", { id: "u-erik:c-ny:coach", userId: "u-erik", contractId: "c-ny", role: "coach", customerUnit: null });
+      s.updateRow("contracts", "c-ny", { intakeCoachId: "u-erik" });
+      return new MemoryRepo<Tables>(s, { ...actorOf(findPersona("u-erik")), contractIds: ["c-bot", "c-ny"] }, POLICIES);
+    };
+    const MOVE = ACCEPT.replace("status = 'confirmed'", "status = 'confirmed', contract_id = 'c-ny'");
+    expect({ pg: code(await pgWrite("u-erik", MOVE, prep)), mem: await memOk(memErik().table("cases").update(CASE, { ...PATCH, contractId: "c-ny" })) }).toEqual({ pg: "42501", mem: false });
+    // Utan flytten tar han inte heller emot (han är inte intagsansvarig i ärendets avtal).
+    expect({ pg: code(await pgWrite("u-erik", ACCEPT, prep)), mem: await memOk(memErik().table("cases").update(CASE, PATCH)) }).toEqual({ pg: "42501", mem: false });
+  });
+
+  it("ärendets avtal ändras aldrig av en inloggad – annars kunde ärendet flyttas till ett avtal där man är intagsansvarig och tas emot där i två steg", async () => {
+    // Granskningen, runda 2. Erik får rollen coach i det andra avtalet (c-ny) och blir intagsansvarig där. Steg ett vore att
+    // flytta ärendet dit, steg två att ta emot det. Ingen hanterare flyttar ett ärende mellan avtal.
+    const prep = [
+      "insert into public.memberships (id, user_id, contract_id, role) values ('u-erik:c-ny:coach', 'u-erik', 'c-ny', 'coach')",
+      "update public.contracts set intake_coach_id = 'u-erik' where id = 'c-ny'",
+    ];
+    const memErik = () => {
+      const s = memStore();
+      s.insertRow("memberships", { id: "u-erik:c-ny:coach", userId: "u-erik", contractId: "c-ny", role: "coach", customerUnit: null });
+      s.updateRow("contracts", "c-ny", { intakeCoachId: "u-erik" });
+      return new MemoryRepo<Tables>(s, { ...actorOf(findPersona("u-erik")), contractIds: ["c-bot", "c-ny"] }, POLICIES);
+    };
+    const move = (id: string) => `update public.cases set contract_id = 'c-ny' where id = '${id}'`;
+    expect({ pg: code(await pgWrite("u-erik", move(CASE), prep)), mem: await memOk(memErik().table("cases").update(CASE, { contractId: "c-ny" })) }).toEqual({ pg: "42501", mem: false });
+    // Inte heller den som annars ändrar ärendet: avtalsansvarig Johan är medlem i båda avtalen, samordnaren och den
+    // intagsansvarige i Botkyrkaavtalet – och inte i ett pågående ärende.
+    const active = data.cases.find((c) => c.status === "active" && c.contractId === "c-bot")!;
+    for (const key of ["u-johan", "u-sara", "u-amira"]) {
+      for (const id of [CASE, active.id]) {
+        expect({ pg: code(await pgWrite(key, move(id))), mem: await memOk(repoFor(memStore(), key).table("cases").update(id, { contractId: "c-ny" })) }, `${key} ${id}`).toEqual({ pg: "42501", mem: false });
+      }
+    }
+    // Ett oförändrat avtal i ändringen går (appen skickar inte kolumnen, men värdet är detsamma).
+    expect({
+      pg: code(await pgWrite("u-sara", `update public.cases set contract_id = 'c-bot', location = 'Miljonbemanning Alby' where id = '${CASE}'`)),
+      mem: await memOk(repoFor(memStore(), "u-sara").table("cases").update(CASE, { contractId: "c-bot", location: "Miljonbemanning Alby" })),
+    }).toEqual({ pg: 1, mem: true });
+    // Servern (service role) rörs inte – inläsningen av testdata och mejlinläsningen skriver som servern.
+    expect({ pg: code(await service(move(CASE))), mem: await memOk(systemRepo(memStore()).table("cases").update(CASE, { contractId: "c-ny" })) }).toEqual({ pg: 1, mem: true });
+  });
+
+  it("tas profilen bort töms kolumnen (on delete set null) – som när testdatat läses in på nytt", async () => {
+    const erik = data.profiles.find((p) => p.id === "u-erik")!;
+    let res: { set: string | null; after: string | null } | null = null;
+    await db.transaction(async (tx) => {
+      const read = async () => (await tx.query<{ c: string | null }>("select intake_coach_id as c from public.contracts where id = 'c-bot'")).rows[0].c;
+      await tx.exec(sql("profiles", { ...erik, id: "u-t-0041", email: "intag.test@miljonbemanning.example", fullName: "Test Testsson" }));
+      await tx.exec(sql("memberships", { id: "u-t-0041:c-bot", userId: "u-t-0041", contractId: "c-bot", role: "coach", customerUnit: null }));
+      await tx.exec("update public.contracts set intake_coach_id = 'u-t-0041' where id = 'c-bot'");
+      const set = await read();
+      await tx.exec("delete from public.memberships where user_id = 'u-t-0041'");
+      await tx.exec("delete from public.profiles where id = 'u-t-0041'");
+      res = { set, after: await read() };
+      await tx.rollback();
+    });
+    expect(res).toEqual({ set: "u-t-0041", after: null });
+  });
+
+  it("migrationen tål att köras igen och ändrar då ingenting", async () => {
+    const file = readFileSync(`${MIGRATIONS_DIR}/0041_intagsansvarig.sql`, "utf8");
+    let res: Record<string, unknown> | null = null;
+    await db.transaction(async (tx) => {
+      const one = async <T,>(q: string) => (await tx.query<{ v: T }>(q)).rows[0].v;
+      const state = async () => ({
+        contracts: await one<string>("select string_agg(id || ':' || coalesce(intake_coach_id, '-'), ',' order by id) as v from public.contracts"),
+        columns: await one<number>("select count(*)::int as v from information_schema.columns where table_schema = 'public' and table_name = 'contracts' and column_name = 'intake_coach_id'"),
+        triggers: await one<number>("select count(*)::int as v from pg_trigger where tgname in ('contracts_intake_coach_check', 'cases_accept_guard')"),
+        indexes: await one<number>("select count(*)::int as v from pg_indexes where indexname = 'contracts_intake_coach_id_idx'"),
+        fks: await one<number>("select count(*)::int as v from pg_constraint where conrelid = 'public.contracts'::regclass and contype = 'f' and confrelid = 'public.profiles'::regclass and confdeltype = 'n'"),
+        viewGrants: await one<string>("select string_agg(grantee || ':' || privilege_type, ',' order by grantee, privilege_type) as v from information_schema.role_table_grants where table_schema = 'public' and table_name = 'contracts_public' and grantee in ('anon', 'authenticated')"),
+        // Läsrätten för villkorade ändringar av ärendet: id (0013) och status (0041) – inga andra kolumner, och ingenting för anon.
+        caseColumns: await one<string>("select string_agg(grantee || ':' || column_name, ',' order by grantee, column_name) as v from information_schema.column_privileges where table_schema = 'public' and table_name = 'cases' and privilege_type = 'SELECT' and grantee in ('anon', 'authenticated')"),
+        guard: await one<string>("select pg_get_triggerdef(oid) as v from pg_trigger where tgname = 'cases_accept_guard'"),
+      });
+      const before = await state();
+      await tx.exec(file);
+      await tx.exec(file);
+      const after = await state();
+      res = { before, same: JSON.stringify(after) === JSON.stringify(before), lock: await one<string>("select current_setting('lock_timeout') as v"), statement: await one<string>("select current_setting('statement_timeout') as v") };
+      await tx.rollback();
+    });
+    expect(res).toEqual({
+      before: {
+        contracts: "c-bot:u-amira,c-ny:-", columns: 1, triggers: 2, indexes: 1, fks: 1, viewGrants: "authenticated:SELECT", caseColumns: "authenticated:id,authenticated:status",
+        guard: "CREATE TRIGGER cases_accept_guard BEFORE UPDATE OF status, confirmed_at, contract_id ON public.cases FOR EACH ROW EXECUTE FUNCTION mm.guard_case_accept()",
+      },
+      same: true, lock: "0", statement: "0",
+    });
   });
 });

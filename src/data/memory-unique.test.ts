@@ -3,9 +3,11 @@
 import { describe, expect, it } from "vitest";
 import { listPersonas } from "./actors";
 import { MemoryRepo, MemoryStore, UniqueError } from "./memory";
+import { createMemoryRuntime, demoClock } from "./memory-runtime";
 import { POLICIES } from "./policy";
-import { UNIQUE_KEYS, type Tables } from "./schema";
-import { createSeed } from "./seed";
+import { FilterColumnError } from "./repo";
+import { UNIQUE_KEYS, USER_FILTER_COLUMNS, type Tables } from "./schema";
+import { createSeed, DEMO_START } from "./seed";
 
 const store = () => new MemoryStore<Tables>(createSeed(), UNIQUE_KEYS);
 const amira = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "u-amira" && p.actor.role === "coach")!.actor;
@@ -48,6 +50,33 @@ describe("unika nycklar i minnet", () => {
     const repo = new MemoryRepo<Tables>(s, maria(s), POLICIES);
     const hidden = (await system.table("cases").list()).find((c) => c.referrerId !== "k-maria" && c.contractId === "c-bot")!;
     expect(await repo.table("cases").updateIf(hidden.id, { status: hidden.status }, { location: "x" })).toBeNull();
+  });
+
+  it("updateIf med listan över läsbara kolumner (USER_FILTER_COLUMNS): ett villkor på en annan kolumn stoppas – som databasen hade nekat det (42501)", async () => {
+    // Databasen kräver läsrätt på varje kolumn i villkoret; inloggade läser bara cases.id och status direkt i tabellen (0013, 0041).
+    const s = store();
+    const repo = new MemoryRepo<Tables>(s, amira(s), POLICIES, { filterColumns: USER_FILTER_COLUMNS });
+    const c = s.rows("cases").find((x) => x.status === "confirmed")!;
+    await expect(repo.table("cases").updateIf(c.id, { leadCoachId: c.leadCoachId }, { location: "x" })).rejects.toBeInstanceOf(FilterColumnError);
+    await expect(repo.table("cases").updateIf(c.id, { status: "confirmed", startDate: null }, { location: "x" })).rejects.toThrow(/updateIf på cases villkoras på startDate/);
+    expect(s.getRow("cases", c.id)!.location).toBe(c.location);
+    // Statusen (och id) går, tabeller utan lista har inga gränser, och systemet (bypass – service role) prövas inte.
+    expect(await repo.table("cases").updateIf(c.id, { id: c.id, status: "confirmed" }, { location: "x" })).toMatchObject({ location: "x" });
+    const ci = s.rows("check_ins")[0];
+    expect(await repo.table("check_ins").updateIf(ci.id, { version: ci.version, caseId: ci.caseId }, { version: ci.version + 1 })).not.toBeNull();
+    const system = new MemoryRepo<Tables>(s, { userId: "system", role: "admin", contractIds: [] }, POLICIES, { bypass: true, filterColumns: USER_FILTER_COLUMNS });
+    expect(await system.table("cases").updateIf(c.id, { leadCoachId: c.leadCoachId }, { location: "y" })).toMatchObject({ location: "y" });
+  });
+
+  it("minneslägets körning använder listan: en hanterare som villkorar på en annan kolumn stoppas i sitt eget test", async () => {
+    const rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START) });
+    const sara = listPersonas(rt.raw()).find((p) => p.actor.userId === "u-sara" && p.actor.role === "samordnare")!.actor;
+    const c = rt.raw().all("cases").find((x) => x.status === "acknowledged")!;
+    const ctx = rt.ctxFor(sara);
+    await expect(ctx.repo.table("cases").updateIf(c.id, { leadCoachId: null }, { location: "x" })).rejects.toBeInstanceOf(FilterColumnError);
+    expect(await ctx.repo.table("cases").updateIf(c.id, { status: { in: ["received", "acknowledged"] } }, { location: "x" })).toMatchObject({ id: c.id, location: "x" });
+    // ctx.system (service role) har inga sådana gränser.
+    expect(await ctx.system.table("cases").updateIf(c.id, { leadCoachId: null }, { location: "y" })).toMatchObject({ location: "y" });
   });
 });
 

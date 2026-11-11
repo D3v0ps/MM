@@ -4,9 +4,10 @@
 // Används av deltagarkortet (kort.tsx, kort-flikar.tsx) och av Närvaro (src/features/coach/screens/narvaro.tsx).
 import { useState } from "react";
 import type { WeekPlanKind } from "@/core/config";
+import { EARLY_START_HELP, earlyStartDateProblem, movedMeetingAt, plannedEndFrom } from "@/core/early-start";
 import { plural } from "@/core/format";
-import type { WeekPlanRow } from "@/core/schedule";
-import { addWorkingDays, dayOf, fmtDate, fmtDateTimeLong, isWorkingDay, holidayName, WEEKDAYS } from "@/core/time";
+import { defaultWeekPlan, type WeekPlanRow } from "@/core/schedule";
+import { addWorkingDays, dayOf, fmtDate, fmtDateTimeLong, isWorkingDay, holidayName, timeOf, WEEKDAYS } from "@/core/time";
 import { useCommand } from "@/shell/backend";
 import { Button, Check, DateInput, DateTimeInput, Field, FormGrid, Input, Kv, Modal, Notice, Select, Stack, TimeInput, toast } from "@/ui";
 import type { ActivityKind, TeamRole } from "@/data/schema";
@@ -88,27 +89,49 @@ export function WeekPlanEditor({ days, onChange, idPrefix, error }: { days: Plan
 }
 
 // ---------------------------------------------------------------- Starta insatsen / Ändra veckoplan
-/** Starta insatsen (bekräftat ärende med bokat första möte) eller ändra veckoplanen i ett pågående ärende. */
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Starta insatsen (bekräftat ärende med bokat första möte) eller ändra veckoplanen i ett pågående ärende.
+ * Deltagaren kom före det bokade mötet (Karims beslut 2026-11-09): ett startdatum före mötets dag går när dagen har varit eller
+ * är i dag, inte ligger före beställningen och är en arbetsdag (samma regler som servern, src/core/early-start.ts). Dialogen
+ * visar då klockslaget för mötet och säger vad som händer: första mötet flyttas, planerat slut räknas om och kommunen får en
+ * uppdaterad orderbekräftelse. Veckoplanen följer det flyttade mötet så länge den inte har ändrats för hand.
+ */
 export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "start" | "plan"; onClose: () => void }) {
   const start = useCommand(caseStart);
   const change = useCommand(caseScheduleChange);
   const s = c.start;
   const initialPlan = mode === "start" ? (s?.plan ?? []) : (c.weekPlan ?? []);
+  const defaultLocation = c.location ? `Miljonbemanning ${c.location}` : "Miljonbemanning";
   const [startDate, setStartDate] = useState(s?.startDate ?? dayOf(c.now));
-  const [days, setDays] = useState<PlanDay[]>(() => planToDays(initialPlan, c.location ? `Miljonbemanning ${c.location}` : "Miljonbemanning"));
+  const [meetingTime, setMeetingTime] = useState(s ? timeOf(s.firstMeetingAt) : "10:00");
+  // Veckoplanen som användaren har ändrat för hand – annars föreslås planen för mötet som gäller (det bokade eller det flyttade).
+  const [edited, setEdited] = useState<PlanDay[] | null>(null);
   const [tried, setTried] = useState(false);
-  const [err, setErr] = useState<{ date?: string | null; plan?: string | null }>({});
+  const [err, setErr] = useState<{ date?: string | null; time?: string | null; plan?: string | null }>({});
   const meetingDay = s ? dayOf(s.firstMeetingAt) : null;
+  const today = dayOf(c.now);
+  // Startdatumet ligger före det bokade mötet: första mötet flyttas till startdagen.
+  const early = mode === "start" && !!s && !!meetingDay && DATE.test(startDate) && startDate < meetingDay;
+  const earlyProblem = early && s ? earlyStartDateProblem({ referredAt: s.earliest, firstMeetingAt: s.firstMeetingAt }, startDate, today) : null;
+  const movedAt = early && s && TIME.test(meetingTime) ? movedMeetingAt({ firstMeetingAt: s.firstMeetingAt }, startDate, meetingTime) : null;
+  const end = early && s ? plannedEndFrom(s.period, c.plannedEnd, startDate) : (c.endDate ?? c.plannedEnd);
+  const suggested = early && s && movedAt && !earlyProblem
+    ? defaultWeekPlan({ activities: s.planRows ? { defaultWeekPlan: s.planRows } : undefined }, movedAt)
+    : initialPlan;
+  const days = edited ?? planToDays(suggested, defaultLocation);
   const perWeek = days.filter((d) => d.on).length;
-  const end = c.endDate ?? c.plannedEnd;
 
   const submit = async () => {
     setTried(true);
-    const e: { date?: string; plan?: string } = {};
+    const e: { date?: string; time?: string; plan?: string } = {};
     if (mode === "start") {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) e.date = "Välj startdatum.";
-      else if (meetingDay && startDate < meetingDay) e.date = `Startdatumet kan inte vara före första mötet ${fmtDate(meetingDay)}.`;
+      if (!DATE.test(startDate)) e.date = "Välj startdatum.";
+      else if (earlyProblem) e.date = earlyProblem.text;
       else if (end && startDate > end) e.date = `Startdatumet ligger efter planerat slut ${fmtDate(end)}.`;
+      if (early && !TIME.test(meetingTime)) e.time = "Välj klockslag för mötet.";
     }
     const pe = dayErrors(days);
     if (pe) e.plan = pe;
@@ -116,12 +139,16 @@ export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "
     if (Object.keys(e).length) return;
     const plan = daysToPlan(days);
     if (mode === "start") {
-      const res = await start.run({ caseId: c.caseId, startDate, plan }).catch(() => null);
+      const res = await start.run({ caseId: c.caseId, startDate, plan, ...(early ? { meetingTime } : {}) }).catch(() => null);
       if (!res || !res.ok) {
         toast(res && !res.ok && res.message ? res.message : "Insatsen kunde inte startas.", "error");
         return;
       }
-      toast(`Insatsen är startad. ${plural(res.activities, "tillfälle", "tillfällen")} är inplanerade${end ? ` till och med ${fmtDate(end)}` : ""}.`);
+      const until = res.plannedEnd ?? end;
+      toast(
+        `Insatsen är startad. ${plural(res.activities, "tillfälle", "tillfällen")} är inplanerade${until ? ` till och med ${fmtDate(until)}` : ""}.`
+        + (res.movedMeetingAt ? ` Första mötet är flyttat till ${fmtDateTimeLong(res.movedMeetingAt)} och kommunen har fått en uppdaterad orderbekräftelse.` : ""),
+      );
     } else {
       const res = await change.run({ caseId: c.caseId, plan }).catch(() => null);
       if (!res || !res.ok) {
@@ -152,16 +179,33 @@ export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "
           items={[
             ["Ärende", <span key="n" className="font-bold tabular-nums">{c.caseNumber}</span>],
             ["Huvudcoach", c.leadCoach?.name ?? "–"],
-            mode === "start" && s ? ["Första mötet", fmtDateTimeLong(s.firstMeetingAt)] : null,
+            mode === "start" && s ? [early ? "Bokat första möte" : "Första mötet", fmtDateTimeLong(s.firstMeetingAt)] : null,
             ["Planerat slut", end ? fmtDate(end) : "Inte angivet"],
           ]}
         />
         {mode === "start" ? (
           <>
-            <Field id="arn-start-date" label="Startdatum" required error={tried ? err.date : null} help="Tidigast första mötets dag. Veckorna räknas från det här datumet.">
+            <Field id="arn-start-date" label="Startdatum" required error={tried ? err.date : null} help={EARLY_START_HELP}>
               <DateInput value={startDate} onValueChange={(v) => { setStartDate(v); setErr({ ...err, date: null }); }} />
             </Field>
-            {startDate && !isWorkingDay(startDate) && (
+            {early && (
+              <Field
+                id="arn-start-time" label="Klockslag för mötet" required error={tried ? err.time : null}
+                help="När första mötet hölls den dagen. Det bokade mötets klockslag är förvalt."
+              >
+                <TimeInput value={meetingTime} onValueChange={(v) => { setMeetingTime(v); setErr({ ...err, time: null }); }} />
+              </Field>
+            )}
+            {early && earlyProblem && !(tried && err.date) && (
+              <Notice tone="warn" title="Välj ett annat startdatum">{earlyProblem.text}</Notice>
+            )}
+            {early && !earlyProblem && (
+              <Notice tone="info" icon="info" title="Första mötet flyttas" id="arn-start-early">
+                Deltagaren kom före det bokade mötet. Första mötet flyttas till {movedAt ? fmtDateTimeLong(movedAt) : fmtDate(startDate)} och planerat slut räknas om
+                till {end ? fmtDate(end) : "det som gäller för omfattningen"}. Kommunen får en uppdaterad orderbekräftelse.
+              </Notice>
+            )}
+            {!early && startDate && !isWorkingDay(startDate) && (
               <Notice tone="warn" title="Inte en arbetsdag">{holidayName(startDate) ?? "Dagen"} – första tillfället blir nästa vardag enligt planen.</Notice>
             )}
           </>
@@ -171,7 +215,7 @@ export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "
             Praktikdagar som hör till en praktik ligger kvar om planen inte själv innehåller praktikdagar.
           </Notice>
         )}
-        <WeekPlanEditor days={days} onChange={(d) => { setDays(d); if (err.plan) setErr({ ...err, plan: null }); }} idPrefix="arn-plan" error={tried ? err.plan : null} />
+        <WeekPlanEditor days={days} onChange={(d) => { setEdited(d); if (err.plan) setErr({ ...err, plan: null }); }} idPrefix="arn-plan" error={tried ? err.plan : null} />
         <p className="m-0 text-text-muted">
           {plural(perWeek, "tillfälle", "tillfällen")} per vecka{end ? ` till och med ${fmtDate(end)}` : ""}. Enstaka tillfällen kan läggas till eller tas bort efteråt under Närvaro.
         </p>
@@ -182,6 +226,9 @@ export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "
               items={[
                 { key: "s", icon: "play", children: <>Ärendet blir <b>Pågår</b> med startdatumet. Veckorna från startdatumet räknas i fakturaunderlaget.</> },
                 { key: "a", icon: "calendar", children: "Tillfällena skapas enligt veckoplanen och visas under Närvaro och i Min vecka." },
+                ...(early && !earlyProblem
+                  ? [{ key: "m", icon: "mail" as const, children: "Första mötet flyttas till startdagen. Kommunen får ett mejl om att orderbekräftelsen är uppdaterad. Deltagaren får ingen kallelse – hen har redan kommit." }]
+                  : []),
                 { key: "l", icon: "book", children: "Starten sparas i historiken och revisionsloggen." },
               ]}
             />

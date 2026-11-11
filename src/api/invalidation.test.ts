@@ -70,6 +70,8 @@ const SAMPLES: Record<string, Sample[]> = {
   "ekonomi.preview": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.case": one("u-lars", { caseId: NADIA }), "ekonomi.caseList": one("u-lars"), "ekonomi.priceList": one("u-lars"), "ekonomi.start": one("u-lars"),
   "inkorg.list": one("u-sara"), "inkorg.item": [...one("u-sara", { id: "em-103" }), ...one("u-sara", { id: "em-101" }), ...one("u-sara", { id: "em-105" }), ...one("u-sara", { id: "em-104" })], "inkorg.confirmation": one("u-sara", { caseId: "case-270049" }),
   "inkorg.decisionForm": one("u-sara", { caseId: "case-270050" }), "inkorg.duplicateCheck": one("u-sara", { pnr: "19900101-1234" }),
+  // Ta emot (Karims beslut 2026-11-09): samordnaren (inkorgens underlag) och avtalets intagsansvarige (Amira i testdatat).
+  "arenden.acceptForm": [...one("u-sara", { caseId: "case-270050" }), ...one("u-amira", { caseId: "case-270050" })],
   "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"), "inkorg.registerForm": [...one("u-sara"), ...one("u-sara", { emailId: "em-102" })],
   "kommun.start": one("k-maria"), "kommun.bestallning": one("k-maria"), "kommun.dubblett": one("k-maria", { pnr: "19900101-1234" }),
   "kommun.kvitto": one("k-maria", { caseId: NADIA }), "kommun.deltagareLista": one("k-maria"), "kommun.deltagare": one("k-maria", { caseId: NADIA }),
@@ -107,22 +109,28 @@ const WRITES: Record<string, string[]> = {
   "admin.setOrgRule": ["org_settings", "audit_log:org_rule", AUDIT], "admin.runJob": ["*"], "admin.logCheck": ["log_checks", AUDIT], "admin.saveTemplate": ["template_versions", AUDIT],
   "admin.inviteCustomer": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setCustomerActive": ["profiles"],
   // Kollegorna och rollväxlingen (beslut 2026-10-08).
-  "admin.inviteStaff": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setStaffRoles": ["memberships", AUDIT], "admin.setStaffActive": ["profiles", AUDIT],
+  "admin.inviteStaff": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setStaffRoles": ["memberships", "contracts", AUDIT],
+  "admin.setStaffActive": ["profiles", "contracts", AUDIT],
   "admin.setContractManager": ["contracts", AUDIT], "session.vaxlaRoll": ["role_choices", AUDIT],
-  "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", AUDIT_CASE, AUDIT],
+  // Intagsansvarig (0041): avtalet pekas om; tas rollen coach bort eller spärras kollegan töms kolumnen (setStaffRoles, setStaffActive).
+  "admin.setIntakeCoach": ["contracts", AUDIT],
+  // createOrder skriver också notisen till avtalets intagsansvarige (user_notifications, 0041) – caseCreate, inkorg.register och mejlinläsningen.
+  "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", "user_notifications", AUDIT_CASE, AUDIT],
   "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],
   "arenden.bilagaHamta": [AUDIT],
   // Filer på deltagarkortet (0037).
   "arenden.deltagarfilStart": ["case_attachments", AUDIT_CASE, AUDIT], "arenden.deltagarfilKlar": ["case_attachments", AUDIT_CASE, AUDIT],
   "arenden.deltagarfilTaBort": ["case_attachments", AUDIT_CASE, AUDIT],
-  "arenden.caseAccept": ["cases", "reports", "inbound_emails", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
-  "arenden.caseDecline": ["cases", "inbound_emails", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
+  // Den intagsansvariges notis om beställningen märks som läst när den är besvarad (notification_reads, 0041).
+  "arenden.caseAccept": ["cases", "reports", "inbound_emails", "case_team", "user_notifications", "notification_reads", "outbound_messages", AUDIT_CASE, AUDIT],
+  "arenden.caseDecline": ["cases", "inbound_emails", "notification_reads", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
   "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseChangeCoach": ["cases", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   // Avslutet och starten synkar målgrupperna (Karims beslut 2026-10-22): kommande nivå- och yrkesområdesaktiviteter.
   "arenden.caseClose": ["cases", "reports", "pulse_invites", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.messageSend": ["messages", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   // Starta insatsen, veckoplan, tillfällen och team (beslut 2026-10-08).
-  "arenden.caseStart": ["cases", "activities", "case_status_history", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
+  // Starten före det bokade första mötet flyttar mötet: en ny version av orderbekräftelsen och mejlet till kommunen.
+  "arenden.caseStart": ["cases", "activities", "case_status_history", "reports", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
@@ -145,7 +153,7 @@ const WRITES: Record<string, string[]> = {
   "inkorg.correct": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
   "inkorg.taskDone": ["tasks", AUDIT], "inkorg.revealPnr": [AUDIT_CASE, AUDIT],
   // Registrera beställning (beslut 4a): samma rader som caseCreate plus mejlet.
-  "inkorg.register": ["persons", "case_counters", "cases", "case_status_history", "inbound_emails", "outbound_messages", "case_attachments", AUDIT_CASE, AUDIT],
+  "inkorg.register": ["persons", "case_counters", "cases", "case_status_history", "inbound_emails", "outbound_messages", "case_attachments", "user_notifications", AUDIT_CASE, AUDIT],
   "kommun.caseSeen": ["case_seen"], "kommun.taskDone": ["tasks", AUDIT], "kommun.visaPersonnummer": [AUDIT_CASE, AUDIT], "kommun.profilSpara": ["profiles", AUDIT],
   "kommun.dictationFinish": ["ai_runs", "jobs", "audio_uploads", AUDIT],
   "ledning.alertAck": ["alert_acks", AUDIT_CASE, AUDIT], "ledning.cdevSave": ["contract_deviations", AUDIT], "ledning.cdevClose": ["contract_deviations", AUDIT],
@@ -247,7 +255,9 @@ const KNOWN: Known[] = [
   { command: "*", query: "rost.pendingNotes", table: "cases", reason: "röstinkorgen filtrerar på huvudcoach – coachbytet räknar om rost." },
   { command: "*", query: "rapporter.resultatfilForhandsvisning", table: "cases", reason: "räknar bara levererade rapporter; ärendets fält läses när filen byggs" },
   // Notiser som går till en annan användare: mottagarens lista hämtas i dennes session (appen: 20 s och vid fokus).
-  { command: "arenden.caseAccept", query: "notiser.list", table: "user_notifications", reason: "notisen går till coachen" },
+  // Notisen om en ny beställning går till avtalets intagsansvarige (0041) – aldrig till den som skapar beställningen.
+  { command: "arenden.caseCreate", query: "notiser.list", table: "user_notifications", reason: "notisen går till avtalets intagsansvarige" },
+  { command: "inkorg.register", query: "notiser.list", table: "user_notifications", reason: "notisen går till avtalets intagsansvarige" },
   { command: "arenden.messageSend", query: "session.navCounts", table: "user_notifications", reason: "notisen går till mottagaren (coachen när kommunen skriver) – avsändarens räknare berörs inte" },
   // Bilagor: en påbörjad uppladdning (pending) visas inte förrän den är klar (arenden.bilagaKlar räknar om).
   { command: "arenden.bilagaStart", query: "*", table: "case_attachments", reason: "raden är pending och visas inte förrän bilagaKlar" },
@@ -255,6 +265,8 @@ const KNOWN: Known[] = [
   // Filerna på deltagarkortet (0037) visas bara i kortet Filer – acceptdialogens bakgrund läser bara beställningens bilagor (kind order).
   { command: "arenden.deltagarfilKlar", query: "inkorg.decisionForm", table: "case_attachments", reason: "bakgrunden visar bara beställningens bilagor (kind order)" },
   { command: "arenden.deltagarfilTaBort", query: "inkorg.decisionForm", table: "case_attachments", reason: "bakgrunden visar bara beställningens bilagor (kind order)" },
+  { command: "arenden.deltagarfilKlar", query: "arenden.acceptForm", table: "case_attachments", reason: "bakgrunden visar bara beställningens bilagor (kind order)" },
+  { command: "arenden.deltagarfilTaBort", query: "arenden.acceptForm", table: "case_attachments", reason: "bakgrunden visar bara beställningens bilagor (kind order)" },
   { command: "rapporter.reportDeliver", query: "notiser.list", table: "user_notifications", reason: "notisen går till kommunen" },
   // Fält i ärendet som bara några skärmar visar.
   { command: "arenden.consentSet", query: "*", table: "cases", reason: "bara samtyckesfältet – kortet, listan, avstämningen, Min vecka och rösten räknas om" },

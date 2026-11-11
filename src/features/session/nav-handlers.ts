@@ -2,7 +2,8 @@
 //   inbox          avrop och mejl att hantera = fliken "Att hantera" i avropsinkorgen (samordnare, avtalsansvarig)
 //   deadlines      förfaller: försenat + i dag som är användarens eget ansvar (samordnare, avtalsansvarig, chef)
 //   unregistered   coachens oregistrerade närvaro från förra veckans måndag till i dag
-//   tasks          öppna uppgifter till rollen eller personen (samordnare, avtalsansvarig, ekonom – siffran vid Min vecka)
+//   tasks          öppna uppgifter till rollen eller personen (samordnare, avtalsansvarig, ekonom – siffran vid Min vecka);
+//                  för avtalets intagsansvarige (coach): nya beställningar att ta emot (Karims beslut 2026-11-09)
 //   notifications  olästa personliga notiser (alla MB-roller)
 // Bara räknarna för rollens menyrader räknas fram (övriga är 0 – de visas inte).
 import type { Ctx } from "@/api/server";
@@ -14,6 +15,7 @@ import { unregistered } from "@/core/attendance";
 import { unreadNotifications } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
+import { ordersToReceive } from "@/features/_shared/intake";
 import { deadlineItems, deadlineRow, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
 import { navCounts, type NavCounts } from "./nav-api";
 
@@ -70,6 +72,8 @@ handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   }
   if (role === "coach") out.unregistered = await unregisteredCount(ctx, e);
   if (TASK_ROLES.includes(role)) out.tasks = await openTaskCount(ctx);
+  // Avtalets intagsansvarige: beställningarna som väntar på Ta emot står på Min vecka (0 för andra coacher).
+  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length;
   out.notifications = await notificationCount(ctx, e);
   return out;
 });

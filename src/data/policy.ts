@@ -97,6 +97,14 @@
 //                 orsaken krävs vid giltig frånvaro (högst 300 tecken) · ett möte en gång (UNIQUE_KEYS) · ändras aldrig och
 //                 raderas bara av systemet (gallring) · ärendets startdatum sätts inte så länge ärendets nuvarande första möte
 //                 är registrerat (cases.guard och caseStartChangeApplies, för alla roller – triggern cases_start_date_no_show_guard)
+//   Intags-      intagsansvarig (contracts.intakeCoachId, 0041, Karims beslut 2026-11-09): avtalets coach som tar emot nya
+//   ansvarig     beställningar · personen har rollen coach i avtalet när kolumnen sätts eller byts (guard – för alla, också
+//                 systemet) · bara admin ändrar avtalet · kommunen läser aldrig kolumnen (project, vyn contracts_public) · en
+//                 beställning som väntar på svar tas emot (bekräftad, pågående eller pausad) bara av samordnaren,
+//                 avtalsansvarig eller avtalets intagsansvarige (i ärendets avtal före ändringen), och avböjs bara av
+//                 samordnaren eller avtalsansvarig · en beställning som aldrig togs emot (avböjd, eller avslutad utan
+//                 confirmedAt) tas aldrig emot i efterhand · confirmedAt ändras bara när beställningen tas emot · ärendets
+//                 avtal (contractId) ändras aldrig av en inloggad (caseAcceptGuard i caseWrite – triggern cases_accept_guard)
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -211,7 +219,7 @@ const workOn = (caseId: string, a: Actor, raw: Raw) => {
 /** Får ändra ärendet (och dess statushistorik och team). */
 function caseWrite(c: Case, a: Actor, raw: Raw): boolean {
   const cur = raw.get("cases", c.id);
-  if (cur && (!caseAreaGuard(cur, c, a) || !caseStartGuard(cur, c, a))) return false;
+  if (cur && (!caseAreaGuard(cur, c, a) || !caseStartGuard(cur, c, a) || !caseAcceptGuard(cur, c, a, raw))) return false;
   // Ett nytt ärende har inget startdatum – det sätts när insatsen startar (triggern cases_start_date_guard, 0038).
   if (!cur && c.startDate != null) return false;
   const acc = accessOfCase(raw, a, c);
@@ -713,6 +721,48 @@ function caseAreaGuard(cur: Case, next: Case, a: Actor): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------- Intagsansvarig tar emot nya beställningar (0041)
+/** En beställning som väntar på svar. */
+const ORDER_OPEN_STATUSES: readonly Case["status"][] = ["received", "acknowledged"];
+/** Mottagen: bekräftad – eller pågående eller pausad, så att spärren inte går runt genom att hoppa över bekräftelsen. */
+const ORDER_TAKEN_STATUSES: readonly Case["status"][] = ["confirmed", "active", "paused"];
+/** Aktören agerar som coach och är avtalets intagsansvarige (mm.is_intake_coach, 0041). */
+const isIntakeCoach = (raw: Raw, a: Actor, contractId: string): boolean => a.role === "coach" && raw.get("contracts", contractId)?.intakeCoachId === a.userId;
+/**
+ * Ta emot en beställning (triggern cases_accept_guard, 0041 – Karims beslut 2026-11-09), för inloggade:
+ *   - en beställning som väntar på svar tas emot bara av samordnaren, avtalsansvarig eller avtalets intagsansvarige, och avböjs
+ *     bara av samordnaren eller avtalsansvarig. Avtalet är ärendets avtal före ändringen (cur.contractId) – den som är
+ *     intagsansvarig i ett annat avtal kan inte flytta ärendet dit i samma ändring;
+ *   - en beställning som aldrig togs emot (avböjd, eller avslutad utan confirmedAt) tas aldrig emot i efterhand – av ingen.
+ *     Annars kunde en coach avsluta en väntande beställning och sedan sätta den som pågående i två steg. Ingen hanterare gör det;
+ *   - confirmedAt ändras bara i samma ändring som tar emot beställningen (annars kunde den sättas först);
+ *   - ärendets avtal (contractId) ändras aldrig – annars kunde ärendet först flyttas till ett avtal där aktören är
+ *     intagsansvarig och sedan tas emot där, i två steg. Ingen hanterare flyttar ett ärende mellan avtal.
+ * Övriga ändringar av ärendet (också coachens avslut av en beställning som aldrig togs emot) prövas som förut.
+ */
+function caseAcceptGuard(cur: Case, next: Case, a: Actor, raw: Raw): boolean {
+  if (next.contractId !== cur.contractId) return false;
+  const manager = a.role === "samordnare" || a.role === "avtalsansvarig";
+  const pending = ORDER_OPEN_STATUSES.includes(cur.status);
+  const taken = next.status !== cur.status && ORDER_TAKEN_STATUSES.includes(next.status);
+  if (pending) {
+    if (taken && !manager && !isIntakeCoach(raw, a, cur.contractId)) return false;
+    if (next.status === "declined" && !manager) return false;
+  } else if (taken && (cur.status === "declined" || cur.status === "closed") && cur.confirmedAt == null) {
+    return false;
+  }
+  if ((next.confirmedAt ?? null) !== (cur.confirmedAt ?? null) && !(pending && taken)) return false;
+  return true;
+}
+/**
+ * Avtalets intagsansvarige (triggern contracts_intake_coach_check, 0041 – gäller alla, också systemet): när kolumnen sätts eller
+ * byts ska personen ha ett medlemskap med rollen coach i avtalet. Prövas inte när den lämnas orörd eller töms.
+ */
+function contractIntakeGuard(next: Tables["contracts"] | null, cur: Tables["contracts"] | undefined, raw: Raw): boolean {
+  if (!next || next.intakeCoachId == null || (cur && (cur.intakeCoachId ?? null) === next.intakeCoachId)) return true;
+  return raw.all("memberships").some((m) => m.userId === next.intakeCoachId && m.contractId === next.id && m.role === "coach");
+}
+
 // ---------------------------------------------------------------- Ändra startdatum (0038)
 type CaseStartChangeRow = Tables["case_start_changes"];
 /**
@@ -1067,7 +1117,13 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     read: (o, a, raw) => a.role === "admin" || ((isMB(a) || isKom(a)) && orgsOf(a, raw).has(o.id)),
     write: (_o, a) => a.role === "admin",
   },
-  contracts: { read: (c, a) => (isMB(a) || isKom(a)) && member(a, c.id), write: (_c, a) => a.role === "admin" },
+  // Intagsansvarig (0041): kommunen läser aldrig kolumnen (vyn contracts_public lämnar null) och personen ska ha rollen coach.
+  contracts: {
+    read: (c, a) => (isMB(a) || isKom(a)) && member(a, c.id),
+    write: (_c, a) => a.role === "admin",
+    project: (c, a) => (isKom(a) && c.intakeCoachId != null ? { ...c, intakeCoachId: null } : c),
+    guard: contractIntakeGuard,
+  },
   contract_areas: { read: (x, a) => (isMB(a) || isKom(a)) && member(a, x.contractId), write: (_x, a) => a.role === "admin" },
   // Prislistan: bara Miljonbemanning (synpunkt #11 – inga belopp för kommunen, 0026).
   price_items: { read: (x, a) => isMB(a) && member(a, x.contractId), write: (_x, a) => a.role === "admin" },

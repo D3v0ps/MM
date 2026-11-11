@@ -28,6 +28,7 @@ import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
 import { ContactModal } from "./kort-kontakt";
 import { ActivityModal, StartModal, TeamModal } from "./kort-start";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
+import { AcceptModal } from "@/features/inkorg/screens/modals";
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 import { CaseGroupingRow } from "@/features/grupper/screens/grouping-card";
 import { CaseStartChange, CaseStartHistory } from "./kort-startdatum";
@@ -49,7 +50,7 @@ export type TabProps = {
   openTab: (t: CaseTab, o?: { mal?: string | null; manad?: string | null }) => void;
   openModal: (m: ModalKind) => void;
 };
-type ModalKind = "coach" | "meeting" | "rebook" | "noshow" | "consent" | "start" | "plan" | "activity" | "team" | "contact";
+type ModalKind = "coach" | "meeting" | "rebook" | "noshow" | "consent" | "start" | "plan" | "activity" | "team" | "contact" | "receive";
 
 function useCrumbs() {
   const role = useSession().actor.role;
@@ -86,7 +87,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
   return (
     <CaseView
       card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} starta={query.get("starta") === "1"}
-      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"}
+      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"} taemot={query.get("taemot") === "1"}
     />
   );
 }
@@ -187,10 +188,12 @@ function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
 /** "Visa alla uppgifter" kommer ihåg läget under sessionen (bara i minnet, aldrig i adressen). */
 let showAllFacts = false;
 
-function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka }: {
+function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka, taemot }: {
   card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean;
   /** ?uteblev=1 ("Deltagaren kom inte" på Min vecka) och ?boka=1 ("Boka nytt första möte" på Min vecka): dialogen öppnas en gång. */
   uteblev: boolean; boka: boolean;
+  /** ?taemot=1 (notisen "Ny beställning att ta emot"): dialogen Ta emot öppnas en gång – bara för avtalets intagsansvarige. */
+  taemot: boolean;
 }) {
   const nav = useNav();
   const role = useSession().actor.role;
@@ -206,7 +209,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka 
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): ?uteblev=1 och ?boka=1 från Min vecka öppnar dialogerna på samma sätt.
   const canNoShow = !!card.noShow?.canRegister;
   const canRebook = !!card.noShow?.current && !!card.noShow.canRebook;
-  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : null;
+  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : taemot && card.canReceive ? "receive" : null;
   useEffect(() => {
     if (auto && !autoStarted.current) {
       autoStarted.current = true;
@@ -337,6 +340,9 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka 
       )}
       {modal === "team" && <TeamModal card={card} onClose={() => setModal(null)} />}
       {modal === "contact" && card.contact && <ContactModal card={card} onClose={() => setModal(null)} />}
+      {/* Ta emot (Karims beslut 2026-11-09): inkorgens acceptdialog, delad – för avtalets intagsansvarige. Dialogen öppnas bara med
+          canReceive (knappen, rutan och ?taemot=1) men står kvar när beställningen är mottagen, så att kvittensen hinner läsas. */}
+      {modal === "receive" && <AcceptModal intake caseId={card.caseId} caseNumber={card.caseNumber} onClose={() => setModal(null)} />}
     </Page>
   );
 }
@@ -435,6 +441,8 @@ function CaseFacts({ card: c, onRegister, onEditContact }: { card: CaseCard; onR
     ["Avtalsområde", `${c.areaName}${c.secondaryAreaName ? ` (även ${c.secondaryAreaName})` : ""}`],
     ["Yrkesspår", c.vocationalTrack || "Väljs i kartläggningen"],
     ["Beställd", `${fmtDate(c.referredAt)} kl. ${fmtTime(c.referredAt)} via ${c.sourceText}`],
+    // Första mötet som gäller – också det flyttade när deltagaren kom före det bokade mötet (Karims beslut 2026-11-09).
+    c.firstMeetingAt ? ["Första mötet", fmtDateTimeLong(c.firstMeetingAt)] : null,
     ["Start", c.startDate ? fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${fmtDate(c.firstMeetingAt)}` : "Inte bestämd"],
     ["Planerat slut", c.plannedEnd ? fmtDate(c.plannedEnd) : "Inte angivet"],
     c.endDate
@@ -760,6 +768,8 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   if (c.start) btns.push(<Button key="start" kind={rebookFirst ? "secondary" : "primary"} icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
   if (ns?.canRegister) btns.push(<Button key="noshow" icon="x-circle" className={btn} onClick={() => openModal("noshow")}>Deltagaren kom inte</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
+  // Ta emot (Karims beslut 2026-11-09): avtalets intagsansvarige tar emot beställningen här – samma dialog som inkorgens Acceptera.
+  if (c.canReceive) btns.push(<Button key="receive" kind="primary" icon="check" className={btn} onClick={() => openModal("receive")}>Ta emot</Button>);
   if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
   // Mötet (beslut 2026-10-09): "Spela in mötet" är coachens huvudväg – inspelning, AI-utkast till mötesrapport, granskning och godkännande på samma skärm.
   // Har deltagaren sagt nej eller återkallat samtycket erbjuds ingen inspelning: huvudknappen är "Nytt möte" (manuell dokumentation).

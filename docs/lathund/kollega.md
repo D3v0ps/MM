@@ -69,6 +69,18 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 
 Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du det som är ditt ansvar och förfaller i dag och den här veckan. Tryck på **Alla** för att se allt i avtalet.
 
+### När intagsansvarig har tagit emot
+
+Avtalet kan ha en **intagsansvarig**. Det är en coach som tar emot nya beställningar själv, utan att vänta på samordnaren.
+
+- Du får en notis i appen: **Ny deltagare mottagen – BOT-…**. Notisen säger vem som tog emot, när första mötet är och vem som är huvudcoach. Tryck på notisen för att öppna deltagarkortet.
+- Notisen kommer bara i appen. Du får inget mejl och inget SMS.
+- Beställningen försvinner från din lista **Att göra** och från **Avropsinkorg** när den är mottagen.
+- Du kan fortfarande ta emot beställningen själv med **Acceptera avropet**. Den som trycker först tar emot. Den andra får beskedet att beställningen redan är besvarad.
+- Har kommunen svarat med en komplettering? För in den i **Avropsinkorg** så snart du kan. Den intagsansvarige kan inte ta emot beställningen förrän kompletteringen är införd.
+- Bara samordnaren och avtalsansvarig avböjer och registrerar beställningar.
+- Har avtalet ingen intagsansvarig tar du emot alla beställningar, som förut.
+
 ### Ring deltagaren
 
 Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift i listan **Att göra** på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Sista tiden är första mötets tid. Telefonnumret står i raden. Tryck på **Kopiera numret** och ring från din telefon. När du har ringt trycker du på **Ringt – kallad**. Ska mötet ha en annan tid trycker du på **Boka om**.
@@ -86,11 +98,56 @@ Kommunen avbryter en insats genom att mejla avrop@ med ärendenumret. Mejlet st�
 
 Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns under **Min vardag**.
 
+### Ta emot en ny beställning (intagsansvarig)
+
+Det här gäller dig som är avtalets **intagsansvarige**. Systemadministratören väljer vem det är. Andra coacher ser inte beställningarna och kan inte ta emot dem.
+
+1. När en ny beställning kommer in får du notisen **Ny beställning att ta emot – BOT-…** i appen. Beställningen står också som en rad i listan **Att göra i dag** på Min vecka. Raden visar när kommunen senast ska ha svar.
+2. Tryck på **Ta emot**. Samma knapp finns på deltagarkortet.
+3. Läs underlaget från handläggaren i dialogen.
+4. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde är det redan ifyllt.
+5. Välj **Huvudcoach**. Du är förvald. Välj en annan coach om någon annan ska ha deltagaren.
+6. Fyll i **Första möte – datum** och **Första möte – tid**.
+7. Tryck på **Ta emot**.
+
+Det här händer:
+
+- Kommunen får orderbekräftelsen i portalen och ett mejl utan personuppgifter.
+- Deltagaren får en kallelse till första mötet.
+- Samordnarna får en notis i appen om att deltagaren är mottagen.
+- Huvudcoachen får en notis om tilldelningen.
+
+Bra att veta:
+
+- Kommunen ska ha svar inom en arbetsdag. Ta emot samma dag om du kan.
+- Kan vi inte ta uppdraget? Säg till samordnaren. Bara samordnaren och avtalsansvarig avböjer.
+- Har samordnaren redan tagit emot beställningen får du beskedet att den redan är besvarad. Då behöver du inte göra något.
+- Står det **En komplettering väntar i inkorgen** i dialogen? Då har kommunen skickat nya uppgifter som inte är införda än. Be samordnaren föra in kompletteringen. Sedan kan du ta emot.
+- Är du borta, till exempel på semester? Be systemadministratören välja en annan intagsansvarig.
+
 ### Starta insatsen
 
 1. Tryck på **Starta insatsen** i listan **Att göra i dag** på Min vecka, eller öppna ärendet från **Mina ärenden**.
 2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
+
+### Deltagaren kom före det bokade första mötet
+
+Kom deltagaren tidigare än det bokade första mötet? Starta insatsen den dag hen kom.
+
+1. Öppna deltagarkortet och tryck på **Starta insatsen**.
+2. Välj dagen deltagaren kom som **Startdatum**. Det går i dag eller en dag som har varit, tidigast beställningens dag. Dagen ska vara en vardag.
+3. Fyll i **Klockslag för mötet**. Det bokade mötets klockslag är förvalt.
+4. Kontrollera veckoplanen och tryck på **Starta insatsen**.
+
+Det här händer:
+
+- Första mötet flyttas till startdagen. Planerat slut räknas om från den dagen. Dialogen visar det nya slutet innan du startar.
+- Kommunen får ett mejl om att orderbekräftelsen är uppdaterad. Den nya orderbekräftelsen finns i portalen.
+- Deltagaren får ingen kallelse. Hen har redan kommit.
+- Veckorna räknas i fakturaunderlaget från startdatumet.
+- Ska mötet hållas en kommande dag före det bokade? Då bokar samordnaren om första mötet i stället.
+- Är månaden redan fakturerad eller godkänd av ekonomen går det inte. Kontakta ekonomen.
 
 ### Deltagaren kom inte till första mötet
 
@@ -351,6 +408,22 @@ Fliken **Administratör** har **Användare och roller**, **Underbiträden och in
 2. Tryck på **Lägg till kollega**. Fyll i **Namn**, **E-postadress** (måste vara en adress på Miljonbemannings domän), **Titel** och **Roller**.
 3. Tryck på **Lägg till kollega** i dialogen. Kollegan får ett mejl med en länk till appen och till den här lathunden. Inga personuppgifter i mejlet.
 4. Ändra roller senare under **Roller** och tryck på **Spara roller**.
+
+### Välja intagsansvarig
+
+Intagsansvarig är coachen som tar emot avtalets nya beställningar. Personen får en notis när en ny beställning kommer in och bokar första mötet.
+
+1. Öppna **Användare och roller** och tryck på länken **Avtal och konfiguration**.
+2. Under **Avtalsfakta** står raden **Intagsansvarig – tar emot nya deltagare**. Tryck på **Ändra**.
+3. Välj en coach i listan, eller **Ingen (samordnaren tar emot)**.
+4. Tryck på **Spara**.
+
+Bra att veta:
+
+- Bara kollegor med rollen coach i avtalet finns i listan. Ge rollen under **Användare och roller** först.
+- Byt person vid semester. Den nya personen får en notis för varje beställning som väntar på svar, och nya beställningar går till hen direkt.
+- Tar du bort rollen coach från personen, eller spärrar personen, står avtalet utan intagsansvarig. Då tar samordnaren emot tills du har valt en ny.
+- Bytet står i revisionsloggen.
 
 ## Hjälp
 

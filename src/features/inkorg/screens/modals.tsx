@@ -3,17 +3,20 @@
 // Acceptdialogen (beslut 2026-10-07, synpunkt #8): Miljonbemanning väljer avtalsområde och yrkesspår, omfattningen är
 // förifylld ur beställningen (6/12 månader eller annan tidsperiod) och beställarreferensen är valfri. Handläggarens
 // bakgrundsinformation och bilagor visas som underlag. Inga belopp.
+// Samma dialog för avtalets intagsansvarige (Karims beslut 2026-11-09): coachens Min vecka och deltagarkortet öppnar AcceptModal
+// med Ta emot. Underlaget kommer från arenden.acceptForm (inkorgens frågor når coachen aldrig); för den intagsansvarige heter
+// dialogen Ta emot, huvudcoachen är förvald (hen själv) och kvittensen är en kort ruta – inte inkorgens kvittens.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
 import { addWorkingDays, dayOf, fmtDate, fmtWeekday, holidayName, isWorkingDay, orderPeriodEnd } from "@/core/time";
-import { caseAccept, caseDecline, ORDER_REASON_MAX, ORDER_REASON_MIN } from "@/features/arenden/api";
+import { caseAccept, caseAcceptForm, caseDecline, ORDER_REASON_MAX, ORDER_REASON_MIN, type AcceptFormView } from "@/features/arenden/api";
 import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import {
   Button, cn, DateInput, ErrorNotice, ErrorSummary, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Seg, Select, SlaBadge, TextArea, TimeInput, toast,
 } from "@/ui";
-import { inboxCorrect, inboxDecisionForm, type CorrectForm, type DecisionForm } from "../api";
+import { inboxCorrect, inboxDecisionForm, type CorrectForm } from "../api";
 import { DECLINE_REASONS, FIELD_LABEL, ORDER_FIELDS, refErrorMB, type OrderFieldKey } from "../texts";
 import { ConfirmationCard } from "./cards";
 
@@ -40,12 +43,33 @@ function Loader({ title, onClose, error, children }: { title: string; onClose: (
 /** next = nästa avrop att hantera (knappen i kvittensen). */
 export type NextAction = { label: string; open: () => void } | null;
 
+/**
+ * Acceptera (samordnare och avtalsansvarig) eller Ta emot (avtalets intagsansvarige – intake). Underlaget: arenden.acceptForm.
+ * Svarar servern null finns beställningen inte, är redan besvarad eller så får rollen inte ta emot den.
+ */
 export function AcceptModal({
-  caseId, caseNumber, onClose, onShowEmail, next = null,
-}: { caseId: string; caseNumber: string; onClose: () => void; onShowEmail?: (id: string) => void; next?: NextAction }) {
-  const q = useQuery(inboxDecisionForm, { caseId });
-  if (q.error || !q.data) return <Loader title={`Acceptera ${caseNumber}`} onClose={onClose} error={q.error ?? (q.data === null ? new Error() : undefined)} />;
-  return <AcceptForm f={q.data} onClose={onClose} onShowEmail={onShowEmail} next={next} />;
+  caseId, caseNumber, onClose, onShowEmail, next = null, intake = false,
+}: { caseId: string; caseNumber: string; onClose: () => void; onShowEmail?: (id: string) => void; next?: NextAction; intake?: boolean }) {
+  const q = useQuery(caseAcceptForm, { caseId });
+  const verb = intake ? "Ta emot" : "Acceptera";
+  // Underlaget som dialogen fick behålls: när den intagsansvarige har tagit emot beställningen räknas frågan om och svarar null
+  // (beställningen väntar inte längre på svar) – kvittensen ska ändå stå kvar tills dialogen stängs.
+  const [kept, setKept] = useState<AcceptFormView | null>(null);
+  if (q.data && q.data !== kept) setKept(q.data);
+  const form = q.data ?? kept;
+  if (!form && q.data === null) {
+    return (
+      <Modal title={`${verb} ${caseNumber}`} onClose={onClose} footer={<Button kind="primary" onClick={onClose}>Stäng</Button>}>
+        <Notice tone="warn" title={intake ? "Beställningen kan inte tas emot här" : "Avropet kan inte accepteras här"}>
+          {intake
+            ? `${caseNumber} är redan besvarad, eller så tas den emot av samordnaren. Ladda om sidan för att se läget.`
+            : `${caseNumber} finns inte, eller så har du inte behörighet att se den. Ladda om sidan för att se läget.`}
+        </Notice>
+      </Modal>
+    );
+  }
+  if (!form) return <Loader title={`${verb} ${caseNumber}`} onClose={onClose} error={q.error} />;
+  return <AcceptForm f={form} onClose={onClose} onShowEmail={onShowEmail} next={next} />;
 }
 
 /** Valet "Annan tidsperiod" (övriga val är antal månader ur avtalet). */
@@ -55,12 +79,16 @@ const periodOptions = (p: { months: number[]; allowOther: boolean }) => [
   ...(p.allowOther ? [{ value: OTHER, label: "Annan tidsperiod" }] : []),
 ];
 
-function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void; next: NextAction }) {
+function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onClose: () => void; onShowEmail?: (id: string) => void; next: NextAction }) {
   const accept = useCommand(caseAccept);
   const role = useSession().actor.role;
+  // Den intagsansvarige tar emot (Karims beslut 2026-11-09): samma dialog med orden Ta emot.
+  const intake = f.intake;
+  const [invitation, setInvitation] = useState("");
   // Ingen kollega har rollen huvudcoach ännu (tom databas): avropet kan inte accepteras förrän någon fått rollen.
   const noCoach = f.coaches.length === 0;
-  const [coach, setCoach] = useState("");
+  // Förvald huvudcoach: den intagsansvarige själv (går att byta) – annars ingen.
+  const [coach, setCoach] = useState(f.defaultCoachId && f.coaches.some((u) => u.id === f.defaultCoachId) ? f.defaultCoachId : "");
   // Arbetsgivarmatchare och SYV/metodstöd (beslut 2026-10-08): vem som helst av MB-personalen utom ekonom och admin.
   const [matcher, setMatcher] = useState("");
   const [counselor, setCounselor] = useState("");
@@ -141,13 +169,37 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
       const field = res.error === "buyer_ref" ? "ink-ref" : res.error === "area" ? "ink-area" : res.error === "order_period" ? "ink-period"
         : res.error === "past" || res.error === "before_order" || res.error === "not_working_day" ? "ink-fm-date" : null;
       if (res.error === "buyer_ref") setRefServerErr(res.message || `Beställarreferensen ska vara ${f.refLen} siffror.`);
-      toast(res.message ? `Avropet kan inte accepteras ännu. ${res.message}` : "Avropet kunde inte accepteras. Försök igen.", "error");
+      toast(
+        res.message
+          ? `${intake ? "Beställningen kan inte tas emot ännu." : "Avropet kan inte accepteras ännu."} ${res.message}`
+          : intake ? "Beställningen kunde inte tas emot. Försök igen." : "Avropet kunde inte accepteras. Försök igen.",
+        "error",
+      );
       if (field) focusField(field);
       return;
     }
-    toast(`${f.caseNumber} är accepterat. Orderbekräftelsen är skickad till kommunen.`);
+    toast(intake ? `${f.caseNumber} är mottagen. Orderbekräftelsen är skickad till kommunen.` : `${f.caseNumber} är accepterat. Orderbekräftelsen är skickad till kommunen.`);
+    setInvitation(res.invitation);
     setDone(true);
   };
+
+  if (done && intake) {
+    // Den intagsansvariges kvittens: vad som har hänt – inkorgens kvittens (ordererkännande, mejl och notiser) läser coachen inte.
+    return (
+      <Modal title="Deltagaren är mottagen" onClose={onClose} footer={<Button kind="primary" onClick={onClose}>Klart</Button>}>
+        <div ref={doneRef} className="flex flex-col gap-4">
+          <Notice tone="ok" title={`${f.caseNumber} är mottagen`}>
+            Första mötet är bokat {fmtWeekday(date)} kl. {time.replace(":", ".")}. {invitation}
+          </Notice>
+          <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5">
+            <li>Orderbekräftelsen är publicerad i portalen. Kommunen har fått ett mejl utan personuppgifter.</li>
+            <li>Samordnarna har fått en notis i appen om att deltagaren är mottagen.</li>
+            <li>Huvudcoachen och teamet har fått en notis om tilldelningen.</li>
+          </ul>
+        </div>
+      </Modal>
+    );
+  }
 
   if (done) {
     return (
@@ -178,19 +230,22 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
 
   return (
     <Modal
-      title={`Acceptera ${f.caseNumber}`}
+      title={`${intake ? "Ta emot" : "Acceptera"} ${f.caseNumber}`}
       onClose={onClose}
       wide
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>Avbryt</Button>
-          <Button kind="primary" icon="check" pending={accept.pending} disabled={noCoach} onClick={() => void submit()}>Acceptera avropet</Button>
+          <Button kind="ghost" onClick={onClose}>{f.supplementPending ? "Stäng" : "Avbryt"}</Button>
+          {/* En komplettering väntar i inkorgen: den intagsansvarige tar inte emot förrän samordnaren har fört in den. */}
+          {!f.supplementPending && (
+            <Button kind="primary" icon="check" pending={accept.pending} disabled={noCoach} onClick={() => void submit()}>{intake ? "Ta emot" : "Acceptera avropet"}</Button>
+          )}
         </>
       }
     >
       {tried && (
         <ErrorSummary
-          title="Rätta det här innan du accepterar"
+          title={intake ? "Rätta det här innan du tar emot" : "Rätta det här innan du accepterar"}
           items={ORDER.filter(([k]) => (k === "ref" ? refNow : errs[k])).map(([k, id]) => ({ id, text: (k === "ref" ? refNow : errs[k]) as string }))}
         />
       )}
@@ -198,6 +253,11 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         <span className="text-small text-text-muted">Från {f.from} · {f.displayName}</span>
         {f.avropSla && <SlaBadge sla={f.avropSla.sla} dueAt={f.avropSla.dueAt} prefix="Svar:" />}
       </div>
+      {f.supplementPending && (
+        <Notice tone="warn" icon="link" title="En komplettering väntar i inkorgen">
+          Kommunen har skickat en komplettering som väntar i inkorgen. Be samordnaren föra in den innan du tar emot.
+        </Notice>
+      )}
       <CaseBackgroundCard bg={f.background} title="Underlag från handläggaren" />
       {f.pendingSup && (
         <Notice tone="info" icon="link" title="Det finns en komplettering att föra in först">
@@ -227,7 +287,9 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
             </div>
           </Notice>
         ) : (
-          <div className="text-text-muted">Samma coach genom hela insatsen. Antal aktiva ärenden visas för att fördela jämnt.</div>
+          <div className="text-text-muted">
+            Samma coach genom hela insatsen. Antal aktiva ärenden visas för att fördela jämnt.{intake ? " Du är förvald – välj en annan coach om någon annan ska ha deltagaren." : ""}
+          </div>
         )}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] gap-2">
           {f.coaches.map((u) => (
@@ -340,8 +402,8 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         </Field>
       </FormGrid>
 
-      <Notice tone="info" icon="bell" title="När du accepterar">
-        Orderbekräftelsen publiceras i portalen, teamet får en notis och deltagaren får kallelse.
+      <Notice tone="info" icon="bell" title={intake ? "När du tar emot" : "När du accepterar"}>
+        Orderbekräftelsen publiceras i portalen, teamet får en notis och deltagaren får kallelse.{intake ? " Samordnarna får en notis i appen om att deltagaren är mottagen." : ""}
       </Notice>
     </Modal>
   );

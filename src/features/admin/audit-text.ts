@@ -61,6 +61,8 @@ export const ACTION_LABEL: Record<string, string> = {
   // Loggen har bara id:n, roller och domänen – aldrig namn eller adresser.
   "staff_user.added": "Lade till kollega", "staff_user.roles_changed": "Ändrade kollegas roller", "staff_user.blocked": "Spärrade kollega", "staff_user.reactivated": "Aktiverade kollega",
   "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
+  // Intagsansvarig (Karims beslut 2026-11-09): avtalets coach som tar emot nya beställningar – bara id:n i loggen.
+  "contract.intake_coach_changed": "Bytte intagsansvarig",
   // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
   "email.registered": "Registrerade beställning i inkorgen",
   // Coachmötet 2026-10-09: gruppaktiviteter och automatisk närvaro. Loggen har id:n, antal och tider – aldrig namn.
@@ -171,7 +173,10 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
-  via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare", portal: "portalen", mejl: "mejl (registrerat av Miljonbemanning)" },
+  via: {
+    grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare", portal: "portalen", mejl: "mejl (registrerat av Miljonbemanning)",
+    intake_coach: "avtalets intagsansvarige",
+  },
   weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
   fileKind: { order: "bilaga till beställningen", participant: "fil på deltagarkortet" },
   mimeType: {
@@ -190,6 +195,10 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
     unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
+    // Starta insatsen före det bokade första mötet (Karims beslut 2026-11-09): mötet flyttades till startdagen.
+    came_earlier: "deltagaren kom före det bokade mötet – första mötet flyttades till startdagen",
+    // Intagsansvarig (Karims beslut 2026-11-09): avtalet står utan intagsansvarig när rollen coach tas bort eller kollegan spärras.
+    role_removed: "rollen coach togs bort", blocked: "kollegan spärrades",
   },
   // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).
   sharingFrom: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef", __new: "Ny rapport" },

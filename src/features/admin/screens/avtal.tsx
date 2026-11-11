@@ -17,7 +17,7 @@ import { useSession } from "@/shell/session";
 import {
   Badge, BuildPhase, Button, Card, Field, Icon, Notice, Page, QueryView, Refreshing, Row, Section, Select, Stack, TabPanel, Table, Tabs, cn, toast, type IconName, type TabDef,
 } from "@/ui";
-import { adminContract, adminSetContractManager, type ContractFacts, type ContractSummary, type ContractView } from "../api";
+import { adminContract, adminSetContractManager, adminSetIntakeCoach, type ContractFacts, type ContractSummary, type ContractView } from "../api";
 import { cap, DATA_ROLE, findUnset, humanPattern, LANGUAGE, OCCASION, ROLE_WORD, slaRuleText, UNIT, UNSET_INFO, whoDecides, WINDOW } from "../contract-text";
 import { InternalRules } from "./interna";
 import { Details, KV, Masonry, Pre, Small, Unset, Val, YesNo } from "./parts";
@@ -169,6 +169,7 @@ function FactsCard({ k, yearShort }: { k: ContractFacts; yearShort: string }) {
             ["Ärendeprefix", `${k.casePrefix} – till exempel ${k.casePrefix}-${yearShort}-0001`],
             ["Tillåtna e-postdomäner", k.emailDomains.length ? k.emailDomains.join(", ") : "Inga ännu – läggs till före start"],
             ["Avtalsansvarig", <ManagerCell key="manager" k={k} />],
+            ["Intagsansvarig – tar emot nya deltagare", <IntakeCoachCell key="intake" k={k} />],
             ["Omfattning", k.scope ?? "–"],
           ]}
         />
@@ -214,6 +215,64 @@ function ManagerCell({ k }: { k: ContractFacts }) {
     <Stack gap="sm">
       <Field id="avtal-manager" label="Välj avtalsansvarig" help="Bara kollegor med rollen avtalsansvarig i avtalet. Ge rollen under Användare och roller först.">
         <Select id="avtal-manager" value={picked} onValueChange={setPicked} options={k.managerOptions.map((o) => ({ value: o.id, label: o.name }))} />
+      </Field>
+      <Row gap="sm">
+        <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
+          Spara
+        </Button>
+        <Button kind="ghost" onClick={() => setEditing(false)}>
+          Avbryt
+        </Button>
+      </Row>
+    </Stack>
+  );
+}
+
+/** Valet "Ingen" i listan (ett tomt värde är inget val i Select). */
+const NO_INTAKE = "ingen";
+
+/**
+ * Intagsansvarig (Karims beslut 2026-11-09): systemadministratören väljer coachen som tar emot avtalets nya beställningar – eller
+ * ingen, och då tar samordnaren emot som förut. Rollen coach ges under Användare och roller.
+ */
+function IntakeCoachCell({ k }: { k: ContractFacts }) {
+  const save = useCommand(adminSetIntakeCoach);
+  const [editing, setEditing] = useState(false);
+  const [picked, setPicked] = useState<string>(k.intakeCoachId ?? NO_INTAKE);
+  const submit = async () => {
+    const userId = picked === NO_INTAKE ? null : picked;
+    if (userId === k.intakeCoachId) {
+      setEditing(false);
+      return;
+    }
+    const r = await save.run({ contractId: k.id, userId }).catch(() => null);
+    if (!r || !r.ok) {
+      toast((r && !r.ok && r.message) || "Intagsansvarig kunde inte ändras.", "error");
+      return;
+    }
+    toast(userId ? `${k.intakeCoachOptions.find((o) => o.id === userId)?.name ?? "Kollegan"} är nu intagsansvarig.` : "Avtalet har ingen intagsansvarig. Samordnaren tar emot nya beställningar.");
+    setEditing(false);
+  };
+  if (!editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span>{k.intakeCoachName ?? "Ingen (samordnaren tar emot)"}</span>
+        <Button kind="ghost" icon="edit" onClick={() => { setPicked(k.intakeCoachId ?? NO_INTAKE); setEditing(true); }}>
+          Ändra <span className="sr-only">intagsansvarig</span>
+        </Button>
+      </span>
+    );
+  }
+  return (
+    <Stack gap="sm">
+      <Field
+        id="avtal-intake" label="Intagsansvarig – tar emot nya deltagare"
+        help="Personen får en notis när en ny beställning kommer in och bokar första mötet. Byt person vid semester."
+      >
+        <Select
+          id="avtal-intake" value={picked} onValueChange={setPicked}
+          options={[{ value: NO_INTAKE, label: "Ingen (samordnaren tar emot)" }, ...k.intakeCoachOptions.map((o) => ({ value: o.id, label: o.name }))]}
+        />
       </Field>
       <Row gap="sm">
         <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>

@@ -18,6 +18,9 @@ const KIND: Record<NotifView["kind"], { label: string; icon: IconName; tone: Bad
   progress_escalation: { label: "Eskalering", icon: "flag", tone: "red" },
   message: { label: "Meddelande", icon: "message", tone: "outline" },
   bonus_decision: { label: "Bonusbeslut", icon: "award", tone: "bluetone" },
+  // Intagsansvarig (Karims beslut 2026-11-09): en ny beställning att ta emot, och en deltagare som är mottagen. Bara i appen.
+  new_order: { label: "Ny beställning", icon: "inbox", tone: "bluetone" },
+  case_received: { label: "Mottagen", icon: "check-circle", tone: "outline" },
 };
 type Filter = "alla" | "olasta" | NotifView["kind"];
 
@@ -75,6 +78,8 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
     const id = encodeURIComponent(n.caseId);
     if (n.kind === "progress_reminder") return { to: `/avstamning/${id}`, label: "Öppna mötet" };
     if (n.kind === "message") return { to: `/arenden/${id}?flik=meddelanden`, label: "Läs meddelandet" };
+    // Ny beställning att ta emot: dialogen Ta emot öppnas på deltagarkortet (?taemot=1).
+    if (n.kind === "new_order") return { to: `/arenden/${id}?taemot=1`, label: "Öppna beställningen" };
     return { to: `/arenden/${id}`, label: "Öppna ärendet" };
   };
   return (

@@ -8,11 +8,13 @@ import type { Ctx } from "@/api/server";
 import { ackTextFor, caseCounterId, duplicateActive, nextCaseNumber } from "@/core/cases";
 import { requireOperational, type OperationalConfig } from "@/core/config";
 import { defaultPreferredContact } from "@/core/contact";
+import { avropDue } from "@/core/sla";
 import { billableWeekCount, orderPeriodEnd, type LocalDate } from "@/core/time";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import type { Case, CaseSource, CaseStatus, CaseStatusHistory, Contract, OrderField, Person, PreferredContact, PriorAssessment } from "@/data/schema";
 import { requireAttachments } from "../_shared/attachment-port";
 import { referrerEmail } from "../_shared/context";
+import { notifyIntakeCoach } from "../_shared/intake";
 import { protectPnr } from "../_shared/pnr";
 import { MAX_ORDER_WEEKS, ORDER_REASON_MIN } from "./api";
 
@@ -236,5 +238,8 @@ export async function createOrder(ctx: Ctx, p: CreateOrderInput): Promise<Create
     ? (await ctx.repo.table("contract_areas").list({ contractId: contract.id, active: true })).sort((a, b) => a.code.localeCompare(b.code, "sv")).map((a) => ({ code: a.code, name: a.name }))
     : [];
   await ctx.notify({ channel: "email", to, template: "ordererkannande", body: orderAckText(c, cfg, missing, { unclear: p.unclearFields, areas }), caseId: c.id });
+  // Avtalets intagsansvarige får en notis i appen om att en ny beställning väntar (Karims beslut 2026-11-09) – här, där varje
+  // beställning skapas: portalen, det inlästa mejlavropet och samordnarens registrering. Utan intagsansvarig händer ingenting.
+  await notifyIntakeCoach(ctx, c, avropDue(c, cfg));
   return { ok: true, caseId: c.id, caseNumber, personId: person.id };
 }

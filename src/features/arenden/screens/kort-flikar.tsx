@@ -49,6 +49,22 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
               </div>
             )}
             {writing && <NoteDialog card={card} note={null} presetKind="conversation" onClose={() => setWriting(false)} />}
+            {/* Ta emot (Karims beslut 2026-11-09): beställningen väntar på avtalets intagsansvarige – underlaget står i Bakgrund från beställningen. */}
+            {card.canReceive && (
+              <Notice tone="info" icon="inbox" title="Ny beställning att ta emot">
+                <Stack gap="sm">
+                  <div>
+                    Läs underlaget från handläggaren under Bakgrund från beställningen. Boka första mötet och tryck på Ta emot – kommunen får orderbekräftelsen
+                    och samordnarna en notis.
+                  </div>
+                  <div>
+                    <Button kind="primary" icon="check" onClick={() => openModal("receive")}>
+                      Ta emot
+                    </Button>
+                  </div>
+                </Stack>
+              </Notice>
+            )}
             {needsMeeting && (
               <Notice tone="critical" title="Första mötet är inte bokat">
                 <Stack gap="sm">
@@ -76,6 +92,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                   <div>
                     Första mötet {fmtDateTimeLong(card.start.firstMeetingAt)}. När insatsen startar blir ärendet Pågår, tillfällena skapas enligt veckoplanen och närvaron kan registreras.
                     {card.noShow?.canRegister ? " Kom deltagaren inte? Registrera det – då startar insatsen inte och inget faktureras." : ""}
+                    {/* Deltagaren kom före det bokade mötet (Karims beslut 2026-11-09): insatsen startas den dag hen kom. */}
+                    {dayOf(card.start.firstMeetingAt) > today ? " Kom deltagaren före det bokade mötet? Starta insatsen och välj dagen hen kom." : ""}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button kind="primary" icon="play" onClick={() => openModal("start")}>

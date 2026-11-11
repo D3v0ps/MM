@@ -11,8 +11,11 @@ import { noProgressStreak } from "@/core/progression";
 import { dayOf } from "@/core/time";
 import { by } from "@/core/util";
 import type { Contract } from "@/data/schema";
+import { intakeCoachChanged } from "../_shared/intake";
 import { ruleDiffText, type RuleSnapshot } from "./audit-text";
-import { adminContract, adminOrgRules, adminSetContractManager, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption } from "./api";
+import {
+  adminContract, adminOrgRules, adminSetContractManager, adminSetIntakeCoach, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption,
+} from "./api";
 import { isDemoCreated, mainContract, orgRow, userNames } from "./shared";
 
 const summaryOf = (c: Contract, customerName: string): ContractSummary => ({
@@ -22,6 +25,13 @@ const summaryOf = (c: Contract, customerName: string): ContractSummary => ({
 /** Kollegorna som kan vara avtalsansvariga: aktiva i leverantörsorganisationen med rollen avtalsansvarig i avtalet. */
 async function managerOptions(ctx: Ctx, c: Contract): Promise<{ id: string; name: string }[]> {
   const [ms, staff] = await Promise.all([ctx.repo.table("memberships").list({ contractId: c.id, role: "avtalsansvarig" }), ctx.repo.table("profiles").list({ organizationId: c.supplierId })]);
+  const ids = new Set(ms.map((m) => m.userId));
+  return staff.filter((p) => p.active && ids.has(p.id)).sort(by((p) => p.fullName)).map((p) => ({ id: p.id, name: p.fullName }));
+}
+
+/** Kollegorna som kan vara intagsansvariga (Karims beslut 2026-11-09): aktiva i leverantörsorganisationen med rollen coach i avtalet. */
+async function intakeCoachOptions(ctx: Ctx, c: Contract): Promise<{ id: string; name: string }[]> {
+  const [ms, staff] = await Promise.all([ctx.repo.table("memberships").list({ contractId: c.id, role: "coach" }), ctx.repo.table("profiles").list({ organizationId: c.supplierId })]);
   const ids = new Set(ms.map((m) => m.userId));
   return staff.filter((p) => p.active && ids.has(p.id)).sort(by((p) => p.fullName)).map((p) => ({ id: p.id, name: p.fullName }));
 }
@@ -44,6 +54,9 @@ async function factsOf(ctx: Ctx, c: Contract): Promise<ContractFacts> {
     managerName: name(c.contractManagerId),
     managerId: c.contractManagerId ?? null,
     managerOptions: await managerOptions(ctx, c),
+    intakeCoachId: c.intakeCoachId ?? null,
+    intakeCoachName: c.intakeCoachId ? name(c.intakeCoachId) : null,
+    intakeCoachOptions: await intakeCoachOptions(ctx, c),
     termination: texts?.termination ?? null,
     scope: texts?.scope ?? null,
   };
@@ -119,6 +132,27 @@ handleCommand(adminSetContractManager, { roles: ["admin"], commercial: true }, a
   if (c.contractManagerId === p.userId) return fail("unchanged", "Kollegan är redan avtalsansvarig.");
   await ctx.repo.table("contracts").update(c.id, { contractManagerId: p.userId });
   await ctx.audit({ action: "contract.manager_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { from: c.contractManagerId ?? null, to: p.userId } });
+  return ok({});
+});
+
+// ---------------------------------------------------------------- Intagsansvarig (Karims beslut 2026-11-09, migration 0041)
+// Administratören väljer coachen som tar emot avtalets nya beställningar – eller ingen (samordnaren tar emot, som förut). Bara
+// systemadministratören ändrar avtalet (policyn och RLS för contracts); databasen prövar att personen har rollen coach i avtalet
+// (triggern contracts_intake_coach_check). Loggen har bara id:n.
+handleCommand(adminSetIntakeCoach, { roles: ["admin"], commercial: true }, async (ctx, p) => {
+  const c = await ctx.repo.table("contracts").get(p.contractId);
+  if (!c) return fail("not_found", "Avtalet finns inte.");
+  const to = p.userId ?? null;
+  if (to && !(await intakeCoachOptions(ctx, c)).some((o) => o.id === to)) {
+    return fail("not_coach", "Personen måste ha rollen coach i avtalet. Ge rollen under Användare och roller först.");
+  }
+  const from = c.intakeCoachId ?? null;
+  if (from === to) return fail("unchanged", to ? "Personen är redan intagsansvarig." : "Avtalet har redan ingen intagsansvarig.");
+  await ctx.repo.table("contracts").update(c.id, { intakeCoachId: to });
+  await ctx.audit({ action: "contract.intake_coach_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { from, to } });
+  // Notiserna följer personen: den förras notiser om beställningar att ta emot märks som lästa, och den nya får en notis för
+  // varje beställning som väntar på svar (högst en per ärende och person).
+  await intakeCoachChanged(ctx, c, from, to);
   return ok({});
 });
 
