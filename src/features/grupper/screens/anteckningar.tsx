@@ -17,8 +17,8 @@ import { Badge, Button, Card, CaseStatusBadge, DateInput, Empty, ErrorNotice, Fi
 import { CASE_NOTE_KINDS, type CaseNoteKind } from "@/data/schema";
 import { defaultMassNoteScope, massNotePage, massNoteSave, MASS_NOTE_SCOPES, type GroupingCatalog, type MassNotePage, type MassNoteScope } from "../api";
 
-const SCOPE_LABEL: Record<MassNoteScope, string> = { mina: "Mina ärenden", niva: "En nivå", omrade: "Ett yrkesområde", tagg: "En tagg" };
-const CHOICE_LABEL: Record<Exclude<MassNoteScope, "mina">, { field: string; placeholder: string; empty: string; help: string }> = {
+const SCOPE_LABEL: Record<MassNoteScope, string> = { alla: "Alla deltagare", mina: "Mina ärenden", niva: "En nivå", omrade: "Ett yrkesområde", tagg: "En tagg" };
+const CHOICE_LABEL: Record<Exclude<MassNoteScope, "mina" | "alla">, { field: string; placeholder: string; empty: string; help: string }> = {
   niva: { field: "Nivå", placeholder: "Välj nivå", empty: "Välj en nivå", help: "Välj nivå i rutan Nivå ovanför. Då visas nivåns deltagare med en rad var." },
   omrade: {
     field: "Yrkesområde", placeholder: "Välj yrkesområde", empty: "Välj ett yrkesområde",
@@ -34,7 +34,8 @@ export function AnteckningarScreen({ query }: ScreenProps) {
   const urval = pick(query, "urval", MASS_NOTE_SCOPES, def);
   const id = query.get("id") ?? undefined;
   const avtal = query.get("avtal") ?? undefined;
-  const q = useQuery(massNotePage, { urval, id: urval === "mina" ? undefined : id, contractId: avtal }, { keepPrevious: true });
+  const listed = urval === "mina" || urval === "alla";
+  const q = useQuery(massNotePage, { urval, id: listed ? undefined : id, contractId: avtal }, { keepPrevious: true });
   const actions = (
     <Button kind="ghost" icon="layers" to="/grupper">
       Grupper och nivåer
@@ -62,14 +63,14 @@ export function AnteckningarScreen({ query }: ScreenProps) {
           <Field label="Visa" id="mn-urval">
             <Select value={urval} onValueChange={(v) => patch({ urval: v === def ? null : v, id: null })} options={MASS_NOTE_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))} />
           </Field>
-          {urval !== "mina" && (
+          {!listed && (
             <Field label={CHOICE_LABEL[urval].field} id="mn-id" help="Antalet är deltagarna som får anteckningen: insatsen pågår, är pausad eller väntar på start.">
               <Select value={chosenId} placeholder={CHOICE_LABEL[urval].placeholder} onValueChange={(v) => patch({ id: v || null })} options={choices} />
             </Field>
           )}
         </FormGrid>
       </Card>
-      {urval !== "mina" && !chosenId ? (
+      {urval !== "mina" && urval !== "alla" && !chosenId ? (
         <Card>
           <Empty icon="users" title={CHOICE_LABEL[urval].empty}>
             {CHOICE_LABEL[urval].help}

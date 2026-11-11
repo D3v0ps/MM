@@ -477,6 +477,43 @@ describe("arenden: meddelanden", () => {
 
 // ================================================================ Coach
 describe("coach.attendanceSet (attendance.set)", () => {
+  /** Registrera Maria Ekdahls sista oregistrerade tillfällen v. 4 – det sista med frånvaro. Svaret på det sista kommandot. */
+  async function completeMariasWeek() {
+    const wr = () => weeklyReport(rt.store.data as never, "k-maria", "2027-W04", { now: rt.clock.now() });
+    const missing = wr().sections.flatMap((s) => s.rows.filter((r) => !r.att && r.activity.startsAt < rt.clock.now()).map((r) => ({ activityId: r.activity.id, coach: s.case.leadCoachId as string })));
+    for (const m of missing.slice(0, -1)) await run(attendanceSet, { activityId: m.activityId, status: "present" }, as(m.coach, "coach"));
+    const last = missing[missing.length - 1];
+    return run(attendanceSet, { activityId: last.activityId, status: "absent_valid", reason: "Sjukdom" }, as(last.coach, "coach"));
+  }
+
+  it("veckorapporten publiceras utan mejl till handläggaren (Karims beslut 2026-11-11) – och står som ny i portalen", async () => {
+    expect(BOTKYRKA_CONFIG.reportDelivery.weeklyAttendanceEmail).toBe(false);
+    const n = rows("outbound_messages").length;
+    expect(await completeMariasWeek()).toMatchObject({ ok: true, published: { reportId: "rep-16692" } });
+    expect(row("reports", "rep-16692")).toMatchObject({ status: "delivered", openedAt: null });
+    expect(outboundSince(n).filter((m) => m.template === "ny_rapport")).toEqual([]);
+  });
+
+  it("utan inställningen i avtalet (konfiguration sparad före beslutet) skickas inget mejl", async () => {
+    const c = rows("contracts").find((x) => x.id === row("reports", "rep-16692")!.contractId)!;
+    const cfg = structuredClone(c.config) as { reportDelivery: Record<string, unknown> };
+    delete cfg.reportDelivery.weeklyAttendanceEmail;
+    rt.store.updateRow("contracts", c.id, { config: cfg as never });
+    const n = rows("outbound_messages").length;
+    expect(await completeMariasWeek()).toMatchObject({ ok: true, published: { reportId: "rep-16692" } });
+    expect(outboundSince(n).filter((m) => m.template === "ny_rapport")).toEqual([]);
+  });
+
+  it("ett avtal som uttryckligen vill ha mejlet får det (reportDelivery.weeklyAttendanceEmail = true)", async () => {
+    const c = rows("contracts").find((x) => x.id === row("reports", "rep-16692")!.contractId)!;
+    const cfg = structuredClone(c.config) as { reportDelivery: Record<string, unknown> };
+    cfg.reportDelivery.weeklyAttendanceEmail = true;
+    rt.store.updateRow("contracts", c.id, { config: cfg as never });
+    const n = rows("outbound_messages").length;
+    expect(await completeMariasWeek()).toMatchObject({ ok: true, published: { reportId: "rep-16692" } });
+    expect(outboundSince(n).filter((m) => m.template === "ny_rapport")).toMatchObject([{ to: "maria.ekdahl@botkyrka.se", caseId: null, body: "Veckorapporten för v. 4 2027 finns i portalen – logga in för att läsa." }]);
+  });
+
   it("när den sista oregistrerade deltagaren hos en handläggare registreras publiceras veckorapporten", async () => {
     const wr = () => weeklyReport(rt.store.data as never, "k-maria", "2027-W04", { now: rt.clock.now() });
     const missing = wr().sections.flatMap((s) => s.rows.filter((r) => !r.att && r.activity.startsAt < rt.clock.now()).map((r) => ({ activityId: r.activity.id, coach: s.case.leadCoachId as string })));
@@ -492,7 +529,8 @@ describe("coach.attendanceSet (attendance.set)", () => {
     const res = await run(attendanceSet, { activityId: last.activityId, status: "absent_valid", reason: "Sjukdom" }, as(last.coach, "coach"));
     expect(res).toMatchObject({ ok: true, published: { reportId: "rep-16692", weekKey: "2027-W04", recipientName: "Maria Ekdahl", text: "Veckorapporten för v. 4 2027 till Maria Ekdahl publicerades automatiskt." } });
     expect(row("reports", "rep-16692")).toMatchObject({ status: "delivered", deliveredTo: ["k-maria"], deliveredAt: rt.store.data.attendance.at(-1)!.registeredAt });
-    expect(outboundSince(n)).toMatchObject([{ template: "ny_rapport", to: "maria.ekdahl@botkyrka.se", caseId: null, body: "Veckorapporten för v. 4 2027 finns i portalen – logga in för att läsa." }]);
+    // Inget mejl om veckorapporten (Karims beslut 2026-11-11) – testet ovan.
+    expect(outboundSince(n).filter((m) => m.template === "ny_rapport")).toEqual([]);
     // Publiceringen loggas (förifyllningen av januaris månadsbedömning kommer efter den – bästa försök, efter veckorapporten).
     expect(rows("audit_log").filter((l) => l.action === "report.published").pop()).toMatchObject({ action: "report.published", entityId: "rep-16692", details: { kind: "weekly_attendance", week: "2027-W04", automatic: true } });
     expect(rows("attendance").find((a) => a.activityId === last.activityId)).toMatchObject({ status: "absent_valid", reason: "Sjukdom", registeredBy: last.coach });

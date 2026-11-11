@@ -17,7 +17,7 @@ const KIND: Record<NotifView["kind"], { label: string; icon: IconName; tone: Bad
   progress_reminder: { label: "Påminnelse", icon: "bell", tone: "grey" },
   progress_escalation: { label: "Eskalering", icon: "flag", tone: "red" },
   message: { label: "Meddelande", icon: "message", tone: "outline" },
-  bonus_decision: { label: "Bonusbeslut", icon: "award", tone: "bluetone" },
+  bonus_decision: { label: "Beslut om progression och resultat", icon: "award", tone: "bluetone" },
   // Intagsansvarig (Karims beslut 2026-11-09): en ny beställning att ta emot, och en deltagare som är mottagen. Bara i appen.
   new_order: { label: "Ny beställning", icon: "inbox", tone: "bluetone" },
   case_received: { label: "Mottagen", icon: "check-circle", tone: "outline" },

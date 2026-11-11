@@ -23,10 +23,10 @@ import { UnderlagPaper, UnderlagPdfButton } from "./underlag";
 
 export function BonusGranskaScreen({ params }: ScreenProps) {
   const q = useQuery(bonusReview, { claimId: params.claimId ?? "" });
-  const crumbs = [{ label: "Ärenden", to: "/arenden" }, { label: "Bonus" }];
-  if (q.error) return <Page title="Bonus" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
-  if (q.data === undefined) return <Page title="Bonus" crumbs={crumbs}><Loading /></Page>;
-  if (q.data === null) return <Page title="Bonus" crumbs={crumbs}><Notice tone="info" title="Anspråket finns inte">Anspråket finns inte, eller så har du inte behörighet att se det.</Notice></Page>;
+  const crumbs = [{ label: "Ärenden", to: "/arenden" }, { label: "Progression och resultat" }];
+  if (q.error) return <Page title="Progression och resultat" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
+  if (q.data === undefined) return <Page title="Progression och resultat" crumbs={crumbs}><Loading /></Page>;
+  if (q.data === null) return <Page title="Progression och resultat" crumbs={crumbs}><Notice tone="info" title="Anspråket finns inte">Anspråket finns inte, eller så har du inte behörighet att se det.</Notice></Page>;
   return <Review key={q.data.claimId} v={q.data} />;
 }
 
@@ -34,7 +34,7 @@ type Form = BonusReviewView["fields"];
 const sameForm = (a: Form, b: Form) => JSON.stringify(a) === JSON.stringify(b);
 
 function Review({ v }: { v: BonusReviewView }) {
-  usePageTitle(`Bonus ${v.caseNumber} · bonussteg ${v.step}`);
+  usePageTitle(`Progression och resultat ${v.caseNumber} · steg ${v.step}`);
   const view = useCommand(bonusUnderlag);
   useAuditView(`bonus:${v.claimId}`, () => view.run({ claimId: v.claimId, purpose: "view" }).catch(() => undefined));
   const [form, setForm] = useState<Form>(v.fields);
@@ -49,9 +49,9 @@ function Review({ v }: { v: BonusReviewView }) {
   const caseTo = `/arenden/${encodeURIComponent(v.caseId)}?flik=handelser`;
   return (
     <Page
-      title={`Bonussteg ${v.step} · ${v.label}`}
+      title={`Steg ${v.step} · ${v.label}`}
       eyebrow={`${v.participantName} · ${v.caseNumber}`}
-      crumbs={[{ label: "Ärenden", to: "/arenden" }, { label: v.caseNumber, to: caseTo }, { label: `Bonussteg ${v.step}` }]}
+      crumbs={[{ label: "Ärenden", to: "/arenden" }, { label: v.caseNumber, to: caseTo }, { label: `Steg ${v.step}` }]}
       lead={v.canAct ? "Granska underlaget, fyll i det som saknas och skicka till kommunen. Kommunen ser bara det du skickar." : undefined}
       actions={<BonusStatusBadge status={v.status} text={v.statusText} icon={v.icon} />}
     >
@@ -86,8 +86,8 @@ function Facts({ v }: { v: BonusReviewView }) {
           v.step === 1 ? ["Godkända månadsbedömningar", `${f.approvedAssessments} (minst 2 behövs: före och efter)`] : null,
           f.event ? ["Händelse", `${f.event.label} ${fmtDate(f.event.date)}${f.event.actor ? ` · ${f.event.actor}` : ""}${f.event.verificationKind ? ` · verifierad: ${f.event.verificationKind}` : ""}`] : null,
           f.windowEnd ? ["I anslutning till insatsen", `Senast ${fmtDate(f.windowEnd)}`] : null,
-          f.step3 ? ["Bonussteg 3", `${f.step3.statusText}${f.step3.reachedOn ? ` · resultatdatum ${fmtDate(f.step3.reachedOn)}` : ""}`] : null,
-          f.speedDeadline ? ["Snabbhetspremie", `Bonussteg 3 senast ${fmtDate(f.speedDeadline)}`] : null,
+          f.step3 ? ["Steg 3", `${f.step3.statusText}${f.step3.reachedOn ? ` · resultatdatum ${fmtDate(f.step3.reachedOn)}` : ""}`] : null,
+          f.speedDeadline ? ["Snabbt resultat", `Steg 3 senast ${fmtDate(f.speedDeadline)}`] : null,
           f.sustainDue ? ["Hållbart resultat", `Kan skickas från ${fmtDate(f.sustainDue)} med en ny verifiering daterad då eller senare`] : null,
           v.source ? ["Anspråket", v.source === "auto" ? "Förslag från reglerna" : "Skapat av Miljonbemanning"] : null,
         ]}
@@ -171,7 +171,7 @@ function SubmitCard({ v, form, dirty }: { v: BonusReviewView; form: Form; dirty:
     const res = await submit.run({ claimId: v.claimId, ...toPayload(form) }).catch(() => null);
     if (!res) return toast("Anspråket kunde inte skickas. Försök igen.", "error");
     if (!res.ok) return toast(res.message || "Anspråket kunde inte skickas.", "error");
-    toast(`Bonussteg ${v.step} är skickat till kommunen.`);
+    toast(`Steg ${v.step} är skickat till kommunen.`);
     // Fälten skickades med anspråket – inget är osparat, så vakten ska inte fråga.
     leaveWithoutAsking(() => nav.push(`/arenden/${encodeURIComponent(v.caseId)}?flik=handelser`));
   };
@@ -204,7 +204,7 @@ function Sent({ v }: { v: BonusReviewView }) {
           v.withdrawn ? ["Återtaget", `${fmtDateTime(v.withdrawn.at)} av ${v.withdrawn.byName}`] : null,
           v.decision ? ["Kommunens beslut", `${v.decision.decision === "approved" ? "Godkänt" : "Avslaget"} ${fmtDateTime(v.decision.at)} · ${v.decision.via === "mejl" ? `med mejl, registrerat av ${v.decision.byName}` : v.decision.byName}`] : null,
           v.decision?.note ? ["Motivering", v.decision.note] : null,
-          v.status === "submitted" && !v.decision ? ["Väntar på", v.waitingForStep3 ? "Kommunens beslut om bonussteg 3 först" : "Kommunens beslut"] : null,
+          v.status === "submitted" && !v.decision ? ["Väntar på", v.waitingForStep3 ? "Kommunens beslut om steg 3 först" : "Kommunens beslut"] : null,
           v.status === "suggested" ? ["Förslag", "Förslaget granskas av den som arbetar i ärendet."] : null,
         ]}
       />
@@ -221,7 +221,7 @@ function Actions({ v }: { v: BonusReviewView }) {
   const onWithdraw = async () => {
     const yes = await confirm({
       title: "Återta anspråket?",
-      body: v.step === 3 ? "Bonussteg 4 och 5 som bygger på bonussteg 3 och inte är beslutade återtas också. Kommunen ser inte längre anspråket." : "Kommunen ser inte längre anspråket.",
+      body: v.step === 3 ? "Steg 4 och 5 som bygger på steg 3 och inte är beslutade återtas också. Kommunen ser inte längre anspråket." : "Kommunen ser inte längre anspråket.",
       confirmLabel: "Återta",
       tone: "danger",
     });

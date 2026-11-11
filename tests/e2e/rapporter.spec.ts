@@ -123,10 +123,11 @@ test("1. rapportlistan (samordnare): sammanfattning, snabbfilter, filter, sök o
   expect(errors).toEqual([]);
 });
 
-test("1b. coachen ser bara egna ärenden", async ({ page }, info) => {
+test("1b. coachen ser rapporterna för alla deltagare i avtalet (Karims beslut 2026-11-11)", async ({ page }, info) => {
   const errors = await open(page, info, "/rapporter", COACH);
-  await expect(main(page)).toContainText("Dina ärenden");
-  expect(await mainText(page)).not.toContain("BOT-26-0117");
+  await expect(main(page)).toContainText("Alla ärenden i avtalet");
+  // Guled (BOT-26-0117) är Mats deltagare – coachen ser rapporterna ändå.
+  expect(await mainText(page)).toContain("BOT-26-0117");
   expect(errors).toEqual([]);
 });
 

@@ -2,9 +2,10 @@
 import { fail, ok } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
+import { reportDeliveryEmail } from "@/core/config";
 import { reportKindLabel } from "@/core/labels";
 import type { Case, Report, WeekKey } from "@/data/schema";
-import { userEmail } from "../_shared/context";
+import { contractOf, userEmail } from "../_shared/context";
 import { weeklyComplete } from "../_shared/weekly";
 import { reportApprove, reportCorrect, reportDeliver, reportOpen } from "./api";
 import { freezeReport } from "./freeze";
@@ -99,6 +100,9 @@ handleCommand(reportDeliver, { roles: REPORT_ROLES }, async (ctx, p) => {
     console.error("rapport: frysningen vid leveransen misslyckades", r.id, e instanceof Error ? e.name : typeof e);
   }
   if (outside) return ok({});
+  // Veckorapporten om närvaro: inget mejl om inte avtalet uttryckligen säger det (Karims beslut 2026-11-11 – handläggaren
+  // ser den som ny i portalen). Månads- och slutrapporten har alltid sitt mejl.
+  if (r.kind === "weekly_attendance" && !reportDeliveryEmail((await contractOf(ctx, r.contractId)).cfg, r.kind)) return ok({});
   // Mejlet innehåller bara en notis – aldrig rapporten eller personuppgifter (CLAUDE.md punkt 9).
   await ctx.notify({
     channel: "email", to: (await userEmail(ctx, to)) || c?.referrerEmail || "", template: "ny_rapport",

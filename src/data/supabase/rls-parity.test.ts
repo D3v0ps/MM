@@ -1787,7 +1787,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
     let got: G[] = [];
     await db.transaction(async (tx) => {
       // Gruppaktiviteternas målgrupp och serierna pekar på nivåerna (0035) – de släpps först (transaktionen rullas tillbaka).
-      await tx.query("update public.group_activities set series_id = null, audience = 'manual', audience_level_id = null, audience_area_code = null");
+      await tx.query("update public.group_activities set series_id = null, series_slot = null, audience = 'manual', audience_level_id = null, audience_area_code = null");
       await tx.query("delete from public.group_activity_series");
       await tx.query("delete from public.grouping_members");
       await tx.query("delete from public.groupings");

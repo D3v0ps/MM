@@ -21,12 +21,13 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { areaLabel, audienceColumns, audienceLabel, audienceOf, type Audience } from "@/core/audience";
 import { GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, type InviteGrouping, type UninvitableMember } from "@/core/group-activities";
 import { byOrder } from "@/core/groupings";
-import { normalizeWeekdays, seriesScheduleError, seriesScheduleText } from "@/core/group-series";
+import { normalizeWeekdays, SERIES_OCCURRENCE_MOVED, seriesScheduleError, seriesScheduleText } from "@/core/group-series";
 import { ABSENCE_REASONS } from "@/core/labels";
-import { addDays, dayOf, fmtDate, type LocalDate } from "@/core/time";
+import { addDays, dayOf, fmtDate, fmtDateTime, type LocalDate } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { looksLikePnr } from "@/core/validation";
 import { GROUP_ACTIVITY_KINDS, type Activity, type Case, type CaseStatus, type GroupActivity, type GroupActivitySeries, type Person } from "@/data/schema";
+import { UniqueError } from "@/data/repo";
 import { NOTE_PNR_TEXT, noteProblem } from "../_shared/notes";
 import {
   groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityList, groupActivityNotes, groupActivityRemove, groupActivitySeriesCreate,
@@ -34,6 +35,8 @@ import {
   type GroupParticipant, type InviteProblem, type NotifyOutcome, type SeriesListRow,
 } from "./api";
 import { audienceMembers, ensureSeriesOccurrences, removeParticipantRow, syncAudienceInvites, type AudienceSyncDetail } from "./audience-sync";
+import { logActivityRemoved } from "../_shared/activity-log";
+import { closeActivityTasks } from "../_shared/participant-notify";
 import { audienceBusyOf, mergeProblems, overlapsFor } from "./busy";
 import { notifyAll, supersedeTasks, upcoming } from "./notify-all";
 
@@ -46,6 +49,8 @@ const GROUP_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach",
 const GROUP_READERS: readonly Role[] = [...GROUP_WRITERS, "chef", "admin"];
 
 const NOT_FOUND = "Aktiviteten finns inte, eller så har du inte behörighet att se den.";
+/** Postgres felkod (t.ex. 23505 – unik nyckel). */
+const isCode = (e: unknown, code: string): boolean => (e as { code?: unknown } | null)?.code === code;
 const CANCELLED = "Aktiviteten är inställd och kan inte ändras.";
 const CASES_NOT_FOUND = "Någon av deltagarna finns inte längre eller får inte bjudas in av dig. Ladda om sidan.";
 const HAS_ATTENDANCE_TIME = "Närvaron är redan registrerad för minst en deltagare. Tiden kan inte flyttas – ändra namn, plats eller längd i stället.";
@@ -108,9 +113,21 @@ async function participantCheck(
   return { replaceable: ov.replaceable.filter((a) => !out.has(a.caseId)), cases: cases.filter((c) => !out.has(c.id)), skipped: hard };
 }
 
-/** Tar bort deltagarnas egna tillfällen som aktiviteten ersätter (bekräftat, utan närvaro – prövat i participantCheck). */
-async function removeReplaced(ctx: Ctx, acts: readonly Activity[]): Promise<string[]> {
-  for (const a of acts) await ctx.repo.table("activities").remove(a.id);
+/**
+ * Tar bort deltagarnas egna tillfällen som aktiviteten ersätter (bekräftat, utan närvaro – prövat i participantCheck). Varje
+ * borttaget tillfälle loggas som en borttagning i ärendet (activity.removed – bara id:n och tiden, granskningen 2026-11-11), så
+ * att Ändra veckoplan vet att dagen inte visar planen och inte lägger tillbaka tillfället. Öppna uppgifter att ringa om
+ * tillfället stängs.
+ */
+async function removeReplaced(ctx: Ctx, g: Pick<GroupActivity, "id" | "contractId">, acts: readonly Activity[]): Promise<string[]> {
+  if (!acts.length) return [];
+  const cases = new Map((await ctx.repo.table("cases").pick(["id", "caseNumber", "contractId"], { id: { in: uniq(acts.map((a) => a.caseId)) } })).map((c) => [c.id, c]));
+  for (const a of acts) {
+    await ctx.repo.table("activities").remove(a.id);
+    await logActivityRemoved(ctx, { contractId: g.contractId, caseId: a.caseId, activityId: a.id, kind: a.kind, startsAt: a.startsAt, groupActivityId: g.id });
+    const c = cases.get(a.caseId);
+    if (c) await closeActivityTasks(ctx, c, { when: a.startsAt, place: a.location }, "Tillfället är ersatt av en gruppaktivitet.");
+  }
   return acts.map((a) => a.id);
 }
 
@@ -449,7 +466,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
     ...audienceColumns(audience), seriesId: null, notify: !!p.notify,
   };
   await ctx.repo.table("group_activities").insert(g);
-  const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
+  const replacedActivityIds = await removeReplaced(ctx, g, check.replaceable);
   const added = await addParticipants(ctx, g, check.cases);
   // Målgruppen: servern bjuder in de aktiva deltagarna i nivån eller yrkesområdet (systemsteg, loggas här nedan i samma rad).
   const synced = audience ? (await syncAudienceInvites(ctx, { contractId, groupActivityIds: [g.id], quiet: true })).details[g.id] : undefined;
@@ -484,9 +501,17 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const next = { name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal };
   const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== g[k]);
   if (!fields.length) return ok({ changed: 0, replaced: 0, dropped: 0, notified: null });
-  // Ett tillfälle i en återkommande aktivitet behåller seriens dag, tid och längd – annars skapas tillfället igen på den gamla tiden.
-  if (g.seriesId && (moved || next.durationMin !== g.durationMin)) {
-    return fail("series", "Tillfället hör till en återkommande aktivitet. Dag, tid och längd ändras för hela serien: avsluta serien och skapa en ny.");
+  // Ett enskilt tillfälle i en återkommande aktivitet får ny dag, tid och längd (Karims beslut 2026-11-11) när det inte har börjat
+  // och ingen närvaro är registrerad. Det hör fortfarande till serien: seriens tid för tillfället (seriesSlot) loggas, så att jobbet
+  // aldrig skapar det igen på den gamla tiden (ensureSeriesOccurrences läser movedSeriesSlots). Hela seriens tid ändras inte här.
+  const seriesSchedule = !!g.seriesId && (moved || next.durationMin !== g.durationMin);
+  if (seriesSchedule) {
+    if (!upcoming(ctx, g.startsAt)) return fail("series", "Tillfället har redan börjat. Dag, tid och längd kan inte ändras.");
+    if (moved && !upcoming(ctx, next.startsAt)) return fail("series", "Den nya tiden har redan passerat. Välj en senare tid.");
+    if (acts.length && (await ctx.repo.table("attendance").list({ activityId: { in: acts.map((a) => a.id) } })).length) return fail("has_attendance", HAS_ATTENDANCE_TIME);
+    if (moved && (await ctx.repo.table("group_activities").first({ seriesId: g.seriesId, startsAt: next.startsAt }))) {
+      return fail("series", `Den återkommande aktiviteten har redan ett tillfälle ${fmtDateTime(next.startsAt)}. Välj en annan tid.`);
+    }
   }
   // Tid, längd, plats och typ ändras på alla deltagarnas tillfällen – också de aktören inte ser måste kunna ändras.
   const actFields = fields.filter((k) => k === "kind" || k === "startsAt" || k === "durationMin" || k === "location");
@@ -524,8 +549,24 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const now = ctx.now();
   // Ett nytt mål (ändrat, borttaget eller inskrivet igen) får en ny version – coachens val för det tidigare målet gäller inte längre.
   const goalVersion = next.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
-  await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
-  const replacedActivityIds = await removeReplaced(ctx, replaceable);
+  // Seriens tid för tillfället (seriesSlot, 0042) står kvar på raden och ändras aldrig – loggen får den också. Rader utan seriesSlot
+  // (före 0042, där migrationen inte hunnit fylla i den) räknar tillfällets tid nu.
+  const seriesSlot = seriesSchedule && moved && g.seriesId ? (g.seriesSlot ?? g.startsAt) : null;
+  try {
+    await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
+  } catch (e) {
+    // Ett annat tillfälle i serien fick samma tid under tiden (unikt series_id + starts_at).
+    if (g.seriesId && (e instanceof UniqueError || isCode(e, "23505"))) return fail("series", `Den återkommande aktiviteten har redan ett tillfälle ${fmtDateTime(next.startsAt)}. Välj en annan tid.`);
+    throw e;
+  }
+  if (seriesSlot && g.seriesId) {
+    // Loggen på serien: jobbet läser seriesSlot och skapar aldrig ett nytt tillfälle på den tiden. Bara id:n och tider.
+    await ctx.audit({
+      action: SERIES_OCCURRENCE_MOVED, entity: "group_activity_series", entityId: g.seriesId, contractId: g.contractId,
+      details: { groupActivityId: g.id, seriesSlot, from: g.startsAt, to: next.startsAt, durationMin: next.durationMin },
+    });
+  }
+  const replacedActivityIds = await removeReplaced(ctx, g, replaceable);
   const droppedIds = new Set(dropped.map((c) => c.id));
   const droppedNow: string[] = [];
   for (const a of acts.filter((x) => droppedIds.has(x.caseId))) {
@@ -551,14 +592,26 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const staying = cases.filter((c) => !droppedIds.has(c.id));
   const droppedCases = cases.filter((c) => droppedNow.includes(c.id));
   if (droppedCases.length) await supersedeTasks(ctx, droppedCases, g, "Deltagaren kan inte vara med vid aktivitetens nya tid och är borttagen.");
+  // Meddelandet: dialogens val – också för ett tillfälle i en återkommande aktivitet, oavsett seriens val (Karims beslut
+  // 2026-11-11: "kallelse måste dock följa med med uppdaterad datum/tid"). Rutan står alltid i dialogen och är förvald.
+  const notifyOn = !!p.notify;
   if (moved || next.location !== g.location) {
     await supersedeTasks(ctx, staying, g, "Aktiviteten har fått ny tid eller plats.");
-    if (p.notify && upcoming(ctx, next.startsAt)) add(await notifyAll(ctx, g, "aktivitet_andrad", staying.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt));
+    if (notifyOn && upcoming(ctx, next.startsAt)) add(await notifyAll(ctx, g, "aktivitet_andrad", staying.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt));
   }
-  if (droppedCases.length && p.notify && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
+  if (droppedCases.length && notifyOn && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
   // Med målgrupp och ny dag: de som hör till målgruppen och kan vara med den nya dagen bjuds in (en insats som slutar före den
   // nya dagen har redan fallit bort ovan).
-  if (moved && g.audience !== "manual") await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id] });
+  // Den som synkningen tar bort på grund av den nya tiden får aktivitet_installd – dialogens val. Den som bjuds in får
+  // aktivitetsinbjudan som vid varje inbjudan: aktivitetens val eller dialogens (granskningen 2026-11-11 – rutan gäller ändringen,
+  // aldrig inbjudan av nya deltagare).
+  if (moved && g.audience !== "manual") {
+    const synced = (await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id], notifyRemoved: notifyOn, notifyAdded: g.notify || notifyOn })).details[g.id];
+    if (synced) {
+      add(synced.notifiedRemoved);
+      add(synced.notifiedAdded);
+    }
+  }
   return ok({ changed: fields.length, replaced: replacedActivityIds.length, dropped: droppedNow.length, notified });
 });
 
@@ -594,7 +647,7 @@ handleCommand(groupActivityInvite, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (cases.some((c) => c.contractId !== g.contractId)) return fail("contract", "Deltagarna måste höra till aktivitetens avtal.");
   const check = await participantCheck(ctx, cases, g, g.id, p.replaceOverlapping, "", false);
   if ("fail" in check) return check.fail;
-  const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
+  const replacedActivityIds = await removeReplaced(ctx, g, check.replaceable);
   const added = await addParticipants(ctx, g, check.cases);
   if (added.caseIds.length || replacedActivityIds.length) {
     await ctx.audit({

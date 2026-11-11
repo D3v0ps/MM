@@ -64,16 +64,16 @@ function StartContent({ d }: { d: KomStart }) {
                 lead={<LeadIcon name="award" />}
                 title={
                   <TitleRow>
-                    <span>Bonus att besluta om – {b.caseNumber}</span>
+                    <span>Progression och resultat att besluta om – {b.caseNumber}</span>
                     <Badge tone="dark">Ny</Badge>
                   </TitleRow>
                 }
-                sub={`Bonussteg ${b.step} · ${b.label}`}
+                sub={`Steg ${b.step} · ${b.label}`}
               >
                 <SubLine>Från Miljonbemanning{b.sentAt ? ` · ${fDT(b.sentAt)}` : ""}</SubLine>
                 <span className="mt-2 flex flex-wrap items-center gap-3">
                   <Button kind="primary" icon="file" to={`/portal/bonus/${encodeURIComponent(b.claimId)}`}>
-                    Läs och besluta <span className="sr-only">om bonussteg {b.step} för {b.caseNumber}</span>
+                    Läs och besluta <span className="sr-only">om steg {b.step} för {b.caseNumber}</span>
                   </Button>
                 </span>
               </ListItem>

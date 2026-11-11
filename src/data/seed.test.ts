@@ -107,7 +107,8 @@ describe("antal rader per tabell", () => {
       // Karims beslut 2026-10-29 (seed/decisions-2026-10-29.ts): revisionsloggens rad för testdatats ändring av startdatum (prototypen: 19).
       // Karims beslut 2026-11-04 (seed/decisions-2026-11-04.ts): 21 rader för testdatats bonusanspråk och december månads bonusfaktura.
       ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 156], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 41],
-      ["outbound_messages", "notifications", 7], ["tasks", "tasks", 1],
+      // Granskningen 2026-11-11 (seed/decisions-2026-11-11.ts): mejlet om veckorapporten finns inte (prototypen: 7).
+      ["outbound_messages", "notifications", 6], ["tasks", "tasks", 1],
     ];
     for (const [table, , count] of rows) expect([table, n(table)]).toEqual([table, count]);
     // data-samples.json är från en äldre seed: avstämningar 1144, händelser 230, avvikelser 18, praktik 159, uppgifter 0.

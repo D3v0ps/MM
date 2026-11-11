@@ -3,7 +3,8 @@
 //   deadlines      förfaller: försenat + i dag som är användarens eget ansvar (samordnare, avtalsansvarig, chef)
 //   unregistered   coachens oregistrerade närvaro från förra veckans måndag till i dag
 //   tasks          öppna uppgifter till rollen eller personen (samordnare, avtalsansvarig, ekonom – siffran vid Min vecka);
-//                  för avtalets intagsansvarige (coach): nya beställningar att ta emot (Karims beslut 2026-11-09)
+//                  för coachen: nya beställningar att ta emot (avtalets intagsansvarige, Karims beslut 2026-11-09) och
+//                  SMS att skicka (Karims beslut 2026-11-11)
 //   notifications  olästa personliga notiser (alla MB-roller)
 // Bara räknarna för rollens menyrader räknas fram (övriga är 0 – de visas inte).
 import type { Ctx } from "@/api/server";
@@ -15,7 +16,9 @@ import { unregistered } from "@/core/attendance";
 import { unreadNotifications } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
+import { coachCases } from "@/features/_shared/coach-cases";
 import { ordersToReceive } from "@/features/_shared/intake";
+import { smsTaskCount, smsToSend } from "@/features/_shared/sms-to-send";
 import { deadlineItems, deadlineRow, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
 import { navCounts, type NavCounts } from "./nav-api";
 
@@ -32,9 +35,9 @@ async function openTaskCount(ctx: Ctx): Promise<number> {
 }
 
 async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
-  const me = ctx.actor.userId;
-  // Coachens egna ärenden och deras närvaro (policyn ger coachen bara egna ärenden och team).
-  const cases = await ctx.repo.table("cases").list({ leadCoachId: me, status: { in: ["active", "closed"] } });
+  // Alla ärenden i avtalen där personen är coach (Karims beslut 2026-11-11: alla coacher ser alla deltagare i Närvaro) – samma
+  // urval som sidan Närvaro, så att räknaren och sidan visar samma tillfällen.
+  const cases = await coachCases(ctx, { status: { in: ["active", "closed"] } });
   const ids = cases.map((c) => c.id);
   if (!ids.length) return 0;
   const [activities, attendance] = await Promise.all([
@@ -42,7 +45,7 @@ async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
     ctx.repo.table("attendance").list({ caseId: { in: ids } }),
   ]);
   const lastMon = addDays(monday(e.today), -7);
-  return unregistered({ cases, activities, attendance }, me, lastMon, e.today, e.env).length;
+  return unregistered({ cases, activities, attendance }, null, lastMon, e.today, e.env).length;
 }
 
 async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {
@@ -73,7 +76,9 @@ handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   if (role === "coach") out.unregistered = await unregisteredCount(ctx, e);
   if (TASK_ROLES.includes(role)) out.tasks = await openTaskCount(ctx);
   // Avtalets intagsansvarige: beställningarna som väntar på Ta emot står på Min vecka (0 för andra coacher).
-  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length;
+  // SMS att skicka (Karims beslut 2026-11-11): coachens egna meddelanden och veckans tider som en sak (granskningen 2026-11-11) –
+  // bara antalet lämnas ut.
+  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length + smsTaskCount(await smsToSend(ctx));
   out.notifications = await notificationCount(ctx, e);
   return out;
 });

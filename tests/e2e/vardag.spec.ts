@@ -314,7 +314,8 @@ test("kartläggningen sparas automatiskt – men inte med en diagnos i texten: d
 
 // ------------------------------------------------------------ 2. Radlänken i ärendelistan
 test("ärendelistan: ärendenumret är en riktig länk – Ctrl-klick i raden öppnar kortet i en ny flik och listan står kvar", async ({ page, context }, info) => {
-  const errors = await open(page, info, "/arenden", AMIRA);
+  // Mina ärenden: Nadia står på första sidan (listan börjar i alla ärenden i avtalet sedan Karims beslut 2026-11-11).
+  const errors = await open(page, info, "/arenden?vilka=mina", AMIRA);
   const table = page.getByRole("table", { name: "Ärenden" });
   const row = table.locator("tbody tr").filter({ hasText: "BOT-26-0143" });
   const link = row.getByRole("link", { name: /BOT-26-0143/ });
@@ -339,7 +340,7 @@ test("ärendelistan: ärendenumret är en riktig länk – Ctrl-klick i raden ö
   }
   await popup.close();
   // Listan står kvar i den första fliken.
-  expect(await here(page, info)).toBe("/arenden");
+  expect(await here(page, info)).toBe("/arenden?vilka=mina");
   await expect(table).toBeVisible();
 
   // Vanligt klick i raden öppnar kortet i samma flik.

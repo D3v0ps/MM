@@ -28,7 +28,7 @@ export function PortalBonusScreen({ params, query }: ScreenProps) {
   if (q.data === null) {
     return (
       <KomPage narrow>
-        <KomHead title="Bonus" back={{ label: "Till startsidan", to: "/portal" }} />
+        <KomHead title="Progression och resultat" back={{ label: "Till startsidan", to: "/portal" }} />
         <Notice tone="info" title="Anspråket finns inte">Anspråket finns inte, eller så har du inte behörighet att se det.</Notice>
       </KomPage>
     );
@@ -37,7 +37,7 @@ export function PortalBonusScreen({ params, query }: ScreenProps) {
 }
 
 function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number] }) {
-  usePageTitle(`Bonus ${v.caseNumber} · bonussteg ${v.step}`);
+  usePageTitle(`Progression och resultat ${v.caseNumber} · steg ${v.step}`);
   const view = useCommand(bonusUnderlag);
   useAuditView(`bonus:${v.claimId}`, () => view.run({ claimId: v.claimId, purpose: "view" }).catch(() => undefined));
   const patch = useQueryPatch();
@@ -47,7 +47,7 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
   const decide = useCommand(bonusDecide);
   const [error, setError] = useState<string | null>(null);
   useUnsavedGuard(!done && (decision !== null || note.trim() !== ""));
-  const title = `Bonussteg ${v.step} · ${v.label}`;
+  const title = `Steg ${v.step} · ${v.label}`;
   const back = { label: "Till startsidan", to: "/portal" };
   const eyebrow = `${v.participantName} · ${v.caseNumber}`;
   const self = `/portal/bonus/${encodeURIComponent(v.claimId)}`;
@@ -63,8 +63,8 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
           tone="ok"
           title={
             done
-              ? done === "approved" ? "Du har godkänt bonusanspråket" : "Du har avslagit bonusanspråket"
-              : `Kommunen har ${d === "approved" ? "godkänt" : "avslagit"} bonusanspråket ${fmtDateFull(v.decision?.at)}`
+              ? done === "approved" ? "Du har godkänt underlaget om progression och resultat" : "Du har avslagit underlaget om progression och resultat"
+              : `Kommunen har ${d === "approved" ? "godkänt" : "avslagit"} underlaget om progression och resultat ${fmtDateFull(v.decision?.at)}`
           }
         >
           {done ? "Beslutet är sparat. Miljonbemanning får veta beslutet." : v.decision?.via === "mejl" ? "Beslut via mejl, registrerat av Miljonbemanning." : "Beslut i portalen."}
@@ -81,11 +81,11 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
   if (step === "beslut" && v.canDecide) {
     return (
       <KomPage narrow>
-        <KomHead eyebrow={eyebrow} title="Ditt beslut" lead={`Bonussteg ${v.step} · ${v.label}`} back={{ label: "Tillbaka till underlaget", to: self }} />
+        <KomHead eyebrow={eyebrow} title="Ditt beslut" lead={`Steg ${v.step} · ${v.label}`} back={{ label: "Tillbaka till underlaget", to: self }} />
         <Card>
           <Stack>
-            <Field label="Godkänner du bonusanspråket?" help="Godkänn om underlaget visar att steget är uppfyllt. Avslå om det inte gör det." id="bonus-beslut">
-              <Seg ariaLabel="Godkänner du bonusanspråket?" value={decision ?? ""} onValueChange={(x) => setDecision(x as Decision)} options={[{ value: "approved", label: "Godkänn" }, { value: "rejected", label: "Avslå" }]} />
+            <Field label="Godkänner du underlaget om progression och resultat?" help="Godkänn om underlaget visar att steget är uppfyllt. Avslå om det inte gör det." id="bonus-beslut">
+              <Seg ariaLabel="Godkänner du underlaget om progression och resultat?" value={decision ?? ""} onValueChange={(x) => setDecision(x as Decision)} options={[{ value: "approved", label: "Godkänn" }, { value: "rejected", label: "Avslå" }]} />
             </Field>
             <Field label="Motivering (frivillig)" help="Skriv gärna varför, särskilt om du avslår. Högst 1 000 tecken. Skriv inga personnummer." id="bonus-motivering">
               <TextArea value={note} maxLength={1000} rows={3} onValueChange={setNote} />
@@ -115,8 +115,8 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
         <Card>
           <Stack>
             <p className="m-0">
-              Du {decision === "approved" ? "godkänner" : "avslår"} bonussteg {v.step} ({v.label}) för {v.caseNumber}.
-              {decision === "approved" ? " Miljonbemanning fakturerar bonusen på en egen faktura." : " Miljonbemanning får veta att anspråket är avslaget."}
+              Du {decision === "approved" ? "godkänner" : "avslår"} steg {v.step} ({v.label}) för {v.caseNumber}.
+              {decision === "approved" ? " Miljonbemanning fakturerar steget på en egen faktura." : " Miljonbemanning får veta att anspråket är avslaget."}
             </p>
             {note.trim() && <Kv items={[["Din motivering", note.trim()]]} />}
             {error && <Notice tone="critical" title="Det gick inte">{error}</Notice>}
@@ -134,14 +134,14 @@ function Content({ v, step }: { v: BonusPortalView; step: (typeof STEPS)[number]
 
   return (
     <KomPage>
-      <KomHead eyebrow={eyebrow} title={title} back={back} lead="Miljonbemanning begär bonus enligt incitamentsmodellen. Läs underlaget och besluta." actions={<BonusStatusBadge status={v.status} text={v.statusText} icon={v.icon} />} />
+      <KomHead eyebrow={eyebrow} title={title} back={back} lead="Miljonbemanning redovisar progression och resultat enligt incitamentsmodellen. Läs underlaget och besluta." actions={<BonusStatusBadge status={v.status} text={v.statusText} icon={v.icon} />} />
       <Card>
         <Stack>
-          <Kv items={[["Deltagare", v.participantName], ["Ärendenummer", v.caseNumber], ["Bonussteg", `${v.step} · ${v.label}`], ["Skickat", v.sentAt ? fmtDateFull(v.sentAt) : "–"]]} />
+          <Kv items={[["Deltagare", v.participantName], ["Ärendenummer", v.caseNumber], ["Steg", `${v.step} · ${v.label}`], ["Skickat", v.sentAt ? fmtDateFull(v.sentAt) : "–"]]} />
           <p className="m-0">Intyg och andra dokument finns inte i portalen. Miljonbemanning skickar dem till dig på annat sätt om du behöver dem.</p>
-          {v.waitingForStep3 && <Notice tone="info" title="Beslutas efter bonussteg 3">Bonussteg {v.step} bygger på bonussteg 3. Det kan beslutas när bonussteg 3 är godkänt.</Notice>}
+          {v.waitingForStep3 && <Notice tone="info" title="Beslutas efter steg 3">Steg {v.step} bygger på steg 3. Det kan beslutas när steg 3 är godkänt.</Notice>}
           {v.status === "submitted" && !v.waitingForStep3 && !v.canDecide && (
-            <Notice tone="info" title="Handläggaren som beställde beslutar">Bara handläggaren som beställde insatsen kan besluta om bonusanspråket.</Notice>
+            <Notice tone="info" title="Handläggaren som beställde beslutar">Bara handläggaren som beställde insatsen kan besluta om underlaget om progression och resultat.</Notice>
           )}
           <Row>
             <UnderlagPdfButton claimId={v.claimId} />

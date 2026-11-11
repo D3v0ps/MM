@@ -10,6 +10,7 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import type { MemoryData } from "@/data/memory";
 import type { Tables } from "@/data/schema";
 import { createSeed, DEMO_START } from "@/data/seed";
+import { unregistered } from "@/core/attendance";
 import {
   assessmentPage, casePicker, checkInAttendance, checkInPage, checkinSave, eventsPage, intakePage, minVecka, narvaroView,
 } from "./api";
@@ -33,56 +34,73 @@ const amira = () => as("u-amira", "coach");
 const SC = { nadia: "case-260143", yusuf: "case-260148", hodan: "case-260119", mehmet: "case-260130", amal: "case-270012", skyddad: "case-260120" };
 
 describe("Min vecka", () => {
-  it("ger samma siffror som prototypen: 6 att registrera, 1 AI-utkast, 4 av 15 bedömningar", async () => {
+  it("alla deltagare i avtalet – inte bara huvudcoachens (Karims beslut 2026-11-11: Alla ser alla)", async () => {
     const v = await q(minVecka, {}, amira());
     expect(v.now).toBe(DEMO_START);
     expect(v.lastWeek).toEqual({ no: 4, mon: "2027-01-25" });
     expect(v.reg).toMatchObject({ dueAt: "2027-02-01T10:00", sla: { label: "48 min kvar", tone: "urgent" }, dueText: "måndag 10.00", pubText: "måndag 16.00" });
-    expect(v.unregistered.count).toBe(6);
-    expect(v.unregistered.byCase.map((x) => [x.name, x.items.length])).toEqual([["Nadia Warsame", 2], ["Elif Yilmaz", 2], ["Amal Hassan", 2]]);
-    expect(v.unregistered.waitingFor).toEqual(["Maria Ekdahl", "Linda Karlsson"]);
-    expect(v.today).toHaveLength(9);
-    expect(v.next).toMatchObject({ shortName: "Nadia W." });
-    expect(v.drafts.map((d) => [d.caseId, d.inputMethod, d.rawTranscriptDeleteBy])).toEqual([[SC.mehmet, "ai_recording", "2027-02-28T13:00"]]);
-    expect(v.monthly).toMatchObject({ month: "2027-01", dueAt: "2027-02-05T23:59", dueNote: "Sista dag ej fastställd – förslag 5:e arbetsdagen", done: 4, total: 15 });
-    expect(v.monthly.open).toHaveLength(11);
-    expect(v.flags.map((f) => f.key)).toEqual(["stuck:case-270012:1", expect.stringMatching(/^absence:case-260148:/)]);
+    const cases = rt.store.rows("cases").filter((c) => c.contractId === "c-bot");
+    const db = { cases, activities: rt.store.rows("activities"), attendance: rt.store.rows("attendance") };
+    const all = unregistered(db, null, "2027-01-25", "2027-01-31", { now: DEMO_START });
+    // Förr: Amiras 6 (Nadia, Elif och Amal). Nu alla deltagare i avtalet – också kollegornas.
+    expect(v.unregistered.count).toBe(all.length);
+    expect(v.unregistered.byCase.map((x) => x.caseId)).toEqual(expect.arrayContaining([SC.nadia, "case-270003", SC.amal]));
+    // Huvudcoachen står på raden.
+    expect(v.unregistered.byCase.find((x) => x.caseId === SC.nadia)!.leadCoach).toBe("Amira");
+    // Dagens tillfällen för alla pågående ärenden i avtalet (egna rader – gruppaktiviteterna är en rad per aktivitet).
+    const active = new Set(cases.filter((c) => c.status === "active").map((c) => c.id));
+    expect(v.today).toHaveLength(rt.store.rows("activities").filter((a) => active.has(a.caseId) && !a.groupActivityId && a.startsAt.startsWith("2027-02-01")).length);
+    expect(v.today.length).toBeGreaterThan(9);
+    expect(v.today.some((t) => t.leadCoach && t.leadCoach !== "Amira")).toBe(true);
+    expect(v.drafts.map((d) => d.caseId)).toContain(SC.mehmet);
+    expect(v.monthly).toMatchObject({ month: "2027-01", dueAt: "2027-02-05T23:59", dueNote: "Sista dag ej fastställd – förslag 5:e arbetsdagen" });
+    expect(v.monthly.total).toBeGreaterThan(15);
+    expect(v.flags.map((f) => f.key)).toContain("stuck:case-270012:1");
     expect(v.flags.every((f) => !/escalat|no_progress|ai_draft/.test(f.kind))).toBe(true);
-    expect(v.reminders.map((r) => [r.caseNumber, r.streak])).toEqual([["BOT-26-0148", 3], ["BOT-26-0126", 1], ["BOT-26-0130", 1], ["BOT-27-0003", 1]]);
+    // Inga deadlines som coachen inte såg förut: fakturering, åtgärdsplaner och svar på avrop är andras.
+    expect(v.due.other.every((d) => !/^(bill|cd|avrop):/.test(d.id))).toBe(true);
+    expect(v.reminders.map((r) => r.caseNumber)).toEqual(expect.arrayContaining(["BOT-26-0148", "BOT-26-0126", "BOT-26-0130", "BOT-27-0003"]));
+    // Notiserna går som förut bara till huvudcoachen.
     expect(v.unread.count).toBe(4);
-    // Marias meddelande 1 februari 08.15 är oläst för Amira – det syns på Min vecka (samma räkning som kortets olästa).
-    expect(v.messages).toEqual([
-      {
-        notificationId: null, caseId: SC.nadia, caseNumber: "BOT-26-0143", name: "Nadia Warsame", createdAt: "2027-02-01T08:15", from: "Maria Ekdahl",
-        excerpt: "Tack! Kan vi ses på ett uppföljningsmöte vecka 6? Jag kan tisdag eller torsdag förmiddag.", count: 1,
-      },
-    ]);
-    expect(v.due.monthly).toMatchObject({ count: 14, byStatus: { draft: 11, approved: 3 }, dueAt: "2027-02-05T23:59" });
+    expect(v.messages.find((m) => m.caseId === SC.nadia)).toEqual({
+      notificationId: null, caseId: SC.nadia, caseNumber: "BOT-26-0143", name: "Nadia Warsame", createdAt: "2027-02-01T08:15", from: "Maria Ekdahl",
+      excerpt: "Tack! Kan vi ses på ett uppföljningsmöte vecka 6? Jag kan tisdag eller torsdag förmiddag.", count: 1,
+    });
     expect(v.calendar.mon).toBe("2027-02-01");
+  });
+
+  it("coach B ser coach A:s deltagare på Min vecka och i Närvaro", async () => {
+    const erik = as("u-erik", "coach");
+    const v = await q(minVecka, {}, erik);
+    expect(v.unregistered.byCase.map((x) => x.caseId)).toContain(SC.nadia);
+    const n = await q(narvaroView, {}, erik);
+    expect(n.weeks.last.rows.some((r) => r.caseId === SC.nadia && r.leadCoach === "Amira")).toBe(true);
+    expect(n.cases.map((c) => c.caseId)).toContain(SC.nadia);
   });
 
   it("visar olästa meddelanden från kommunen tills coachen läst dem i ärendet", async () => {
     const sent = await rt.run("command", messageSend.key, { caseId: SC.nadia, body: "Tiden passar bra. Vi ses på torsdag." }, as("k-maria", "kommun_handlaggare"));
     expect(sent).toMatchObject({ ok: true });
-    const v = await q(minVecka, {}, amira());
-    expect(v.messages).toEqual([expect.objectContaining({ caseId: SC.nadia, caseNumber: "BOT-26-0143", from: "Maria Ekdahl", excerpt: "Tiden passar bra. Vi ses på torsdag.", count: 2 })]);
-    expect(v.messages[0].notificationId).toEqual(expect.any(String));
+    const nadiaOf = async () => (await q(minVecka, {}, amira())).messages.filter((m) => m.caseId === SC.nadia);
+    const first = await nadiaOf();
+    expect(first).toEqual([expect.objectContaining({ caseId: SC.nadia, caseNumber: "BOT-26-0143", from: "Maria Ekdahl", excerpt: "Tiden passar bra. Vi ses på torsdag.", count: 2 })]);
+    expect(first[0].notificationId).toEqual(expect.any(String));
     // Notisen läst: meddelandena är fortfarande olästa i ärendet.
-    await rt.run("command", notifRead.key, { ids: [v.messages[0].notificationId as string] }, amira());
-    expect((await q(minVecka, {}, amira())).messages).toEqual([expect.objectContaining({ caseId: SC.nadia, notificationId: null, count: 2 })]);
+    await rt.run("command", notifRead.key, { ids: [first[0].notificationId as string] }, amira());
+    expect(await nadiaOf()).toEqual([expect.objectContaining({ caseId: SC.nadia, notificationId: null, count: 2 })]);
     // Coachen öppnar meddelandena i deltagarkortet (läskvitto): borta från Min vecka.
     await rt.run("command", messageRead.key, { caseId: SC.nadia }, amira());
-    expect((await q(minVecka, {}, amira())).messages).toEqual([]);
+    expect(await nadiaOf()).toEqual([]);
   });
 
   it("är bara för coachen", async () => {
     await expect(q(minVecka, {}, dormantSupervisor())).rejects.toBeInstanceOf(ApiError);
   });
 
-  it("Att kartlägga (paket 2): samma urval som Grupper och nivåer-sidans Utan nivå – för coachens egna ärenden", async () => {
+  it("Att kartlägga (paket 2): samma urval som Grupper och nivåer-sidans Utan nivå – för alla deltagare i avtalet (2026-11-11)", async () => {
     const v = await q(minVecka, {}, amira());
     const overview = await q(groupingOverview, {}, amira());
-    const mine = new Set(rt.store.rows("cases").filter((c) => c.leadCoachId === "u-amira").map((c) => c.id));
+    const mine = new Set(rt.store.rows("cases").filter((c) => c.contractId === "c-bot").map((c) => c.id));
     const expected = (overview?.unplaced ?? []).filter((m) => mine.has(m.caseId));
     expect(v.toMap.map((m) => [m.caseId, m.intake])).toEqual(expected.map((m) => [m.caseId, m.intake]));
     expect(v.toMap.map((m) => m.caseNumber)).toContain("BOT-27-0012");
@@ -91,7 +109,9 @@ describe("Min vecka", () => {
   it("Följ upp (paket 2): notiserna och flaggorna har ärendet, så att samma ärende står en gång", async () => {
     const v = await q(minVecka, {}, amira());
     expect(v.unread.items).toHaveLength(v.unread.count);
-    expect(v.unread.items.filter((n) => n.kind === "progress_reminder").map((n) => n.caseNumber).sort()).toEqual(v.reminders.map((r) => r.caseNumber).sort());
+    // Påminnelserna på Min vecka gäller alla deltagare; notiserna går bara till huvudcoachen – varje notis har en påminnelse.
+    const reminded = new Set(v.reminders.map((r) => r.caseNumber));
+    expect(v.unread.items.filter((n) => n.kind === "progress_reminder").every((n) => reminded.has(n.caseNumber as string))).toBe(true);
     expect(v.flags.find((f) => f.kind === "stuck")).toMatchObject({ caseId: SC.amal, caseNumber: "BOT-27-0012", name: "Amal Hassan" });
     // Automatisk närvaro: klockslaget i regeln (organisationens inställning, standard 18.00).
     expect(v.autoPresentAt).toBe("18:00");
@@ -99,12 +119,16 @@ describe("Min vecka", () => {
 });
 
 describe("Närvaro", () => {
-  it("coachen: 6 av 42 tillfällen vecka 4 saknar närvaro, veckorapporterna väntar", async () => {
+  it("coachen: alla deltagare i avtalet vecka 4 (Karims beslut 2026-11-11), de som saknar närvaro, veckorapporterna väntar", async () => {
     const v = await q(narvaroView, {}, amira());
     const w = v.weeks.last;
     expect(w.key).toBe("2027-W04");
-    expect(w.rows).toHaveLength(42);
-    expect(w.rows.filter((r) => !r.attendance && r.startsAt < v.now)).toHaveLength(6);
+    const started = new Set(rt.store.rows("cases").filter((c) => c.contractId === "c-bot" && c.startDate).map((c) => c.id));
+    expect(w.rows).toHaveLength(rt.store.rows("activities").filter((a) => started.has(a.caseId) && a.startsAt >= "2027-01-25" && a.startsAt < "2027-02-01").length);
+    expect(w.rows.length).toBeGreaterThan(42);
+    const cases = rt.store.rows("cases").filter((c) => c.contractId === "c-bot");
+    const open = unregistered({ cases, activities: rt.store.rows("activities"), attendance: rt.store.rows("attendance") }, null, "2027-01-25", "2027-01-31", { now: DEMO_START });
+    expect(w.rows.filter((r) => !r.attendance && r.startsAt < v.now)).toHaveLength(open.length);
     expect(v.sameDayText).toBe("Frånvaronotis samma dag: tillval som inte är fastställt – ingen notis skickas.");
     expect(v.absenceReasons).toEqual(["Sjukdom", "Vård av barn", "Myndighetsbesök", "Annat giltigt skäl"]);
     expect(v.repeatedRule).toEqual({ absentInvalid: 2, withinDays: 14 });
@@ -115,8 +139,9 @@ describe("Närvaro", () => {
     expect((await q(narvaroView, {}, amira())).autoAttendance).toEqual({ on: true, at: "16:30" });
     rt.store.updateRow("org_settings", org.id, { settings: { ...org.settings, attendance: { autoPresent: false, autoPresentAt: "16:30" } } });
     expect((await q(narvaroView, {}, amira())).autoAttendance).toEqual({ on: false, at: "16:30" });
-    expect(w.reports.slice(0, 2).map((r) => [r.name, r.mine, r.left, r.publishedAt])).toEqual([["Maria Ekdahl", 4, 4, null], ["Linda Karlsson", 2, 2, null]]);
-    expect(w.reports.filter((r) => r.publishedAt).map((r) => r.publishedAt)).toEqual(["2027-02-01T07:00", "2027-02-01T07:00"]);
+    // Coachen ser nu alla deltagare: det som saknas i listan är allt som saknas i handläggarens veckorapport.
+    for (const r of w.reports.filter((x) => !x.publishedAt)) expect(r.mine, r.name).toBe(r.left);
+    expect(w.reports.some((r) => r.name === "Maria Ekdahl" && !r.publishedAt)).toBe(true);
   });
 
   // Rollen handledare är vilande (beslut 2026-10-09; före beslutet: Petras 63 teamärenden, 81 tillfällen, 2 kvar). Regeln
@@ -134,11 +159,12 @@ describe("Närvaro", () => {
 });
 
 describe("Ärendevyerna", () => {
-  it("deltagarlistan för månadsbedömningen visar alla coachens ärenden med bedömning för januari", async () => {
+  it("deltagarlistan för månadsbedömningen visar alla deltagare i avtalet med bedömning för januari (2026-11-11)", async () => {
     const v = await q(casePicker, { kind: "manad" }, amira());
     expect(v.month).toBe("2027-01");
-    expect(v.rows).toHaveLength(15);
-    expect(v.rows.filter((r) => r.badge?.text === "Godkänd")).toHaveLength(4);
+    const withMa = new Set(rt.store.rows("monthly_assessments").filter((m) => m.month === "2027-01").map((m) => m.caseId));
+    expect(v.rows).toHaveLength(rt.store.rows("cases").filter((c) => c.contractId === "c-bot" && withMa.has(c.id)).length);
+    expect(v.rows.length).toBeGreaterThan(15);
   });
 
   it("öppnar kollegans ärende (beslut 2026-10-09) men spärrar ett skyddat ärende (vilande spärr) och ärenden som inte finns", async () => {

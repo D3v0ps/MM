@@ -270,7 +270,7 @@ export const caseScheduleChange = command("arenden.caseScheduleChange", z.object
   caseId: IdSchema,
   plan: WeekPlanSchema,
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
-  Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan">
+  Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan" | "location">
 >();
 
 /** Lägg till ett enstaka tillfälle i ett pågående ärende (den som arbetar i ärendet). Logg activity.added. */
@@ -281,7 +281,7 @@ export const activityAdd = command("arenden.activityAdd", z.object({
   durationMin: z.number().int().min(15).max(600),
   location: ShortText,
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] }).returns<
-  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate">
+  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate" | "location">
 >();
 
 /**
@@ -291,6 +291,30 @@ export const activityAdd = command("arenden.activityAdd", z.object({
 export const activityRemove = command("arenden.activityRemove", z.object({ activityId: IdSchema }), {
   invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG],
 }).returns<Result<object, "not_found" | "forbidden" | "has_attendance" | "group_activity">>();
+
+/**
+ * Ändra tiden för ett tillfälle utan att göra om det (Karims beslut 2026-11-11): ny dag, tid och längd – och plats om den anges.
+ * Reglerna: src/core/activity-move.ts (ingen närvaro, inom insatsen, arbetsdag, inget uppehåll, ingen fakturerad eller godkänd
+ * månad, ingen krock). Deltagaren får meddelandet aktivitet_andrad (tid, plats och Miljonbemannings telefonnummer – CLAUDE.md
+ * punkt 9) när notify är sant och den nya tiden inte har passerat. Ett tillfälle i en gruppaktivitet flyttas i aktivitetsvyn
+ * (group_activity). expectedStartsAt = tiden dialogen visade: flyttades tillfället under tiden nekas flytten (conflict).
+ * Logg activity.moved med id:n och tiderna.
+ */
+export const activityMove = command("arenden.activityMove", z.object({
+  activityId: IdSchema,
+  expectedStartsAt: LocalDateTimeSchema,
+  startsAt: LocalDateTimeSchema,
+  durationMin: z.number().int().min(15).max(600),
+  location: ShortText.optional(),
+  notify: z.boolean(),
+}), {
+  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG],
+}).returns<
+  Result<
+    { changed: boolean; notified: string | null },
+    "not_found" | "group_activity" | "wrong_status" | "conflict" | "has_attendance" | "started" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap" | "location"
+  >
+>();
 
 /**
  * Ändra teamet (samordnare och avtalsansvarig): arbetsgivarmatchare och SYV/metodstöd läggs till eller tas bort (teamvalet
@@ -676,12 +700,16 @@ export const CASE_LIST_SCOPES = ["mina", "alla"] as const;
 
 // ---------------------------------------------------------------- Deltagarkortet (/arenden/:caseId)
 export type CaseTab =
-  | "oversikt" | "tidslinje" | "kartlaggning" | "avstamningar" | "narvaro" | "manad" | "handelser" | "avvikelser" | "praktik" | "rapporter" | "meddelanden" | "historik";
+  | "oversikt" | "tidslinje" | "anteckningar" | "kartlaggning" | "avstamningar" | "narvaro" | "manad" | "handelser" | "avvikelser" | "praktik" | "rapporter" | "meddelanden"
+  | "historik";
 export const CASE_TABS = [
-  "oversikt", "tidslinje", "kartlaggning", "avstamningar", "narvaro", "manad", "handelser", "avvikelser", "praktik", "rapporter", "meddelanden", "historik",
+  "oversikt", "tidslinje", "anteckningar", "kartlaggning", "avstamningar", "narvaro", "manad", "handelser", "avvikelser", "praktik", "rapporter", "meddelanden", "historik",
 ] as const satisfies readonly CaseTab[];
-/** Flikarna som teamet (handledare) ser – inga coachanteckningar, bedömningar eller rapporter. Tidslinjen visar bara teamets delar. */
-export const TEAM_TABS = ["oversikt", "tidslinje", "narvaro", "praktik", "handelser"] as const satisfies readonly CaseTab[];
+/**
+ * Flikarna som teamet (handledare) ser – inga coachanteckningar, bedömningar eller rapporter. Tidslinjen och Anteckningar visar
+ * bara teamets delar (anteckningar med audience team).
+ */
+export const TEAM_TABS = ["oversikt", "tidslinje", "anteckningar", "narvaro", "praktik", "handelser"] as const satisfies readonly CaseTab[];
 
 export type CaseCard = {
   kind: "ok";
@@ -856,6 +884,11 @@ export type CaseOverview = {
    * samordnare, avtalsansvarig och coach med full åtkomst (samma som CaseCard.files).
    */
   files: CaseFiles | null;
+  /**
+   * Kortet Senaste anteckningar (Karims beslut 2026-11-11): de tre senaste – samma rader som fliken Anteckningar
+   * (arenden.kortAnteckningar med limit 3), med i Översikt så att kortet inte gör ett eget anrop.
+   */
+  notes: CaseNotes;
   /** Rollen skriver anteckningar i ärendet (samma roller som arenden.noteSave) – knappen "Skriv anteckning" på Översikt. */
   canWriteNotes: boolean;
 };
@@ -981,6 +1014,11 @@ export type TimelineNote = {
   authorName: string;
   /** Borttagen av någon annan: visas bara för författaren ("Borttagen av Sara Lindqvist 29 jan"). */
   removed: { byName: string; at: LocalDateTime } | null;
+  /**
+   * Var anteckningen skrevs, när det inte är deltagarkortet: "Från aktiviteten Lagerkunskap 3 feb kl. 13.30" (aktivitetsvyns
+   * anteckningsrader – Karims beslut 2026-11-11). Härleds när anteckningen visas; den sparade raden ändras inte.
+   */
+  context: string | null;
 };
 export type TimelineEntry = {
   id: string;
@@ -1037,6 +1075,36 @@ export type TimelineText =
  */
 export const caseTimelineText = query("arenden.kortTidslinjeText", CaseParams.extend({ id: z.string().regex(TIMELINE_TEXT_ID) })).returns<TimelineText | null>();
 
+// ---------------------------------------------------------------- Flik: Anteckningar (Karims beslut 2026-11-11)
+// "Anteckningar borde hamna under deltagarkortet." Alla fria anteckningar (case_notes) i ärendet med det senaste först, och den
+// korta anteckningen i godkända mötesrapporter som rader som bara läses ("Från mötesrapport 3 feb"). Utkast och AI-utkast visas
+// aldrig. Samma läsregler som tidslinjen: full åtkomst ser alla, teamet bara audience team, kommunen och ekonomen aldrig (null).
+/** En rad i fliken Anteckningar och i kortet Senaste anteckningar på Översikt. */
+export type CaseNoteRow = {
+  /** "note:<id>" för en anteckning, "ci:<id>" för en mötesrapports anteckning (samma id:n som tidslinjen). */
+  id: string;
+  /** Datumet (anteckningens datum, mötets dag och tid). */
+  at: string;
+  /** Typen ("Samtal med deltagaren"), "Byte av yrkesområde", "Ändrat startdatum" eller "Från mötesrapport 3 feb". */
+  title: string;
+  /** "Skriven av Amira Haddad · Även teamet · Ändrad 2 feb", eller "Borttagen av …". */
+  sub: string;
+  body: string;
+  /** Var anteckningen skrevs (aktivitetsvyn) – se TimelineNote.context. */
+  context: string | null;
+  /** Anteckningen (ändra, ta bort). null = raden bara läses (mötesrapportens anteckning). */
+  note: TimelineNote | null;
+};
+export type CaseNotes = {
+  /** Får skriva anteckningar (knappen Skriv anteckning). */
+  canWrite: boolean;
+  rows: CaseNoteRow[];
+  /** Antal rader utan limit ("Visa alla anteckningar (12)"). */
+  total: number;
+};
+/** limit: Översiktens kort Senaste anteckningar (3). Utan limit: hela fliken. */
+export const caseNotes = query("arenden.kortAnteckningar", CaseParams.extend({ limit: z.number().int().min(1).max(20).optional() })).returns<CaseNotes | null>();
+
 // ---------------------------------------------------------------- Fria anteckningar (case_notes)
 /** Spara en ny anteckning eller ändra en egen. Personnummer och framtida datum nekas. Kommunen ser aldrig anteckningar. */
 export const caseNoteSave = command("arenden.noteSave", z.object({
@@ -1046,13 +1114,13 @@ export const caseNoteSave = command("arenden.noteSave", z.object({
   kind: z.enum(CASE_NOTE_KINDS),
   audience: z.enum(CASE_NOTE_AUDIENCES),
   body: z.string().trim().min(1).max(2000),
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "locked" | "pnr" | "date">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortOversikt", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "locked" | "pnr" | "date">>();
 
 /** Ta bort (dölja) en anteckning: författaren, eller samordnare och avtalsansvarig i avtalet. Inget raderas på riktigt. */
 export const caseNoteRemove = command("arenden.noteRemove", z.object({
   caseId: IdSchema,
   noteId: IdSchema,
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author" | "locked">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortOversikt", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author" | "locked">>();
 
 // ---------------------------------------------------------------- Flik: Månadsunderlag (?flik=manad)
 /** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */

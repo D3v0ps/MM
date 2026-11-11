@@ -36,7 +36,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning", "billing.run_created": "Skapade månadens fakturakörning",
   // Fakturan per avtal och månad (beslut 2026-10-07): ekonomen fyller i kommunens referens och inköpsordernummer per faktura.
   "billing.buyer_reference_set": "Fyllde i beställarreferens på faktura", "billing.purchase_order_set": "Fyllde i inköpsordernummer på faktura",
-  "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
+  "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "outbound_message.sent_manually": "Markerade ett SMS till deltagaren som skickat för hand", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
   "contract_deviation.action_plan_approved": "Åtgärdsplanen godkänd av kommunen", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
   "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",
@@ -79,11 +79,14 @@ export const ACTION_LABEL: Record<string, string> = {
   "group_activity.audience_synced": "Ändrade inbjudan automatiskt (nivå eller yrkesområde)",
   "group_activity_series.created": "Skapade återkommande aktivitet", "group_activity_series.updated": "Ändrade återkommande aktivitet",
   "group_activity_series.ended": "Avslutade återkommande aktivitet", "group_activity_series.occurrences_created": "Skapade tillfällen i återkommande aktivitet",
+  // Ändra tid (Karims beslut 2026-11-11) och deltagarens egna tillfällen. Loggen har id:n och tider – aldrig namn eller plats.
+  "activity.moved": "Ändrade tiden för ett tillfälle", "group_activity_series.occurrence_moved": "Ändrade tiden för ett tillfälle i återkommande aktivitet",
+  "activity.added": "Lade till tillfälle", "activity.removed": "Tog bort tillfälle",
   // Bonusstegen (Karims beslut 2026-11-04). Loggen har id:n, steg, beslut och vilka fält som ändrades – aldrig underlagets text
   // eller belopp. Prisraderna och avtalets bonusavsnitt läggs in med supabase/manual/2026-11-bonus-botkyrka.sql.
-  "bonus_claim.suggested": "Föreslog bonussteg automatiskt", "bonus_claim.created": "Skapade förslag till bonusanspråk", "bonus_claim.saved": "Sparade bonusanspråk",
-  "bonus_claim.submitted": "Skickade bonusanspråk till kommunen", "bonus_claim.withdrawn": "Återtog bonusanspråk", "bonus_claim.decided": "Registrerade kommunens beslut om bonus",
-  "bonus_claim.underlag_viewed": "Visade redovisningsunderlag för bonus", "bonus_claim.underlag_downloaded": "Laddade ner redovisningsunderlag för bonus",
+  "bonus_claim.suggested": "Föreslog progressionssteg automatiskt", "bonus_claim.created": "Skapade förslag till underlag om progression och resultat", "bonus_claim.saved": "Sparade underlag om progression och resultat",
+  "bonus_claim.submitted": "Skickade underlag om progression och resultat till kommunen", "bonus_claim.withdrawn": "Återtog underlag om progression och resultat", "bonus_claim.decided": "Registrerade kommunens beslut om progression och resultat",
+  "bonus_claim.underlag_viewed": "Visade redovisningsunderlag för progression och resultat", "bonus_claim.underlag_downloaded": "Laddade ner redovisningsunderlag för progression och resultat",
   "price_item.created": "Lade till prisrad", "contract.config_updated": "Ändrade avtalets konfiguration",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
@@ -96,7 +99,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
   saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
   grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg", group_activity_series: "Återkommande aktivitet",
-  bonus_claim: "Bonusanspråk", price_item: "Prisrad",
+  bonus_claim: "Underlag om progression och resultat", price_item: "Prisrad", outbound_message: "Utskick",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -143,7 +146,7 @@ const DETAIL_KEY: Record<string, string> = {
   draftMonths: "Månader där utkasten togs bort", keptAssessmentIds: "Bedömningar som coachen sparat (låg kvar)", closedTaskIds: "Stängda uppgifter",
   finishedBy: "Gjordes klar av", failed: "Avbröts", error: "Felkod",
   // Bonusstegen (Karims beslut 2026-11-04): steg, beslut och id:n.
-  decision: "Beslut", decisionId: "Beslutets id", wasSubmitted: "Var skickat till kommunen", section: "Avsnitt", steps: "Antal bonussteg", code: "Kod", frozen: "Skickat underlag",
+  decision: "Beslut", decisionId: "Beslutets id", wasSubmitted: "Var skickat till kommunen", section: "Avsnitt", steps: "Antal progressionssteg", code: "Kod", frozen: "Skickat underlag",
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): id och slaget – aldrig orsaken.
   noShowId: "Registrering",
 };
@@ -191,7 +194,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   format: { csv: "CSV", xlsx: "Excel", pdf: "PDF", sie: "SIE", peppol: "Peppol" },
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
   reason: {
-    step3_rejected: "kommunen avslog bonussteg 3", columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
+    step3_rejected: "kommunen avslog steg 3", columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
     unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
     unconfirmed_24h: "uppladdningen blev aldrig klar inom 24 timmar",
     orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",

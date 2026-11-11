@@ -122,7 +122,7 @@ export function PortalReport({ reportId, from, query, next }: { reportId: string
       )}
       {p.correcting && (
         <Notice tone="info" title="Rapporten rättas">
-          Miljonbemanning håller på att rätta rapporten. Du ser den senast levererade versionen (version {p.version}) tills den rättade versionen är levererad. Du får ett mejl när den finns här.
+          Miljonbemanning håller på att rätta rapporten. Du ser den senast levererade versionen (version {p.version}) tills den rättade versionen är levererad.{p.emailOnDelivery ? " Du får ett mejl när den finns här." : ""}
         </Notice>
       )}
       {p.superseded && (

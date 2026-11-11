@@ -183,7 +183,9 @@ describe("när klockan passerar en vecko- eller månadsgräns", () => {
     expect(r).toMatchObject({ status: "delivered", deliveredAt: "2027-02-08T00:05", deliveredTo: ["k-maria"] });
     expect(r.snapshot?.reportId).toBe(r.id);
     const mail = rt.store.rows("outbound_messages").filter((m) => m.createdAt === "2027-02-08T00:05" && m.template === "ny_rapport");
-    expect(mail.map((m) => m.body)).toContain("Veckorapporten för v. 5 2027 finns i portalen – logga in för att läsa.");
+    // Inget mejl om veckorapporten (Karims beslut 2026-11-11) – handläggaren ser den som ny i portalen.
+    expect(mail).toEqual([]);
+    expect(r.openedAt).toBeNull();
   });
 });
 

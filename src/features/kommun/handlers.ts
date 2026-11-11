@@ -6,7 +6,7 @@ import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { attendanceStats } from "@/core/attendance";
-import { BONUS_STATUS_TEXT } from "@/core/bonus";
+import { BONUS_STATUS_TEXT, progressStepLabel, SPEED_STEP } from "@/core/bonus";
 import { hidesCommercial } from "@/api/tester-access";
 import { duplicateActive } from "@/core/cases";
 import { isUnset } from "@/core/config";
@@ -108,13 +108,14 @@ async function bonusRows(ctx: Ctx, caseIds: readonly string[], byCase: ReadonlyM
     .filter((x) => x.step != null)
     .map((x): KomBonusRow => {
       const st = x.status as KomBonusRow["status"];
-      const label = typeof x.snapshot?.stepLabel === "string" ? x.snapshot.stepLabel : `Bonussteg ${x.step}`;
+      // Steg 5 heter Snabbt resultat för kommunen (Karims beslut 2026-11-11) – också i underlag som skickades före beslutet.
+      const label = x.step === SPEED_STEP ? progressStepLabel(null, x.step) : typeof x.snapshot?.stepLabel === "string" ? x.snapshot.stepLabel : `Steg ${x.step}`;
       // Steg 4 och 5 beslutas först när bonussteg 3 är godkänt (bonusDecisionApplies) – tills dess står de som "Beslutas efter bonussteg 3".
       const waitingForStep3 = st === "submitted" && x.followsClaimId != null && statusOf.get(x.followsClaimId) !== "approved";
       const mine = byCase.get(x.caseId)?.referrerId === ctx.actor.userId;
       return {
         claimId: x.id, caseId: x.caseId, caseNumber: byCase.get(x.caseId)?.caseNumber ?? "", step: x.step as number, label, sentAt: x.submittedAt, status: st,
-        statusText: waitingForStep3 ? "Beslutas efter bonussteg 3" : BONUS_STATUS_TEXT[st].text, icon: (waitingForStep3 ? "clock" : BONUS_STATUS_TEXT[st].icon) as KomBonusRow["icon"],
+        statusText: waitingForStep3 ? "Beslutas efter steg 3" : BONUS_STATUS_TEXT[st].text, icon: (waitingForStep3 ? "clock" : BONUS_STATUS_TEXT[st].icon) as KomBonusRow["icon"],
         decidedAt: x.decidedAt, waitingForStep3, canDecide: st === "submitted" && !waitingForStep3 && mine,
       };
     })

@@ -7,7 +7,7 @@
 // (src/core/todo.ts), raderna ritas av kitet (TodoList i src/ui/vecka.tsx).
 import { useState, type ReactNode } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
-import { plural } from "@/core/format";
+import { fmtDuration, plural } from "@/core/format";
 import { todoRows, todoSummary, whenText, type TodoPart } from "@/core/todo";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtTime, fmtWeekKey, holidayName, isoWeek, monthName, relative, WEEKDAYS } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -22,6 +22,7 @@ import { notifRead } from "@/features/notiser/api";
 import { pendingNotes } from "@/features/rost/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
 import { ATT, kindOf, lc, PageState, Persp } from "./shared";
+import { SmsAttSkicka } from "./sms-att-skicka";
 
 export function MinVeckaScreen() {
   const q = useQuery(minVecka, {});
@@ -214,7 +215,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         </Button>
       ) : null;
     const action = actionOf(kind);
-    const meetingNote = `${k.label} · ${a.location} · ${a.durationMin} min${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
+    // Huvudcoachen på samma rad – alla coacher ser alla deltagare (Karims beslut 2026-11-11).
+    const meetingNote = `${k.label} · ${a.location} · ${fmtDuration(a.durationMin)}${a.leadCoach ? ` · huvudcoach ${a.leadCoach}` : ""}${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
     const status: TodoStatus | null = isNext
       ? { text: `Nästa · ${relative(a.startsAt, now)}`, tone: "next" }
       : past && !a.attendance
@@ -389,19 +391,19 @@ function MinVecka({ v }: { v: MinVeckaView }) {
       rest: {
         action: (
           <Button kind="ghost" iconRight="arrow-right" to={to}>
-            Öppna bonusförslaget <span className="sr-only">bonussteg {b.step} för {b.name} {b.caseNumber}</span>
+            Öppna förslaget <span className="sr-only">steg {b.step} för {b.name} {b.caseNumber}</span>
           </Button>
         ),
       },
       item: {
         icon: "award", title: <CaseName big caseId={b.caseId} name={b.name} caseNumber={b.caseNumber} />,
         notes: [
-          `Bonus att granska – ${b.caseNumber} · bonussteg ${b.step} (${b.label})`,
+          `Progression att granska – ${b.caseNumber} · steg ${b.step} (${b.label})`,
           b.sustain ? "Hållbart resultat: registrera en ny verifiering innan du skickar till kommunen." : "Granska underlaget och skicka till kommunen – eller återta förslaget.",
         ],
         action: (
           <Button kind="secondary" iconRight="arrow-right" to={to}>
-            Öppna bonusförslaget <span className="sr-only">bonussteg {b.step} för {b.name} {b.caseNumber}</span>
+            Öppna förslaget <span className="sr-only">steg {b.step} för {b.name} {b.caseNumber}</span>
           </Button>
         ),
       },
@@ -448,6 +450,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         empty="Inget att göra just nu – allt är registrerat och granskat."
         foot={foot || undefined}
       />
+      <SmsAttSkicka />
       {v.toMap.length > 0 ? (
         <Split wide>
           <FollowUp v={v} />
@@ -568,7 +571,7 @@ function FollowUp({ v }: { v: MinVeckaView }) {
       ),
       action: bonus ? (
         <Button kind="secondary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(n.caseId as string)}?flik=handelser`}>
-          Visa bonus <span className="sr-only">– {n.name ?? n.caseNumber}</span>
+          Visa progression och resultat <span className="sr-only">– {n.name ?? n.caseNumber}</span>
         </Button>
       ) : undefined,
     });
@@ -594,7 +597,7 @@ function FollowUp({ v }: { v: MinVeckaView }) {
       summary={unread ? <Link to="/notiser" className="inline-flex min-h-11 items-center font-bold text-antracit underline underline-offset-3">{plural(unread, "oläst notis", "olästa notiser")}</Link> : undefined}
       empty={
         <>
-          Inget att följa upp – alla dina ärenden har dokumenterad progression och inga flaggor är öppna.{" "}
+          Inget att följa upp.{" "}
           <Link to="/notiser" className="font-bold text-antracit underline underline-offset-3">Öppna notiser</Link>
         </>
       }
@@ -680,15 +683,6 @@ function ToMap({ v }: { v: MinVeckaView }) {
       title={`Att kartlägga (${v.toMap.length})`}
       icon="layers"
       items={items}
-      foot={
-        <>
-          Här står dina deltagare. Nivån väljs i kartläggningen. Alla i avtalet som saknar nivå står på{" "}
-          <Link to="/grupper" className="inline-flex min-h-11 items-center font-bold text-antracit underline underline-offset-3">
-            Grupper och nivåer
-          </Link>
-          .
-        </>
-      }
     />
   );
 }

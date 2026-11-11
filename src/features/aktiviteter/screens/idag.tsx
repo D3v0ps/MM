@@ -1,6 +1,7 @@
 "use client";
 // Dagens gruppaktiviteter på Min vecka (coachmötet 2026-10-09): en rad per aktivitet med länk till aktivitetsvyn – i coachens
 // "Dagens aktiviteter" (tillsammans med de enskilda tillfällena) och i samordnarens eget kort.
+import { fmtDuration } from "@/core/format";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
 import { fmtTime, fmtWeekday, relative } from "@/core/time";
 import { Badge, Button, Card, cn, DoneLine, List, TitleLink } from "@/ui";
@@ -21,7 +22,7 @@ export function GroupDayRow({ g, now, isNext }: { g: TodayGroupActivity; now: st
     >
       <div className="flex w-16 flex-none flex-col gap-0.5">
         <span className="text-[1.0625rem] font-extrabold tabular-nums">{fmtTime(g.startsAt)}</span>
-        <span className="text-small text-text-muted">{g.durationMin} min</span>
+        <span className="text-small text-text-muted">{fmtDuration(g.durationMin)}</span>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <div className="font-bold">

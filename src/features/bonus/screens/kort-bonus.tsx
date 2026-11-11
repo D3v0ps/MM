@@ -39,12 +39,12 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
   const creatable = v.steps.filter((s) => s.canCreate);
   return (
     <Card
-      title="Bonus"
+      title="Progression och resultat"
       icon="award"
       flush
-      actions={v.canAct && creatable.length > 0 ? <Button icon="plus" onClick={() => setCreate(true)}>Skapa bonusanspråk</Button> : undefined}
+      actions={v.canAct && creatable.length > 0 ? <Button icon="plus" onClick={() => setCreate(true)}>Skapa underlag</Button> : undefined}
       foot={
-        <Disclosure label="Så fungerar bonusstegen">
+        <Disclosure label="Så fungerar stegen">
           <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-small">
             {v.rules.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
@@ -60,7 +60,7 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
           <ListItem
             key={s.step}
             lead={<span className="inline-flex size-9 items-center justify-center rounded-full border-[1.5px] border-antracit font-extrabold" aria-hidden="true">{s.step}</span>}
-            title={`Bonussteg ${s.step} · ${s.label}`}
+            title={`Steg ${s.step} · ${s.label}`}
             sub={
               s.status === "none"
                 ? s.createProblem && v.canAct ? s.createProblem : "Inget anspråk än."
@@ -77,7 +77,7 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
               {s.claimId && (
                 <Button kind={s.status === "suggested" && v.canAct ? "secondary" : "ghost"} iconRight="arrow-right" to={bonusPath(s.claimId)}>
                   {s.status === "suggested" && v.canAct ? "Granska och skicka" : "Visa"}
-                  <span className="sr-only"> bonussteg {s.step}</span>
+                  <span className="sr-only"> steg {s.step}</span>
                 </Button>
               )}
             </span>
@@ -104,13 +104,13 @@ function CreateModal({ caseId, steps, onClose }: { caseId: string; steps: BonusS
     const res = await cmd.run({ caseId, step: Number(step) }).catch(() => null);
     if (!res) return setError("Anspråket kunde inte skapas. Försök igen.");
     if (!res.ok) return setError(res.message || "Anspråket kunde inte skapas.");
-    toast(`Anspråket för bonussteg ${step} är skapat. Granska och skicka när underlaget är klart.`);
+    toast(`Anspråket för steg ${step} är skapat. Granska och skicka när underlaget är klart.`);
     onClose();
     nav.push(bonusPath(res.claimId));
   };
   return (
     <Modal
-      title="Skapa bonusanspråk"
+      title="Skapa underlag"
       onClose={onClose}
       footer={
         <>
@@ -121,9 +121,9 @@ function CreateModal({ caseId, steps, onClose }: { caseId: string; steps: BonusS
         </>
       }
     >
-      <p className="m-0">Välj bonussteget. Anspråket blir ett förslag som du granskar innan det skickas till kommunen.</p>
-      <Field label="Bonussteg" help="Bara steg som inte redan har ett anspråk. Bonussteg 4 och 5 bygger på bonussteg 3." id="bonus-skapa-steg">
-        <Select value={step} onValueChange={setStep} options={steps.map((s) => ({ value: String(s.step), label: `Bonussteg ${s.step} · ${s.label}` }))} />
+      <p className="m-0">Välj steget. Anspråket blir ett förslag som du granskar innan det skickas till kommunen.</p>
+      <Field label="Steg" help="Bara steg som inte redan har ett anspråk. Steg 4 och 5 bygger på steg 3." id="bonus-skapa-steg">
+        <Select value={step} onValueChange={setStep} options={steps.map((s) => ({ value: String(s.step), label: `Steg ${s.step} · ${s.label}` }))} />
       </Field>
       {error && <Notice tone="critical" title="Det gick inte">{error}</Notice>}
     </Modal>

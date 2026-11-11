@@ -30,6 +30,7 @@ src/server/jobs    runJobs()  ◄── POST /api/jobs/run  ◄── pg_cron i 
 | `sent` | Lämnat till Resend eller 46elks. `sent_at` och `provider_message_id` (Resends eller 46elks id) sätts | – · `redirected` = testmiljön skickade mejlet till testaren i stället (`MM_EMAIL_REDIRECT_TO`) |
 | `suppressed` | Stoppat med avsikt | `Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST` · `Mottagaren saknar giltig e-postadress` · `SMS-leverantör inte vald` · `Utringning inte kopplad` · `Mottagaren saknar telefonnummer` · `Testmiljön: numret finns inte i MM_SMS_ALLOWLIST` · `Stoppat: texten ser ut att innehålla ett personnummer` |
 | `manual` | Brev – skickas för hand | `Brev skickas manuellt` |
+| `sent_manually` | SMS som coachen skickade själv från sin telefon och markerade som skickat på Min vecka (SMS att skicka, Karims beslut 2026-11-11). `sent_at` och `sent_by` (vem, migration 0042) sätts – aldrig numret | – |
 | `failed` | Gick inte att skicka efter alla försök, eller leverantören avvisade det | `Resend svarade 422 (validation_error)` · `Telefonnumret har fel format` · `46elks svarade 400 (…)` · `Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen` |
 
 Kanaler:
@@ -37,6 +38,15 @@ Kanaler:
 - **SMS** och **utringning** (kanalen `call`, beslut 2026-10-09) skickas via 46elks när variablerna finns (`docs/DRIFT.md` avsnitt 13, `src/server/notify/elks.ts`). Annars sparas de med status `suppressed` och orsaken `SMS-leverantör inte vald` respektive `Utringning inte kopplad` – inget jobb läggs. Numret slås upp via ärendet precis innan utskicket skickas och normaliseras till `+46…`; testmiljön har samma spärr som e-posten (`MM_SMS_ALLOWLIST`, `MM_SMS_REDIRECT_TO`). 46elks har ingen nyckel mot dubbletter: utskicket markeras (`provider_message_id = 'pending'`) innan anropet, och ett avbrutet försök skickas aldrig igen automatiskt.
 - **Till deltagare** (kallelse, inbjudan till aktivitet, inspelningslänk): mottagaren i utskicksloggen är bara en beskrivning (`deltagare (e-post)`, `deltagare (SMS)`, `deltagare (samtal)`). Adressen eller numret slås upp via ärendet med service role när utskicket skickas och lämnas aldrig ut. Kanalvalet för kallelse och inbjudan: `notifyParticipant` (`src/features/_shared/participant-notify.ts`).
 - **Brev** (kallelse när deltagaren vill ha post): status `manual`.
+
+## SMS som coachen skickar själv (SMS att skicka, Karims beslut 2026-11-11)
+
+Så länge SMS till deltagare inte är kopplat (46elks, `docs/DRIFT.md` avsnitt 13) och e-post till deltagare stoppas av spärrlistan skickar coachen SMS:en själv. Coachens Min vecka har listorna **Veckans tider att skicka** och **SMS att skicka** (`src/features/_shared/sms-to-send.ts`, `src/features/coach/screens/sms-att-skicka.tsx`) – först coachens egna deltagare (huvudcoach eller i teamet), med **Visa alla** för resten (granskningen 2026-11-11):
+
+- **Veckans tider** (mallen `veckoschema`): från fredag kl. 00.00 (Stockholms tid) för nästa ISO-vecka – måndag–torsdag den här veckan – och bara tills veckans första tillfälle börjar, högst en rad per deltagare i en pågående eller pausad insats med tillfällen i veckan (egna tillfällen och gruppaktiviteter, inte inställda, inte praktikdagar, inte en pausad vecka). Texten byggs av `weeklyScheduleMessage` i `src/features/_shared/participant-notify.ts` – bara veckodag, datum, klockslag, plats och Miljonbemannings telefonnummer ("nästa vecka" före veckans måndag, sedan "den här veckan"). Siffran vid Min vecka räknar alla veckans tider som en sak (`smsTaskCount`).
+- **Meddelanden som inte kunde skickas** (`kallelse`, `aktivitetsinbjudan`, `aktivitet_andrad`, `aktivitet_installd`): samordnarens öppna uppgift att ringa deltagaren (`participant_contact`) och SMS:et i utskicksloggen med status `suppressed` eller `failed` för samma mall, tid och plats. Texten är exakt den som skulle ha skickats. Går meddelandet fram automatiskt blir det ingen rad. Inbjudan, ändrad och inställd aktivitet står bara tills aktivitetens tid har passerat; jobbet `report_schedule` stänger sedan uppgiften (`closeExpiredContactTasks`, "Aktivitetens tid har passerat."). Inbjudan och ändrad tid står bara när deltagaren har ett tillfälle på den tiden och platsen, och inte medan veckans tider har tillfället. Ta bort tillfälle, Ändra veckoplan och en gruppaktivitet som ersätter ett eget tillfälle stänger uppgifterna om de borttagna tillfällena. Ändra tid på en praktikdag skickar inget meddelande.
+- **Markera som skickat** (`coach.smsMarkSent`): en rad i `outbound_messages` med kanalen `sms`, mottagaren `deltagare (SMS)`, status `sent_manually`, texten, ärendet, `sent_at` och `sent_by`. Id:t bestäms av raden (`out-hand-vecka-<ärende>-<vecka>` eller `out-hand-uppgift-<uppgift>`) – två samtidiga tryck ger en rad (primärnyckeln). Kommandot har det coachen såg – veckans tillfällen (id och tid) eller meddelandets id – och jämförs utan klockan, så en markering stoppas aldrig bara för att tiden har gått. Bara veckan som visas nu eller veckan före går att markera. Samordnarens uppgift för samma meddelande stängs (för veckans tider uppgifterna om en inbjudan eller ändrad tid som texten har med); klarmarkerar samordnaren uppgiften försvinner raden. Revisionsloggen: `outbound_message.sent_manually` med bara id:n, mallen och veckan.
+- Numret visas bara i appen för coachen, som markerbar text med Kopiera numret – aldrig i en länk, aldrig i utskicksloggen, revisionsloggen eller loggarna. Efter Kopiera numret visas **Öppna SMS** (`sms:?body=<texten>`, `sms:&body=` på iPhone och iPad) – länken har bara texten.
 
 ## Spärren för mottagare (testmiljön)
 
@@ -101,7 +111,7 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `ordererkannande` | Vi har tagit emot er beställning – {ärendenummer} |
 | `generisk_mottagningsbekraftelse` | Vi har tagit emot ditt mejl · portalvarianten: Vi har tagit emot er beställning – **skickas inte sedan 2026-10-07** (skyddade personuppgifter är borttagna ur appen) |
 | `orderbekraftelse` | Orderbekräftelse – {ärendenummer} |
-| `ny_rapport` | Ny rapport i portalen |
+| `ny_rapport` | Ny rapport i portalen – månads- och slutrapporten. **Inte för veckorapporten om närvaro** sedan Karims beslut 2026-11-11 (avtalets `reportDelivery.weeklyAttendanceEmail`; saknas värdet skickas inget mejl) – handläggaren ser den som ny i portalen |
 | `nytt_meddelande` | Nytt meddelande om {ärendenummer} |
 | `tilldelning_coach` | Nytt ärende i Miljonmatch |
 | `avbojt` | Besked om beställning {ärendenummer} |
@@ -115,7 +125,7 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `inbjudan_personal` | Du har fått ett konto i Miljonmatch – Lägg till kollega (beslut 2026-10-08): texten har inga personuppgifter, knappen går till appens adress (`loginLink`, personalens domän) |
 | `kallelse` | Kallelse till första möte |
 | `aktivitetsinbjudan` | Inbjudan till aktivitet hos Miljonbemanning (beslut 2026-10-09) |
-| `aktivitet_andrad` | Ändrad aktivitet hos Miljonbemanning (spår G – e-post och SMS, ingen utringning) |
+| `aktivitet_andrad` | Ändrad aktivitet hos Miljonbemanning (spår G – e-post och SMS, ingen utringning). Också när ett eget tillfälle får ny tid med Ändra tid (`arenden.activityMove`) och när ett tillfälle i en återkommande aktivitet flyttas med seriens meddelande påslaget (Karims beslut 2026-11-11) |
 | `aktivitet_installd` | Inställd aktivitet hos Miljonbemanning (spår G – e-post och SMS, ingen utringning) |
 | `rostlank` | Spela in ett meddelande till din coach |
 | `inloggningskod` | Din inloggningskod till Miljonmatch (skickas direkt, inte via kön – nästa avsnitt) |
@@ -256,7 +266,7 @@ Alla körs av samma anrop varje minut. Appen lägger jobben när appens klocka p
 |---|---|---|
 | Påminnelse om närvaro | Måndag 08.00 (föregående vecka) och fredag (innevarande vecka) | Coacher som inte registrerat all närvaro får en påminnelse |
 | Eskalering av närvaro | Måndag 10.00 | Förfallotiden för registrering (`veckorapport_registrering`) – samordnaren får en flagga |
-| Veckorapport | Måndag 16.00 | Publicera veckorapporterna till kommunen (`veckorapport_publicering`) och skicka "Ny rapport" |
+| Veckorapport | Måndag 16.00 | Publicera veckorapporterna till kommunen (`veckorapport_publicering`). Inget mejl "Ny rapport" sedan 2026-11-11 (`reportDelivery.weeklyAttendanceEmail`) |
 | Progressionsbevakning | Enligt interna regler (`reminderSchedule`, i dag måndag 08.00) | Påminnelse till coachen (`paminnelse_progression`), eskalering till chef efter två veckor i rad (`eskalering_chef`) |
 | Mötespåminnelse och pulslänk | Dagen före kl. 18.00 · enligt avtalets pulsmätning | SMS – när 46elks är kopplat (jobben finns inte ännu) |
 | Gallring | Varje natt | Ljud (senast 24 timmar), råtranskript (30 dagar), gamla `login_attempts`, avslutade jobb, utskickslogg enligt gallringsreglerna |

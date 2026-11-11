@@ -17,7 +17,7 @@
 // (first_meeting_no_shows, cases).
 import type { Role } from "@/api/roles";
 import type { Case, FirstMeetingNoShow, FirstMeetingNoShowKind } from "@/data/schema";
-import { dayOf, fmtDate, fmtDateTime, holidayName, isWorkingDay, type LocalDateTime } from "./time";
+import { addDays, addWorkingDays, dayOf, fmtDate, fmtDateTime, holidayName, isWorkingDay, type LocalDateTime } from "./time";
 import { looksLikePnr } from "./validation";
 
 /** Registrerar att deltagaren inte kom: de som kan starta insatsen (samma som Starta insatsen och Ändra startdatum). */
@@ -84,6 +84,28 @@ export function firstMeetingBookingProblem(c: Pick<Case, "referredAt" | "firstMe
   if (c.firstMeetingAt && at === c.firstMeetingAt) return { code: "same_time", text: `Första mötet är redan bokat ${fmtDateTime(at)}. Välj en annan tid.` };
   if (!isWorkingDay(at)) return { code: "not_working_day", text: `${holidayName(at) || "Dagen"} är inte en arbetsdag. Välj en vardag.` };
   return null;
+}
+
+/** Förvalt klockslag för första mötet i acceptdialogen (samordnarens Acceptera och den intagsansvariges Ta emot). */
+export const FIRST_MEETING_DEFAULT_TIME = "10:00";
+
+/**
+ * Förvalt datum för första mötet i acceptdialogen (Karims beslut 2026-11-11: "behöver vi själva fylla i datumen fast kommunens
+ * handläggare har skrivit in det"). Kommunens önskade start när den dagen går att boka – efter i dag, inte före
+ * beställningens dag, en arbetsdag och med det förvalda klockslaget kvar (samma regel som servern, firstMeetingBookingProblem).
+ * Annars den första dagen från och med den senaste av önskad start och beställningens dag som går att boka. Utan önskad
+ * start, eller när den önskade starten har passerat eller är i dag (granskningen 2026-11-11): två arbetsdagar fram, som förut.
+ */
+export function acceptDefaultDate(o: { desiredStart: string | null | undefined; referredAt: LocalDateTime; now: LocalDateTime; time?: string }): string {
+  const today = dayOf(o.now);
+  const time = o.time ?? FIRST_MEETING_DEFAULT_TIME;
+  if (!o.desiredStart || o.desiredStart <= today) return addWorkingDays(today, 2);
+  const order = dayOf(o.referredAt);
+  const bookable = (d: string) => d >= order && isWorkingDay(d) && `${d}T${time}` > o.now;
+  let d = [o.desiredStart, today, order].sort().at(-1)!;
+  // Högst ett par veckor framåt (helger, helgdagar) – loopen är begränsad för säkerhets skull.
+  for (let i = 0; i < 31 && !bookable(d); i++) d = addDays(d, 1);
+  return d;
 }
 
 /** "Kom inte till första mötet 29 jan kl. 14.00" */

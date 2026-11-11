@@ -40,7 +40,7 @@ const ChannelBadges = ({ t }: { t: TemplateView }) => (
 const CheckBadge = ({ c }: { c: TemplateCheck }) =>
   c.ok ? <Meta icon="check">Inga personuppgifter</Meta> : <Badge tone="red" icon="alert">Innehåller personuppgifter</Badge>;
 /** Utskickets läge (text + ikon). Bara "Kunde inte skickas" får röd ikon. */
-const SEND_STATUS_ICON: Record<SendLogItem["status"], IconName> = { queued: "clock", sent: "check", failed: "alert", suppressed: "minus-circle", manual: "file" };
+const SEND_STATUS_ICON: Record<SendLogItem["status"], IconName> = { queued: "clock", sent: "check", failed: "alert", suppressed: "minus-circle", manual: "file", sent_manually: "check" };
 const checkOf = (t: Pick<TemplateView, "subject" | "body">) => templateCheck(`${t.subject || ""}\n${t.body}`);
 
 export function MallarScreen({ query }: ScreenProps) {

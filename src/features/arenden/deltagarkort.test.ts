@@ -10,7 +10,7 @@ import { DEFAULT_ORG_SETTINGS, requireOperational } from "@/core/config";
 import { customerSummary } from "@/core/customer-summary";
 import { domainEnv } from "@/core/env";
 import { eventLabel } from "@/core/labels";
-import { addDays, monday, weekMonday } from "@/core/time";
+import { addDays, fmtDateTime, monday, weekMonday } from "@/core/time";
 import { listPersonas } from "@/data/actors";
 import { MemoryRepo, PolicyError, type MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
@@ -22,10 +22,11 @@ import { appendToSummary, assessmentPage, assessmentSave, canAppendToSummary, AS
 import { canonicalJson, reportModel, type ReportEnv } from "@/features/rapporter/model";
 import { isDelivered } from "@/features/rapporter/report-helpers";
 import {
-  caseCard, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave, caseTimeline, caseTimelineText, checkInsApprovedGap, type CaseCard, type CaseTimeline, type TimelineCat, type TimelineEntry,
+  caseCard, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave, caseNotes, caseTimeline, caseTimelineText, checkInsApprovedGap, type CaseCard, type CaseTimeline, type TimelineCat, type TimelineEntry,
 } from "./api";
-import { monthReportState, monthReportStateLabel, monthReportStatusLabel } from "./timeline";
+import { buildNotes, monthReportState, monthReportStateLabel, monthReportStatusLabel } from "./timeline";
 import { reportCorrect } from "@/features/rapporter/api";
+import { groupActivityCreate } from "@/features/aktiviteter/api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -92,7 +93,7 @@ describe("tidslinjen (arenden.kortTidslinje)", () => {
     ]);
     expect(pages[0]).toMatchObject({ canWrite: true, more: false, empty: false });
     const samtal = all.find((e) => e.note?.id === "note-nadia-samtal")!;
-    expect(samtal).toMatchObject({ title: "Samtal med deltagaren", sub: "Skriven av Amira Haddad · Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör · Ändrad 28 jan" });
+    expect(samtal).toMatchObject({ title: "Samtal med deltagaren", sub: "Skriven av Amira Haddad · Alla coacher, samordnare, avtalsansvarig, chef och systemadministratör · Ändrad 28 jan" });
     expect(samtal.note).toMatchObject({ canEdit: true, canRemove: true, removed: null });
     expect(samtal.note!.body).toContain("\n\nVi bokar");
     // Saras anteckning: Amira får inte ändra eller ta bort den.
@@ -394,6 +395,94 @@ describe("fria anteckningar (arenden.noteSave, arenden.noteRemove)", () => {
 });
 
 // ================================================================ Månadsbedömningen: anteckningar in i sammanfattningen
+// ================================================================ Fliken Anteckningar (Karims beslut 2026-11-11)
+describe("fliken Anteckningar och Senaste anteckningar (arenden.kortAnteckningar)", () => {
+  const notes = (caseId: string, actor: Actor, limit?: number) => q(caseNotes, { caseId, ...(limit ? { limit } : {}) }, actor);
+
+  it("alla anteckningar med det senaste först – och mötesrapporternas korta anteckning bara när rapporten är godkänd", async () => {
+    const n = (await notes(NADIA, amira()))!;
+    expect(n.canWrite).toBe(true);
+    const ids = n.rows.map((r) => r.id);
+    expect(ids.filter((x) => x.startsWith("note:"))).toEqual(["note:note-nadia-borttagen", "note:note-nadia-praktiskt", "note:note-nadia-samtal", "note:note-nadia-kommun"]);
+    // Sorterat på datum (och tid), det senaste först.
+    const ats = n.rows.map((r) => r.at.slice(0, 10));
+    expect([...ats].sort().reverse()).toEqual(ats);
+    // Mötesrapporterna: bara godkända med anteckning, aldrig utkast eller AI-utkast.
+    const approved = rt.store.rows("check_ins").filter((c) => c.caseId === NADIA && c.status === "approved" && c.note.trim() && c.heldAt <= rt.clock.now());
+    expect(approved.length).toBeGreaterThan(0);
+    expect(ids.filter((x) => x.startsWith("ci:")).sort()).toEqual(approved.map((c) => `ci:${c.id}`).sort());
+    const drafts = rt.store.rows("check_ins").filter((c) => c.caseId === NADIA && c.status !== "approved");
+    for (const d of drafts) expect(ids).not.toContain(`ci:${d.id}`);
+    const ci = n.rows.find((r) => r.id.startsWith("ci:"))!;
+    expect(ci).toMatchObject({ note: null, context: null });
+    expect(ci.title).toMatch(/^Från mötesrapport \d{1,2} [a-zé]{3}( \d{4})?$/);
+    // Samma rader som tidslinjen för anteckningarna (text, rubrik, vem som skrev och åtgärderna).
+    const tl = entriesOf(await allPages(NADIA, amira())).filter((e) => e.note);
+    for (const e of tl) expect(n.rows.find((r) => r.id === e.id)).toMatchObject({ title: e.title, sub: e.sub, body: e.note!.body, note: { canEdit: e.note!.canEdit, canRemove: e.note!.canRemove } });
+    expect(n.rows.find((r) => r.id === "note:note-nadia-borttagen")).toMatchObject({ sub: "Borttagen av Sara Lindqvist 29 jan", note: { removed: { byName: "Sara Lindqvist" } } });
+  });
+
+  it("Översikt: de tre senaste och antalet; en ny anteckning hamnar överst direkt", async () => {
+    const all = (await notes(NADIA, amira()))!;
+    const top = (await notes(NADIA, amira(), 3))!;
+    expect(top.rows).toEqual(all.rows.slice(0, 3));
+    expect(top.total).toBe(all.rows.length);
+    const r = await cmd(caseNoteSave.key, { caseId: NADIA, occurredOn: "2027-02-01", kind: "conversation", audience: "full", body: "Pratade om nästa vecka." }, amira());
+    expect(r).toMatchObject({ ok: true });
+    expect((await notes(NADIA, amira(), 3))!.rows[0]).toMatchObject({ id: `note:${r.noteId}`, title: "Samtal med deltagaren", body: "Pratade om nästa vecka." });
+  });
+
+  it("kommunen och ekonomen når aldrig anteckningarna; teamet bara 'team' och inga mötesrapporter", async () => {
+    await expect(notes(NADIA, lars())).rejects.toBeInstanceOf(ApiError);
+    const maria = listPersonas(rt.raw()).find((p) => p.actor.role === "kommun_handlaggare" && rt.raw().get("cases", NADIA)!.referrerId === p.actor.userId)!.actor;
+    await expect(notes(NADIA, maria).then((x) => x)).rejects.toBeInstanceOf(ApiError);
+    // Teamets åtkomst (vilande sedan 2026-10-09 – alla på Miljonbemanning har full åtkomst): bara audience team och inga
+    // mötesrapporter, också om hanteraren skulle skicka med avstämningarna.
+    const db = rt.store.data as unknown as Db;
+    const team = buildNotes(db, { caseId: NADIA, viewer: { access: "team", role: "coach", userId: "u-leila" }, now: rt.clock.now() });
+    expect(team.rows.map((r) => r.id).sort()).toEqual(["note:note-nadia-praktiskt"]);
+    expect(team.rows.every((r) => r.note?.audience === "team")).toBe(true);
+  });
+
+  it("anteckningar från aktivitetsvyn visar aktivitetens namn och tid – den sparade raden är oförändrad", async () => {
+    // En gruppaktivitet i dag kl. 08.00 (före demoklockan) med Nadia – samma kommando som aktivitetsvyn.
+    const created = (await cmd(groupActivityCreate.key, { name: "CV-verkstad", kind: "yrkesmoment", startsAt: "2027-02-01T08:00", durationMin: 90, location: "Miljonbemanning Alby", caseIds: [NADIA] }, amira())) as Res & { groupActivityId?: string };
+    expect(created).toMatchObject({ ok: true });
+    const g = rt.store.getRow("group_activities", created.groupActivityId!)!;
+    const caseId = NADIA;
+    const res = (await cmd("aktiviteter.anteckningar", { id: g.id, notes: [{ caseId, body: "Var aktiv i övningen." }] }, sara())) as Res & { noteIds?: string[] };
+    expect(res).toMatchObject({ ok: true });
+    const id = res.noteIds![0];
+    expect(rt.store.getRow("case_notes", id)).toMatchObject({ kind: "other", body: "Var aktiv i övningen." });
+    const row = (await notes(caseId, amira()))!.rows.find((r) => r.id === `note:${id}`)!;
+    expect(row.context).toBe(`Från aktiviteten ${g.name} ${fmtDateTime(g.startsAt)}`);
+    expect(row.body).toBe("Var aktiv i övningen.");
+    const tl = entriesOf(await allPages(caseId, amira())).find((e) => e.id === `note:${id}`)!;
+    expect(tl.sub).toMatch(new RegExp(`^Från aktiviteten ${g.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} `));
+    // En vanlig anteckning har ingen kontext.
+    expect((await notes(NADIA, amira()))!.rows.find((r) => r.id === "note:note-nadia-samtal")!.context).toBeNull();
+  });
+
+  it("motiveringen till ett ändrat startdatum heter Ändrat startdatum – inte Byte av yrkesområde", async () => {
+    rt.store.insertRow("case_notes", {
+      id: "note-t-start", contractId: "c-bot", caseId: NADIA, authorId: "u-sara", occurredOn: "2027-02-01", kind: "other", audience: "team",
+      body: "Ändrat startdatum: deltagaren började senare.", createdAt: DEMO_START, updatedAt: null, removedAt: null, removedBy: null,
+    });
+    rt.store.insertRow("case_start_changes", {
+      id: "csc-t-start", contractId: "c-bot", caseId: NADIA, fromDate: "2026-10-05", toDate: "2026-10-06", changedBy: "u-sara", changedAt: DEMO_START, noteId: "note-t-start", seq: 1,
+    });
+    const tl = entriesOf(await allPages(NADIA, amira())).find((e) => e.id === "note:note-t-start")!;
+    expect(tl).toMatchObject({ title: "Ändrat startdatum", note: { canEdit: false, canRemove: false } });
+    expect(tl.sub).toMatch(/Motiveringen kan inte ändras$/);
+    expect((await notes(NADIA, amira()))!.rows.find((r) => r.id === "note:note-t-start")).toMatchObject({ title: "Ändrat startdatum" });
+    const area = rt.store.rows("case_area_changes")[0];
+    if (area) {
+      const e = entriesOf(await allPages(area.caseId, amira())).find((x) => x.id === `note:${area.noteId}`);
+      if (e) expect(e.title).toBe("Byte av yrkesområde");
+    }
+  });
+});
+
 describe("månadsbedömningen: anteckningar från månaden", () => {
   it("assessmentPage visar månadens anteckningar (inte borttagna) och avtalets gränser", async () => {
     const v = await q(assessmentPage, { caseId: NADIA, month: "2027-01" }, amira());

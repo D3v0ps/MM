@@ -15,7 +15,10 @@ import {
 import { CaseBackgroundCard } from "./attachments";
 import { ParticipantFilesCard } from "./participant-files";
 import { NoteDialog } from "./kort-tidslinje";
+import { LatestNotesCard } from "./kort-anteckningar";
 import { NoShowNotice } from "./kort-uteblev";
+import { ActivityModal } from "./kort-start";
+import { fmtDuration } from "@/core/format";
 import { recordingOffered } from "@/features/coach/api";
 import type { TabProps } from "./kort";
 
@@ -225,6 +228,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 <FourBadges rights={pl.fourRights} className="mt-2" />
               </Card>
             )}
+            {/* De tre senaste anteckningarna (Karims beslut 2026-11-11) – samma läsregler som fliken Anteckningar. */}
+            <LatestNotesCard card={card} setTab={setTab} notes={o.notes} />
             {/* Filer på deltagarkortet (CV, personligt brev, betyg och intyg) – bara Miljonbemanning (Karims beslut 2026-10-29). */}
             {card.files && o.files && <ParticipantFilesCard card={card} files={o.files} />}
             {/* Beställningens bakgrund och bilagor – bara med full åtkomst (samordnare, avtalsansvarig, huvudcoach). */}
@@ -547,7 +552,7 @@ export function TabNarvaro({ card, setTab, openModal }: TabProps) {
                 )}
               />
             </Card>
-            <UpcomingList rows={a.upcoming} canEdit={canEditActivities} />
+            <UpcomingList rows={a.upcoming} canEdit={canEditActivities} card={card} />
           </Stack>
         );
       }}
@@ -555,10 +560,14 @@ export function TabNarvaro({ card, setTab, openModal }: TabProps) {
   );
 }
 
-/** Kommande tillfällen – kan tas bort tills närvaro registrerats (beslut 2026-10-08). */
-function UpcomingList({ rows, canEdit }: { rows: CaseAttendance["upcoming"]; canEdit: boolean }) {
+/**
+ * Kommande tillfällen – kan tas bort tills närvaro registrerats (beslut 2026-10-08) och få ny tid med Ändra tid (Karims beslut
+ * 2026-11-11). Ett tillfälle i en gruppaktivitet ändras i aktivitetsvyn.
+ */
+function UpcomingList({ rows, canEdit, card }: { rows: CaseAttendance["upcoming"]; canEdit: boolean; card: TabProps["card"] }) {
   const remove = useCommand(activityRemove);
   const confirm = useConfirm();
+  const [moving, setMoving] = useState<CaseAttendance["upcoming"][number] | null>(null);
   const onRemove = async (a: CaseAttendance["upcoming"][number]) => {
     const ok = await confirm({
       title: "Ta bort tillfället?",
@@ -573,6 +582,15 @@ function UpcomingList({ rows, canEdit }: { rows: CaseAttendance["upcoming"]; can
     else toast("Tillfället är borttaget.");
   };
   return (
+    <>
+    {moving && (
+      <ActivityModal
+        cases={[]}
+        now={card.now}
+        onClose={() => setMoving(null)}
+        move={{ activityId: moving.id, caseNumber: card.caseNumber, name: card.displayName, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin, location: moving.location }}
+      />
+    )}
     <Card flush title="Kommande tillfällen" icon="calendar">
       {rows.length === 0 ? (
         <Empty icon="calendar" title="Inga kommande tillfällen" />
@@ -583,13 +601,16 @@ function UpcomingList({ rows, canEdit }: { rows: CaseAttendance["upcoming"]; can
               key={a.id}
               icon={actIcon(a.kind)}
               title={cap(fmtDateTimeLong(a.startsAt))}
-              sub={`${actLabel(a.kind)} · ${a.location} · ${a.durationMin} min`}
+              sub={`${actLabel(a.kind)} · ${a.location} · ${fmtDuration(a.durationMin)}`}
               side={
                 !canEdit ? undefined : a.groupActivityId ? (
-                  // Gruppaktivitet: deltagaren tas bort i aktivitetsvyn, så att det loggas på aktiviteten.
+                  // Gruppaktivitet: tiden ändras och deltagaren tas bort i aktivitetsvyn, så att det loggas på aktiviteten.
                   <Button kind="ghost" icon="users" to={`/aktiviteter/${encodeURIComponent(a.groupActivityId)}`}>Öppna gruppaktiviteten</Button>
                 ) : (
-                  <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void onRemove(a)}>Ta bort</Button>
+                  <>
+                    <Button kind="ghost" icon="clock" ariaLabel={`Ändra tid: ${actLabel(a.kind)} ${fmtDateTimeLong(a.startsAt)}`} onClick={() => setMoving(a)}>Ändra tid</Button>
+                    <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void onRemove(a)}>Ta bort</Button>
+                  </>
                 )
               }
             />
@@ -597,5 +618,6 @@ function UpcomingList({ rows, canEdit }: { rows: CaseAttendance["upcoming"]; can
         </List>
       )}
     </Card>
+    </>
   );
 }

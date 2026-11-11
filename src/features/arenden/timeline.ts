@@ -18,9 +18,9 @@ import { attendanceStats } from "@/core/attendance";
 import {
   CASE_NOTE_AUDIENCE_LABEL, CASE_NOTE_PROTECTED_AUDIENCE, CASE_STATUS_LABEL, caseNoteKindLabel, endReasonLabel, eventLabel, personName,
 } from "@/core/labels";
-import { addDays, addMonths, dayOf, diffDays, fmtDate, fmtDateFull, fmtDateShort, isoWeek, monday, monthEnd, monthKey, MONTHS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
-import type { ActivityKind, Case, Db, OutcomeEventKind, Report, TrafficLight } from "@/data/schema";
-import type { CaseTimeline, CaseTimelineMonth, TimelineCat, TimelineEntry } from "./api";
+import { addDays, addMonths, dayOf, diffDays, fmtDate, fmtDateFull, fmtDateShort, fmtDateTime, isoWeek, monday, monthEnd, monthKey, MONTHS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
+import type { ActivityKind, Case, CaseNote, Db, OutcomeEventKind, Report, TrafficLight } from "@/data/schema";
+import type { CaseNoteRow, CaseNotes, CaseTimeline, CaseTimelineMonth, TimelineCat, TimelineEntry, TimelineNote } from "./api";
 
 /** Tabellerna tidslinjen byggs av (bara ärendets rader). Tabeller rollen inte får läsa skickas tomma. */
 export type TimelineDb = Pick<
@@ -32,11 +32,18 @@ export type TimelineDb = Pick<
   // Deltagaren kom inte till första mötet (0040): saknas tabellen visas inga sådana poster.
   Partial<Pick<Db, "case_start_changes" | "first_meeting_no_shows">>;
 export type TimelineViewer = { access: "full" | "team"; role: Role; userId: string };
+/**
+ * Aktiviteten som en anteckning skrevs i (aktivitetsvyns anteckningsrader, Karims beslut 2026-11-11): namn och tid, per
+ * anteckningens id. case_notes har ingen kolumn för det – hanteraren läser länken ur revisionsloggen (case_note.created med
+ * groupActivityId) och aktiviteten med användarens behörighet. Saknas = ingen kontext.
+ */
+export type NoteContexts = ReadonlyMap<string, { name: string; startsAt: LocalDateTime }>;
 export type TimelineOpts = {
   caseId: string;
   viewer: TimelineViewer;
   cfg: OperationalConfig;
   now: LocalDateTime;
+  noteContexts?: NoteContexts;
   visa?: TimelineCat;
   /** Visa de tre månaderna före den här (sidindelning). */
   fore?: MonthKey;
@@ -116,6 +123,80 @@ export const enrolledIn = (c: Pick<Case, "startDate" | "endDate">, month: MonthK
 
 type Draft = TimelineEntry & { sort: string };
 
+/** Tabellerna för anteckningarna (tidslinjen och fliken Anteckningar). */
+type NoteDb = Pick<TimelineDb, "cases" | "persons" | "case_notes" | "profiles" | "case_area_changes" | "case_start_changes">;
+type NoteView = { row: CaseNote; title: string; sub: string; context: string | null; note: TimelineNote };
+
+/** "Från aktiviteten Lagerkunskap 3 feb kl. 13.30" */
+export const noteContextText = (x: { name: string; startsAt: LocalDateTime }): string => `Från aktiviteten ${x.name} ${fmtDateTime(x.startsAt)}`;
+
+/**
+ * Ärendets anteckningar som läsaren ser, i tabellens ordning. Teamet bara audience team (RLS). Borttagna visas bara för
+ * författaren, när någon annan tog bort dem ("Borttagen av …"). Motiveringen till ett byte av yrkesområde (0036) och till ett
+ * ändrat startdatum (0038) är låst: den ändras och tas aldrig bort, och rubriken säger vilken motivering det är.
+ */
+function noteViews(db: NoteDb, c: Case, viewer: TimelineViewer, today: LocalDate, contexts?: NoteContexts): NoteView[] {
+  const full = viewer.access === "full";
+  const name = (id: string | null | undefined) => personName(db.profiles, id);
+  const protectedCase = !!db.persons.find((p) => p.id === c.personId)?.protectedIdentity;
+  const canWrite = WRITERS.includes(viewer.role);
+  const areaNotes = new Set(db.case_area_changes.filter((x) => x.caseId === c.id).map((x) => x.noteId));
+  const startNotes = new Set((db.case_start_changes ?? []).filter((x) => x.caseId === c.id).map((x) => x.noteId));
+  const out: NoteView[] = [];
+  for (const n of db.case_notes.filter((x) => x.caseId === c.id && (x.audience === "team" || full))) {
+    const mine = n.authorId === viewer.userId;
+    const locked = areaNotes.has(n.id) || startNotes.has(n.id);
+    if (n.removedAt && !(mine && n.removedBy && n.removedBy !== n.authorId)) continue;
+    const who = protectedCase ? CASE_NOTE_PROTECTED_AUDIENCE : CASE_NOTE_AUDIENCE_LABEL[n.audience];
+    const removed = n.removedAt ? { byName: name(n.removedBy), at: n.removedAt } : null;
+    const canEdit = !removed && !locked && mine && canWrite && (n.audience === "team" || full);
+    const canRemove = !removed && !locked && (canEdit || (NOTE_REMOVERS.includes(viewer.role) && full));
+    const base = removed
+      ? `Borttagen av ${removed.byName} ${shortDate(removed.at, today)}`
+      : `Skriven av ${name(n.authorId)} · ${who}${n.updatedAt ? ` · Ändrad ${shortDate(n.updatedAt, today)}` : ""}`;
+    const cx = contexts?.get(n.id);
+    const context = cx ? noteContextText(cx) : null;
+    out.push({
+      row: n,
+      title: areaNotes.has(n.id) ? "Byte av yrkesområde" : startNotes.has(n.id) ? "Ändrat startdatum" : caseNoteKindLabel(n.kind),
+      sub: locked && !removed ? `${base} · Motiveringen kan inte ändras` : base,
+      context,
+      note: { id: n.id, kind: n.kind, audience: n.audience, occurredOn: n.occurredOn, body: n.body, canEdit, canRemove, authorName: name(n.authorId), removed, context },
+    });
+  }
+  return out;
+}
+
+/** "Från mötesrapport 3 feb" (i år), annars med året. */
+const fromCheckIn = (heldAt: LocalDateTime, today: LocalDate) => `Från mötesrapport ${shortDate(heldAt, today)}`;
+
+/**
+ * Fliken Anteckningar och kortet Senaste anteckningar (Karims beslut 2026-11-11): ärendets fria anteckningar och den korta
+ * anteckningen i godkända mötesrapporter (bara läsning – aldrig utkast eller AI-utkast), det senaste först. Mötesrapporterna
+ * bara vid full åtkomst (hanteraren skickar inga avstämningar för teamet). limit = de senaste n.
+ */
+export function buildNotes(db: NoteDb & Pick<TimelineDb, "check_ins">, o: { caseId: string; viewer: TimelineViewer; now: LocalDateTime; noteContexts?: NoteContexts; limit?: number }): CaseNotes {
+  const c = db.cases.find((x) => x.id === o.caseId);
+  if (!c) return { canWrite: false, rows: [], total: 0 };
+  const today = dayOf(o.now);
+  const name = (id: string | null | undefined) => personName(db.profiles, id);
+  const rows: (CaseNoteRow & { sort: string })[] = noteViews(db, c, o.viewer, today, o.noteContexts).map((v) => ({
+    id: `note:${v.row.id}`, at: v.row.occurredOn, sort: `${v.row.occurredOn}T${v.row.createdAt.slice(11, 16)}`, title: v.title, sub: v.sub, body: v.row.body,
+    context: v.context, note: v.note,
+  }));
+  if (o.viewer.access === "full") {
+    for (const ci of db.check_ins.filter((x) => x.caseId === c.id && x.status === "approved" && x.heldAt <= o.now && x.note.trim())) {
+      rows.push({
+        id: `ci:${ci.id}`, at: ci.heldAt, sort: ci.heldAt, title: fromCheckIn(ci.heldAt, today), sub: `Skriven av ${name(ci.approvedBy)}`,
+        body: ci.note.trim(), context: null, note: null,
+      });
+    }
+  }
+  rows.sort((a, b) => (a.sort === b.sort ? (a.id < b.id ? 1 : -1) : a.sort < b.sort ? 1 : -1));
+  const shown = o.limit ? rows.slice(0, o.limit) : rows;
+  return { canWrite: WRITERS.includes(o.viewer.role), rows: shown.map(({ sort, ...r }) => (void sort, r)), total: rows.length };
+}
+
 export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
   const c = db.cases.find((x) => x.id === o.caseId);
   const empty: CaseTimeline = { months: [], more: false, canWrite: false, empty: true };
@@ -124,7 +205,6 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
   const full = viewer.access === "full";
   const today = dayOf(now);
   const name = (id: string | null | undefined) => personName(db.profiles, id);
-  const protectedCase = !!db.persons.find((p) => p.id === c.personId)?.protectedIdentity;
   const canWrite = WRITERS.includes(viewer.role);
   const out: Draft[] = [];
   const push = (e: Omit<Draft, "sort"> & { sort?: string }) => out.push({ ...e, sort: e.sort ?? e.at });
@@ -222,24 +302,12 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
   }
 
   // ---- Anteckningar: alla med åtkomst – teamet bara audience team (RLS). Borttagna visas bara för författaren, när
-  //      någon annan tog bort dem ("Borttagen av …").
-  // Motiveringen till ett byte av yrkesområde (0036) och till ett ändrat startdatum (0038) är låst: den ändras och tas aldrig bort.
-  const areaNotes = new Set([...db.case_area_changes, ...(db.case_start_changes ?? [])].filter((x) => x.caseId === c.id).map((x) => x.noteId));
-  for (const n of db.case_notes.filter((x) => x.caseId === c.id && (x.audience === "team" || full))) {
-    const mine = n.authorId === viewer.userId;
-    const locked = areaNotes.has(n.id);
-    if (n.removedAt && !(mine && n.removedBy && n.removedBy !== n.authorId)) continue;
-    const who = protectedCase ? CASE_NOTE_PROTECTED_AUDIENCE : CASE_NOTE_AUDIENCE_LABEL[n.audience];
-    const removed = n.removedAt ? { byName: name(n.removedBy), at: n.removedAt } : null;
-    const canEdit = !removed && !locked && mine && canWrite && (n.audience === "team" || full);
-    const canRemove = !removed && !locked && (canEdit || (NOTE_REMOVERS.includes(viewer.role) && full));
-    const sub = removed
-      ? `Borttagen av ${removed.byName} ${shortDate(removed.at, today)}`
-      : `Skriven av ${name(n.authorId)} · ${who}${n.updatedAt ? ` · Ändrad ${shortDate(n.updatedAt, today)}` : ""}`;
+  //      någon annan tog bort dem ("Borttagen av …"). Samma regler som fliken Anteckningar (noteViews).
+  for (const v of noteViews(db, c, viewer, today, o.noteContexts)) {
+    const n = v.row;
     push({
       id: `note:${n.id}`, at: n.occurredOn, sort: `${n.occurredOn}T${n.createdAt.slice(11, 16)}`, cat: "anteckningar", icon: "edit",
-      title: locked ? "Byte av yrkesområde" : caseNoteKindLabel(n.kind), sub: locked && !removed ? `${sub} · Motiveringen kan inte ändras` : sub,
-      note: { id: n.id, kind: n.kind, audience: n.audience, occurredOn: n.occurredOn, body: n.body, canEdit, canRemove, authorName: name(n.authorId), removed },
+      title: v.title, sub: v.context && !v.note.removed ? `${v.context} · ${v.sub}` : v.sub, note: v.note,
     });
   }
 

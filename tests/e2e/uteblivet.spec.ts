@@ -78,10 +78,10 @@ test("deltagaren kom inte: coachen registrerar uteblev, bokar ett nytt första m
   await bd.getByLabel("Datum och tid").fill("2027-01-29T14:00");
   await btn(bd, "Boka det nya mötet").click();
   await expect(bd).toContainText("Tiden har redan passerat. Välj en senare tid.");
-  // En tid efter avtalets gräns: ingen varning om sen tid – nyckeltalet räknar det första bokade mötet.
+  // En tid efter avtalets gräns: ingen varning om sen tid (Karims beslut 2026-11-11) – nyckeltalet räknar det första bokade mötet.
   await bd.getByLabel("Datum och tid").fill("2027-02-15T10:00");
   await expect(bd).not.toContainText("Senare än avtalets gräns");
-  await expect(bd).toContainText("Uppföljningen av nyckeltalet räknar det första bokade mötet");
+  await expect(bd).not.toContainText("markeras som sent");
   await bd.getByLabel("Datum och tid").fill("2027-02-03T10:00");
   await btn(bd, "Boka det nya mötet").click();
   await expect(toasts(page)).toContainText("Det nya första mötet är bokat onsdag 3 feb 2027 kl. 10.00.");

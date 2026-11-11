@@ -351,9 +351,10 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
     for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.role, await count(a, "audit_log")]).toEqual([a.role, 0]);
   });
   it("utskick: admin och samordnare", async () => {
-    // 7: den generiska mottagningsbekräftelsen till em-104 skickas inte längre (skyddet borttaget 2026-10-07).
-    expect(await count(ROBIN, "outbound_messages")).toBe(7);
-    expect(await count(SARA, "outbound_messages")).toBe(7);
+    // 6: den generiska mottagningsbekräftelsen till em-104 skickas inte längre (skyddet borttaget 2026-10-07), och inget mejl om
+    // veckorapporten (granskningen 2026-11-11 – avtalet lämnar den utan e-post).
+    expect(await count(ROBIN, "outbound_messages")).toBe(6);
+    expect(await count(SARA, "outbound_messages")).toBe(6);
     for (const a of [JOHAN, AMIRA, KARIN, LARS, MARIA]) expect([a.role, await count(a, "outbound_messages")]).toEqual([a.role, 0]);
   });
   it("interna regler: MB läser, kommunen inte", async () => {

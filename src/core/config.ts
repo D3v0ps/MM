@@ -113,6 +113,13 @@ const ReportDeliverySchema = z.strictObject({
   channel: z.enum(["portal"]),
   /** Rapporter som bilaga i vanlig e-post (CLAUDE.md punkt 9: bara om avtalet uttryckligen tillåter). */
   emailAttachmentAllowed: z.boolean(),
+  /**
+   * Mejl till kommunens handläggare när veckorapporten om närvaro levereras (Karims beslut 2026-11-11: "Inga automatiska
+   * utskick, kommunens handläggare ser närvaron när den är inloggad"). Saknas = inget mejl – också för ett avtal vars
+   * konfiguration sparades före beslutet. Rapporten publiceras och syns som ny i portalen som förut. Månadsrapporten,
+   * slutrapporten och orderbekräftelsen har alltid sina mejl (weeklyAttendanceEmail gäller bara veckorapporten).
+   */
+  weeklyAttendanceEmail: z.boolean().optional(),
 });
 
 const PhaseSchema = z.strictObject({ no: PosInt, name: z.string().min(1) });
@@ -598,6 +605,14 @@ export type PulseConfig = OperationalConfig["pulse"];
 export type EscalationStep = OperationalConfig["escalationLadder"][number];
 /** AI-avsnittet (leverantör, inspelningsflöden, maxlängd, språk, länkens giltighet). */
 export type AiConfig = OperationalConfig["ai"];
+/**
+ * Får mottagaren ett mejl (utan personuppgifter) när en rapport av den här typen levereras i portalen? Veckorapporten om
+ * närvaro bara när avtalet uttryckligen säger det (reportDelivery.weeklyAttendanceEmail – Karims beslut 2026-11-11);
+ * alla andra rapporter som förut. Beställarrapporten lämnas utanför Miljonmatch och har aldrig något mejl (rapporter/handlers.ts).
+ */
+export const reportDeliveryEmail = (cfg: Pick<OperationalConfig, "reportDelivery">, kind: string): boolean =>
+  kind !== "weekly_attendance" || cfg.reportDelivery.weeklyAttendanceEmail === true;
+
 /** Rapportutkast som skapas automatiskt (reportSchedule). */
 export type ReportSchedule = NonNullable<ContractConfig["reportSchedule"]>;
 
@@ -816,7 +831,8 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
     // Beslut 2026-10-07 (synpunkt #2): alla med en adress på botkyrka.se kan skapa ett konto som kommunens handläggare.
     selfRegistration: { emailDomains: ["botkyrka.se"] },
     customerVisibility: { scope: "ATT_FASTSTÄLLA (own | unit | all)", prototypeScope: "own", seesIndividualReports: true, seesCoachNotes: false, seesSlaStats: false, seesParticipantVoiceNotes: false },
-    reportDelivery: { channel: "portal", emailAttachmentAllowed: false },
+    // Karims beslut 2026-11-11: inget mejl när veckorapporten om närvaro levereras – handläggaren ser den i portalen.
+    reportDelivery: { channel: "portal", emailAttachmentAllowed: false, weeklyAttendanceEmail: false },
     phases: [
       { no: 1, name: "Kartläggning" },
       { no: 2, name: "Yrkesförberedande grund" },

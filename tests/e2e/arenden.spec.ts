@@ -126,17 +126,20 @@ test("2. avtalsansvarig: ärendet som var skyddat öppnas som alla andra – ing
 });
 
 // ------------------------------------------------------------ 3. Coachens lista och åtkomst
-test("3. coachen börjar i Mina ärenden och kan välja alla ärenden i avtalet; kollegans ärende öppnas (beslut 2026-10-09)", async ({ page }, info) => {
+test("3. coachen börjar i alla ärenden i avtalet och kan välja Mina ärenden; kollegans ärende öppnas (beslut 2026-10-09)", async ({ page }, info) => {
   const errors = await open(page, info, "/arenden", AMIRA);
-  // Listan börjar i de egna ärendena (huvudcoach eller i teamet: 29 i testdatat) och visar öppna som standard (14) – de
-  // avslutade finns under "Alla statusar". Valet "Alla ärenden i avtalet" visar hela avtalet (231).
-  await expect(main(page)).toContainText("14 ärenden");
+  // Listan börjar i alla ärenden i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare) och visar öppna som
+  // standard (97) – de avslutade finns under "Alla statusar" (231). Valet "Mina ärenden" visar de egna (huvudcoach eller i
+  // teamet: 29 i testdatat, 14 öppna).
+  await expect(main(page)).toContainText("97 ärenden");
   await expect(main(page)).toContainText("Ärenden du ser");
   await page.selectOption("#arn-status", "alla");
-  await expect(main(page)).toContainText("29 ärenden");
-  await page.selectOption("#arn-vilka", "alla");
   await expect(main(page)).toContainText("231 ärenden");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Ärenden");
+  await page.selectOption("#arn-vilka", "mina");
+  await expect(main(page)).toContainText("29 ärenden");
+  await page.selectOption("#arn-status", "open");
+  await expect(main(page)).toContainText("14 ärenden");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Mina ärenden");
   // Kollegans ärende (Erik respektive Mats är huvudcoach) öppnas med alla flikar – tilldelningen styr inte åtkomsten.
   await switchTo(page, info, `/arenden/${SC.skyddad}`, AMIRA);
   await expect(main(page)).not.toContainText("Du saknar åtkomst");
@@ -144,7 +147,8 @@ test("3. coachen börjar i Mina ärenden och kan välja alla ärenden i avtalet;
   await switchTo(page, info, `/arenden/${SC.annanCoach}`, AMIRA);
   await expect(main(page)).not.toContainText("Du saknar åtkomst");
   await expect(main(page)).toContainText("BOT-26-0117");
-  await expect(page.getByRole("tab")).toHaveCount(12);
+  // 13 flikar sedan Anteckningar (Karims beslut 2026-11-11).
+  await expect(page.getByRole("tab")).toHaveCount(13);
   expect(errors).toEqual([]);
 });
 
@@ -328,14 +332,15 @@ test("10. rollen handledare är borttagen: /handledare finns inte, menyn har ing
   const errors = await open(page, info, "/handledare", PETRA);
   await expect(main(page)).toContainText("Sidan finns inte");
   await expect(page.getByRole("navigation", { name: "Meny" })).not.toContainText(/tilldelade/i);
-  // Petra har inga egna ärenden: Mina ärenden är tom, Alla ärenden i avtalet visar hela avtalet (beslut 2026-10-09).
+  // Petra har inga egna ärenden: listan börjar i hela avtalet (beslut 2026-10-09 och 2026-11-11), Mina ärenden är tom.
   await switchTo(page, info, "/arenden?status=alla", PETRA);
-  await expect(main(page)).toContainText("0 ärenden");
-  await page.selectOption("#arn-vilka", "alla");
   await expect(main(page)).toContainText("231 ärenden");
+  await page.selectOption("#arn-vilka", "mina");
+  await expect(main(page)).toContainText("0 ärenden");
   // Alla flikar i ett ärende där hon inte är med i teamet. Coachen ser fortfarande aldrig eskaleringar till chef.
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=avstamningar`, PETRA);
-  await expect(page.getByRole("tab")).toHaveCount(12);
+  // 13 flikar sedan Anteckningar (Karims beslut 2026-11-11).
+  await expect(page.getByRole("tab")).toHaveCount(13);
   await expect(main(page)).not.toContainText(/yrkesspecifik handledare/i);
   await expect(main(page)).not.toContainText("Den delen visas inte för din roll");
   await expect(main(page)).not.toContainText(/eskaler/i);
@@ -456,7 +461,7 @@ test("17. 400 px: knappar och text inom korten, klickytor minst 44 px, tabeller 
     const r = await probe(page);
     expect(r, `400 px ${name}: ${r.slice(0, 3).join("; ")}`).toEqual([]);
   };
-  await expect(main(page)).toContainText("14 ärenden");
+  await expect(main(page)).toContainText("97 ärenden");
   await check("arenden.lista");
   await switchTo(page, info, `/arenden/${SC.nadia}`, SARA);
   await expect(main(page)).toContainText("Kommande 14 dagar");
@@ -515,7 +520,7 @@ test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven a
   await expect(page.getByText("Anteckningen är sparad.")).toBeVisible();
   await expect(dialog(page)).toHaveCount(0);
   await expect(main(page)).toContainText(NOTE_FULL);
-  await expect(main(page)).toContainText("Skriven av Amira Haddad · Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör");
+  await expect(main(page)).toContainText("Skriven av Amira Haddad · Alla coacher, samordnare, avtalsansvarig, chef och systemadministratör");
   // Filtret Anteckningar visar bara anteckningar.
   await page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Anteckningar" }).click();
   await expect(main(page)).toContainText(NOTE_FULL);

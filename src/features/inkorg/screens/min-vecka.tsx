@@ -11,7 +11,7 @@ import { alertAck } from "@/features/ledning/api";
 import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import { plural } from "@/core/format";
 import { slaStatus } from "@/core/sla";
-import { addWorkingDays, dayOf, fmtTime, fmtWeekday } from "@/core/time";
+import { addWorkingDays, fmtTime, fmtWeekday } from "@/core/time";
 import { todoRows, todoSummary, whenText, type TodoPart } from "@/core/todo";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link } from "@/shell/nav";
@@ -302,7 +302,7 @@ function Week({ v }: { v: StartView }) {
       <UnreadNotices hideEmpty />
 
       {dialog?.kind === "ack" && <AckModal a={dialog.a} onClose={() => setDialog(null)} />}
-      {dialog?.kind === "book" && <BookModal c={dialog.c} rebook={dialog.rebook} today={v.today} meetingText={v.meetingText} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "book" && <BookModal c={dialog.c} rebook={dialog.rebook} today={v.today} onClose={() => setDialog(null)} />}
       {dialog?.kind === "accept" && <AcceptModal caseId={dialog.caseId} caseNumber={dialog.caseNumber} onClose={() => setDialog(null)} />}
     </>
   );
@@ -344,9 +344,10 @@ function inboxPart(x: InboxRow, setDialog: (d: Dialog) => void): Part {
  * Deltagarens telefonnummer i uppgiften att ringa (S2). Numret är markerbar text med knappen Kopiera numret – aldrig en
  * tel:-länk (CLAUDE.md punkt 2: inga personuppgifter i URL:er). navigator.clipboard.writeText anropas direkt i klickhändelsen;
  * går det inte (ingen behörighet, osäker sida eller ramen i prototypen) markeras numret så att det kan kopieras med tangentbordet.
- * Numret kommer bara med i vy-modellen när rollen redan får läsa personen (StartTask.call.phone).
+ * Numret kommer bara med i vy-modellen när rollen redan får läsa personen (StartTask.call.phone, och SMS att skicka på coachens
+ * Min vecka). onCopied: efter Kopiera numret – kopierat eller markerat (SMS att skicka visar då Öppna SMS).
  */
-function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: string | null }) {
+export function PhoneToCopy({ phone, caseNumber, onCopied }: { phone: string; caseNumber: string | null; onCopied?: () => void }) {
   const ref = useRef<HTMLSpanElement>(null);
   const selectNumber = () => {
     const el = ref.current;
@@ -357,9 +358,11 @@ function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: string 
     try {
       await navigator.clipboard.writeText(phone);
       toast("Numret är kopierat.");
+      onCopied?.();
     } catch {
       selectNumber();
       toast("Numret kunde inte kopieras automatiskt. Det är markerat – kopiera det med Ctrl+C (Cmd+C på Mac).", "error");
+      onCopied?.();
     }
   };
   return (
@@ -597,12 +600,11 @@ function AckModal({ a, onClose }: { a: AlertView; onClose: () => void }) {
   );
 }
 
-function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; rebook?: boolean; today: string; meetingText: string; onClose: () => void }) {
+function BookModal({ c, rebook, today, onClose }: { c: Booking; rebook?: boolean; today: string; onClose: () => void }) {
   const bookCmd = useCommand(caseBookFirstMeeting);
   const [date, setDate] = useState(addWorkingDays(today, 1));
   const [time, setTime] = useState("10:00");
   const [tried, setTried] = useState(false);
-  const due = c.due?.dueAt ?? null;
   const err = !date ? "Välj datum." : date < today ? "Datumet har redan passerat." : null;
   const submit = async () => {
     setTried(true);
@@ -631,8 +633,7 @@ function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; reb
       }
     >
       <p>
-        Huvudcoach: <b>{c.coachName}</b>. Mötet ska vara bokat senast {c.dueText} (inom {meetingText} från avropet).
-        {rebook ? " Den nya tiden ersätter den gamla." : ""}
+        Huvudcoach: <b>{c.coachName}</b>.{rebook ? " Den nya tiden ersätter den gamla." : ""}
       </p>
       <FormGrid>
         <Field id="ink-b-date" label="Datum" required help="En vardag." error={tried ? err : null}>
@@ -642,12 +643,7 @@ function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; reb
           <TimeInput value={time} onValueChange={setTime} />
         </Field>
       </FormGrid>
-      {due && date > dayOf(due) && !c.afterNoShow && (
-        <Notice tone="warn" title={`Senare än ${meetingText} efter avropet`}>
-          Mötet markeras i uppföljningen av nyckeltalet för första möte.
-        </Notice>
-      )}
-      {c.afterNoShow && <div className="text-text-muted">Uppföljningen av nyckeltalet räknar det första bokade mötet – den nya tiden gör inte ärendet sent.</div>}
+      {/* Ingen varning för en tid efter avtalets gräns (Karims beslut 2026-11-11: "Det ska inte vara med"). */}
       <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
     </Modal>
   );

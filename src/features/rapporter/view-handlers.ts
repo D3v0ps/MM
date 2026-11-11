@@ -5,7 +5,7 @@ import { fail, ok } from "@/api/contract";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
-import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
+import { isOperational, progressionRuleText, reportDeliveryEmail, type OperationalConfig } from "@/core/config";
 import { plural, withoutPrototypeWords } from "@/core/format";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
@@ -87,7 +87,7 @@ const monthlyAssessmentOf = async (ctx: Ctx, r: Report): Promise<MonthlyAssessme
 
 // ================================================================ Rapportlistan
 handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> => {
-  const { role, userId } = ctx.actor;
+  const { role } = ctx.actor;
   const now = ctx.now();
   // Avtalet där rapporterna hanteras (ett nytt avtal i utkast har inga rapporter än).
   const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
@@ -102,7 +102,9 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
   ]);
   const caseMap = new Map(cases.map((c) => [c.id, c]));
   const viewer = await viewerFor(ctx, cases);
-  const myCases = role === "coach" ? cases.filter((c) => c.leadCoachId === userId) : [];
+  // Coachen ser rapporterna för alla deltagare i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare) – vem som
+  // godkänner och levererar är oförändrat (huvudcoachen, rapporter/handlers.ts).
+  const myCases = role === "coach" ? cases : [];
   const hasCaseIn = (r: Report) =>
     myCases.some((c) => c.referrerId === r.recipientUserId && c.startDate && c.startDate <= (r.periodEnd ?? "") && (!c.endDate || c.endDate >= (r.periodStart ?? "")));
   const monthlyCaseIds = [...new Set(reports.filter((r) => r.kind === "monthly" && r.caseId).map((r) => r.caseId as string))];
@@ -119,7 +121,7 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
     if (r.superseded || !(REPORT_LIST_KINDS as readonly string[]).includes(r.kind)) continue;
     const c = r.caseId ? caseMap.get(r.caseId) ?? null : null;
     if (r.caseId && !c) continue; // ärendet syns inte för rollen
-    if (role === "coach" && (c ? c.leadCoachId !== userId : !(r.kind === "weekly_attendance" && hasCaseIn(r)))) continue;
+    if (role === "coach" && !c && !(r.kind === "weekly_attendance" && hasCaseIn(r))) continue;
     if (r.kind === "customer_summary" && role === "coach") continue;
     const who = c ? `${c.caseNumber} · ${viewer.name(c)}` : `Till ${personName(profiles, r.recipientUserId)}`;
     const sub = r.kind === "final" || r.kind === "order_confirmation" ? `${who} · ${periodText(r)}` : r.kind === "weekly_attendance" && r.week ? `${who} · ${fmtWeekRange(r.week)}` : who;
@@ -231,7 +233,7 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
       requestedId: req.id, title: reportTitle(r), caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null, participant: c && access !== "restricted" ? viewer.name(c) : null,
       deliveredText: wdFull(r.deliveredAt), version: r.version || 1, isRecipient: r.deliveredTo.includes(ctx.actor.userId), openedAt: r.openedAt,
       recipientName: personName(db.profiles, r.deliveredTo[0] || recipientOf(r, c)),
-      correcting: !!pend, superseded: r.superseded,
+      correcting: !!pend, emailOnDelivery: reportDeliveryEmail(info.cfg, r.kind), superseded: r.superseded,
       newerId: r.superseded ? chain.filter((v) => v.version > r.version && isDelivered(v)).pop()?.id ?? null : null,
       canMessage: !!c && access === "customer", leadCoachId: c?.leadCoachId ?? null,
     };
@@ -415,6 +417,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
           notice: info.cfg.reportDelivery.emailAttachmentAllowed
             ? "Rapporten lämnas till kommunen utanför Miljonmatch, till exempel på ett möte. Avtalet tillåter att den skickas som bilaga i e-post enligt kommunens skriftliga instruktion."
             : "Rapporten lämnas till kommunen utanför Miljonmatch, till exempel på ett möte. Skicka den inte som bilaga i vanlig e-post – avtalet tillåter inte det.",
+          email: false,
         }
       : {
           outside: false,
@@ -422,6 +425,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
           recipientName: toProfile?.fullName ?? null,
           attachmentAllowed: info.cfg.reportDelivery.emailAttachmentAllowed,
           notice: `${reportKindLabel(r.kind)}${c ? ` för ärende ${c.caseNumber}` : ""} finns i portalen – logga in för att läsa.`,
+          email: reportDeliveryEmail(info.cfg, r.kind),
         },
     versions,
     needsSnapshot: delivered && !hasSnapshot(r) && hasDocument(r.kind),

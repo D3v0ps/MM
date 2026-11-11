@@ -37,14 +37,16 @@ async function goAs(page: Page, info: TestInfo, to: string, as: { userId: string
 }
 
 test("bonussteg 3: coachen skickar, kommunen godkänner i portalen och ekonomen ser bonusfakturan", async ({ page }, info) => {
-  // 1. Coachen: kortet Bonus på deltagarkortet och granskningen.
+  // 1. Coachen: kortet Progression och resultat på deltagarkortet och granskningen (Karims beslut 2026-11-11: ordet bonus
+  // syns bara för ekonomen).
   const errors = await open(page, info, `/arenden/${CASE}?flik=handelser`, ERIK);
-  const bonusCard = main(page).locator("section").filter({ has: page.getByRole("heading", { name: "Bonus", exact: true }) }).first();
-  await expect(bonusCard).toContainText("Bonussteg 3 · Arbete eller studier");
+  const bonusCard = main(page).locator("section").filter({ has: page.getByRole("heading", { name: "Progression och resultat", exact: true }) }).first();
+  await expect(bonusCard).toContainText("Steg 3 · Arbete eller studier");
+  await expect(bonusCard).not.toContainText(/bonus/i);
   await expect(bonusCard).toContainText("Förslag att granska");
   await expect(main(page)).not.toContainText(AMOUNT);
-  await bonusCard.getByRole("link", { name: /^Granska och skicka\s+bonussteg 3/ }).click();
-  await expect(main(page)).toContainText("Bonussteg 3 · Arbete eller studier");
+  await bonusCard.getByRole("link", { name: /^Granska och skicka\s+steg 3/ }).click();
+  await expect(main(page)).toContainText("Steg 3 · Arbete eller studier");
   await expect(main(page)).toContainText("Fyll i verifieringens datum.");
   await page.getByLabel("Verifieringens datum").fill("2026-12-17");
   await page.getByLabel("Kommentar till kommunen").fill("Tillsvidareanställning som lagerarbetare.");
@@ -56,24 +58,25 @@ test("bonussteg 3: coachen skickar, kommunen godkänner i portalen och ekonomen 
   const dialog = page.getByRole("dialog", { name: "Skicka till kommunen?" });
   await expect(dialog).toContainText("Mejlet har bara ärendenumret.");
   await btn(dialog, "Skicka till kommunen").click();
-  await expect(toasts(page)).toContainText("Bonussteg 3 är skickat till kommunen.");
+  await expect(toasts(page)).toContainText("Steg 3 är skickat till kommunen.");
   await expect(main(page)).toContainText(CASE_NO);
 
   // 2. Kommunen: Att göra – Läs och besluta – Godkänn – Bekräfta beslutet (testdatats bonussteg 3 i BOT-26-0027 och det nya;
   // bonussteg 5 i BOT-26-0027 beslutas efter bonussteg 3 och räknas inte).
   await goAs(page, info, "/portal", MARIA);
   await expect(main(page)).toContainText("Att göra (2)");
-  await expect(main(page)).toContainText(`Bonus att besluta om – ${CASE_NO}`);
-  await main(page).getByRole("link", { name: new RegExp(`^Läs och besluta\\s+om bonussteg 3 för ${CASE_NO}`) }).click();
-  await expect(main(page)).toContainText("Miljonbemanning begär bonus enligt incitamentsmodellen.");
+  await expect(main(page)).toContainText(`Progression och resultat att besluta om – ${CASE_NO}`);
+  await main(page).getByRole("link", { name: new RegExp(`^Läs och besluta\\s+om steg 3 för ${CASE_NO}`) }).click();
+  await expect(main(page)).toContainText("Miljonbemanning redovisar progression och resultat enligt incitamentsmodellen.");
   await expect(main(page)).toContainText("Intyg och andra dokument finns inte i portalen.");
   await expect(main(page)).not.toContainText(AMOUNT);
   await btn(main(page), "Gå vidare till beslut").click();
-  await btn(page.getByRole("group", { name: "Godkänner du bonusanspråket?" }), "Godkänn").click();
+  await btn(page.getByRole("group", { name: "Godkänner du underlaget om progression och resultat?" }), "Godkänn").click();
   await btn(main(page), "Fortsätt").click();
-  await expect(main(page)).toContainText(`Du godkänner bonussteg 3 (Arbete eller studier) för ${CASE_NO}.`);
+  await expect(main(page)).toContainText(`Du godkänner steg 3 (Arbete eller studier) för ${CASE_NO}.`);
   await btn(main(page), "Bekräfta beslutet").click();
-  await expect(main(page)).toContainText("Du har godkänt bonusanspråket");
+  await expect(main(page)).toContainText("Du har godkänt underlaget om progression och resultat");
+  await expect(main(page)).not.toContainText(/bonus/i);
   await expect(main(page)).not.toContainText(AMOUNT);
   await goAs(page, info, "/portal", MARIA);
   await expect(main(page)).toContainText("Att göra (1)");

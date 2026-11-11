@@ -36,7 +36,7 @@ När du har loggat in ser du startsidan med tre stora knappar:
 - **Mina deltagare** – se de deltagare du har beställt insatser för.
 - **Rapporter och meddelanden** – läs rapporter och meddelanden från Miljonbemanning.
 
-Behöver Miljonbemanning ett beslut från dig står det överst på startsidan under **Att göra**. Tryck på **Läs och svara**, eller **Läs och besluta** för ett bonusanspråk.
+Behöver Miljonbemanning ett beslut från dig står det överst på startsidan under **Att göra**. Tryck på **Läs och svara**, eller **Läs och besluta** för ett underlag om progression och resultat.
 
 ## Beställa en insats i portalen
 
@@ -81,7 +81,7 @@ Lämna bara de uppgifter som behövs.
 3. Insatsen startar. Varje månad får du en **månadsrapport** för deltagaren. Du får också en **veckorapport om närvaro**.
 4. När insatsen avslutas får du en **slutrapport**.
 
-Varje gång något nytt finns i portalen får du ett mejl utan personuppgifter med en länk till portalen.
+När en orderbekräftelse, månadsrapport eller slutrapport finns i portalen får du ett mejl utan personuppgifter med en länk till portalen. Veckorapporten om närvaro kommer varje vecka utan mejl. Du ser den under **Rapporter och meddelanden** när du loggar in. Nya rapporter har märket **Ny**.
 
 ## Mina deltagare
 
@@ -100,19 +100,19 @@ Vill du avbryta en insats? Mejla **avrop@miljonbemanning.se** och skriv ärenden
 2. Olästa rapporter och meddelanden visas först. Välj **Olästa** eller **Alla**.
 3. Tryck på en rapport för att läsa den i portalen. Rapporter skickas aldrig som bilaga i vanlig e-post.
 
-## Bonusanspråk
+## Progression och resultat
 
-Miljonbemanning kan begära bonus när en deltagare når ett bonussteg, till exempel arbete eller studier. Du får ett mejl med ärendenumret. Mejlet har inga namn.
+Miljonbemanning redovisar progression och resultat när en deltagare når ett steg, till exempel arbete eller studier. Du får ett mejl med ärendenumret. Mejlet har inga namn.
 
-1. Logga in. Bonusanspråket står under **Att göra** på startsidan. Tryck på **Läs och besluta**.
+1. Logga in. Underlaget står under **Att göra** på startsidan. Tryck på **Läs och besluta**.
 2. Läs underlaget. Tryck på **Läs underlaget (PDF)** om du vill spara det. Intyg och andra dokument finns inte i portalen.
 3. Tryck på **Gå vidare till beslut**.
 4. Välj **Godkänn** eller **Avslå**. Skriv gärna en motivering.
 5. Tryck på **Bekräfta beslutet**. Beslutet går inte att ändra.
 
-Vissa bonussteg bygger på bonussteg 3. Dem kan du godkänna först när bonussteg 3 är godkänt.
+Vissa steg bygger på steg 3. Dem kan du godkänna först när steg 3 är godkänt.
 
-Under **Mina deltagare** ser du deltagarens bonusanspråk och dina beslut. Du kan också svara med mejl. Då registrerar Miljonbemanning ditt beslut.
+Under **Mina deltagare** ser du deltagarens underlag om progression och resultat och dina beslut. Du kan också svara med mejl. Då registrerar Miljonbemanning ditt beslut.
 
 ## Mina uppgifter
 

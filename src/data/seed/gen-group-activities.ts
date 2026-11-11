@@ -63,7 +63,7 @@ export function addGroupActivities(db: Db): void {
     for (const startsAt of seriesOccurrenceStarts(row, { now: NOW, holidays, existing: new Set() })) {
       occurrences.push({
         ...base(s.responsibleId), id: `ga-${row.id}-${dayOf(startsAt)}`, name: s.name, kind: s.kind, startsAt, durationMin: s.durationMin, location: LOCATION,
-        responsibleId: s.responsibleId, goal: s.goal, ...audienceColumns(audience), seriesId: row.id, notify: false,
+        responsibleId: s.responsibleId, goal: s.goal, ...audienceColumns(audience), seriesId: row.id, seriesSlot: startsAt, notify: false,
       });
     }
   }

@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
 import { addWorkingDays, dayOf, fmtDate, fmtWeekday, holidayName, isWorkingDay, orderPeriodEnd } from "@/core/time";
+import { FIRST_MEETING_DEFAULT_TIME } from "@/core/first-meeting";
 import { caseAccept, caseAcceptForm, caseDecline, ORDER_REASON_MAX, ORDER_REASON_MIN, type AcceptFormView } from "@/features/arenden/api";
 import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -93,7 +94,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
   const [matcher, setMatcher] = useState("");
   const [counselor, setCounselor] = useState("");
   const [date, setDate] = useState(f.defaultDate);
-  const [time, setTime] = useState("10:00");
+  const [time, setTime] = useState(FIRST_MEETING_DEFAULT_TIME);
   const [period, setPeriod] = useState(f.orderPeriodMonths != null ? String(f.orderPeriodMonths) : f.orderPeriodReason ? OTHER : "");
   const [end, setEnd] = useState(f.orderPeriodMonths == null && f.orderPeriodReason ? f.plannedEnd ?? "" : "");
   const [reason, setReason] = useState(f.orderPeriodReason ?? "");
@@ -144,7 +145,6 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
     ["coach", `ink-coach-${coach || f.coaches[0]?.id}`], ["date", "ink-fm-date"], ["time", "ink-fm-time"], ["area", "ink-area"], ["area2", "ink-area2"],
     ["period", "ink-period"], ["end", "ink-end"], ["reason", "ink-reason"], ["ref", "ink-ref"],
   ];
-  const late = !!date && !!f.firstMeetingDue && date > dayOf(f.firstMeetingDue);
   const plannedEnd = period && !other && date ? orderPeriodEnd(date, Number(period)) : null;
 
   const submit = async () => {
@@ -349,20 +349,15 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
       <FormGrid>
         <Field
           id="ink-fm-date" label="Första möte – datum" required error={tried ? errs.date : null}
-          help={`Ska vara inom ${f.meetingText} från avropet: senast ${f.firstMeetingDue ? fmtWeekday(f.firstMeetingDue) : "–"}.${f.desiredStart ? ` Kommunen önskar start ${fmtDate(f.desiredStart)}.` : ""}`}
+          help={f.desiredStart ? `Kommunen önskar start ${fmtDate(f.desiredStart)}.` : undefined}
         >
+          {/* Förifyllt med kommunens önskade start när den går att boka (Karims beslut 2026-11-11, acceptDefaultDate). */}
           <DateInput value={date} onValueChange={setDate} />
         </Field>
         <Field id="ink-fm-time" label="Första möte – tid" required help="Mötet hålls i Alby om inget annat bokas." error={tried ? errs.time : null}>
           <TimeInput value={time} onValueChange={setTime} />
         </Field>
-        {late && f.firstMeetingDue && (
-          <div className="col-span-full">
-            <Notice tone="warn" title={`Datumet är efter avtalets gräns (${fmtWeekday(f.firstMeetingDue)})`}>
-              Boka tidigare om det går. Avtalet kräver första möte inom {f.meetingText} från avropet – ärendet markeras i uppföljningen av nyckeltalet för första möte.
-            </Notice>
-          </div>
-        )}
+        {/* Ingen varning för ett datum efter avtalets gräns (Karims beslut 2026-11-11: "Det ska inte vara med"). */}
         {date && !isWorkingDay(date) && (
           <div className="col-span-full">
             <Notice tone="warn" title="Inte en arbetsdag">{fmtWeekday(date)} är {holidayName(date)?.toLowerCase() ?? "en helgdag"}. Välj en vardag.</Notice>

@@ -304,7 +304,9 @@ test("startsidan: boka första möte för ärende utan bokat möte – ärendet 
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("Första möte inte bokat");
   await row.getByRole("button", { name: "Boka första mötet för BOT-27-0039" }).click();
-  await expect(dialog(page).getByText("Huvudcoach: Sofia Grahn. Mötet ska vara bokat senast tisdag 2 februari (inom en vecka från avropet).")).toBeVisible();
+  // Ingen tidsgräns i dialogen (Karims beslut 2026-11-11, punkt 9).
+  await expect(dialog(page).getByText("Huvudcoach: Sofia Grahn.", { exact: true })).toBeVisible();
+  await expect(dialog(page)).not.toContainText(/senast|avtalets gräns/i);
   await dialog(page).getByRole("button", { name: "Boka mötet" }).click();
   await expect(dialog(page)).toHaveCount(0);
   // Kallelsen (beslut 2026-10-09): e-post när adressen finns; deltagaren har valt brev, så ett brev skickas också för hand.

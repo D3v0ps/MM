@@ -7,11 +7,11 @@ import { useState } from "react";
 import { useCommand } from "@/shell/backend";
 import { Button, Paper, PaperFixedText, useDownload, useToast, type ButtonKind } from "@/ui";
 import { bonusUnderlag, type BonusUnderlag } from "../api";
-import { DRAFT_LABEL, underlagSections, underlagTitle } from "../underlag-text";
+import { DRAFT_LABEL, underlagSections, underlagStepLabel, underlagTitle } from "../underlag-text";
 
 export function UnderlagPaper({ u, participantName, draft }: { u: BonusUnderlag; participantName: string; draft?: string | null }) {
   return (
-    <Paper title={underlagTitle(u)} draft={draft ?? (u.draft ? DRAFT_LABEL : undefined)} info={[["Avtal", `${u.contractNumber}, ${u.customerName}`], ["Ärende", u.caseNumber], ["Bonussteg", `${u.step} · ${u.stepLabel}`]]}>
+    <Paper title={underlagTitle(u)} draft={draft ?? (u.draft ? DRAFT_LABEL : undefined)} info={[["Avtal", `${u.contractNumber}, ${u.customerName}`], ["Ärende", u.caseNumber], ["Steg", `${u.step} · ${underlagStepLabel(u)}`]]}>
       {underlagSections(u, participantName).map((s, i) => (
         <section key={s.title} className="flex flex-col gap-2">
           <h2>{`${i + 1}. ${s.title}`}</h2>

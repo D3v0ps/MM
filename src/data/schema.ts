@@ -315,9 +315,10 @@ export type OutboundChannel = (typeof OUTBOUND_CHANNELS)[number];
 /**
  * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till leverantören (Resend, 46elks) ·
  * failed gick inte att skicka (t.ex. telefonnummer med fel format) · suppressed stoppat med avsikt (t.ex. testmiljöns spärr,
- * SMS eller utringning som inte är kopplad) · manual skickas för hand (brev).
+ * SMS eller utringning som inte är kopplad) · manual skickas för hand (brev) · sent_manually ett SMS som coachen skickade själv
+ * från sin telefon och markerade som skickat på Min vecka (SMS att skicka, Karims beslut 2026-11-11 – sentBy, 0042).
  */
-export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual"] as const;
+export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual", "sent_manually"] as const;
 export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
 
 export const ALERT_KINDS = [
@@ -817,6 +818,11 @@ export type GroupActivity = {
   audienceAreaCode: AreaCode | null;
   /** Den återkommande aktiviteten tillfället hör till (0035), annars null. Unikt (seriesId, startsAt). Skapas bara av servern. */
   seriesId: string | null;
+  /**
+   * Seriens tid för tillfället (0042): tiden jobbet skapade det på. Ändras aldrig – inte heller när tillfället får ny tid – så att
+   * jobbet aldrig skapar ett nytt tillfälle på den gamla tiden. Unikt (seriesId, seriesSlot). Null utan serie; sätts bara av servern.
+   */
+  seriesSlot?: LocalDateTime | null;
   /**
    * Deltagarna som målgruppen bjuder in eller tar bort efter att aktiviteten skapats får meddelande (aktivitetsinbjudan,
    * aktivitet_installd). Enstaka aktiviteter: kryssrutan när aktiviteten skapades; återkommande: seriens val (standard av).
@@ -1756,6 +1762,11 @@ export type OutboundMessage = {
   statusReason?: string | null;
   /** Leverantörens id för utskicket (Resend för e-post, 46elks för SMS och samtal). */
   providerMessageId?: string | null;
+  /**
+   * Vem som markerade ett SMS som skickat för hand (status sent_manually, profiles.id – 0042). Null för utskick som servern
+   * skickar. Aldrig deltagarens nummer eller adress.
+   */
+  sentBy?: string | null;
 };
 
 /** Personlig notis i appen. Exakt en mottagare – ingen ser andras notiser. */
@@ -2224,7 +2235,7 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
   activities: [{ fields: ["groupActivityId", "caseId"] }],
   // Ett tillfälle per återkommande aktivitet och starttid (0035, group_activities_series_starts_key – bara rader med series_id).
-  group_activities: [{ fields: ["seriesId", "startsAt"] }],
+  group_activities: [{ fields: ["seriesId", "startsAt"] }, { fields: ["seriesId", "seriesSlot"] }],
   // Ett val per deltagare och gruppmål (0033, group_goal_results_activity_case_key).
   group_goal_results: [{ fields: ["groupActivityId", "caseId"] }],
   pulse_responses: ["inviteId"],

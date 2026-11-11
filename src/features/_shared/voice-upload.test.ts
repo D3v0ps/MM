@@ -54,20 +54,23 @@ describe("startAudioUpload", () => {
     expect(t.store.rows("audit_log").at(-1)).toMatchObject({ action: "audio.upload_started", entityId: r.ticket.uploadId, actorId: "u-amira", contractId: "c-bot", details: { purpose: "checkin", caseId: NADIA } });
   });
 
-  it("coachen: inget samtycke, skyddade personuppgifter, någon annans ärende och fel roll stoppas", async () => {
+  it("coachen: inget samtycke, skyddade personuppgifter och fel roll stoppas – en annan coachs deltagare spelas in (Karims beslut 2026-11-11)", async () => {
     const t = setup();
     const amira = t.as("u-amira", "coach");
     expect(await startAudioUpload(amira, { purpose: "checkin", caseId: YUSUF, ...webm })).toMatchObject({ ok: false, error: "no_consent" });
     protect(t);
     expect(await startAudioUpload(t.as("u-erik", "coach"), { purpose: "checkin", caseId: SKYDDAD, ...webm })).toMatchObject({ ok: false, error: "protected" });
-    // Ärenden som coachen inte har: finns inte (policyn) eller inte hennes
-    const other = t.store.rows("cases").find((c) => c.leadCoachId && c.leadCoachId !== "u-amira" && c.contractId === "c-bot" && c.id !== SKYDDAD)!;
-    expect((await startAudioUpload(amira, { purpose: "checkin", caseId: other.id, ...webm })).ok).toBe(false);
+    // En annan coachs deltagare: alla coacher med full åtkomst får spela in (beslut 2026-10-09 och Karims beslut 2026-11-11) – samtycket
+    // gäller som vanligt. Ett ärende som inte finns stoppas.
+    const other = t.store.rows("cases").find((c) => c.leadCoachId && c.leadCoachId !== "u-amira" && c.contractId === "c-bot" && c.id !== SKYDDAD && c.status === "active")!;
+    t.store.updateRow("cases", other.id, { aiConsentStatus: t.store.rows("cases").find((c) => c.id === NADIA)!.aiConsentStatus });
+    expect(await startAudioUpload(amira, { purpose: "checkin", caseId: other.id, ...webm })).toMatchObject({ ok: true });
+    expect(await startAudioUpload(amira, { purpose: "checkin", caseId: "case-finns-inte", ...webm })).toMatchObject({ ok: false, error: "not_found" });
     expect(await startAudioUpload(t.as("k-maria", "kommun_handlaggare"), { purpose: "checkin", caseId: NADIA, ...webm })).toMatchObject({ ok: false, error: "forbidden" });
     expect(await startAudioUpload(amira, { purpose: "checkin", caseId: NADIA, mimeType: "video/mp4" })).toMatchObject({ ok: false, error: "audio_type" });
     expect(await startAudioUpload(amira, { purpose: "checkin", caseId: NADIA, ...webm, bytes: 26 * 1024 * 1024 })).toMatchObject({ ok: false, error: "audio_size" });
     expect(await startAudioUpload(amira, { purpose: "checkin", caseId: NADIA, ...webm, durationSec: 61 * 60 })).toMatchObject({ ok: false, error: "too_long" });
-    expect(t.store.rows("audio_uploads").filter((u) => u.status === "pending")).toHaveLength(0);
+    expect(t.store.rows("audio_uploads").filter((u) => u.status === "pending")).toHaveLength(1);
   });
 
   it("utan AI tas ingen fil emot (den manuella vägen gäller)", async () => {

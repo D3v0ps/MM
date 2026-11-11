@@ -9,6 +9,13 @@
 import type { GroupActivitySeries } from "@/data/schema";
 import { addDays, dayOf, weekday, type LocalDate, type LocalDateTime } from "./time";
 
+/**
+ * Loggen när ett enskilt tillfälle i en serie får ny dag, tid eller längd (Karims beslut 2026-11-11): entity group_activity_series,
+ * details.seriesSlot = tiden jobbet skapade tillfället på. Bara en loggrad – jobbet läser seriens tid på raden
+ * (group_activities.seriesSlot, 0042).
+ */
+export const SERIES_OCCURRENCE_MOVED = "group_activity_series.occurrence_moved";
+
 /** Hur långt fram tillfällena skapas (dagar från i dag). */
 export const SERIES_HORIZON_DAYS = 14;
 /**

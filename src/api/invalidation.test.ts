@@ -52,6 +52,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortOversikt": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })], "arenden.kortKartlaggning": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvstamningar": one("u-amira", { caseId: NADIA }), "arenden.kortNarvaro": one("u-amira", { caseId: NADIA }),
   "arenden.kortTidslinje": [...one("u-amira", { caseId: NADIA, visa: "alla" }), ...one("u-petra", { caseId: "case-260167", visa: "alla" })],
+  "arenden.kortAnteckningar": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: NADIA, limit: 3 }), ...one("u-petra", { caseId: "case-260167" })],
   "arenden.kortTidslinjeText": [...one("u-amira", { caseId: NADIA, id: "msg:msg-3" }), ...one("u-amira", { caseId: NADIA, id: "ci:ci-12498" })],
   "arenden.kortManad": one("u-amira", { caseId: NADIA, manad: "2027-01" }), "arenden.kortHandelser": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvvikelser": one("u-amira", { caseId: "case-260148" }), "arenden.kortPraktik": one("u-amira", { caseId: NADIA }),
@@ -60,7 +61,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.yrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   // BOT-27-0031 har testdatats ändring av startdatum (motiveringen läses).
   "arenden.startdatum": [...one("u-amira", { caseId: "case-270031" }), ...one("u-karin", { caseId: "case-270031" })],
-  "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
+  "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.smsAttSkicka": one("u-erik"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],
   "coach.checkInAttendance": one("u-amira", { caseId: NADIA, date: "2027-01-28" }), "coach.aiRunInfo": one("u-amira", { runId: "ai-run-mehmet" }),
@@ -132,11 +133,15 @@ const WRITES: Record<string, string[]> = {
   // Starten före det bokade första mötet flyttar mötet: en ny version av orderbekräftelsen och mejlet till kommunen.
   "arenden.caseStart": ["cases", "activities", "case_status_history", "reports", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
+  // Ändra tid (Karims beslut 2026-11-11): tillfället, meddelandet till deltagaren och samordnarens uppgift att ringa (stängd eller ny).
+  "arenden.activityMove": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
+  // SMS att skicka (Karims beslut 2026-11-11): raden i utskicksloggen och samordnarens uppgift att ringa deltagaren.
+  "coach.smsMarkSent": ["outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "coach.attendanceSetAll": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", "monthly_assessments", "monthly_plans", AUDIT_CASE, AUDIT],
   "coach.deviationSave": ["deviations", "tasks", AUDIT_CASE, AUDIT], "coach.deviationCallCustomer": ["deviations", "messages", "outbound_messages", AUDIT_CASE, AUDIT],
@@ -217,6 +222,15 @@ const AUDIT_READS: Record<string, string[]> = {
   // Rapportens modell läser när händelser registrerades (event.added) – skrivs bara av coach.eventAdd.
   "rapporter.dokument": ["audit_log:event"],
   "rapporter.visa": ["audit_log:event"],
+  // Aktiviteten som en anteckning skrevs i (Karims beslut 2026-11-11): loggraden case_note.created skrivs av samma kommando som
+  // anteckningen (case_notes) – tabellen räcker, ingen egen tagg.
+  "arenden.kortAnteckningar": [],
+  // Översiktens kort Senaste anteckningar läser samma rader som fliken (CaseOverview.notes).
+  "arenden.kortOversikt": [],
+  "arenden.kortTidslinje": [],
+  // Veckoplanen räknar ett flyttat tillfälle på sin tidigare tid (activity.moved) – loggraden skrivs av arenden.activityMove,
+  // som skriver activities och räknar om kortet.
+  "arenden.kort": [],
 };
 
 /**

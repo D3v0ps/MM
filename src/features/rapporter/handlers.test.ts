@@ -127,11 +127,11 @@ describe("1. rapportlistan", () => {
     expect(diff.map((x) => x.id)).toEqual([]);
   });
 
-  it("coachen ser bara egna ärenden och veckorapporter där hon har deltagare", async () => {
+  it("coachen ser rapporterna för alla deltagare i avtalet (Karims beslut 2026-11-11) – aldrig beställarrapporten", async () => {
     const l = await ask(reportList, {}, amira());
     expect(l.coach).toBe(true);
-    const foreign = rows("cases").find((c) => c.leadCoachId !== "u-amira" && c.status === "active")!;
-    expect(text(l.rows)).not.toContain(foreign.caseNumber);
+    const foreign = rows("cases").find((c) => c.leadCoachId !== "u-amira" && c.status === "active" && rows("reports").some((r) => r.caseId === c.id && r.kind === "monthly"))!;
+    expect(text(l.rows)).toContain(foreign.caseNumber);
     expect(l.rows.some((x) => x.kind === "customer_summary")).toBe(false);
     expect(l.rows.some((x) => x.kind === "weekly_attendance")).toBe(true);
   });
@@ -434,6 +434,19 @@ describe("7. veckorapport som väntar på närvaro", () => {
     expect(text((await okDoc(WEEKLY_WAIT, as(r.recipientUserId!, "kommun_handlaggare"))).doc)).toBe(text(md.doc));
     // Handledaren kan läsa veckorapporten (närvaro)
     expect(await doc(WEEKLY_WAIT, petra())).toMatchObject({ ok: true, doc: { kind: "weekly_attendance" } });
+  });
+
+  it("en rättad veckorapport levereras utan mejl; månadsrapporten har kvar sitt (Karims beslut 2026-11-11)", async () => {
+    const week = rows("reports").find((r) => r.kind === "weekly_attendance" && r.status === "delivered" && !r.superseded && !r.correctionPending)!;
+    const fix = await run(reportCorrect, { reportId: week.id }, sara());
+    if (!fix.ok) throw new Error("rättelsen misslyckades");
+    expect(await run(reportApprove, { reportId: fix.reportId }, sara())).toMatchObject({ ok: true });
+    const out0 = rows("outbound_messages").length;
+    expect(await run(reportDeliver, { reportId: fix.reportId }, sara())).toMatchObject({ ok: true });
+    expect(row("reports", fix.reportId)).toMatchObject({ status: "delivered", openedAt: null, deliveredTo: [week.recipientUserId] });
+    expect(rows("outbound_messages").slice(out0)).toEqual([]);
+    await deliverNadiaJan();
+    expect(rows("outbound_messages").slice(out0).map((m) => m.template)).toEqual(["ny_rapport"]);
   });
 });
 

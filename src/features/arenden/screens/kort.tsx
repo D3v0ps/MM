@@ -12,18 +12,19 @@ import { firstMeetingBookingProblem } from "@/core/first-meeting";
 import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
-  anchorTabs, PhaseBar, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
+  anchorTabs, PhaseBar, Select, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import { recordingOffered } from "@/features/coach/api";
 import {
-  caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis,
+  caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis, caseNotes,
   caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
 } from "../api";
 import { canOpen, cap, fd, Facts, Label, MiniList } from "./common";
 import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kort-flikar";
 import { TabManad } from "./kort-manad";
 import { TabTidslinje } from "./kort-tidslinje";
+import { TabAnteckningar } from "./kort-anteckningar";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
 import { ContactModal } from "./kort-kontakt";
 import { ActivityModal, StartModal, TeamModal } from "./kort-start";
@@ -36,7 +37,7 @@ import { NoShowModal } from "./kort-uteblev";
 import { CaseAreaChange, CaseAreaHistory } from "./kort-yrkesomrade";
 
 const TAB_LABEL: Record<CaseTab, string> = {
-  oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
+  oversikt: "Översikt", tidslinje: "Tidslinje", anteckningar: "Anteckningar", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
   handelser: "Händelser och utfall", avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
 };
 const CUST_WHO = { kommun_handlaggare: "kommunen" } as const;
@@ -53,8 +54,7 @@ export type TabProps = {
 type ModalKind = "coach" | "meeting" | "rebook" | "noshow" | "consent" | "start" | "plan" | "activity" | "team" | "contact" | "receive";
 
 function useCrumbs() {
-  const role = useSession().actor.role;
-  return [{ label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
+  return [{ label: "Ärenden", to: "/arenden" }];
 }
 
 export function DeltagarkortScreen({ params, query }: ScreenProps) {
@@ -87,7 +87,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
   return (
     <CaseView
       card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} starta={query.get("starta") === "1"}
-      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"} taemot={query.get("taemot") === "1"}
+      uteblev={query.get("uteblev") === "1"} boka={query.get("boka") === "1"} taemot={query.get("taemot") === "1"} veckoplan={query.get("veckoplan") === "1"}
     />
   );
 }
@@ -127,6 +127,7 @@ function prefetchCaseTab(prefetch: ReturnType<typeof usePrefetch>, t: CaseTab, c
   switch (t) {
     case "oversikt": return prefetch(caseOverview, p);
     case "tidslinje": return prefetch(caseTimeline, { caseId, visa: "alla" });
+    case "anteckningar": return prefetch(caseNotes, p);
     case "kartlaggning": return prefetch(caseIntake, p);
     case "avstamningar": return prefetch(caseCheckIns, p);
     case "narvaro": return prefetch(caseAttendance, p);
@@ -188,12 +189,14 @@ function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
 /** "Visa alla uppgifter" kommer ihåg läget under sessionen (bara i minnet, aldrig i adressen). */
 let showAllFacts = false;
 
-function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka, taemot }: {
+function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka, taemot, veckoplan }: {
   card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean;
   /** ?uteblev=1 ("Deltagaren kom inte" på Min vecka) och ?boka=1 ("Boka nytt första möte" på Min vecka): dialogen öppnas en gång. */
   uteblev: boolean; boka: boolean;
   /** ?taemot=1 (notisen "Ny beställning att ta emot"): dialogen Ta emot öppnas en gång – bara för avtalets intagsansvarige. */
   taemot: boolean;
+  /** ?veckoplan=1 ("Ändra veckoplan" på coachens Närvaro, Karims beslut 2026-11-11): dialogen öppnas en gång. */
+  veckoplan?: boolean;
 }) {
   const nav = useNav();
   const role = useSession().actor.role;
@@ -209,7 +212,8 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): ?uteblev=1 och ?boka=1 från Min vecka öppnar dialogerna på samma sätt.
   const canNoShow = !!card.noShow?.canRegister;
   const canRebook = !!card.noShow?.current && !!card.noShow.canRebook;
-  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : taemot && card.canReceive ? "receive" : null;
+  const auto: ModalKind | null = starta && canStart ? "start" : uteblev && canNoShow ? "noshow" : boka && canRebook ? "rebook" : taemot && card.canReceive ? "receive"
+    : veckoplan && card.weekPlan ? "plan" : null;
   useEffect(() => {
     if (auto && !autoStarted.current) {
       autoStarted.current = true;
@@ -305,6 +309,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
         <TabPanel tabsId="arende" active={tab} className="min-h-[calc(100dvh-var(--mm-sticky-top,0px)-9rem)]">
           {tab === "oversikt" && <TabOversikt {...props} />}
           {tab === "tidslinje" && <TabTidslinje {...props} />}
+          {tab === "anteckningar" && <TabAnteckningar {...props} />}
           {tab === "kartlaggning" && <TabKartlaggning {...props} />}
           {tab === "avstamningar" && <TabAvstamningar {...props} />}
           {tab === "narvaro" && <TabNarvaro {...props} />}
@@ -785,6 +790,8 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
   // Ändra startdatum (Karims beslut 2026-10-29): coach, samordnare och avtalsansvarig i en pågående eller pausad insats.
   if (c.startChange.canChange) btns.push(<CaseStartChange key="startdate" card={c} className={btn} />);
+  // Ändra veckoplan (Karims beslut 2026-11-11: lätt att hitta) – den som får ändra i en pågående eller pausad insats (card.weekPlan).
+  if (c.weekPlan) btns.push(<Button key="plan" icon="calendar" className={btn} onClick={() => openModal("plan")}>Ändra veckoplan</Button>);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
   if (c.manage && active && c.teamOptions) btns.push(<Button key="team" icon="users" className={btn} onClick={() => openModal("team")}>Ändra team</Button>);
   return (
@@ -880,12 +887,10 @@ function CoachModal({ card: c, onClose }: { card: CaseCard; onClose: () => void 
 function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: () => void; rebook?: boolean }) {
   const book = useCommand(caseBookFirstMeeting);
   const today = dayOf(c.now);
-  const due = c.firstMeeting.dueAt;
   const [at, setAt] = useState(`${addWorkingDays(today, 1)}T10:00`);
   const [err, setErr] = useState<string | null>(null);
-  // Efter att deltagaren inte kom räknas nyckeltalet på det första bokade mötet (Karims beslut 2026-11-09) – ingen varning.
-  const afterNoShow = !!c.noShow?.missedBefore;
-  const late = !!at && !!due && at > due && !afterNoShow;
+  // Ingen varning för en tid efter avtalets gräns (Karims beslut 2026-11-11: "Det ska inte vara med") – nyckeltalet och
+  // uppföljningen räknas som förut.
   const save = async () => {
     if (!at || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)) {
       setErr("Välj datum och tid för mötet.");
@@ -921,7 +926,6 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
           ["Ärende", <span key="n" className="font-bold tabular-nums">{c.caseNumber}</span>],
           ["Huvudcoach", c.leadCoach?.name ?? "–"],
           ["Beställt", fmtDateTimeLong(c.referredAt)],
-          ["Senast bokat", c.firstMeeting.sla ? <SlaBadge key="sla" sla={c.firstMeeting.sla} dueAt={due} /> : "–"],
           ...(rebook && c.noShow?.current ? [["Kom inte till", fmtDateTimeLong(c.noShow.current.meetingAt)] as [string, ReactNode]] : []),
         ]}
       />
@@ -930,7 +934,7 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
         id="arn-meet-at"
         required
         error={err}
-        help={`Mötet ska hållas ${c.firstMeeting.withinText}${due ? ` – senast ${fmtDateTimeLong(due)}` : ""}. Plats: Miljonbemanning ${c.location || ""}.`}
+        help={`Plats: Miljonbemanning ${c.location || ""}.`}
       >
         <DateTimeInput
           value={at}
@@ -940,11 +944,6 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
           }}
         />
       </Field>
-      {late && due && (
-        <Notice tone="warn" title="Senare än avtalets gräns">
-          Tiden ligger efter {fmtDateTimeLong(due)}. Mötet markeras som sent i uppföljningen.
-        </Notice>
-      )}
       <p>
         {c.contactMissing
           ? "Deltagaren saknar telefonnummer och e-postadress, så kallelsen når inte fram. Kontakta handläggaren och be om en kontaktuppgift."
@@ -956,7 +955,6 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
           inte kom står kvar i tidslinjen och syns aldrig för kommunen.
         </p>
       )}
-      {afterNoShow && <p className="text-text-muted">Uppföljningen av nyckeltalet räknar det första bokade mötet – den nya tiden gör inte ärendet sent.</p>}
     </Modal>
   );
 }

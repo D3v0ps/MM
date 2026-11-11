@@ -20,7 +20,7 @@ const COACH = { userId: "u-amira", role: "coach" };
 const PETRA = { userId: "u-petra", role: "coach" };
 const MARIA = { userId: "k-maria", role: "kommun_handlaggare" };
 const KARIN = { userId: "u-karin", role: "chef" };
-const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", hodan: "case-260119", mehmet: "case-260130", amal: "case-270012", skyddad: "case-260120" };
+const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", hodan: "case-260119", mehmet: "case-260130", amal: "case-270012", skyddad: "case-260120", mikael: "case-260128" };
 
 // ---------------------------------------------------------------- Hjälpare
 const main = (page: Page) => page.locator("main");
@@ -85,9 +85,11 @@ test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ up
   const errors = await open(page, info, "/min-vecka", COACH);
   await expect(page.getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
   await noBadText(page);
-  // Överst: närvaron med sista tid i dag 10.00 och regeln om automatisk närvaro i en rad.
-  const first = todo(page).first();
-  await expect(first).toContainText("Närvaro att registrera – vecka 4");
+  // Närvaron med sista tid i dag 10.00 och regeln om automatisk närvaro i en rad. Alla coacher ser alla deltagare i avtalet
+  // (Karims beslut 2026-11-11), så det som är försenat i kollegornas ärenden (Munas insats att starta) står överst.
+  await expect(todo(page).first()).toContainText("Insats att starta");
+  const first = todo(page).filter({ hasText: "Närvaro att registrera – vecka 4" });
+  await expect(first).toHaveCount(1);
   await expect(first).toContainText(/Senast i dag kl\. 10\.00\s*48 min kvar/);
   await expect(first).toContainText("6 tillfällen saknar närvaro");
   await expect(first).toContainText("registreras automatiskt som närvarande");
@@ -100,18 +102,22 @@ test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ up
   expect(text).not.toMatch(/\b1 (godkända|granskade|tillfällen|olästa)\b/);
   // Månadsbedömningarna: en rad – nästa att bedöma som knapp, resten bakom Visa alla.
   const manad = todo(page).filter({ hasText: "Månadsbedömningar januari 2027" });
-  await expect(manad).toContainText("4 av 15 godkända – 11 kvar att gå igenom");
+  // Alla deltagare i avtalet (Karims beslut 2026-11-11): 100 bedömningar. Månadsrapporterna: bara de där Amira är huvudcoach
+  // (granskningen 2026-11-11) – 14.
+  await expect(manad).toContainText("52 av 100 godkända – 48 kvar att gå igenom");
   await expect(manad).toContainText("Månadsrapporterna byggs av bedömningarna: 14 st · 11 väntar på din bedömning · 3 godkända, ska levereras");
   await expect(manad.getByRole("link", { name: /^Bedöm / })).toHaveCount(1);
-  await manad.getByRole("button", { name: "Visa alla 11" }).click();
-  await expect(manad.getByRole("list", { name: "Månadsbedömningar som återstår" }).locator("li")).toHaveCount(10);
-  // Svara kommunen: Marias olästa meddelande från 1 februari 08.15 (samma räkning som deltagarkortets olästa).
-  // Samma ärende en rad: meddelandet står på Nadias mötesrad (nästa möte) med Läs och svara som textknapp.
-  const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  await manad.getByRole("button", { name: "Visa alla 48" }).click();
+  await expect(manad.getByRole("list", { name: "Månadsbedömningar som återstår" }).locator("li")).toHaveCount(47);
+  // Svara kommunen: Marias olästa meddelande från 1 februari 08.15 (samma räkning som deltagarkortets olästa) – och Ahmeds i
+  // Guleds ärende (alla deltagare i avtalet). Samma ärende en rad: meddelandet står på Nadias mötesrad (kl. 10.00) med Läs och
+  // svara som textknapp.
+  await expect(todo(page).filter({ hasText: "Svara kommunen" })).toHaveCount(2);
+  const msg = todo(page).filter({ hasText: "Svara kommunen" }).filter({ hasText: "BOT-26-0143" });
   await expect(msg).toHaveCount(1);
   await expect(msg).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
   await expect(msg).toContainText("från Maria Ekdahl");
-  await expect(msg).toContainText("Nästa");
+  await expect(msg).toContainText("10.00");
   await expect(msg.getByRole("link", { name: /^Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
   await expect(todo(page).filter({ has: page.getByRole("link", { name: /^Nadia Warsame\s*BOT-26-0143/ }) })).toHaveCount(1);
   await expect(msg.getByRole("button", { name: /^Läs och svara/ })).toBeVisible();
@@ -134,7 +140,7 @@ test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ up
   await expect(main(page).getByRole("link", { name: "4 olästa notiser" })).toBeVisible();
   // Rapporter som förfaller har inget eget kort (de står i listan). Att kartlägga: Amal saknar nivå.
   await expect(card(page, "Rapporter som förfaller")).toHaveCount(0);
-  await expect(card(page, "Att kartlägga (1)")).toContainText("Amal Hassan");
+  await expect(card(page, "Att kartlägga (12)")).toContainText("Amal Hassan");
   // Veckokalendern bakom "Visa hela veckan".
   await expect(page.getByTestId("kalender-dag")).toHaveCount(0);
   await page.getByRole("button", { name: /Visa hela veckan/ }).click();
@@ -150,13 +156,15 @@ test("Min vecka (C17): bara nästa möte har en svart knapp – övriga möten �
   const list = main(page).getByRole("list", { name: "Att göra i dag", exact: true });
   await expect(list).toBeVisible();
   const black = await list.evaluate((el) => [...el.querySelectorAll("a, button")].filter((b) => b.classList.contains("bg-antracit")).map((b) => (b.textContent ?? "").trim()));
+  // Nästa bara bland coachens egna möten (granskningen 2026-11-11): Nadia kl. 10.00 – inte Eriks deltagare Mikael, som också är kl. 10.00.
   expect(black).toEqual(["Spela in mötet med Nadia Warsame"]);
   const next = todo(page).filter({ hasText: "Nästa" });
   await expect(next).toContainText("Nadia Warsame");
   await expect(next.getByRole("link", { name: "Spela in mötet med Nadia Warsame" })).toHaveAttribute("href", isDemo(info) ? `#/avstamning/${SC.nadia}?spela=1` : `/avstamning/${SC.nadia}?spela=1`);
+  await expect(todo(page).filter({ hasText: "Mikael Lindström" }).getByRole("link", { name: "Spela in mötet med Mikael Lindström" })).toBeVisible();
   await expect(todo(page).filter({ hasText: "Habiba Karlsson" }).getByRole("link", { name: "Spela in mötet med Habiba Karlsson" })).toBeVisible();
   // Klara möten (närvaro och godkänd mötesrapport) står i listans fot.
-  await expect(main(page)).toContainText("Klart i dag: 09.00 Jonna Osman, 09.00 Guled Farah.");
+  await expect(main(page)).toContainText(/Klart i dag: .*09\.00 Jonna Osman, .*09\.00 Guled Farah/);
   expect(errors).toEqual([]);
 });
 
@@ -178,7 +186,8 @@ test("Närvaro: snabbregistrering vecka 4 publicerar veckorapporterna automatisk
   await expect(main(page)).toContainText("Registrera bara frånvaro och sen ankomst, senast kl. 18.00 samma dag. Övriga blir Närvarande automatiskt.");
   await expect(page.getByTestId("narvaro-regel")).toContainText("Kl. 18.00 blir passerade tillfällen utan registrering Närvarande automatiskt");
   // Listan först – filtren bakom Filtrera, de valda som text.
-  await expect(page.getByTestId("narvaro-filtertext")).toHaveText("Visar: Förra veckan (v. 4) · Ej registrerade · Hela veckan");
+  // Alla deltagare är förvalt (granskningen 2026-11-11: Mina deltagare eller Alla deltagare).
+  await expect(page.getByTestId("narvaro-filtertext")).toHaveText("Visar: Förra veckan (v. 4) · Ej registrerade · Hela veckan · Alla deltagare");
   await expect(page.getByRole("group", { name: "Vecka" })).toBeHidden();
   await expect(page.getByTestId("narvaro-raknare")).toContainText("6 tillfällen kvar – senast måndag 10.00");
   const rows = page.getByTestId("narvaro-rad");
@@ -210,12 +219,14 @@ test("Närvaro: snabbregistrering vecka 4 publicerar veckorapporterna automatisk
   expect(errors).toEqual([]);
 });
 
-test("Närvaro: rollen handledare finns inte – Petra (coach utan egna ärenden) ser coachens vy utan teamärenden", async ({ page }, info) => {
+test("Närvaro: rollen handledare finns inte – Petra (coach utan egna ärenden) ser coachens vy med alla deltagare i avtalet", async ({ page }, info) => {
   const errors = await open(page, info, "/narvaro?vecka=forra", PETRA);
   await expect(main(page)).toContainText("Snabbregistrering");
   await expect(main(page)).not.toContainText("Handledare – dina teamärenden");
   await expect(main(page)).not.toContainText("där du ingår i teamet");
-  await expect(page.getByTestId("narvaro-rad")).toHaveCount(0);
+  // Alla coacher ser alla deltagare (Karims beslut 2026-11-11): förra veckans sex oregistrerade tillfällen, med huvudcoachen på raden.
+  await expect(page.getByTestId("narvaro-rad")).toHaveCount(6);
+  await expect(page.getByTestId("narvaro-rad").first()).toContainText("huvudcoach");
   expect(errors).toEqual([]);
 });
 
@@ -676,10 +687,11 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   const events = card(page, "Registrerade händelser").locator("tbody tr");
   await expect(events).toHaveCount(2);
   await btn(group(page, "Typ av händelse"), "Arbete påbörjat").click();
-  await expect(main(page).getByText("Möjligt bonusunderlag", { exact: true })).toBeVisible();
-  // Bonus är påslagen (Karims beslut 2026-11-04): kortet Bonus leder till bonusstegen på deltagarkortet – ingen avstängd-bricka.
-  await expect(page.getByText("Bonus avstängd – modellen ej fastställd")).toHaveCount(0);
-  await expect(card(page, "Bonus").getByRole("link", { name: "Bonus på deltagarkortet" })).toBeVisible();
+  await expect(main(page).getByText("Möjligt underlag för progression och resultat", { exact: true })).toBeVisible();
+  // Stegen är påslagna (Karims beslut 2026-11-04): kortet Progression och resultat (2026-11-11) leder till stegen på
+  // deltagarkortet – ingen avstängd-bricka.
+  await expect(page.getByText("Progression och resultat avstängt – modellen ej fastställd")).toHaveCount(0);
+  await expect(card(page, "Progression och resultat").getByRole("link", { name: "Progression och resultat på deltagarkortet" })).toBeVisible();
   await btn(page, "Tumba Städ & Fastighet AB").click();
   await expect(page.locator("#ev-actor")).toHaveValue("Tumba Städ & Fastighet AB");
   await btn(group(page, "Verifiering"), "Anställningsbevis").click();
@@ -691,7 +703,7 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   await expect(row).toContainText("Tumba Städ & Fastighet AB");
   await expect(row).toContainText("Anställningsbevis");
   await expect(row).toContainText("Möjligt");
-  await expect(main(page)).toContainText("1 händelse i ärendet är markerad som möjligt bonusunderlag.");
+  await expect(main(page)).toContainText("1 händelse i ärendet är markerad som möjligt underlag för progression och resultat.");
 
   // Lägesväxlaren säger "Avslut" – "Avsluta insatsen" är bara den riktiga knappen i kortet.
   await btn(group(page, "Välj uppgift"), "Avslut").click();
@@ -737,7 +749,7 @@ test("Meddelande från kommunen syns i Min vecka och räknas som läst efteråt"
   await page.getByRole("button", { name: "Skicka meddelandet" }).click();
   await expect(page.getByText("Tiden passar bra. Vi ses på torsdag.").first()).toBeVisible();
   await switchUser(page, info, COACH, "/min-vecka");
-  const msg = todo(page).filter({ hasText: "Svara kommunen" });
+  const msg = todo(page).filter({ hasText: "Svara kommunen" }).filter({ hasText: "BOT-26-0143" });
   await expect(msg).toContainText("Tiden passar bra");
   await expect(msg).toContainText("BOT-26-0143");
   await expect(msg).toContainText("från Maria Ekdahl");
@@ -745,7 +757,7 @@ test("Meddelande från kommunen syns i Min vecka och räknas som läst efteråt"
   await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${SC.nadia}?flik=meddelanden`);
   await go(page, info, "/min-vecka");
   await expect(todo(page).first()).toBeVisible();
-  await expect(todo(page).filter({ hasText: "Svara kommunen" })).toHaveCount(0);
+  await expect(todo(page).filter({ hasText: "Svara kommunen" }).filter({ hasText: "BOT-26-0143" })).toHaveCount(0);
   await noBadText(page);
   expect(errors).toEqual([]);
 });

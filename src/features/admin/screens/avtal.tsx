@@ -316,6 +316,7 @@ const CARDS: Record<string, CardDef> = {
               "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Inte fastställt – beslut i ledningen.</div></>],
               c.reportDelivery && ["Rapporter levereras", c.reportDelivery.channel === "portal" ? "I portalen – mottagaren får en notis utan personuppgifter" : c.reportDelivery.channel],
               c.reportDelivery && ["Rapport som bilaga i e-post", <YesNo key="v" v={!!c.reportDelivery.emailAttachmentAllowed} />],
+              c.reportDelivery && ["Mejl när veckorapporten om närvaro levereras", <YesNo key="v" v={!!c.reportDelivery.weeklyAttendanceEmail} />],
               c.orderChannels && ["Beställningskanaler", cap(c.orderChannels.map((o) => channelWord[o] ?? o).join(", "))],
               c.thirdCountryProcessing && ["Behandling utanför EU/EES", c.thirdCountryProcessing === "forbidden_without_written_approval" ? "Förbjuden utan kommunens skriftliga förhandsgodkännande" : c.thirdCountryProcessing],
             ]}
@@ -527,22 +528,22 @@ const CARDS: Record<string, CardDef> = {
     },
   },
   bonus: {
-    title: "Bonus", icon: "award", has: (c) => !!c.bonus,
+    title: "Progression och resultat", icon: "award", has: (c) => !!c.bonus,
     body: (c, d) => (
       <KV
         items={[
-          ["Status", c.bonus!.enabled ? "Påslagen – bonussteg 1–5 (beslut 2026-11-04)" : <Row key="v" gap="sm">Avstängd – modellen ej fastställd<BuildPhase fas={3} off /></Row>],
+          ["Status", c.bonus!.enabled ? "Påslagen – steg 1–5 (beslut 2026-11-04)" : <Row key="v" gap="sm">Avstängd – modellen ej fastställd<BuildPhase fas={3} off /></Row>],
           ["Modell", <Val key="v" v={c.bonus!.model} />],
-          !!c.bonus!.steps?.length && ["Bonussteg", c.bonus!.steps.slice().sort((x, y) => x.step - y.step).map((s) => `${s.step} ${s.label}`).join(" · ")],
+          !!c.bonus!.steps?.length && ["Steg", c.bonus!.steps.slice().sort((x, y) => x.step - y.step).map((s) => `${s.step} ${s.label}`).join(" · ")],
           c.bonus!.offset === "never" && ["Avräkning", "Stegen räknas aldrig av mot varandra – de läggs ihop upp till taket per deltagare"],
           // Taket är ett belopp och syns bara för ekonomen (beslut 5) – servern lämnar inte ut det här.
           c.bonus!.enabled && ["Tak per deltagare", c.bonus!.capOre != null ? kr(c.bonus!.capOre) : "Enligt avtalet – beloppet syns bara för ekonomen."],
-          c.bonus!.attendanceMinPercent != null && ["Bonussteg 1", `Närvaro minst ${c.bonus!.attendanceMinPercent} % och dokumenterad progression i godkända månadsbedömningar`],
-          c.bonus!.speedWeeks != null && ["Snabbhetspremie", `Arbete eller studier inom ${plural(c.bonus!.speedWeeks, "vecka", "veckor")} från start`],
+          c.bonus!.attendanceMinPercent != null && ["Steg 1", `Närvaro minst ${c.bonus!.attendanceMinPercent} % och dokumenterad progression i godkända månadsbedömningar`],
+          c.bonus!.speedWeeks != null && ["Snabbt resultat", `Arbete eller studier inom ${plural(c.bonus!.speedWeeks, "vecka", "veckor")} från start`],
           c.bonus!.sustainMonths != null && ["Hållbart resultat", `Arbetet eller studierna kvarstår efter ${plural(c.bonus!.sustainMonths, "månad", "månader")}`],
           c.bonus!.resultWindowMonthsAfterEnd != null && ["I anslutning till insatsen", `Under insatsen eller inom ${plural(c.bonus!.resultWindowMonthsAfterEnd, "månad", "månader")} efter slutdatum`],
           ["Egen faktura", <YesNo key="v" v={!!c.bonus!.separateInvoice} />],
-          ["Underlag samlas in", `${plural(d.bonusCandidates, "händelse", "händelser")} markerade som möjligt bonusunderlag`],
+          ["Underlag samlas in", `${plural(d.bonusCandidates, "händelse", "händelser")} markerade som möjligt underlag för progression och resultat`],
         ]}
       />
     ),

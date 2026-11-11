@@ -7,6 +7,6 @@ import { BonusGranskaScreen } from "./screens/granska";
 import { PortalBonusScreen } from "./screens/portal-beslut";
 
 export const routes: RouteDef[] = [
-  { path: "/bonus/:claimId", title: "Bonus", roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], area: "mb", screen: BonusGranskaScreen },
-  { path: "/portal/bonus/:claimId", title: "Bonus", roles: ["kommun_handlaggare"], area: "portal", screen: PortalBonusScreen },
+  { path: "/bonus/:claimId", title: "Progression och resultat", roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], area: "mb", screen: BonusGranskaScreen },
+  { path: "/portal/bonus/:claimId", title: "Progression och resultat", roles: ["kommun_handlaggare"], area: "portal", screen: PortalBonusScreen },
 ];

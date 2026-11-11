@@ -122,7 +122,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
       toast(res && !res.ok && res.message ? res.message : "Händelsen kunde inte sparas.", "error");
       return;
     }
-    toast(`Händelsen ”${eventLabelOf(ev.kind)}” är registrerad.${possibleBonus ? " Den är markerad som möjligt bonusunderlag." : ""}`);
+    toast(`Händelsen ”${eventLabelOf(ev.kind)}” är registrerad.${possibleBonus ? " Den är markerad som möjligt underlag för progression och resultat." : ""}`);
     setEv(blankEv());
   };
 
@@ -174,12 +174,12 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
 
   const persp = customerPerspective(v.referrer);
   const nBonus = events.filter((x) => x.possibleBonus).length;
-  const bonusText = `${nBonus === 0 ? "Inga händelser i ärendet är markerade" : nBonus === 1 ? "1 händelse i ärendet är markerad" : `${nBonus} händelser i ärendet är markerade`} som möjligt bonusunderlag.`;
+  const bonusText = `${nBonus === 0 ? "Inga händelser i ärendet är markerade" : nBonus === 1 ? "1 händelse i ärendet är markerad" : `${nBonus} händelser i ärendet är markerade`} som möjligt underlag för progression och resultat.`;
   // Ett helt kort om en avstängd funktion tar plats från det coachen ska göra – då räcker en rad med en bricka.
   const bonusCard =
     showBonus &&
     (v.bonusOn ? (
-      <Card title="Bonus" icon="award">
+      <Card title="Progression och resultat" icon="award">
         <Stack gap="sm">
           <Row gap="sm">
             <Badge tone="blue" icon="award">
@@ -187,21 +187,21 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
             </Badge>
           </Row>
           <p className="text-body">
-            Bonusstegen enligt incitamentsmodellen. Arbete eller studier med verifiering blir ett förslag till bonussteg 3 – du granskar och skickar det under Bonus
+            Stegen enligt incitamentsmodellen. Arbete eller studier med verifiering blir ett förslag till steg 3 – du granskar och skickar det under Progression och resultat
             på deltagarkortet. Kommunen beslutar i portalen.
           </p>
           <p className="text-body text-text-muted">{bonusText}</p>
           <Row>
             <Button kind="secondary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(v.head.caseId)}?flik=handelser`}>
-              Bonus på deltagarkortet
+              Progression och resultat på deltagarkortet
             </Button>
           </Row>
         </Stack>
       </Card>
     ) : (
       <Row gap="sm">
-        <Badge tone="grey" icon="minus-circle" title="Underlaget samlas in redan nu, men inget bonusanspråk skapas förrän incitamentsmodellen är beslutad.">
-          Bonus avstängd – modellen ej fastställd
+        <Badge tone="grey" icon="minus-circle" title="Underlaget samlas in redan nu, men inget förslag skapas förrän incitamentsmodellen är beslutad.">
+          Progression och resultat avstängt – modellen ej fastställd
         </Badge>
         <span className="text-small text-text-muted">{bonusText}</span>
       </Row>
@@ -271,7 +271,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                 ? [
                     {
                       key: "bonus",
-                      label: "Bonusunderlag",
+                      label: "Underlag för progression och resultat",
                       render: (e: Ok["events"][number]) =>
                         e.possibleBonus ? (
                           <Badge tone="plan" icon="award">
@@ -382,10 +382,10 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                 <TextArea rows={2} value={ev.note} onValueChange={(x) => setE("note", x)} maxLength={300} />
               </Field>
               {possibleBonus && (
-                <Notice tone="info" icon="award" title="Möjligt bonusunderlag">
+                <Notice tone="info" icon="award" title="Möjligt underlag för progression och resultat">
                   {v.bonusOn
-                    ? "Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Med registrerad verifiering blir det ett förslag till bonussteg 3 som du granskar och skickar under Bonus på deltagarkortet."
-                    : "Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Bonus är avstängd i avtalet."}
+                    ? "Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Med registrerad verifiering blir det ett förslag till steg 3 som du granskar och skickar under Progression och resultat på deltagarkortet."
+                    : "Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Progression och resultat är avstängt i avtalet."}
                   {!v.bonusOn && <> <BuildPhase fas={3} off /></>}
                 </Notice>
               )}

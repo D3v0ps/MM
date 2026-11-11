@@ -58,8 +58,15 @@ export const BONUS_CHECKLIST_LABEL: Record<(typeof BONUS_CHECKLIST_ITEMS)[number
   arbetsgivarnara_aktivitet: "Aktivt deltagande i arbetsgivarnära aktivitet",
 };
 
-/** Kort text för ett bonussteg: "Bonussteg 3 · Arbete eller studier". */
-export const bonusStepTitle = (m: Pick<BonusModel, "steps"> | null, step: number): string => `Bonussteg ${step} · ${bonusStepLabel(m, step)}`;
+/** Steg 5 i incitamentsmodellen: steg 3 nås inom avtalets antal veckor från start. */
+export const SPEED_STEP = 5;
+/**
+ * Stegets namn för coacherna och kommunen (Karims beslut 2026-11-11): steg 5 heter "Snabbt resultat" – "premie" är ett ord om
+ * pengar och står bara hos ekonomen och i prislistan (avtalets namn, bonusStepLabel).
+ */
+export const progressStepLabel = (m: Pick<BonusModel, "steps"> | null | undefined, step: number): string => (step === SPEED_STEP ? "Snabbt resultat" : bonusStepLabel(m, step));
+/** Kort text för ett steg: "Steg 3 · Arbete eller studier" (ordet bonus syns bara för ekonomen – Karims beslut 2026-11-11). */
+export const bonusStepTitle = (m: Pick<BonusModel, "steps"> | null, step: number): string => `Steg ${step} · ${progressStepLabel(m, step)}`;
 
 // ---------------------------------------------------------------- Tider
 /** Sista dagen i fönstret "i anslutning till insatsen" (slutdatum + resultWindowMonthsAfterEnd månader), null för en pågående insats. */
@@ -186,9 +193,9 @@ export function bonusSuggestions(db: BonusRuleDb, m: BonusModel, env: Pick<Domai
  * anspråket bygger på det). Ett avslaget anspråk hindrar inte ett nytt.
  */
 export function manualCreateProblem(c: Pick<Case, "startDate" | "status">, claims: readonly Pick<BonusClaim, "id" | "step" | "status">[], step: number): string | null {
-  if (!c.startDate || !STARTED_STATUSES.includes(c.status)) return "Insatsen har inte startat. Bonus blir aktuellt när insatsen har startat.";
-  if (claims.some((x) => x.step === step && isActiveClaim(x))) return `Det finns redan ett anspråk för bonussteg ${step} i ärendet.`;
-  if (FOLLOWS_STEP3.includes(step) && !step3For(claims)) return `Bonussteg ${step} bygger på bonussteg 3. Skapa anspråket för bonussteg 3 först.`;
+  if (!c.startDate || !STARTED_STATUSES.includes(c.status)) return "Insatsen har inte startat. Progression och resultat blir aktuellt när insatsen har startat.";
+  if (claims.some((x) => x.step === step && isActiveClaim(x))) return `Det finns redan ett anspråk för steg ${step} i ärendet.`;
+  if (FOLLOWS_STEP3.includes(step) && !step3For(claims)) return `Steg ${step} bygger på steg 3. Skapa anspråket för steg 3 först.`;
   return null;
 }
 /** Anspråket för steg 3 som steg 4 och 5 bygger på: det som räknas (suggested, submitted, approved), annars null. */
@@ -241,9 +248,9 @@ export function submitProblems(x: SubmitContext, m: BonusModel): string[] {
     out.push(`Resultatdatum ska ligga under insatsen eller högst ${m.resultWindowMonthsAfterEnd} månader efter slutdatum.`);
   }
   if (FOLLOWS_STEP3.includes(step)) {
-    if (!x.step3 || !(x.step3.status === "submitted" || x.step3.status === "approved")) out.push("Skicka bonussteg 3 till kommunen först.");
+    if (!x.step3 || !(x.step3.status === "submitted" || x.step3.status === "approved")) out.push("Skicka steg 3 till kommunen först.");
     else if (x.step3.reachedOn && step === 5 && x.case.startDate && x.step3.reachedOn > speedDeadline(x.case.startDate, m)) {
-      out.push(`Bonussteg 3 nåddes inte inom ${m.speedWeeks} veckor från start.`);
+      out.push(`Steg 3 nåddes inte inom ${m.speedWeeks} veckor från start.`);
     } else if (x.step3.reachedOn && step === 4) {
       const due = sustainDate(x.step3.reachedOn, m);
       if (x.today < due) out.push(`Hållbart resultat kan skickas tidigast ${due}.`);

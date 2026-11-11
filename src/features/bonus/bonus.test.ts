@@ -66,7 +66,7 @@ describe("coachen: kortet Bonus och granskningen", () => {
     expect(v.steps.map((s) => [s.step, s.label, s.status, s.statusText])).toEqual([
       [1, "Dokumenterad progression", "none", "Inte aktuellt än"], [2, "Stark progression", "approved", "Godkänt av kommunen"],
       [3, "Arbete eller studier", "approved", "Godkänt av kommunen"], [4, "Hållbart resultat", "suggested", "Förslag att granska"],
-      [5, "Snabbhetspremie", "approved", "Godkänt av kommunen"],
+      [5, "Snabbt resultat", "approved", "Godkänt av kommunen"],
     ]);
     expect(v.steps.every((s) => !!s.icon)).toBe(true);
     expect(v.canAct).toBe(true);
@@ -95,18 +95,18 @@ describe("coachen: kortet Bonus och granskningen", () => {
     const mail = rows("outbound_messages").slice(before);
     expect(mail).toHaveLength(1);
     expect(mail[0]).toMatchObject({ channel: "email", template: "bonusansprak", caseId: "case-260043" });
-    expect(mail[0].body).toBe("Miljonbemanning har skickat ett bonusanspråk för ärende BOT-26-0043. Logga in i portalen för att läsa underlaget och besluta.");
+    expect(mail[0].body).toBe("Ett underlag om progression och resultat för ärende BOT-26-0043 väntar på ditt beslut. Logga in i portalen för att läsa underlaget och besluta.");
     const c = rt.raw().get("cases", "case-260043")!;
     const p = rt.raw().get("persons", c.personId)!;
     for (const s of [p.firstName, p.lastName, decodeTestPnr(p.personnummerEnc) ?? "x"]) expect(mail[0].body).not.toContain(s);
-    expect(TEMPLATES.bonusansprak.subject).toBe("Bonusanspråk att besluta om – {arendenummer}");
+    expect(TEMPLATES.bonusansprak.subject).toBe("Underlag om progression och resultat att besluta om – {arendenummer}");
     // Ett skickat anspråk kan inte ändras eller skickas igen.
     expect(await cmd(bonusSave, { claimId: S3, ...FIELDS }, erik())).toMatchObject({ ok: false, error: "locked" });
     expect(rows("audit_log").filter((l) => l.entityId === S3).map((l) => l.action)).toEqual(["bonus_claim.suggested", "bonus_claim.submitted"]);
   });
 
   it("steg 5 skickas först när steg 3 är skickat", async () => {
-    expect(await cmd(bonusSubmit, { claimId: S5, ...FIELDS }, erik())).toMatchObject({ ok: false, error: "problems", message: expect.stringContaining("Skicka bonussteg 3 till kommunen först.") });
+    expect(await cmd(bonusSubmit, { claimId: S5, ...FIELDS }, erik())).toMatchObject({ ok: false, error: "problems", message: expect.stringContaining("Skicka steg 3 till kommunen först.") });
     await cmd(bonusSubmit, { claimId: S3, ...FIELDS }, erik());
     expect(await cmd(bonusSubmit, { claimId: S5, ...FIELDS }, erik())).toMatchObject({ ok: true });
   });
@@ -145,7 +145,7 @@ describe("kommunen: Läs och besluta", () => {
     expect(rows("bonus_claim_decisions").filter((d) => d.claimId === SENT3)).toMatchObject([{ decision: "approved", via: "portal", decidedBy: "k-maria", recordedBy: "k-maria" }]);
     const n = rows("user_notifications").filter((x) => x.kind === "bonus_decision");
     expect(n).toHaveLength(1);
-    expect(n[0]).toMatchObject({ recipientId: "u-erik", caseId: "case-260027", channels: ["app"], title: "Kommunen har beslutat om bonus – BOT-26-0027" });
+    expect(n[0]).toMatchObject({ recipientId: "u-erik", caseId: "case-260027", channels: ["app"], title: "Kommunen har beslutat om progression och resultat – BOT-26-0027" });
     const c = rt.raw().get("cases", "case-260027")!;
     const p = rt.raw().get("persons", c.personId)!;
     expect(`${n[0].title} ${n[0].body} ${n[0].emailBody}`).not.toContain(p.lastName);
@@ -169,7 +169,7 @@ describe("kommunen: Läs och besluta", () => {
     rt.store.updateRow("contracts", "c-bot", { config: customerSafeConfig(contract.config) });
     expect(await q(bonusPortal, { claimId: SENT3 }, maria())).toMatchObject({ canDecide: true });
     expect(await cmd(bonusDecide, { claimId: SENT3, decision: "approved" }, maria())).toMatchObject({ ok: true });
-    expect(await cmd(bonusUnderlag, { claimId: SENT3, purpose: "download" }, maria())).toMatchObject({ ok: true, filename: "redovisningsunderlag-bonus-BOT-26-0027-steg3.pdf" });
+    expect(await cmd(bonusUnderlag, { claimId: SENT3, purpose: "download" }, maria())).toMatchObject({ ok: true, filename: "redovisningsunderlag-progression-och-resultat-BOT-26-0027-steg3.pdf" });
   });
 });
 
@@ -383,7 +383,7 @@ describe("resultatdatum och förhandsvisningen (A6, A7)", () => {
     expect(text).toContain("Utkast – inte skickat");
     expect(text).not.toContain("Skickat");
     const dl = await cmd(bonusUnderlag, { claimId: S3, purpose: "download" }, erik());
-    expect(dl).toMatchObject({ ok: true, filename: "redovisningsunderlag-bonus-BOT-26-0043-steg3-utkast.pdf", underlag: { draft: true } });
+    expect(dl).toMatchObject({ ok: true, filename: "redovisningsunderlag-progression-och-resultat-BOT-26-0043-steg3-utkast.pdf", underlag: { draft: true } });
     // Skickat: underlaget har den som skickade och inget utkast.
     await cmd(bonusSubmit, { claimId: S3, ...FIELDS }, erik());
     const sent = rt.raw().get("bonus_claims", S3)!.snapshot as unknown as BonusUnderlag;

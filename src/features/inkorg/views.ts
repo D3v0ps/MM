@@ -20,9 +20,9 @@ import { kpiValue } from "@/core/kpi";
 import { hasContactDetails } from "@/core/contact";
 import { areaName, contactLabel, outboundReasonLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
-import { canRegisterNoShow, currentNoShow, noShowOpen, noShowSentence } from "@/core/first-meeting";
+import { acceptDefaultDate, canRegisterNoShow, currentNoShow, noShowOpen, noShowSentence } from "@/core/first-meeting";
 import {
-  addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS, type LocalDateTime,
+  addDays, addMonths, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS, type LocalDateTime,
 } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import type { Case, CaseStatusHistory, Contract, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Profile, Report } from "@/data/schema";
@@ -550,7 +550,8 @@ async function decisionFormBase(ctx: Ctx, e: FormEnv, c: Case, cases: readonly C
     coaches: coachesOf({ profiles: [...profiles], memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
     staff: cand.staff,
     firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
-    defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
+    // Kommunens önskade start när den går att boka (Karims beslut 2026-11-11), annars första bokningsbara dagen efter den.
+    defaultDate: acceptDefaultDate({ desiredStart: c.desiredStart, referredAt: c.referredAt, now: e.now }), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
     areas: activeAreas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
     primaryArea: c.primaryAreaCode, secondaryArea: c.secondaryAreaCode, vocationalTrack: c.vocationalTrack,
     tracks: Object.fromEntries(activeAreas.map((a) => [a.code, [...(TRACKS[a.code] ?? [])]])),

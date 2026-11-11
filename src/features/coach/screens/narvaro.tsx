@@ -14,7 +14,7 @@
 //     (Ej registrerad, Planerat, orsaken och Automatiskt registrerad).
 import { useState, type ReactNode } from "react";
 import { uniq } from "@/core/util";
-import { plural } from "@/core/format";
+import { fmtDuration, plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link } from "@/shell/nav";
@@ -30,6 +30,8 @@ import { ATT_OPTIONS, AutoBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, P
 
 type Week = "last" | "this";
 type Show = "open" | "all";
+/** Alla deltagare i avtalet (förval – alla coacher ser alla, Karims beslut 2026-11-11) eller bara coachens egna. */
+type Whose = "alla" | "mina";
 
 /** Tomt läge: säger vad som gör att tillfällen dyker upp (tom databas, nytt ärende utan schema). */
 const NO_SESSIONS_TEXT = "Tillfällen skapas när insatsen startas – knappen Starta insatsen på deltagarkortet efter första mötet. Sedan registrerar du närvaron här med ett klick per tillfälle.";
@@ -43,10 +45,13 @@ export function NarvaroScreen({ query }: ScreenProps) {
   // ?arende=<id>: bara den deltagarens tillfällen (från deltagarkortet, Min vecka och handledarens lista). Veckorapporterna visas som vanligt.
   const caseId = query.get("arende");
   const v0 = caseId ? onlyCases(q.data, (id) => id === caseId) : q.data;
-  const v = gf.active ? onlyCases(v0, gf.matches) : v0;
+  const v1 = gf.active ? onlyCases(v0, gf.matches) : v0;
+  const whose: Whose = query.get("vilka") === "mina" ? "mina" : "alla";
+  const mineIds = new Set([...q.data.weeks.last.rows, ...q.data.weeks.this.rows].filter((r) => r.mine).map((r) => r.caseId));
+  const v = whose === "mina" ? onlyCases(v1, (id) => mineIds.has(id)) : v1;
   const param = query.get("vecka");
   const initial: Week = param === "forra" ? "last" : param === "denna" ? "this" : openOf(v, "last").length ? "last" : "this";
-  return <Narvaro v={v} initial={initial} caseId={caseId} filters={gf.fields} filterLabels={gf.labels} />;
+  return <Narvaro key={whose} v={v} initial={initial} caseId={caseId} whose={whose} filters={gf.fields} filterLabels={gf.labels} />;
 }
 
 /** "18:00" -> "18.00" (svensk tid i text). */
@@ -69,7 +74,7 @@ const filteredLabel = (v: NarvaroView, caseId: string): string =>
 
 const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.startsAt < v.now && !a.attendance);
 
-function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: NarvaroView; initial: Week; caseId: string | null; filters?: ReactNode; filterLabels?: string[] }) {
+function Narvaro({ v, initial, caseId, whose, filters, filterLabels = [] }: { v: NarvaroView; initial: Week; caseId: string | null; whose: Whose; filters?: ReactNode; filterLabels?: string[] }) {
   const { actor } = useSession();
   const patch = useQueryPatch();
   const role = actor.role;
@@ -92,6 +97,7 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
   const [bulk, setBulk] = useState<{ marked: number; total: number; published: string[] } | null>(null);
   // Lägg till och ta bort enstaka tillfällen (beslut 2026-10-08) – bara tillfällen utan registrerad närvaro kan tas bort.
   const [adding, setAdding] = useState(false);
+  const [moving, setMoving] = useState<NarvaroRow | null>(null);
   const remove = useCommand(activityRemove);
   const removeActivity = async (a: NarvaroRow) => {
     const ok = await confirm({
@@ -233,7 +239,8 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
         <div className="flex min-w-0 flex-col gap-[3px]">
           <div className="font-bold">{a.name}</div>
           <div className="text-small text-text-muted">
-            {k.label} · {a.location} · {a.durationMin} min · <span data-testid="arendenummer" className="tabular-nums tracking-[0.01em]">{a.caseNumber}</span>
+            {k.label} · {a.location} · {fmtDuration(a.durationMin)} · <span data-testid="arendenummer" className="tabular-nums tracking-[0.01em]">{a.caseNumber}</span>
+            {a.leadCoach ? ` · huvudcoach ${a.leadCoach}` : ""}
           </div>
           {/* Statusen en gång per rad: den valda står i knappgruppen – här bara det som knappgruppen inte visar. */}
           <Row gap="sm">
@@ -270,9 +277,15 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
                   Öppna gruppaktiviteten
                 </Button>
               ) : (
-                <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
-                  Ta bort
-                </Button>
+                <>
+                  {/* Ändra tid (Karims beslut 2026-11-11): samma dialog som Lägg till tillfälle – deltagaren får den nya tiden. */}
+                  <Button kind="ghost" icon="clock" ariaLabel={`Ändra tid: ${a.name} ${dayLabel(a.startsAt)} ${fmtTime(a.startsAt)}`} onClick={() => setMoving(a)}>
+                    Ändra tid
+                  </Button>
+                  <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
+                    Ta bort
+                  </Button>
+                </>
               )}
             </Row>
           ) : (
@@ -313,6 +326,7 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
     week === "last" ? `Förra veckan (v. ${v.weeks.last.no})` : `Den här veckan (v. ${v.weeks.this.no})`,
     show === "open" ? "Ej registrerade" : "Alla tillfällen",
     day === "all" ? "Hela veckan" : fmtWeekday(day),
+    whose === "mina" ? "Mina deltagare" : "Alla deltagare",
     ...filterLabels,
   ].join(" · ");
 
@@ -365,6 +379,15 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
                 { value: "all", label: `Alla (${all.length})` },
               ]}
             />
+            <Seg<Whose>
+              ariaLabel="Deltagare"
+              value={whose}
+              onValueChange={(x) => patch({ vilka: x === "mina" ? "mina" : null })}
+              options={[
+                { value: "alla", label: "Alla deltagare" },
+                { value: "mina", label: "Mina deltagare" },
+              ]}
+            />
           </Row>
           <Stack gap="sm">
             <span className="text-label font-bold tracking-[0.09em] text-text-muted uppercase">Dag</span>
@@ -398,6 +421,12 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
             {v.cases.length > 0 && (
               <Button icon="plus" onClick={() => setAdding(true)}>
                 Lägg till tillfälle
+              </Button>
+            )}
+            {/* Ändra veckoplan (Karims beslut 2026-11-11): för deltagaren som listan visar – dialogen på deltagarkortet. */}
+            {caseId && v.cases.some((x) => x.caseId === caseId) && (
+              <Button icon="calendar" to={`/arenden/${encodeURIComponent(caseId)}?flik=narvaro&veckoplan=1`}>
+                Ändra veckoplan
               </Button>
             )}
           </Row>
@@ -518,8 +547,8 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
             </Stack>
           )}
           <p className="mt-2.5 text-body text-text-muted">
-            Rapporten har en sektion per deltagare: planerade tillfällen, närvaro, frånvaro med orsak och risk. Handläggaren får ett mejl utan personuppgifter: ”Veckorapporten
-            finns i portalen – logga in för att läsa.”
+            Rapporten har en sektion per deltagare: planerade tillfällen, närvaro, frånvaro med orsak och risk.
+            {v.weeklyEmail ? " Handläggaren får ett mejl utan personuppgifter: ”Veckorapporten finns i portalen – logga in för att läsa.”" : ""}
           </p>
         </Card>
         <Card title="Så fungerar registreringen" icon="info">
@@ -549,6 +578,14 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
         </Card>
       </Split>
       {adding && <ActivityModal cases={v.cases} caseId={caseId} now={now} onClose={() => setAdding(false)} />}
+      {moving && (
+        <ActivityModal
+          cases={[]}
+          now={now}
+          onClose={() => setMoving(null)}
+          move={{ activityId: moving.activityId, caseNumber: moving.caseNumber, name: moving.name, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin, location: moving.location }}
+        />
+      )}
     </Page>
   );
 }

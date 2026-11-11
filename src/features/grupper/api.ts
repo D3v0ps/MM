@@ -200,14 +200,17 @@ export const groupingOverview = query("grupper.oversikt", z.object({ contractId:
  * handledare är vilande (Karims beslut 2026-10-09) – rutten /anteckningar tar bort den (routes.ts).
  */
 export const MASS_NOTE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
-/** Urvalen: mina ärenden, en nivå, ett yrkesområde (gruppen – Karims beslut 2026-10-22) eller en tagg. */
-export const MASS_NOTE_SCOPES = ["mina", "niva", "omrade", "tagg"] as const;
+/**
+ * Urvalen: alla deltagare i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare), mina ärenden, en nivå, ett
+ * yrkesområde (gruppen – Karims beslut 2026-10-22) eller en tagg.
+ */
+export const MASS_NOTE_SCOPES = ["alla", "mina", "niva", "omrade", "tagg"] as const;
 export type MassNoteScope = (typeof MASS_NOTE_SCOPES)[number];
 /**
- * Förvalt urval (UX-genomgången, paket 1, S18): coachen har egna ärenden och börjar med Mina ärenden. Samordnaren och
- * avtalsansvarig har sällan egna – de börjar med Ett yrkesområde (och sidan säger vad de ska välja).
+ * Förvalt urval: coachen börjar med alla deltagare i avtalet (Karims beslut 2026-11-11 – tidigare Mina ärenden, UX-genomgången
+ * paket 1, S18). Den vilande rollen handledare med Mina ärenden. Samordnaren och avtalsansvarig börjar med Ett yrkesområde.
  */
-export const defaultMassNoteScope = (role: Role): MassNoteScope => (role === "coach" || role === "handledare" ? "mina" : "omrade");
+export const defaultMassNoteScope = (role: Role): MassNoteScope => (role === "coach" ? "alla" : role === "handledare" ? "mina" : "omrade");
 export type MassNoteRow = {
   caseId: string;
   caseNumber: string;
@@ -243,7 +246,7 @@ export const massNoteSave = command("grupper.anteckningarSpara", z.object({
   saveKey: MassNoteSaveKeySchema,
   kind: z.enum(CASE_NOTE_KINDS),
   rows: z.array(z.object({ caseId: IdSchema, occurredOn: LocalDateSchema, body: z.string().trim().min(1).max(2000) })).min(1).max(MASS_NOTE_MAX_ROWS),
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortOversikt", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<
   Result<{ saved: number }, "rows">
 >();
 

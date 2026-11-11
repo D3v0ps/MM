@@ -23,6 +23,7 @@
 //   decisions-2026-11-04.ts  incitamentsmodellen (beslut 2026-11-04): bonusstegens priser och bonusanspråk i olika lägen
 //   decisions-2026-11-09.ts  Karims beslut 2026-11-09: ett bekräftat ärende vars första möte har varit (deltagaren kom inte –
 //                    flödet att prova) och avtalets intagsansvarige (tar emot nya beställningar)
+//   decisions-2026-11-11.ts  granskningen 2026-11-11: inget mejl om veckorapporten (avtalet lämnar den inte med e-post)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -39,6 +40,7 @@ import { applyDecisions20261022 } from "./decisions-2026-10-22";
 import { applyDecisions20261029 } from "./decisions-2026-10-29";
 import { applyDecisions20261104 } from "./decisions-2026-11-04";
 import { applyDecisions20261109, applyIntakeCoach } from "./decisions-2026-11-09";
+import { applyDecisions20261111 } from "./decisions-2026-11-11";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -90,6 +92,8 @@ export function createSeed(): MemoryData<Tables> {
   applyDecisions20261109(db);
   // Intagsansvarig (Karims beslut 2026-11-09): prototypens coach tar emot avtalets nya beställningar.
   applyIntakeCoach(db);
+  // Granskningen 2026-11-11: veckorapportens mejl bort – avtalet lämnar veckorapporten utan e-post.
+  applyDecisions20261111(db);
   return db;
 }
 

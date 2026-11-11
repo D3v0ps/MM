@@ -39,13 +39,20 @@ export type DeadlineDb = Pick<
   Db,
   "cases" | "activities" | "attendance" | "reports" | "profiles" | "memberships" | "contract_deviations" | "billing_runs" | "deviations"
 >;
-export type DeadlineOpts = { days?: number; coachId?: string | null; includeMet?: boolean };
+/**
+ * coachId: bara coachens. allCases (med coachId): coachens slags deadlines för alla ärenden i db – Karims beslut 2026-11-11, alla
+ * coacher ser alla deltagare i Min vecka. Det som bara andra roller ser (åtgärdsplaner, fakturering, veckorapporterna utan
+ * ärende) följer inte med.
+ */
+export type DeadlineOpts = { days?: number; coachId?: string | null; includeMet?: boolean; allCases?: boolean };
 
 type Draft = Omit<DeadlineItem, "sla" | "bucket" | "href">;
 
 /** Deadlines inom `days` dagar (standard 7) och allt som är försenat. Med coachId bara coachens egna. */
 export function deadlines(db: DeadlineDb, opts: DeadlineOpts, env: Pick<DomainEnv, "cfg" | "org" | "now" | "contractId">): DeadlineItem[] {
-  const { days = 7, coachId = null, includeMet = false } = opts;
+  const { days = 7, coachId = null, includeMet = false, allCases = false } = opts;
+  /** Coachens ärende: huvudcoachen – eller, med allCases, alla ärenden i db. */
+  const notMine = (c: Pick<DeadlineDb["cases"][number], "leadCoachId"> | null) => !!coachId && (!c || (!allCases && c.leadCoachId !== coachId));
   const now = env.now;
   const today = dayOf(now);
   const limit = `${addDays(today, days)}T23:59`;
@@ -56,8 +63,9 @@ export function deadlines(db: DeadlineDb, opts: DeadlineOpts, env: Pick<DomainEn
   const cases = byId(db.cases);
 
   for (const c of db.cases) {
-    if (coachId && c.leadCoachId !== coachId) continue;
-    if (c.status === "acknowledged" || c.status === "received") {
+    if (notMine(c)) continue;
+    // Svar på avrop är samordnarens (och den intagsansvariges rad Ta emot på Min vecka) – inte varje coachs med allCases.
+    if ((c.status === "acknowledged" || c.status === "received") && !(coachId && allCases)) {
       const due = avropDue(c, env.cfg);
       if (due) push({ id: `avrop:${c.id}`, kind: "avrop_svar", label: "Svar på avrop (acceptera eller avböj)", dueAt: due, caseId: c.id, owner: "samordnare", link: viewLink("sam.inkorg", { caseId: c.id }) });
     }
@@ -88,7 +96,7 @@ export function deadlines(db: DeadlineDb, opts: DeadlineOpts, env: Pick<DomainEn
   for (const r of db.reports) {
     if ((r.status === "delivered" || r.status === "opened") && !includeMet) continue;
     const c = r.caseId ? cases.get(r.caseId) ?? null : null;
-    if (coachId && (!c || c.leadCoachId !== coachId)) continue;
+    if (notMine(c)) continue;
     if (!r.dueAt) continue;
     const l = viewLink("rapport.visa", { reportId: r.id });
     if (r.kind === "weekly_attendance") {
@@ -124,7 +132,7 @@ export function deadlines(db: DeadlineDb, opts: DeadlineOpts, env: Pick<DomainEn
 
   for (const dv of db.deviations.filter((x) => x.status === "open" && x.followUpOn)) {
     const c = cases.get(dv.caseId) ?? null;
-    if (coachId && (!c || c.leadCoachId !== coachId)) continue;
+    if (notMine(c)) continue;
     push({
       id: `dev:${dv.id}`, kind: "avvikelse_uppfoljning", label: `Uppföljning av avvikelse: ${dv.description}`, dueAt: `${dv.followUpOn}T${env.org.alerts.followUpDueTime}`,
       caseId: dv.caseId, ownerId: dv.ownerId, link: viewLink("arende.kort", { caseId: dv.caseId, tab: "avvikelser" }),

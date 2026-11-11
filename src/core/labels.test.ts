@@ -95,8 +95,9 @@ describe("avgränsning till ett avtal", () => {
 
 describe("utskickens statusar (utskicksloggen)", () => {
   it("har en svensk etikett för varje status som utskicken använder", () => {
-    expect([...OUTBOUND_STATUSES]).toEqual(["queued", "sent", "failed", "suppressed", "manual"]);
-    expect(OUTBOUND_STATUSES.map(outboundStatusLabel)).toEqual(["Väntar på att skickas", "Skickat", "Kunde inte skickas", "Stoppat", "Skickas manuellt (brev)"]);
+    // sent_manually: SMS som coachen skickade själv (SMS att skicka, Karims beslut 2026-11-11).
+    expect([...OUTBOUND_STATUSES]).toEqual(["queued", "sent", "failed", "suppressed", "manual", "sent_manually"]);
+    expect(OUTBOUND_STATUSES.map(outboundStatusLabel)).toEqual(["Väntar på att skickas", "Skickat", "Kunde inte skickas", "Stoppat", "Skickas manuellt (brev)", "Skickat för hand"]);
     expect(outboundStatusLabel("okänd")).toBe("okänd");
   });
   it("orsaken redirected förklaras, övriga orsaker är redan text", () => {

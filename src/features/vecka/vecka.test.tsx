@@ -45,7 +45,8 @@ const USER: Record<StaffRole, string> = {
 const ALLOWED: Record<StaffRole, string[]> = {
   samordnare: ["inkorg.start", "notiser.list"],
   avtalsansvarig: ["inkorg.start", "notiser.list"],
-  coach: ["coach.minVecka", "rost.pendingNotes"],
+  // SMS att skicka (Karims beslut 2026-11-11): sektionen har en egen fråga – bara coachens.
+  coach: ["coach.minVecka", "coach.smsAttSkicka", "rost.pendingNotes"],
   chef: ["ledning.overview", "inkorg.deadlines", "rapporter.lista", "notiser.list"],
   ekonom: ["ekonomi.start", "notiser.list"],
   admin: ["admin.integrations", "admin.users", "admin.templates", "notiser.list"],
@@ -224,17 +225,23 @@ describe("Min vecka per roll", () => {
     const h = await headings("Att göra i dag");
     expect(KPI_TILES()).toHaveLength(0);
     expect(h[0]).toBe("Att göra i dag");
-    for (const t of ["Följ upp", "Att kartlägga (1)"]) expect(h, t).toContain(t);
+    // Att kartlägga: alla deltagare i avtalet utan nivå (Karims beslut 2026-11-11 – tidigare bara coachens egna).
+    expect(h).toContain("Följ upp");
+    expect(h.some((t) => /^Att kartlägga \(\d+\)$/.test(t))).toBe(true);
     // Borttaget för coachen: Rapporter som förfaller (de står i listan) och de tre korten i högerkolumnen.
     for (const t of ["Rapporter som förfaller", "Påminnelser", "Egna flaggor", "Olästa notiser", "Meddelanden från kommunen"]) expect(h, t).not.toContain(t);
     const rows = [...document.querySelectorAll<HTMLElement>('ol[aria-label="Att göra i dag"] > li')];
-    // Närvaron först (sista tid i dag 10.00) med regeln om automatisk närvaro i en rad.
-    expect(rows[0].textContent).toContain("Närvaro att registrera – vecka 4");
-    expect(rows[0].textContent).toContain("registreras automatiskt som närvarande");
+    // Närvaron (sista tid i dag 10.00) med regeln om automatisk närvaro i en rad. Sedan Karims beslut 2026-11-11 står alla deltagare i
+    // avtalet i listan, så det som är försenat i kollegornas ärenden (t.ex. ett första möte som har varit) kan stå före.
+    const att = rows.find((r) => (r.textContent ?? "").includes("Närvaro att registrera – vecka 4"))!;
+    expect(att).toBeTruthy();
+    expect(att.textContent).toContain("registreras automatiskt som närvarande");
     // C17: bara nästa möte har en svart knapp.
     const list = document.querySelector('ol[aria-label="Att göra i dag"]') as HTMLElement;
     const black = [...list.querySelectorAll<HTMLElement>("a, button")].filter((b) => b.classList.contains("bg-antracit"));
-    expect(black.map((b) => b.textContent)).toEqual(["Spela in mötet med Nadia Warsame"]);
+    // Nästa möte i dag bland alla deltagare i avtalet (Karims beslut 2026-11-11) – en svart knapp.
+    expect(black).toHaveLength(1);
+    expect(black[0].textContent).toMatch(/^Spela in mötet med /);
     // Samma ärende en rad: Nadias möte kl. 10.00 och meddelandet från kommunen står på mötets rad – den andra åtgärden som
     // textknapp under anmärkningarna.
     const titled = (n: string) => rows.filter((r) => (r.querySelector("div.min-h-11.font-bold a")?.textContent ?? "").includes(n));

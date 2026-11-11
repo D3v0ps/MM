@@ -23,7 +23,7 @@
 import type { Ctx, OutgoingMessage } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { hasEmail, hasPhone } from "@/core/contact";
-import { fmtTime, fmtWeekday, type LocalDateTime } from "@/core/time";
+import { addDays, dayOf, fmtDateShort, fmtTime, fmtWeekday, MONTHS, weekday, WEEKDAYS, WEEKDAYS_SHORT, type LocalDate, type LocalDateTime } from "@/core/time";
 import type { Case, OutboundMessage, Person, PreferredContact, Task } from "@/data/schema";
 import { CONTACT_PHONE } from "./contact";
 import {
@@ -185,9 +185,13 @@ export const isKallelseTask = (text: string): boolean => text.startsWith(TASK_ST
 
 const isParticipantTemplate = (t: string): t is ParticipantTemplate => (PARTICIPANT_TEMPLATES as readonly string[]).includes(t);
 
+/** Tiden och platsen i uppgiftens början: "måndag 17 november kl. 10.00, Alby". */
+const slotText = (when: LocalDateTime, place: string): string => `${fmtWeekday(when)} kl. ${fmtTime(when)}, ${placeText(place)}`;
+/** Uppgiftens början av mallen, ärendenumret och tiden och platsen (slotText). */
+const headOfSlot = (template: ParticipantTemplate, caseNumber: string, slot: string): string => `${TASK_START[template]} – ärende ${caseNumber}, ${slot}.`;
 /** Uppgiftens början: mallen, ärendenumret, tiden och platsen. Samma början = samma möte eller aktivitet. */
 const taskHead = (template: ParticipantTemplate, caseNumber: string, when: LocalDateTime, place: string): string =>
-  `${TASK_START[template]} – ärende ${caseNumber}, ${fmtWeekday(when)} kl. ${fmtTime(when)}, ${placeText(place)}.`;
+  headOfSlot(template, caseNumber, slotText(when, place));
 
 /**
  * Uppgiften till samordnaren när ingen kanal fanns eller inget utskick gick fram. Ärendenumret, tiden, platsen och varför –
@@ -337,14 +341,17 @@ async function closeContactTasks(ctx: Ctx, input: NotifyParticipantInput, c: Pic
 const CLOSE_TEXT: Record<ParticipantChannel, string> = { email: "e-post", sms: "SMS", call: "utringning", brev: "brev" };
 
 /**
- * En gruppaktivitet fick ny tid eller plats eller ställdes in: öppna uppgifter att ringa deltagaren om aktiviteten vid den gamla
- * tiden och platsen (inbjudan eller tidigare ändring) gäller inte längre – annars ringer samordnaren med fel tid. De stängs av
- * systemet med en anteckning och loggas (task.done). Returnerar hur många som stängdes.
+ * En gruppaktivitet eller ett tillfälle fick ny tid eller plats, ställdes in eller togs bort: öppna uppgifter att ringa deltagaren
+ * om aktiviteten vid den gamla tiden och platsen (inbjudan eller tidigare ändring) gäller inte längre – annars ringer samordnaren
+ * med fel tid. De stängs av systemet med en anteckning och loggas (task.done). Ett eller flera tillfällen (Ändra veckoplan).
+ * Returnerar hur många som stängdes.
  */
 export async function closeActivityTasks(
-  ctx: Ctx, c: Pick<Case, "id" | "caseNumber" | "contractId">, was: { when: LocalDateTime; place: string }, doneNote: string,
+  ctx: Ctx, c: Pick<Case, "id" | "caseNumber" | "contractId">, was: { when: LocalDateTime; place: string } | readonly { when: LocalDateTime; place: string }[], doneNote: string,
 ): Promise<number> {
-  const heads = (["aktivitetsinbjudan", "aktivitet_andrad"] as const).map((t) => taskHead(t, c.caseNumber, was.when, was.place));
+  const slots = Array.isArray(was) ? was : [was as { when: LocalDateTime; place: string }];
+  const heads = slots.flatMap((w) => (["aktivitetsinbjudan", "aktivitet_andrad"] as const).map((t) => taskHead(t, c.caseNumber, w.when, w.place)));
+  if (!heads.length) return 0;
   const open = (await ctx.system.table("tasks").list({ kind: "participant_contact", status: "open" }))
     .filter((x) => x.caseIds.includes(c.id) && heads.some((h) => x.text.startsWith(h)));
   for (const x of open) {
@@ -383,6 +390,130 @@ export async function participantSendStopped(ctx: Ctx, messageId: string, invita
   const sms = round.find((m) => m.channel === "sms");
   const reasons: UnreachableReason[] = [mail ? reasonOfRow(mail) : "no_email", sms ? reasonOfRow(sms) : "no_phone"];
   return contactTask(ctx, { caseId: c.id, template: row.template, when: invitation.when, place: invitation.place }, c, reasons);
+}
+
+// ---------------------------------------------------------------- SMS att skicka (Karims beslut 2026-11-11)
+// Coachen skickar SMS:et själv från sin telefon (src/features/_shared/sms-to-send.ts): veckans tider och meddelanden som inte
+// kunde skickas automatiskt. Texterna byggs här, med samma plats och telefonnummer som participantMessage.
+
+/** Mallen för en uppgift att ringa deltagaren (tasks.text, kind participant_contact) – ur uppgiftens första mening. */
+export const templateOfContactTask = (text: string): ParticipantTemplate | null => PARTICIPANT_TEMPLATES.find((t) => text.startsWith(`${TASK_START[t]} – `)) ?? null;
+
+/** Tiden och platsen i texten till deltagaren, i participantMessage-ordning. Kallelsen säger "klockan" och "i". */
+const SLOT_RE: Record<ParticipantTemplate, RegExp> = {
+  kallelse: /^Välkommen till Miljonbemanning! Ditt första möte är (.+?) klockan (\d{1,2}\.\d{2}) i (.+)\.$/,
+  aktivitetsinbjudan: /^Hej! Du är inbjuden till en aktivitet hos Miljonbemanning (.+? kl\. \d{1,2}\.\d{2}, .+)\.$/,
+  aktivitet_andrad: /^Hej! Aktiviteten hos Miljonbemanning.* är ändrad\. Nu gäller (.+? kl\. \d{1,2}\.\d{2}, .+)\.$/,
+  aktivitet_installd: /^Hej! Aktiviteten hos Miljonbemanning (.+? kl\. \d{1,2}\.\d{2}, .+), är inställd\.$/,
+};
+
+/**
+ * Tiden och platsen ur en text som participantMessage skrev, i samma form som uppgiftens början ("måndag 17 november kl. 10.00,
+ * Alby"). null när texten inte är mallens.
+ */
+export function slotOfMessage(template: ParticipantTemplate, body: string): string | null {
+  const phone = phoneSentence();
+  const core = phone && body.endsWith(phone) ? body.slice(0, -phone.length) : body;
+  const m = SLOT_RE[template].exec(core);
+  if (!m) return null;
+  return template === "kallelse" ? `${m[1]} kl. ${m[2]}, ${m[3]}` : m[1];
+}
+
+/**
+ * Gäller texten (ett SMS i utskicksloggen) samma möte eller aktivitet som uppgiften att ringa deltagaren? Uppgiften börjar med
+ * mallen, ärendenumret, tiden och platsen – texten har samma tid och plats.
+ */
+export const messageMatchesTask = (template: ParticipantTemplate, body: string, caseNumber: string, taskText: string): boolean => {
+  const slot = slotOfMessage(template, body);
+  return !!slot && taskText.startsWith(headOfSlot(template, caseNumber, slot));
+};
+/** Gäller uppgiften att ringa deltagaren mallen och tiden och platsen (slotOfActivity, slotOfMessage) i ärendet? */
+export const taskMatchesSlot = (template: ParticipantTemplate, caseNumber: string, slot: string, taskText: string): boolean =>
+  taskText.startsWith(headOfSlot(template, caseNumber, slot));
+
+/** Tiden och platsen för ett tillfälle i samma form som uppgiften och slotOfMessage ("fredag 5 februari kl. 13.30, Alby"). */
+export const slotOfActivity = (a: { startsAt: LocalDateTime; location: string }): string => slotText(a.startsAt, a.location);
+
+const WHEN_RE = new RegExp(`(${WEEKDAYS.join("|")}) (\\d{1,2}) (${MONTHS.join("|")}) kl(?:\\.|ockan) (\\d{1,2})\\.(\\d{2})`);
+
+/**
+ * Tiden i en uppgift att ringa deltagaren eller i tiden och platsen ur ett meddelande ("fredag 5 februari kl. 13.30") – den första
+ * i texten (uppgiftens början har bara den nya tiden). Texterna har inget år: året är det första från ref (när uppgiften eller
+ * meddelandet skapades, högst en vecka bakåt) där datumet har den veckodagen. null utan en tid.
+ */
+export function whenInText(text: string, ref: LocalDateTime): LocalDateTime | null {
+  const m = WHEN_RE.exec(text);
+  if (!m) return null;
+  const mm = String(MONTHS.indexOf(m[3] as (typeof MONTHS)[number]) + 1).padStart(2, "0");
+  const dd = m[2].padStart(2, "0");
+  const from = addDays(dayOf(ref), -7);
+  const y0 = Number(ref.slice(0, 4));
+  for (const y of [y0, y0 + 1]) {
+    const d = `${y}-${mm}-${dd}`;
+    if (d >= from && WEEKDAYS[weekday(d)] === m[1]) return `${d}T${m[4].padStart(2, "0")}:${m[5]}`;
+  }
+  return null;
+}
+
+/** Mallarna vars uppgift och rad i SMS att skicka gäller en aktivitets tid – inte längre när tiden har passerat. */
+const EXPIRING: readonly ParticipantTemplate[] = ["aktivitetsinbjudan", "aktivitet_andrad", "aktivitet_installd"];
+/** Uppgiften gäller en inbjudan, en ändrad eller en inställd aktivitet, och aktivitetens tid har passerat. */
+export function contactTaskExpired(t: Pick<Task, "text" | "createdAt">, now: LocalDateTime): boolean {
+  const template = templateOfContactTask(t.text);
+  if (!template || !EXPIRING.includes(template)) return false;
+  const when = whenInText(t.text, t.createdAt);
+  return !!when && when <= now;
+}
+
+/**
+ * Inbjudan, ändrad och inställd aktivitet (granskningen 2026-11-11): när aktivitetens tid har passerat gäller samordnarens
+ * uppgift att ringa deltagaren inte längre (och raden i SMS att skicka försvinner). Uppgiften stängs av systemet med en
+ * anteckning och loggas (task.done) – bara om den fortfarande är öppen. Kallelsen följer ärendets första möte. Körs av jobbet
+ * report_schedule (src/server/jobs/reports.ts) och minnesläget en gång per dag. ctx = systemstegens Ctx (service role).
+ * Returnerar hur många som stängdes.
+ */
+export async function closeExpiredContactTasks(ctx: Ctx): Promise<number> {
+  const now = ctx.now();
+  const t = ctx.system.table("tasks");
+  const expired = (await t.list({ kind: "participant_contact", status: "open" })).filter((x) => contactTaskExpired(x, now));
+  if (!expired.length) return 0;
+  const caseIds = [...new Set(expired.flatMap((x) => x.caseIds))];
+  const contractOf = new Map((await ctx.system.table("cases").pick(["id", "contractId"], { id: { in: caseIds } })).map((c) => [c.id, c.contractId]));
+  let closed = 0;
+  for (const x of expired) {
+    const done = await t.updateIf(x.id, { status: "open" }, { status: "done", doneAt: now, doneBy: SYSTEM_ACTOR.userId, doneNote: "Aktivitetens tid har passerat." });
+    if (!done) continue;
+    closed++;
+    await ctx.audit({
+      action: "task.done", entity: "task", entityId: x.id, contractId: contractOf.get(x.caseIds[0] ?? "") ?? null,
+      details: { kind: "participant_contact", caseId: x.caseIds[0] ?? null, template: templateOfContactTask(x.text), auto: true, expired: true },
+    });
+  }
+  return closed;
+}
+
+/** Ett tillfälle i veckans tider: tiden och platsen (tillfällets plats, som i participantMessage). */
+export type ScheduleSlot = { startsAt: LocalDateTime; place: string };
+
+/**
+ * Veckans tider till deltagaren (SMS att skicka – coachen skickar det själv): bara veckodag, datum, klockslag, plats och
+ * Miljonbemannings telefonnummer (CLAUDE.md punkt 9) – aldrig namn, ärendenummer, aktivitetens namn eller typ eller vad insatsen
+ * gäller. Tillfällen samma dag och plats slås ihop ("mån 17 nov kl. 10.00 och 13.30, Alby."). upcoming = veckan har inte börjat
+ * ("nästa vecka"), annars "den här veckan". Ett SMS är 160 tecken; en vanlig vecka blir ett eller två.
+ */
+export function weeklyScheduleMessage(slots: readonly ScheduleSlot[], upcoming: boolean): string {
+  const groups: { day: LocalDate; where: string; times: string[] }[] = [];
+  for (const x of [...slots].sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))) {
+    const day = dayOf(x.startsAt);
+    const where = placeText(x.place);
+    const time = fmtTime(x.startsAt);
+    const last = groups[groups.length - 1];
+    if (last && last.day === day && last.where === where) {
+      if (!last.times.includes(time)) last.times.push(time);
+    } else groups.push({ day, where, times: [time] });
+  }
+  const parts = groups.map((g) => `${WEEKDAYS_SHORT[weekday(g.day)]} ${fmtDateShort(g.day)} kl. ${listSv(g.times)}, ${g.where}.`);
+  return `Hej! Dina tider hos Miljonbemanning ${upcoming ? "nästa vecka" : "den här veckan"}: ${parts.join(" ")}${phoneSentence()}`;
 }
 
 /**

@@ -11,6 +11,7 @@ import type { Tables } from "@/data/schema";
 import type { MinVeckaView } from "@/features/coach/api";
 import type { NotifList } from "@/features/notiser/api";
 import type { NavCounts } from "@/features/session/nav-api";
+import { acceptDefaultDate } from "@/core/first-meeting";
 import { notifyIntakeCoach } from "../_shared/intake";
 import type { AcceptFormView, CaseCardResult } from "./api";
 
@@ -27,6 +28,16 @@ const as = (userId: string, role?: Role): Actor => {
 type Res = { ok: boolean; error?: string; message?: string } & Record<string, unknown>;
 const cmd = (key: string, input: unknown, actor: Actor) => rt.run("command", key, input, actor) as Promise<Res>;
 const query = <T,>(key: string, input: unknown, actor: Actor) => rt.run("query", key, input, actor) as Promise<T>;
+/**
+ * Coachens siffra vid Min vecka: beställningarna att ta emot och SMS att skicka (Karims beslut 2026-11-11). Den här filen prövar
+ * beställningarna – SMS-raderna räknas fram och dras av.
+ */
+/** Beställningarna i siffran vid Min vecka: utan SMS att skicka (coachens egna, veckans tider som en sak – smsTaskCount). */
+const ordersCount = async (actor: Actor) => {
+  const sms = (await query<{ rows: { mine: boolean; kind: string }[] }>("coach.smsAttSkicka", {}, actor)).rows.filter((r) => r.mine);
+  const smsCount = sms.filter((r) => r.kind !== "veckoschema").length + (sms.some((r) => r.kind === "veckoschema") ? 1 : 0);
+  return (await query<NavCounts>("session.navCounts", {}, actor)).tasks - smsCount;
+};
 const rows = <N extends keyof Tables>(name: N) => rt.raw().all(name) as readonly Tables[N][];
 const amira = () => as("u-amira", "coach");
 const erik = () => as("u-erik", "coach");
@@ -145,8 +156,8 @@ describe("den intagsansvariges Min vecka, deltagarkort och räknare", () => {
     expect(row).toMatchObject({ caseNumber: CASE_NO, name: `${person().firstName} ${person().lastName}`, from: "Maria Ekdahl", dueAt: expect.stringMatching(/^2027-02-0\dT/), sla: { label: expect.any(String) } });
     // Andra coacher: ingen rad, ingen räknare och ingen knapp på kortet.
     expect((await query<MinVeckaView>("coach.minVecka", {}, erik())).toReceive).toEqual([]);
-    expect((await query<NavCounts>("session.navCounts", {}, amira())).tasks).toBe(3);
-    expect((await query<NavCounts>("session.navCounts", {}, erik())).tasks).toBe(0);
+    expect(await ordersCount(amira())).toBe(3);
+    expect(await ordersCount(erik())).toBe(0);
   });
 
   it("deltagarkortet: Ta emot bara för den intagsansvarige, och underlaget från beställningen utan belopp", async () => {
@@ -182,6 +193,12 @@ describe("den intagsansvariges Min vecka, deltagarkort och räknare", () => {
     };
     expect(strip(mine)).toEqual(strip(coordinators));
     expect(mine!.coaches.map((c) => c.id)).toContain("u-amira");
+    // Första mötet är förifyllt med kommunens önskade start (Karims beslut 2026-11-11) – i båda dialogerna.
+    expect(caseOf().desiredStart).toBeTruthy();
+    expect(mine).toMatchObject({ desiredStart: caseOf().desiredStart, defaultDate: acceptDefaultDate({ desiredStart: caseOf().desiredStart, referredAt: caseOf().referredAt, now: rt.clock.now() }) });
+    expect(mine!.defaultDate >= caseOf().desiredStart!).toBe(true);
+    // Omfattning, avtalsområde och beställarreferens kommer också från beställningen.
+    expect(mine).toMatchObject({ primaryArea: caseOf().primaryAreaCode, orderPeriodMonths: caseOf().orderPeriodMonths, buyerReference: caseOf().buyerReference });
     // En annan coach, en besvarad beställning och ett ärende som inte finns: inget underlag.
     expect(await query("arenden.acceptForm", { caseId: CASE }, erik())).toBeNull();
     expect(await query("arenden.acceptForm", { caseId: "case-270039" }, amira())).toBeNull();
@@ -302,7 +319,7 @@ describe("arenden.caseAccept – den intagsansvarige tar emot", () => {
     expect(await accept(amira())).toMatchObject({ ok: false, error: "forbidden" });
     expect(await query("arenden.acceptForm", { caseId: CASE }, amira())).toBeNull();
     expect((await query<MinVeckaView>("coach.minVecka", {}, amira())).toReceive).toEqual([]);
-    expect((await query<NavCounts>("session.navCounts", {}, amira())).tasks).toBe(0);
+    expect(await ordersCount(amira())).toBe(0);
     const res = await accept(sara());
     expect(res.ok).toBe(true);
     expect(rows("audit_log").find((l) => l.action === "case.accepted" && l.entityId === CASE)?.details).not.toHaveProperty("via");
@@ -457,7 +474,7 @@ describe("notiserna följer beställningen och personen", () => {
     expect((await cmd("arenden.caseClose", { caseId: CASE, endDate: "2027-02-01", endReason: "avbrott_deltagarens_val" }, erik())).ok).toBe(true);
     expect(caseOf().status).toBe("closed");
     expect(readBy("u-amira").has(n.id)).toBe(true);
-    expect((await query<NavCounts>("session.navCounts", {}, amira())).tasks).toBe(2);
+    expect(await ordersCount(amira())).toBe(2);
     // Ett avslut av en pågående insats rör inga notiser om beställningar.
     const reads = rows("notification_reads").length;
     const active = rows("cases").find((c) => c.status === "active" && c.leadCoachId === "u-amira")!;
@@ -509,7 +526,7 @@ describe("notiserna följer beställningen och personen", () => {
     expect(await set("u-amira")).toEqual({ ok: true });
     expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: waiting, erik: [] });
     expect((await query<NotifList>("notiser.list", {}, amira())).items.filter((x) => x.kind === "new_order" && !x.readAt)).toHaveLength(4);
-    expect((await query<NavCounts>("session.navCounts", {}, amira())).tasks).toBe(4);
+    expect(await ordersCount(amira())).toBe(4);
     // A → B igen
     expect(await set("u-erik")).toEqual({ ok: true });
     expect({ amira: unread("u-amira"), erik: unread("u-erik") }).toEqual({ amira: [], erik: waiting });

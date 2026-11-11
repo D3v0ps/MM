@@ -58,11 +58,17 @@ describe("sidopanelens räknare (navCounts)", () => {
     // (eskalerad från coachen), två svar på avrop och två veckorapporter – inte coachens närvaroregistrering. Avtalsansvarig: inget
     // av det är hans. Chefen: slutrapporten, som har eskalerats till chefen. Uppgifter: inga öppna i testdatat. Amira är avtalets
     // intagsansvarige (Karims beslut 2026-11-09): de tre beställningarna som väntar på svar står vid Min vecka – inte hos en annan coach.
+    // Coachens siffra räknar också SMS att skicka (Karims beslut 2026-11-11): coachens egna, veckans tider som en sak
+    // (granskningen 2026-11-11).
+    const smsRows = async (actor: Actor) => {
+      const own = (await rt.run("query", "coach.smsAttSkicka", {}, actor) as { rows: { mine: boolean; kind: string }[] }).rows.filter((r) => r.mine);
+      return own.filter((r) => r.kind !== "veckoschema").length + (own.some((r) => r.kind === "veckoschema") ? 1 : 0);
+    };
     expect(await q(navCounts, {}, sara())).toEqual({ inbox: 6, deadlines: 5, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, johan())).toEqual({ inbox: 6, deadlines: 0, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, karin())).toEqual({ inbox: 0, deadlines: 1, unregistered: 0, tasks: 0, notifications: 3 });
-    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 3, notifications: 4 });
-    expect((await q(navCounts, {}, as("u-erik", "coach"))).tasks).toBe(0);
+    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 3 + (await smsRows(amira())), notifications: 4 });
+    expect((await q(navCounts, {}, as("u-erik", "coach"))).tasks).toBe(await smsRows(as("u-erik", "coach")));
   });
 });
 
@@ -249,7 +255,7 @@ describe("områdets kommandon", () => {
   it("kompletteringen förs in och avropet accepteras (em-103 → em-102)", async () => {
     expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
     const f = await q(inboxDecisionForm, { caseId: "case-270049" }, sara());
-    expect(f).toMatchObject({ caseNumber: "BOT-27-0049", buyerReference: "55102938", pendingSup: null, defaultDate: "2027-02-03", meetingText: "en vecka" });
+    expect(f).toMatchObject({ caseNumber: "BOT-27-0049", buyerReference: "55102938", pendingSup: null, defaultDate: "2027-02-08", desiredStart: "2027-02-08", meetingText: "en vecka" });
     expect(f?.coaches.map((x) => x.name)).toContain("Leila Nouri");
     // Kompletteringen gav omfattningen (6 månader) och referensen – avtalsområde och yrkesspår väljs av Miljonbemanning.
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, buyerReference: "55102938" });

@@ -30,6 +30,7 @@ import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
+import { closeExpiredContactTasks } from "@/features/_shared/participant-notify";
 import { finishStartChanges } from "@/features/arenden/start-finish";
 import { ensureBonusClaims } from "@/features/bonus/ensure";
 import { nextDayEnd } from "@/core/auto-attendance";
@@ -194,6 +195,12 @@ export function createMemoryRuntime(opts: {
           await ensureGroupActivities(ctxFor(SYSTEM_ACTOR));
         } catch (e) {
           console.error("nivåaktiviteter: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        try {
+          // Uppgifterna att ringa om en aktivitet vars tid har passerat (granskningen 2026-11-11) – som jobbet.
+          await closeExpiredContactTasks(ctxFor(SYSTEM_ACTOR));
+        } catch (e) {
+          console.error("uppgifter som har passerat: kunde inte stängas", e instanceof Error ? e.name : typeof e);
         }
         groupsCheckedDay = now.slice(0, 10);
       }
