@@ -249,7 +249,7 @@ describe("områdets kommandon", () => {
   it("kompletteringen förs in och avropet accepteras (em-103 → em-102)", async () => {
     expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
     const f = await q(inboxDecisionForm, { caseId: "case-270049" }, sara());
-    expect(f).toMatchObject({ caseNumber: "BOT-27-0049", buyerReference: "55102938", pendingSup: null, defaultDate: "2027-02-03", meetingText: "en vecka" });
+    expect(f).toMatchObject({ caseNumber: "BOT-27-0049", buyerReference: "55102938", pendingSup: null, defaultDate: "2027-02-08", desiredStart: "2027-02-08", meetingText: "en vecka" });
     expect(f?.coaches.map((x) => x.name)).toContain("Leila Nouri");
     // Kompletteringen gav omfattningen (6 månader) och referensen – avtalsområde och yrkesspår väljs av Miljonbemanning.
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, buyerReference: "55102938" });

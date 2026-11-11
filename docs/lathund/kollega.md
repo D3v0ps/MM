@@ -64,7 +64,7 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 1. Tryck på **Acceptera avropet**.
 2. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde i beställningen är det redan ifyllt. Välj eventuellt **Alternativt område (valfritt)**.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare (valfritt)** och **SYV/metodstöd (valfritt)** om de ska vara med i teamet.
-4. Fyll i **Första möte – datum** och **Första möte – tid**. Första mötet ska bokas inom den tid som står i avtalet.
+4. Kontrollera **Första möte – datum** och **Första möte – tid**. Datumet är redan ifyllt med kommunens önskade start om den dagen går att boka, annars med första dagen efter som går. Under datumet står vilken start kommunen önskade. Tiden är 10.00. Ändra om det behövs. Första mötet ska bokas inom den tid som står i avtalet.
 5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren. När första mötet har varit står ärendet i coachens lista **Att göra i dag** med knappen **Starta insatsen**. Deltagaren får en kallelse med e-post eller SMS.
 
 Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du det som är ditt ansvar och förfaller i dag och den här veckan. Tryck på **Alla** för att se allt i avtalet.
@@ -107,7 +107,7 @@ Det här gäller dig som är avtalets **intagsansvarige**. Systemadministratöre
 3. Läs underlaget från handläggaren i dialogen.
 4. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde är det redan ifyllt.
 5. Välj **Huvudcoach**. Du är förvald. Välj en annan coach om någon annan ska ha deltagaren.
-6. Fyll i **Första möte – datum** och **Första möte – tid**.
+6. Kontrollera **Första möte – datum** och **Första möte – tid**. Datumet är redan ifyllt med kommunens önskade start om den dagen går att boka. Ändra om det behövs.
 7. Tryck på **Ta emot**.
 
 Det här händer:

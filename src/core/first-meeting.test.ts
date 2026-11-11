@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Case, FirstMeetingNoShow } from "@/data/schema";
 import {
+  acceptDefaultDate, FIRST_MEETING_DEFAULT_TIME,
   canRegisterNoShow, currentNoShow, firstBookedMeetingAt, firstMeetingBookingProblem, firstMeetingPassed, noShowOpen, noShowProblem, noShowSentence, noShowStartText,
   noShowTitle,
 } from "./first-meeting";
@@ -119,5 +120,50 @@ describe("texterna", () => {
     expect(noShowTitle(MEETING)).toBe("Kom inte till första mötet 29 jan kl. 14.00");
     expect(noShowSentence({ meetingAt: MEETING, kind: "uteblev" })).toBe("Kom inte till första mötet 29 jan kl. 14.00 – uteblev utan att meddela.");
     expect(noShowSentence({ meetingAt: "2026-11-02T10:00", kind: "giltig" })).toBe("Kom inte till första mötet 2 nov kl. 10.00 – giltig frånvaro.");
+  });
+});
+
+describe("acceptdialogens förvalda datum (Karims beslut 2026-11-11)", () => {
+  // Måndag 1 februari 2027 kl. 09.12 (demoklockan). Beställd fredag 29 januari.
+  const NOW = "2027-02-01T09:12";
+  const ORDER = "2027-01-29T10:05";
+  const d = (desiredStart: string | null, now = NOW, referredAt = ORDER) => acceptDefaultDate({ desiredStart, referredAt, now });
+
+  it("kommunens önskade start när den går att boka", () => {
+    expect(d("2027-02-08")).toBe("2027-02-08");
+    expect(d("2027-02-03")).toBe("2027-02-03");
+    // I dag före det förvalda klockslaget 10.00 går också.
+    expect(d("2027-02-01")).toBe("2027-02-01");
+  });
+
+  it("utan önskad start: två arbetsdagar fram, som förut", () => {
+    expect(d(null)).toBe("2027-02-03");
+  });
+
+  it("en helg eller helgdag ger första arbetsdagen efter", () => {
+    expect(d("2027-02-06")).toBe("2027-02-08"); // lördag → måndag
+    expect(d("2027-01-06", "2027-01-05T08:00", "2027-01-04T08:00")).toBe("2027-01-07"); // trettondedag jul → torsdag
+    expect(d("2027-03-26", "2027-03-22T08:00", "2027-03-22T08:00")).toBe("2027-03-30"); // långfredag och påskhelgen → tisdag
+  });
+
+  it("en önskad start som har passerat ger i dag, eller nästa arbetsdag när klockslaget har passerat", () => {
+    expect(d("2027-01-27")).toBe("2027-02-01");
+    expect(d("2027-01-27", "2027-02-01T10:00")).toBe("2027-02-02");
+    expect(d("2027-02-01", "2027-02-01T14:30")).toBe("2027-02-02");
+    // Fredag eftermiddag → måndag.
+    expect(d("2027-01-29", "2027-01-29T15:00", "2027-01-28T08:00")).toBe("2027-02-01");
+  });
+
+  it("aldrig före beställningens dag", () => {
+    expect(d("2027-01-20", "2027-01-18T08:00", "2027-01-25T08:00")).toBe("2027-01-25");
+  });
+
+  it("dagen går alltid att boka enligt serverns regel", () => {
+    for (const ds of ["2027-01-01", "2027-01-30", "2027-02-01", "2027-02-05", "2027-02-06", "2027-02-28", "2027-04-02", null]) {
+      for (const now of ["2027-02-01T06:00", "2027-02-01T09:59", "2027-02-01T10:00", "2027-02-05T17:00"]) {
+        const day = d(ds, now);
+        expect(firstMeetingBookingProblem({ referredAt: ORDER, firstMeetingAt: null }, `${day}T${FIRST_MEETING_DEFAULT_TIME}`, now), `${ds} ${now}`).toBeNull();
+      }
+    }
   });
 });

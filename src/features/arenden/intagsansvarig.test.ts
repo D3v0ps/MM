@@ -11,6 +11,7 @@ import type { Tables } from "@/data/schema";
 import type { MinVeckaView } from "@/features/coach/api";
 import type { NotifList } from "@/features/notiser/api";
 import type { NavCounts } from "@/features/session/nav-api";
+import { acceptDefaultDate } from "@/core/first-meeting";
 import { notifyIntakeCoach } from "../_shared/intake";
 import type { AcceptFormView, CaseCardResult } from "./api";
 
@@ -182,6 +183,12 @@ describe("den intagsansvariges Min vecka, deltagarkort och räknare", () => {
     };
     expect(strip(mine)).toEqual(strip(coordinators));
     expect(mine!.coaches.map((c) => c.id)).toContain("u-amira");
+    // Första mötet är förifyllt med kommunens önskade start (Karims beslut 2026-11-11) – i båda dialogerna.
+    expect(caseOf().desiredStart).toBeTruthy();
+    expect(mine).toMatchObject({ desiredStart: caseOf().desiredStart, defaultDate: acceptDefaultDate({ desiredStart: caseOf().desiredStart, referredAt: caseOf().referredAt, now: rt.clock.now() }) });
+    expect(mine!.defaultDate >= caseOf().desiredStart!).toBe(true);
+    // Omfattning, avtalsområde och beställarreferens kommer också från beställningen.
+    expect(mine).toMatchObject({ primaryArea: caseOf().primaryAreaCode, orderPeriodMonths: caseOf().orderPeriodMonths, buyerReference: caseOf().buyerReference });
     // En annan coach, en besvarad beställning och ett ärende som inte finns: inget underlag.
     expect(await query("arenden.acceptForm", { caseId: CASE }, erik())).toBeNull();
     expect(await query("arenden.acceptForm", { caseId: "case-270039" }, amira())).toBeNull();

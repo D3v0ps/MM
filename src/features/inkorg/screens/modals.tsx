@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
 import { addWorkingDays, dayOf, fmtDate, fmtWeekday, holidayName, isWorkingDay, orderPeriodEnd } from "@/core/time";
+import { FIRST_MEETING_DEFAULT_TIME } from "@/core/first-meeting";
 import { caseAccept, caseAcceptForm, caseDecline, ORDER_REASON_MAX, ORDER_REASON_MIN, type AcceptFormView } from "@/features/arenden/api";
 import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -93,7 +94,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
   const [matcher, setMatcher] = useState("");
   const [counselor, setCounselor] = useState("");
   const [date, setDate] = useState(f.defaultDate);
-  const [time, setTime] = useState("10:00");
+  const [time, setTime] = useState(FIRST_MEETING_DEFAULT_TIME);
   const [period, setPeriod] = useState(f.orderPeriodMonths != null ? String(f.orderPeriodMonths) : f.orderPeriodReason ? OTHER : "");
   const [end, setEnd] = useState(f.orderPeriodMonths == null && f.orderPeriodReason ? f.plannedEnd ?? "" : "");
   const [reason, setReason] = useState(f.orderPeriodReason ?? "");
@@ -349,9 +350,11 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
       <FormGrid>
         <Field
           id="ink-fm-date" label="Första möte – datum" required error={tried ? errs.date : null}
-          help={`Ska vara inom ${f.meetingText} från avropet: senast ${f.firstMeetingDue ? fmtWeekday(f.firstMeetingDue) : "–"}.${f.desiredStart ? ` Kommunen önskar start ${fmtDate(f.desiredStart)}.` : ""}`}
+          help={`Ska vara inom ${f.meetingText} från avropet: senast ${f.firstMeetingDue ? fmtWeekday(f.firstMeetingDue) : "–"}.`}
         >
           <DateInput value={date} onValueChange={setDate} />
+          {/* Datumet är förifyllt med kommunens önskade start när den går att boka (Karims beslut 2026-11-11). */}
+          {f.desiredStart && <p id="ink-fm-desired" className="m-0 text-small text-text-muted">Kommunen önskade start {fmtDate(f.desiredStart)}.</p>}
         </Field>
         <Field id="ink-fm-time" label="Första möte – tid" required help="Mötet hålls i Alby om inget annat bokas." error={tried ? errs.time : null}>
           <TimeInput value={time} onValueChange={setTime} />
@@ -396,7 +399,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
         )}
         <Field
           id="ink-ref" label="Beställarreferens (valfritt)" error={refErr}
-          help={`${f.refLen} siffror. Kan också fyllas i på fakturan.`}
+          help={`${f.refLen} siffror. Kan också fyllas i på fakturan.${f.buyerReference ? " Förifylld från beställningen." : ""}`}
         >
           <Input value={ref} inputMode="numeric" maxLength={12} onValueChange={(v) => { setRef(v); setRefServerErr(null); }} />
         </Field>
