@@ -526,8 +526,8 @@ export const smsAttSkicka = query("coach.smsAttSkicka", z.object({})).returns<{ 
 export const smsMarkSent = command("coach.smsMarkSent", z.object({
   key: z.string().trim().min(1).max(200),
   text: z.string().min(1).max(2000),
-  slots: z.array(z.object({ id: IdSchema, startsAt: LocalDateTimeSchema })).max(60).optional(),
-  messageId: IdSchema.optional(),
+  slots: z.array(z.object({ id: IdSchema, startsAt: LocalDateTimeSchema })).max(60).nullable().optional(),
+  messageId: IdSchema.nullable().optional(),
 }), {
   invalidates: ["coach.minVecka", "coach.smsAttSkicka", NAV, INBOX, CASES, "admin.templates", ...LOG],
 }).returns<Result<{ already: boolean }, "not_found" | "changed">>();

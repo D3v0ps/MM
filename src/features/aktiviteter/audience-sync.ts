@@ -110,7 +110,7 @@ export async function removeParticipantRow(ctx: Ctx, repo: Ctx["repo"], id: stri
  */
 export async function syncAudienceInvites(
   ctx: Ctx,
-  opts: { contractId: string; caseIds?: readonly string[]; groupActivityIds?: readonly string[]; quiet?: boolean; notify?: boolean },
+  opts: { contractId: string; caseIds?: readonly string[]; groupActivityIds?: readonly string[]; quiet?: boolean; notifyRemoved?: boolean; notifyAdded?: boolean },
 ): Promise<AudienceSyncResult> {
   const s = ctx.system;
   const now = ctx.now();
@@ -173,7 +173,7 @@ export async function syncAudienceInvites(
     const removedCases = removed.map((id) => caseOf.get(id)).filter((c): c is Case & AudienceCase => !!c);
     if (removedCases.length) await supersedeTasks(ctx, removedCases, g, "Deltagaren hör inte längre till aktivitetens målgrupp.");
     // Meddelandet: aktivitetens val – eller anroparens (ny tid för ett tillfälle: dialogens val, Karims beslut 2026-11-11).
-    const send = (opts.notify ?? g.notify) && upcoming(ctx, g.startsAt);
+    const send = (opts.notifyRemoved ?? g.notify) && upcoming(ctx, g.startsAt);
     removedOf.set(g.id, { removed, notified: send ? await notifyAll(ctx, g, "aktivitet_installd", removed, { when: g.startsAt, place: g.location }) : null });
   }
   if (gone.size) {
@@ -222,7 +222,7 @@ export async function syncAudienceInvites(
         },
       });
     }
-    const send = (opts.notify ?? g.notify) && upcoming(ctx, g.startsAt);
+    const send = (opts.notifyAdded ?? g.notify) && upcoming(ctx, g.startsAt);
     const detail: AudienceSyncDetail = {
       added, removed, skipped,
       notifiedAdded: send && added.length ? await notifyAll(ctx, g, "aktivitetsinbjudan", added, { when: g.startsAt, place: g.location }) : null,

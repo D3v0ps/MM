@@ -40,7 +40,7 @@ import { START_CHANGERS, startChangeBlockedText } from "@/core/start-date";
 import {
   canRegisterNoShow, currentNoShow, firstMeetingBookingProblem, NO_SHOW_KIND_LABEL, NO_SHOW_REGISTRARS, noShowOpen, noShowSentence, noShowStartText,
 } from "@/core/first-meeting";
-import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/core/validation";
+import { buyerRefError, buyerRefValid, hasValidPnr, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
@@ -68,6 +68,7 @@ import "./area-handlers";
 import { billingForMonths } from "./start-handlers";
 import "./no-show-handlers";
 import { PLACE_PNR } from "./activity-move";
+import { ACTIVITY_REMOVED, logActivityRemoved } from "../_shared/activity-log";
 import { closeActivityTasks } from "../_shared/participant-notify";
 import "./attachment-handlers";
 import "./contact-handlers";
@@ -602,10 +603,12 @@ handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
   if (!end || end < today) return fail("no_end", "Insatsens planerade slut har passerat – inga nya tillfällen kan planeras.");
   const plan = normalizePlan(p.plan);
   if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
-  // Platsen står i meddelandet till deltagaren (SMS att skicka) – aldrig ett personnummer (samma kontroll som Ändra tid).
-  if (plan.some((r) => looksLikePnr(r.location))) return fail("location", PLACE_PNR);
   const acts = ctx.repo.table("activities");
   const existing = await acts.list({ caseId: c.id });
+  // Platsen står i meddelandet till deltagaren (SMS att skicka) – aldrig ett personnummer (samma kontroll som Ändra tid). Bara en
+  // plats som inte redan finns på ärendets tillfällen kontrolleras (granskningen 2026-11-11).
+  const places = new Set(existing.map((a) => a.location.trim()));
+  if (plan.some((r) => !places.has(r.location) && hasValidPnr(r.location))) return fail("location", PLACE_PNR);
   const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
   const placements = await ctx.repo.table("placements").list({ caseId: c.id });
   // Framtida tillfällen utan närvaro ersätts. Praktikdagar hör till praktiken och rörs bara om planen själv har praktikdagar.
@@ -658,7 +661,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (c.status !== "active" && c.status !== "paused") return fail("wrong_status", "Tillfällen kan läggas till när insatsen pågår.");
   if (c.startDate && dayOf(p.startsAt) < c.startDate) return fail("date", `Tillfället kan inte ligga före startdatumet ${fmtDate(c.startDate)}.`);
   // Platsen står i meddelandet till deltagaren (SMS att skicka) – aldrig ett personnummer (samma kontroll som Ändra tid).
-  if (looksLikePnr(p.location)) return fail("location", PLACE_PNR);
+  if (hasValidPnr(p.location)) return fail("location", PLACE_PNR);
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
@@ -678,7 +681,7 @@ handleCommand(activityRemove, { roles: CASE_WORKERS }, async (ctx, p) => {
   await ctx.repo.table("activities").remove(a.id);
   // Öppna uppgifter att ringa deltagaren om tillfället gäller inte längre (granskningen 2026-11-11).
   await closeActivityTasks(ctx, c, { when: a.startsAt, place: a.location }, "Tillfället är borttaget.");
-  await ctx.audit({ action: "activity.removed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, kind: a.kind, startsAt: a.startsAt } });
+  await logActivityRemoved(ctx, { contractId: c.contractId, caseId: c.id, activityId: a.id, kind: a.kind, startsAt: a.startsAt });
   return ok({});
 });
 
@@ -1281,19 +1284,20 @@ function currentWeekPlan(acts: readonly Activity[], today: string, cfg: Operatio
 
 /**
  * Underlaget för att läsa veckoplanen (PlanContext i src/core/schedule.ts): enstaka tillfällen (activity.added), dagar där ett
- * tillfälle tagits bort för hand (activity.removed), senaste Ändra veckoplan (case.schedule_changed), praktikperioderna, pauser,
- * start och slut. ctx.system: bara id:n, tider och dagar ur loggen för ärendets egna tillfällen och ärendet, som läsaren redan
- * ser (loggen läses annars bara av chef och admin).
+ * tillfälle tagits bort – för hand eller ersatt av en gruppaktivitet (activity.removed på ärendet) –, senaste Ändra veckoplan
+ * (case.schedule_changed), praktikperioderna, pauser, start och slut. Två billiga frågor: ärendets egna tillfällen (entity_id) och
+ * ärendets rader (entity case) – aldrig hela avtalets logg (granskningen 2026-11-11). ctx.system: bara id:n, tider och dagar ur
+ * loggen för ärendets egna tillfällen och ärendet, som läsaren redan ser (loggen läses annars bara av chef och admin).
  */
 async function planContextFor(ctx: Ctx, c: Case, acts: readonly Activity[], placements: readonly Placement[]): Promise<PlanContext & { removedSlots: ReadonlySet<string> }> {
   const log = ctx.system.table("audit_log");
   const ids = acts.filter((a) => a.caseId === c.id && isOwnPlanRow(a)).map((a) => a.id);
-  const [added, removed, changed] = await Promise.all([
+  const [added, onCase] = await Promise.all([
     ids.length ? log.list({ entity: "activity", entityId: { in: ids }, action: "activity.added" }) : Promise.resolve([]),
-    log.list({ entity: "activity", contractId: c.contractId, action: "activity.removed" }),
-    log.list({ entity: "case", entityId: c.id, action: "case.schedule_changed" }),
+    log.list({ entity: "case", entityId: c.id, action: { in: ["case.schedule_changed", ACTIVITY_REMOVED] } }),
   ]);
-  const removedRows = removed.filter((l) => l.details?.caseId === c.id && typeof l.details?.startsAt === "string" && typeof l.details?.kind === "string");
+  const changed = onCase.filter((l) => l.action === "case.schedule_changed");
+  const removedRows = onCase.filter((l) => l.action === ACTIVITY_REMOVED && typeof l.details?.startsAt === "string" && typeof l.details?.kind === "string");
   return {
     oneOff: new Set(added.flatMap((l) => (l.entityId ? [l.entityId] : []))),
     practice: placements.filter((pl) => pl.caseId === c.id).map((pl) => ({ startsOn: pl.startsOn, endsOn: pl.endsOn })),

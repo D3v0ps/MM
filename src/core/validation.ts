@@ -84,6 +84,27 @@ const pnrNormalize = (s: string): string => s.normalize("NFKC").replace(PNR_DASH
  */
 export const looksLikePnr = (s: string | null | undefined): boolean => PNR_PATTERN.test(pnrNormalize(String(s || "")));
 
+/**
+ * Innehåller texten ett giltigt personnummer eller samordningsnummer (granskningen 2026-11-11)? Samma mönster och normalisering som
+ * looksLikePnr, och dessutom ett riktigt datum (månad 01–12, en dag som finns i månaden – för samordningsnummer dag + 60) och rätt
+ * kontrollsiffra (som pnrValid). För platsen i texten till deltagaren: ett telefonnummer eller organisationsnummer ("Volvo AB
+ * 556013-9700", "0701234567") ska inte stoppa en plats som redan finns. Fri text i övrigt kontrolleras med looksLikePnr.
+ */
+export function hasValidPnr(s: string | null | undefined): boolean {
+  for (const m of pnrNormalize(String(s || "")).matchAll(new RegExp(PNR_PATTERN.source, "g"))) {
+    const digits = m[0].replace(/\D/g, "");
+    const ten = digits.slice(-10);
+    const year = digits.length === 12 ? Number(digits.slice(0, 4)) : 2000 + Number(ten.slice(0, 2));
+    const month = Number(ten.slice(2, 4));
+    const day = Number(ten.slice(4, 6)) > 60 ? Number(ten.slice(4, 6)) - 60 : Number(ten.slice(4, 6));
+    // Dagar i månaden (29 februari godtas utan sekel – året är okänt).
+    const max = month === 2 ? (digits.length === 12 && !(year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) ? 28 : 29) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+    if (month < 1 || month > 12 || day < 1 || day > max) continue;
+    if (luhn(ten)) return true;
+  }
+  return false;
+}
+
 /** Ersättningen för ett personnummer i text som tvättas (underlaget till AI, beslut 4 2026-10-09). */
 export const PNR_SCRUBBED = "[personnummer borttaget]";
 

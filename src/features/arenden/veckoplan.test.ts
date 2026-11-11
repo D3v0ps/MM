@@ -204,6 +204,36 @@ describe("Ändra veckoplan – öppna och spara oförändrad (granskningen 2026-
     expect(snapOf(ALBIN)).toEqual(before);
   });
 
+  it("en gruppaktivitet som ersatte deltagarens eget tillfälle: dagen läses inte, och planen sparad oförändrad ändrar ingenting", async () => {
+    const g = await rt.run("command", groupActivityCreate.key, {
+      name: "Nivåträff", kind: "yrkesmoment", startsAt: "2027-02-03T09:00", durationMin: 120, location: "Miljonbemanning Alby", caseIds: [NADIA], replaceOverlapping: true,
+    }, amira()) as { ok: boolean; replaced?: number };
+    expect(g).toMatchObject({ ok: true, replaced: 1 });
+    // Borttagningen loggas på ärendet – bara id:n och tiden.
+    const log = rt.store.rows("audit_log").filter((l) => l.action === "activity.removed").pop()!;
+    expect(log).toMatchObject({ entity: "case", entityId: NADIA, details: { caseId: NADIA, kind: "yrkesmoment", startsAt: "2027-02-03T09:00" } });
+    expect(Object.keys(log.details ?? {}).sort()).toEqual(["activityId", "caseId", "groupActivityId", "kind", "startsAt"]);
+    expect((await card()).weekPlan!.some((r) => r.weekday === 2 && r.kind === "yrkesmoment")).toBe(true);
+    const before = snapshot();
+    expect(await cmd(caseScheduleChange.key, { caseId: NADIA, plan: daysToPlan(planToDays((await card()).weekPlan!, "Miljonbemanning")) })).toMatchObject({ ok: true, removed: 0, added: 0 });
+    expect(snapshot()).toEqual(before);
+  });
+
+  it("insatsens sista vecka: planen öppnad igen efter en sparning har kvar veckodagarna före sparningen", async () => {
+    await fill(NADIA);
+    rt.clock.set("2027-02-16T08:00");
+    const plan = (await card()).weekPlan!;
+    expect(plan.some((r) => r.weekday === 0 && r.kind === "möte")).toBe(true);
+    expect(await cmd(caseScheduleChange.key, { caseId: NADIA, plan: daysToPlan(planToDays(plan, "Miljonbemanning")) })).toMatchObject({ ok: true, removed: 0, added: 0 });
+    expect((await card()).weekPlan).toEqual(plan);
+    const before = snapshot();
+    expect(await cmd(caseScheduleChange.key, { caseId: NADIA, plan: daysToPlan(planToDays((await card()).weekPlan!, "Miljonbemanning")) })).toMatchObject({ ok: true, removed: 0, added: 0 });
+    expect(snapshot()).toEqual(before);
+    // Samma regel i den rena funktionen: ändrad i dag (tisdag), ingen måndag efter – måndagen i veckan räknas.
+    expect(planFromActivities([{ kind: "möte", startsAt: "2027-02-15T10:00", durationMin: 60, location: "x" }, { kind: "yrkesmoment", startsAt: "2027-02-17T09:00", durationMin: 180, location: "x" }], "2027-02-16", { changedAt: "2027-02-16T08:00", end: "2027-02-19" }))
+      .toEqual([{ weekday: 0, kind: "möte", time: "10:00", durationMin: 60, location: "x" }, { weekday: 2, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "x" }]);
+  });
+
   it("ett tillfälle som tagits bort för hand den här veckan: veckodagen läses nästa vecka och ingenting annat ändras", async () => {
     await fill(ALBIN);
     const wed = own(ALBIN).find((a) => a.startsAt === "2027-02-03T09:00")!;
@@ -249,12 +279,25 @@ describe("Ta bort och Ändra veckoplan – uppgifter och platsen (granskningen 2
     expect(rt.raw().get("tasks", "task-probe-0")).toMatchObject({ status: "done", doneNote: "Tillfället är borttaget." });
   });
 
-  it("en plats som liknar ett personnummer stoppas – i veckoplanen och i Lägg till tillfälle", async () => {
+  it("en plats med ett giltigt personnummer stoppas – i veckoplanen och i Lägg till tillfälle", async () => {
     const plan = (await cardOf(ALBIN)).weekPlan!;
     const PNR = { ok: false, error: "location", message: "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen." };
     const before = snapOf(ALBIN);
-    expect(await cmd(caseScheduleChange.key, { caseId: ALBIN, plan: plan.map((r, i) => (i === 0 ? { ...r, location: "Hos 19900101-1234" } : r)) })).toMatchObject(PNR);
-    expect(await cmd(activityAdd.key, { caseId: ALBIN, kind: "möte", startsAt: "2027-02-09T10:00", durationMin: 60, location: "900101-1234" })).toMatchObject(PNR);
+    expect(await cmd(caseScheduleChange.key, { caseId: ALBIN, plan: plan.map((r, i) => (i === 0 ? { ...r, location: "Hos 19121212-1212" } : r)) })).toMatchObject(PNR);
+    expect(await cmd(activityAdd.key, { caseId: ALBIN, kind: "möte", startsAt: "2027-02-09T10:00", durationMin: 60, location: "121212-1212" })).toMatchObject(PNR);
     expect(snapOf(ALBIN)).toEqual(before);
+  });
+
+  it("ett telefon- eller organisationsnummer i platsen går – och en plats som redan finns på ärendets tillfällen kontrolleras inte", async () => {
+    for (const [i, location] of ["Volvo AB 556013-9700", "Ring 0701234567"].entries()) {
+      expect(await cmd(activityAdd.key, { caseId: ALBIN, kind: "möte", startsAt: `2027-02-0${8 + i}T15:00`, durationMin: 60, location })).toMatchObject({ ok: true });
+    }
+    // Äldre data: en plats som redan står på ärendets tillfällen stoppar inte en plan som sparas med samma plats.
+    const old = own(ALBIN).find((a) => a.kind === "yrkesmoment" && a.startsAt > DEMO_START)!;
+    for (const a of own(ALBIN).filter((x) => x.kind === "yrkesmoment" && x.startsAt.endsWith("T09:00"))) rt.store.updateRow("activities", a.id, { location: "Lokal 19121212-1212" });
+    const plan = (await cardOf(ALBIN)).weekPlan!;
+    expect(plan.some((r) => r.location === "Lokal 19121212-1212")).toBe(true);
+    expect(await cmd(caseScheduleChange.key, { caseId: ALBIN, plan })).toMatchObject({ ok: true });
+    expect(rt.raw().get("activities", old.id)).toBeTruthy();
   });
 });

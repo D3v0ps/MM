@@ -185,9 +185,29 @@ describe("arenden.activityMove – reglerna", () => {
     expect(sms.filter((r) => r.kind !== "veckoschema")).toEqual([]);
   });
 
-  it("en plats som liknar ett personnummer stoppas – platsen står i meddelandet till deltagaren", async () => {
+  it("en ny plats med ett giltigt personnummer stoppas – platsen står i meddelandet till deltagaren; en plats som inte ändras kontrolleras inte", async () => {
     const a = nextMeeting();
-    expect(await move(input(a, { location: "Hos 19900101-1234" }), amira())).toMatchObject({ ok: false, error: "location", message: "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen." });
+    expect(await move(input(a, { location: "Hos 19121212-1212" }), amira())).toMatchObject({ ok: false, error: "location", message: "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen." });
+    // Ett telefon- eller organisationsnummer är inget personnummer.
+    expect(await move(input(a, { location: "Volvo AB 556013-9700" }), amira())).toMatchObject({ ok: true, changed: true });
+    // Äldre data: platsen på raden har redan något som liknar ett personnummer – tiden går att ändra med samma plats.
+    rt.store.updateRow("activities", a.id, { location: "Lokal 19121212-1212" });
+    const b = rt.raw().get("activities", a.id)!;
+    expect(await move({ activityId: b.id, expectedStartsAt: b.startsAt, startsAt: "2027-02-05T14:30", durationMin: 60, location: "Lokal 19121212-1212", notify: false }, amira())).toMatchObject({ ok: true, changed: true });
+  });
+
+  it("en praktikdag får aldrig något meddelande – platsen är arbetsplatsen; ingen uppgift och ingen rad i SMS att skicka", async () => {
+    rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START), messaging: { ...MESSAGING_OFF, emailReaches: () => false } });
+    const p = rows("activities").find((x) => x.caseId === NADIA && x.kind === "praktikdag" && x.startsAt > DEMO_START)!;
+    expect(p).toBeTruthy();
+    const out0 = rows("outbound_messages").length;
+    const tasks0 = rows("tasks").length;
+    expect(await move({ activityId: p.id, expectedStartsAt: p.startsAt, startsAt: "2027-02-05T08:00", durationMin: p.durationMin, notify: true }, amira())).toMatchObject({ ok: true, changed: true, notified: null });
+    expect(rt.raw().get("activities", p.id)).toMatchObject({ startsAt: "2027-02-05T08:00" });
+    expect(rows("outbound_messages").length).toBe(out0);
+    expect(rows("tasks").length).toBe(tasks0);
+    const sms = ((await rt.run("query", smsAttSkicka.key, {}, amira())) as { rows: SmsToSendRow[] }).rows;
+    expect(sms.filter((r) => r.kind !== "veckoschema")).toEqual([]);
   });
 
   it("krockar: ett annat eget tillfälle eller en gruppaktivitet vid den nya tiden stoppar – en tid som slutar när nästa börjar går", async () => {

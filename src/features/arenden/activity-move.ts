@@ -9,14 +9,16 @@
 //               src/data/supabase/villkorade-andringar.test.ts).
 //   Deltagaren: notifyParticipant med mallen aktivitet_andrad (tid, plats och Miljonbemannings telefonnummer – aldrig namn,
 //               ärendenummer eller aktivitetens namn; CLAUDE.md punkt 9), samma kanalval och samma uppgift till samordnaren när
-//               ingen kanal når fram som inbjudningarna. Öppna uppgifter att ringa om den gamla tiden stängs.
+//               ingen kanal når fram som inbjudningarna. Öppna uppgifter att ringa om den gamla tiden stängs. En praktikdag får
+//               aldrig något meddelande (granskningen 2026-11-11): platsen är arbetsplatsen, och praktiken har egna tider – coachen
+//               och arbetsplatsen kommer överens med deltagaren (samma som veckans tider, som inte har praktikdagarna).
 //   Logg:       activity.moved med id:n och den gamla och nya tiden och längden – inga namn och ingen plats (CLAUDE.md punkt 2).
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand } from "@/api/server";
 import { activityMoveMonths, activityMoveProblem } from "@/core/activity-move";
 import { dayOf } from "@/core/time";
-import { looksLikePnr } from "@/core/validation";
+import { hasValidPnr } from "@/core/validation";
 import { closeActivityTasks, notifyParticipant } from "../_shared/participant-notify";
 import { activityMove } from "./api";
 import { billingForMonths } from "./start-handlers";
@@ -40,8 +42,9 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   if (a.startsAt !== p.expectedStartsAt) return fail("conflict", CONFLICT);
   const location = p.location === undefined ? a.location : p.location.trim();
   if (!location) return fail("location", "Skriv plats.");
-  // Platsen står i SMS:et och mejlet till deltagaren (CLAUDE.md punkt 9): aldrig ett personnummer.
-  if (looksLikePnr(location)) return fail("location", PLACE_PNR);
+  // Platsen står i SMS:et och mejlet till deltagaren (CLAUDE.md punkt 9): aldrig ett personnummer. Bara en ny plats kontrolleras
+  // (granskningen 2026-11-11) – med datum och kontrollsiffra, så att ett telefon- eller organisationsnummer inte stoppar.
+  if (location !== a.location.trim() && hasValidPnr(location)) return fail("location", PLACE_PNR);
   const to = { startsAt: p.startsAt, durationMin: p.durationMin };
   if (to.startsAt === a.startsAt && to.durationMin === a.durationMin && location === a.location) return ok({ changed: false, notified: null });
   const now = ctx.now();
@@ -66,7 +69,8 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   if (!slotChanged) return ok({ changed: true, notified: null });
   // Den gamla tiden gäller inte längre: en öppen uppgift att ringa om den (en tidigare ändring) stängs.
   await closeActivityTasks(ctx, c, { when: a.startsAt, place: a.location }, "Tillfället har fått ny tid.");
-  if (!p.notify) return ok({ changed: true, notified: null });
+  // Praktikdagen: inget meddelande till deltagaren (se ovan) – inte heller en uppgift eller en rad i SMS att skicka.
+  if (!p.notify || a.kind === "praktikdag") return ok({ changed: true, notified: null });
   const r = await notifyParticipant(ctx, { caseId: c.id, template: "aktivitet_andrad", when: to.startsAt, place: location, previous: a.startsAt });
   return ok({ changed: true, notified: r.summary });
 });

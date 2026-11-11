@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BOTKYRKA_CONFIG } from "./config";
 import { cfgWith } from "./test-data";
 import {
-  buyerRefError, buyerRefValid, emailValid, looksLikePnr, luhn, normalizePnr, pnrFormatValid, pnrLast4, pnrValid, PNR_SCRUBBED, poNumberError, poNumberFormatText, poNumberValid, scrubPnr,
+  buyerRefError, buyerRefValid, emailValid, hasValidPnr, looksLikePnr, luhn, normalizePnr, pnrFormatValid, pnrLast4, pnrValid, PNR_SCRUBBED, poNumberError, poNumberFormatText, poNumberValid, scrubPnr,
 } from "./validation";
 
 const cfg = BOTKYRKA_CONFIG;
@@ -106,6 +106,16 @@ describe("personnummer", () => {
     expect(scrubPnr("Sa\u2026 850101\u20131234\u2026 och \uff18\uff15\uff10\uff11\uff10\uff11\uff0d\uff11\uff12\uff13\uff14 \u2026")).toBe(`Sa\u2026 ${PNR_SCRUBBED}\u2026 och ${PNR_SCRUBBED} \u2026`);
     const long = "Pratade om CV\u2026 ".repeat(200).slice(0, 2000);
     expect(scrubPnr(long)).toHaveLength(2000);
+  });
+
+  it("hasValidPnr (platsen i texten till deltagaren, granskningen 2026-11-11): datum och kontrollsiffra – inte telefon- eller organisationsnummer", () => {
+    for (const t of ["Hos 19121212-1212", "121212-1212", "1212121212", "19121212 - 1212", "Lokal 121272-1219"]) expect(hasValidPnr(t), t).toBe(true);
+    // Organisationsnummer (månad 60), mobilnummer med fel kontrollsiffra, fel kontrollsiffra, 30 februari, månad 13, ärendenummer.
+    for (const t of ["Volvo AB 556013-9700", "0701234567", "Ring 070-123 45 67", "19900101-1234", "900230-0017", "901301-0011", "BOT-26-0143", "Miljonbemanning Alby"]) {
+      expect(hasValidPnr(t), t).toBe(false);
+    }
+    // looksLikePnr är bredare (fri text i övrigt): ett tiosiffrigt nummer räcker.
+    expect(looksLikePnr("0701234567")).toBe(true);
   });
 });
 

@@ -79,6 +79,9 @@ export const ACTION_LABEL: Record<string, string> = {
   "group_activity.audience_synced": "Ändrade inbjudan automatiskt (nivå eller yrkesområde)",
   "group_activity_series.created": "Skapade återkommande aktivitet", "group_activity_series.updated": "Ändrade återkommande aktivitet",
   "group_activity_series.ended": "Avslutade återkommande aktivitet", "group_activity_series.occurrences_created": "Skapade tillfällen i återkommande aktivitet",
+  // Ändra tid (Karims beslut 2026-11-11) och deltagarens egna tillfällen. Loggen har id:n och tider – aldrig namn eller plats.
+  "activity.moved": "Ändrade tiden för ett tillfälle", "group_activity_series.occurrence_moved": "Ändrade tiden för ett tillfälle i återkommande aktivitet",
+  "activity.added": "Lade till tillfälle", "activity.removed": "Tog bort tillfälle",
   // Bonusstegen (Karims beslut 2026-11-04). Loggen har id:n, steg, beslut och vilka fält som ändrades – aldrig underlagets text
   // eller belopp. Prisraderna och avtalets bonusavsnitt läggs in med supabase/manual/2026-11-bonus-botkyrka.sql.
   "bonus_claim.suggested": "Föreslog progressionssteg automatiskt", "bonus_claim.created": "Skapade förslag till underlag om progression och resultat", "bonus_claim.saved": "Sparade underlag om progression och resultat",

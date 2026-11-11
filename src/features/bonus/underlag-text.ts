@@ -1,5 +1,6 @@
 // Redovisningsunderlagets avsnitt i klarspråk – samma text i HTML-vyn (screens/underlag.tsx) och i PDF:en (pdf.tsx). Isomorf och
 // ren: bara underlaget (BonusUnderlag) och deltagarens namn in, avsnitt med rader ut. Aldrig belopp (underlaget har inga).
+import { progressStepLabel, SPEED_STEP } from "@/core/bonus";
 import { fmtDate, fmtDateTime, monthName, type MonthKey } from "@/core/time";
 import type { BonusUnderlag } from "./api";
 
@@ -15,13 +16,19 @@ export const DRAFT_LABEL = "Utkast – inte skickat";
 /** Rubriken: "Redovisningsunderlag – progression och resultat, steg 3" (Karims beslut 2026-11-11). */
 export const underlagTitle = (u: Pick<BonusUnderlag, "step">) => `Redovisningsunderlag – progression och resultat, steg ${u.step}`;
 
+/**
+ * Stegets namn i underlaget: steg 5 heter Snabbt resultat för coacherna och kommunen (Karims beslut 2026-11-11) – också i ett
+ * underlag som frystes innan (där står avtalets namn för steget). Ekonomen läser aldrig underlaget (bonus.underlag).
+ */
+export const underlagStepLabel = (u: Pick<BonusUnderlag, "step" | "stepLabel">): string => (u.step === SPEED_STEP ? progressStepLabel(null, u.step) : u.stepLabel);
+
 /** Avsnitten i ordning: bonussteget, insatsen, närvaro och aktiviteter, progression, resultatet och verifieringen, coachens kommentar. */
 export function underlagSections(u: BonusUnderlag, participantName: string): UnderlagSection[] {
   const out: UnderlagSection[] = [];
   out.push({
     title: "Steg",
     rows: [
-      ["Steg", `${u.step} · ${u.stepLabel}`],
+      ["Steg", `${u.step} · ${underlagStepLabel(u)}`],
       ["Deltagare", participantName],
       ["Ärendenummer", u.caseNumber],
       u.draft ? ["Läge", DRAFT_LABEL] : ["Skickat", `${fmtDateTime(u.createdAt)}${u.sentByName ? ` av ${u.sentByName}` : ""}`],

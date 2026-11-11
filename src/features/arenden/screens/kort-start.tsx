@@ -343,7 +343,8 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
             </Notice>
           </div>
         )}
-        {move && (
+        {/* En praktikdag får aldrig något meddelande till deltagaren (granskningen 2026-11-11) – ingen ruta. */}
+        {move && move.kind !== "praktikdag" && (
           <div className="col-span-full">
             <Check id="arn-act-meddela" checked={notify} onCheckedChange={setNotify}>
               <span className="font-bold">Skicka den nya tiden till deltagaren</span>

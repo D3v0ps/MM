@@ -284,7 +284,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
           ) : all.length > 0 ? (
             // Standardfiltret (öppna ärenden) döljer allt: alla ärenden är avslutade eller avböjda.
             <Empty icon="search" title="Inga öppna ärenden" action={<Button onClick={() => setStatus("alla")}>Visa alla statusar</Button>}>
-              Alla dina ärenden är avslutade eller avböjda.
+              Alla ärenden är avslutade eller avböjda.
             </Empty>
           ) : role === "coach" || role === "handledare" ? (
             <Empty icon="users" title="Du har inga ärenden ännu">

@@ -129,6 +129,22 @@ describe("ett tillfälle i en serie får ny tid (Karims beslut 2026-11-11)", () 
     expect(installd.every((m) => m.body.includes("torsdag 4 februari kl. 15.00") && m.body.includes("är inställd"))).toBe(true);
   });
 
+  it("ny tid utan rutan: den som bjuds in vid den nya tiden får ändå inbjudan när serien har meddelanden – rutan gäller bara ändringen", async () => {
+    // En deltagare på nivån har ett eget tillfälle vid torsdagens tid och bjuds inte in när serien skapas.
+    const member = rows("grouping_members").find((m) => m.groupingId === L(3) && !m.removedAt && m.caseId === "case-260176")!;
+    expect(member).toBeTruthy();
+    expect(await run(activityAdd, { caseId: member.caseId, kind: "yrkesmoment", startsAt: "2027-02-04T15:00", durationMin: 60, location: "Miljonbemanning Alby" }, amira())).toMatchObject({ ok: true });
+    const on = await createSeries({ notify: true });
+    const thu = occurrencesOf(on.seriesId)[1];
+    expect(partsOf(thu.id).some((a) => a.caseId === member.caseId)).toBe(false);
+    const out0 = rows("outbound_messages").length;
+    expect(await run(groupActivityUpdate, { id: thu.id, ...baseOf(thu), startsAt: "2027-02-05T10:00", notify: false }, amira())).toMatchObject({ ok: true });
+    expect(partsOf(thu.id).some((a) => a.caseId === member.caseId)).toBe(true);
+    const sent = rows("outbound_messages").slice(out0).filter((m) => m.channel !== "call");
+    expect(sent.filter((m) => m.template === "aktivitet_andrad")).toEqual([]);
+    expect([...new Set(sent.filter((m) => m.template === "aktivitetsinbjudan").map((m) => m.caseId))]).toEqual([member.caseId]);
+  });
+
   it("ny tid utan rutan: inga meddelanden", async () => {
     const off = await createSeries();
     const o = occurrencesOf(off.seriesId)[1];

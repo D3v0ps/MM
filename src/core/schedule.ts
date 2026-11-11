@@ -103,9 +103,11 @@ export const isPracticeDay = (a: Pick<PlanSource, "kind" | "startsAt" | "groupAc
  *   oneOff      – tillfällen lagda med Lägg till tillfälle (activity.added): enstaka, aldrig en del av planen.
  *   practice    – ärendets praktikperioder: praktikens dagar hör till praktiken, och en dag med praktik läses inte (praktiken har
  *                 ersatt dagens yrkesmoment, praktik.placementCreate).
- *   removedDays – dagar där ett tillfälle tagits bort för hand (activity.removed): dagen säger inget om planen.
+ *   removedDays – dagar där ett tillfälle tagits bort för hand eller ersatts av en gruppaktivitet (activity.removed): dagen säger
+ *                 inget om planen.
  *   pausedWeeks, startDate, end – en pausad vecka, eller en dag före start eller efter slut, läses inte.
- *   changedAt   – senaste Ändra veckoplan: dagarna till och med den dagen kan ha den gamla planen och läses inte.
+ *   changedAt   – senaste Ändra veckoplan: dagarna till och med den dagen kan ha den gamla planen och läses bara när veckodagen
+ *                 inte har någon dag efter den.
  */
 export type PlanContext = {
   oneOff?: ReadonlySet<string>;
@@ -132,7 +134,8 @@ export const activityPlanKey = (a: Pick<PlanSource, "kind" | "startsAt" | "durat
  * ingenting – också mitt i veckan, en vecka med en helgdag och med praktik). Varje veckodag läses i den innevarande ISO-veckan
  * från måndagen (`monday(today)`, också dagarna som har varit), annars samma veckodag nästa vecka, och så vidare: dagen hoppas
  * över när den är en helgdag, ligger i en pausad vecka, före start eller efter slut, har praktik, har ett tillfälle som tagits
- * bort för hand eller inte är efter den senaste ändringen av planen (PlanContext). Den första dagen som räknas avgör veckodagen –
+ * bort för hand eller inte är efter den senaste ändringen av planen (PlanContext) – finns ingen dag efter ändringen (insatsens sista
+ * vecka) räknas veckodagens senaste dag före den, från måndagen. Den första dagen som räknas avgör veckodagen –
  * utan planens tillfällen den dagen har veckodagen inget. Bara planens rader (isPlanRow): gruppaktiviteternas rader räknas aldrig
  * (Karims beslut 2026-11-11), inte heller enstaka tillfällen eller praktikens dagar. Räknas ingen dag läses den första veckan från
  * måndagen som har planens tillfällen. Tom lista om det inte finns några – då används avtalets standard. En veckodag kan ha flera
@@ -145,17 +148,18 @@ export function planFromActivities(acts: readonly PlanSource[], today: LocalDate
   const paused = new Set(x.pausedWeeks ?? []);
   const changedDay = x.changedAt ? dayOf(x.changedAt) : null;
   const lastDay = dayOf(rows.reduce((m, a) => (a.startsAt > m ? a.startsAt : m), rows[0].startsAt));
-  const counts = (d: LocalDate): boolean =>
+  const usable = (d: LocalDate): boolean =>
     isWorkingDay(d) && !paused.has(isoWeek(d).key) && !practiceDays.has(d) && !x.removedDays?.has(d)
-    && (!x.startDate || d >= x.startDate) && (!x.end || d <= x.end) && (!changedDay || d > changedDay);
+    && (!x.startDate || d >= x.startDate) && (!x.end || d <= x.end);
   const on = (d: LocalDate) => rows.filter((a) => dayOf(a.startsAt) === d);
   const read: PlanSource[] = [];
   for (const wd of PLAN_WEEKDAYS) {
-    for (let d = addDays(monday(today), wd); d <= lastDay; d = addDays(d, 7)) {
-      if (!counts(d)) continue;
-      read.push(...on(d));
-      break;
-    }
+    const first = addDays(monday(today), wd);
+    let found: LocalDate | null = null;
+    for (let d = first; d <= lastDay && !found; d = addDays(d, 7)) if (usable(d) && (!changedDay || d > changedDay)) found = d;
+    // Ingen dag efter ändringen (insatsens sista vecka, granskningen 2026-11-11): veckodagens senaste dag före den – från måndagen.
+    if (!found && changedDay) for (let d = first; d <= changedDay && d <= lastDay; d = addDays(d, 7)) if (usable(d)) found = d;
+    if (found) read.push(...on(found));
   }
   if (read.length) return toPlanRows(read);
   const next = rows.filter((a) => dayOf(a.startsAt) >= monday(today)).sort((p, q) => (p.startsAt < q.startsAt ? -1 : 1))[0];

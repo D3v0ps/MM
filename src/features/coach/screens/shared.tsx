@@ -138,7 +138,7 @@ export function GateView({ gate, title, listPath }: { gate: CoachGate; title: st
       </Notice>
       <Row>
         <Button kind="primary" icon="list" to={listPath}>
-          Välj bland dina ärenden
+          Välj ärende
         </Button>
       </Row>
     </Page>

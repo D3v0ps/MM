@@ -119,13 +119,17 @@ export const smsTaskCount = (rows: readonly SmsToSend[]): number =>
 
 /**
  * Raden som Markera som skickat gäller, räknad utan klockan (granskningen 2026-11-11): veckans tider för veckan i nyckeln med alla
- * veckans tillfällen, eller meddelandet för uppgiften – också när tiden har passerat sedan coachen kopierade texten. null när raden
- * inte finns (uppgiften är stängd, ärendet syns inte, ingen telefon, redan markerad räknas av hanteraren).
+ * veckans tillfällen – bara veckan som visas nu eller veckan före –, eller meddelandet för uppgiften – också när tiden har passerat
+ * sedan coachen kopierade texten. null när raden inte finns (en annan vecka, uppgiften är stängd, ärendet syns inte, ingen
+ * telefon; redan markerad räknas av hanteraren).
  */
 export async function smsToMark(ctx: Ctx, key: string): Promise<SmsToSend | null> {
   const [kind, ...rest] = key.split(":");
   if (kind === "vecka" && rest.length === 2) {
-    const week = weekOfKey(rest[1]);
+    // Bara veckan som visas nu – eller veckan före (en rad som kopierades före fredag kl. 00.00 markeras efteråt). Andra veckor
+    // går aldrig att markera, inte heller genom API:et (granskningen 2026-11-11).
+    const shown = scheduleWeek(ctx.now());
+    const week = [shown.key, weekOf(addDays(shown.mon, -7)).key].includes(rest[1]) ? weekOfKey(rest[1]) : null;
     const x = week ? (await reachable(ctx, rest[0]))[0] : null;
     return week && x ? ((await scheduleRows(ctx, [x], week, null))[0] ?? null) : null;
   }

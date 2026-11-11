@@ -297,7 +297,7 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 1. Tryck på **Ny aktivitet** under **Aktiviteter** eller på Min vecka. Fyll i namn, typ, datum, tid, längd och plats.
 2. Vill du ha ett mål för hela gruppen? Skriv det i **Gruppmål**, till exempel ”Alla skriver ett CV”. Gruppmålet syns bara för Miljonbemanning.
 3. Välj deltagare under **Bjud in deltagare**: fliken **Yrkesområde** (ett yrkesområde), **Nivå** (en nivå) eller **Enskilda** (sök och välj en och en). Du ser hur många och vilka som bjuds in. De som redan är inbjudna eller vars insats inte pågår hoppas över – det står varför. Med Yrkesområde eller Nivå bjuds de som tillkommer in automatiskt fram till aktiviteten, och de som byter nivå eller avslutas tas bort.
-4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
+4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren. En praktikdag får inget meddelande – kom överens med deltagaren och arbetsplatsen.
 5. Tryck på **Skapa aktiviteten**.
 
 I aktiviteten står **Bjud in deltagare** och **Ändra** överst. **Ställ in** och övriga val finns under **Fler val**. Ändrar du tid eller plats, tar bort en deltagare eller ställer in aktiviteten kan deltagarna få ett meddelande om det. Rutan är förvald.

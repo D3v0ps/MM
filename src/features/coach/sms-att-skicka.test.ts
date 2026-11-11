@@ -401,8 +401,24 @@ describe("granskningen 2026-11-11 – raderna", () => {
     expect((await sms(amira())).some((r) => r.key === row.key)).toBe(false);
     expect(await markRow(row, amira())).toEqual({ ok: true, already: false });
     expect(rows("outbound_messages").find((m) => m.id === manualSmsId(row.key))).toMatchObject({ body: row.text, status: "sent_manually" });
-    // Ett annat tillfälle än det coachen såg: stoppas.
-    expect(await mark(`vecka:${NADIA}:2027-W07`, row.text, amira(), { slots: row.slots })).toMatchObject({ ok: false, error: "changed" });
+  });
+
+  it("bara veckan som visas – eller veckan före – går att markera, också genom API:et", async () => {
+    const row = (await sms(amira())).find((r) => r.key === `vecka:${NADIA}:2027-W05`)!;
+    // Fredag: veckan som visas är nästa (W06) – en framtida vecka (W07) stoppas.
+    rt.clock.set("2027-02-05T00:00");
+    expect(await mark(`vecka:${NADIA}:2027-W07`, row.text, amira())).toMatchObject({ ok: false, error: "changed" });
+    expect(rows("outbound_messages").some((m) => m.id === manualSmsId(`vecka:${NADIA}:2027-W07`))).toBe(false);
+    // Två veckor bakåt stoppas.
+    rt.clock.set("2027-02-15T09:00");
+    expect(await markRow(row, amira())).toMatchObject({ ok: false, error: "changed" });
+    // Veckan före går: raden kopierades i vecka 5 och markeras efter fredag kl. 00.00.
+    rt.clock.set("2027-02-05T00:00");
+    expect(await markRow(row, amira())).toEqual({ ok: true, already: false });
+    // Fält som raden har som null (veckans tider har inget meddelande) godtas.
+    const next = (await sms(amira())).find((r) => r.key === `vecka:${NADIA}:2027-W06`)!;
+    expect(next.messageId).toBeNull();
+    expect(await rt.run("command", smsMarkSent.key, { key: next.key, text: next.text, slots: next.slots, messageId: next.messageId }, amira())).toEqual({ ok: true, already: false });
   });
 
   it("har veckans tillfällen ändrats sedan coachen kopierade texten stoppas markeringen", async () => {

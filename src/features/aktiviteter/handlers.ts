@@ -35,6 +35,8 @@ import {
   type GroupParticipant, type InviteProblem, type NotifyOutcome, type SeriesListRow,
 } from "./api";
 import { audienceMembers, ensureSeriesOccurrences, removeParticipantRow, syncAudienceInvites, type AudienceSyncDetail } from "./audience-sync";
+import { logActivityRemoved } from "../_shared/activity-log";
+import { closeActivityTasks } from "../_shared/participant-notify";
 import { audienceBusyOf, mergeProblems, overlapsFor } from "./busy";
 import { notifyAll, supersedeTasks, upcoming } from "./notify-all";
 
@@ -111,9 +113,21 @@ async function participantCheck(
   return { replaceable: ov.replaceable.filter((a) => !out.has(a.caseId)), cases: cases.filter((c) => !out.has(c.id)), skipped: hard };
 }
 
-/** Tar bort deltagarnas egna tillfällen som aktiviteten ersätter (bekräftat, utan närvaro – prövat i participantCheck). */
-async function removeReplaced(ctx: Ctx, acts: readonly Activity[]): Promise<string[]> {
-  for (const a of acts) await ctx.repo.table("activities").remove(a.id);
+/**
+ * Tar bort deltagarnas egna tillfällen som aktiviteten ersätter (bekräftat, utan närvaro – prövat i participantCheck). Varje
+ * borttaget tillfälle loggas som en borttagning i ärendet (activity.removed – bara id:n och tiden, granskningen 2026-11-11), så
+ * att Ändra veckoplan vet att dagen inte visar planen och inte lägger tillbaka tillfället. Öppna uppgifter att ringa om
+ * tillfället stängs.
+ */
+async function removeReplaced(ctx: Ctx, g: Pick<GroupActivity, "id" | "contractId">, acts: readonly Activity[]): Promise<string[]> {
+  if (!acts.length) return [];
+  const cases = new Map((await ctx.repo.table("cases").pick(["id", "caseNumber", "contractId"], { id: { in: uniq(acts.map((a) => a.caseId)) } })).map((c) => [c.id, c]));
+  for (const a of acts) {
+    await ctx.repo.table("activities").remove(a.id);
+    await logActivityRemoved(ctx, { contractId: g.contractId, caseId: a.caseId, activityId: a.id, kind: a.kind, startsAt: a.startsAt, groupActivityId: g.id });
+    const c = cases.get(a.caseId);
+    if (c) await closeActivityTasks(ctx, c, { when: a.startsAt, place: a.location }, "Tillfället är ersatt av en gruppaktivitet.");
+  }
   return acts.map((a) => a.id);
 }
 
@@ -452,7 +466,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
     ...audienceColumns(audience), seriesId: null, notify: !!p.notify,
   };
   await ctx.repo.table("group_activities").insert(g);
-  const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
+  const replacedActivityIds = await removeReplaced(ctx, g, check.replaceable);
   const added = await addParticipants(ctx, g, check.cases);
   // Målgruppen: servern bjuder in de aktiva deltagarna i nivån eller yrkesområdet (systemsteg, loggas här nedan i samma rad).
   const synced = audience ? (await syncAudienceInvites(ctx, { contractId, groupActivityIds: [g.id], quiet: true })).details[g.id] : undefined;
@@ -552,7 +566,7 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
       details: { groupActivityId: g.id, seriesSlot, from: g.startsAt, to: next.startsAt, durationMin: next.durationMin },
     });
   }
-  const replacedActivityIds = await removeReplaced(ctx, replaceable);
+  const replacedActivityIds = await removeReplaced(ctx, g, replaceable);
   const droppedIds = new Set(dropped.map((c) => c.id));
   const droppedNow: string[] = [];
   for (const a of acts.filter((x) => droppedIds.has(x.caseId))) {
@@ -588,9 +602,11 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (droppedCases.length && notifyOn && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
   // Med målgrupp och ny dag: de som hör till målgruppen och kan vara med den nya dagen bjuds in (en insats som slutar före den
   // nya dagen har redan fallit bort ovan).
-  // Den som synkningen tar bort på grund av den nya tiden får aktivitet_installd, den som bjuds in aktivitetsinbjudan – dialogens val.
+  // Den som synkningen tar bort på grund av den nya tiden får aktivitet_installd – dialogens val. Den som bjuds in får
+  // aktivitetsinbjudan som vid varje inbjudan: aktivitetens val eller dialogens (granskningen 2026-11-11 – rutan gäller ändringen,
+  // aldrig inbjudan av nya deltagare).
   if (moved && g.audience !== "manual") {
-    const synced = (await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id], notify: notifyOn })).details[g.id];
+    const synced = (await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id], notifyRemoved: notifyOn, notifyAdded: g.notify || notifyOn })).details[g.id];
     if (synced) {
       add(synced.notifiedRemoved);
       add(synced.notifiedAdded);
@@ -631,7 +647,7 @@ handleCommand(groupActivityInvite, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (cases.some((c) => c.contractId !== g.contractId)) return fail("contract", "Deltagarna måste höra till aktivitetens avtal.");
   const check = await participantCheck(ctx, cases, g, g.id, p.replaceOverlapping, "", false);
   if ("fail" in check) return check.fail;
-  const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
+  const replacedActivityIds = await removeReplaced(ctx, g, check.replaceable);
   const added = await addParticipants(ctx, g, check.cases);
   if (added.caseIds.length || replacedActivityIds.length) {
     await ctx.audit({
