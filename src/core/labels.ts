@@ -122,6 +122,7 @@ export const invoiceStatusLabel = (s: string): string => lookup(INVOICE_STATUS_L
 /** Utskickets status (outbound_messages.status) i utskicksloggen. Visas alltid med text + ikon. */
 export const OUTBOUND_STATUS_LABEL: Record<OutboundStatus, string> = {
   queued: "Väntar på att skickas", sent: "Skickat", failed: "Kunde inte skickas", suppressed: "Stoppat", manual: "Skickas manuellt (brev)",
+  sent_manually: "Skickat för hand",
 };
 export const outboundStatusLabel = (s: string): string => lookup(OUTBOUND_STATUS_LABEL, s) ?? s;
 /**

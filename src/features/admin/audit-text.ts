@@ -36,7 +36,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning", "billing.run_created": "Skapade månadens fakturakörning",
   // Fakturan per avtal och månad (beslut 2026-10-07): ekonomen fyller i kommunens referens och inköpsordernummer per faktura.
   "billing.buyer_reference_set": "Fyllde i beställarreferens på faktura", "billing.purchase_order_set": "Fyllde i inköpsordernummer på faktura",
-  "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
+  "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "outbound_message.sent_manually": "Markerade ett SMS till deltagaren som skickat för hand", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
   "contract_deviation.action_plan_approved": "Åtgärdsplanen godkänd av kommunen", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
   "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",
@@ -96,7 +96,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
   saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
   grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg", group_activity_series: "Återkommande aktivitet",
-  bonus_claim: "Underlag om progression och resultat", price_item: "Prisrad",
+  bonus_claim: "Underlag om progression och resultat", price_item: "Prisrad", outbound_message: "Utskick",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));

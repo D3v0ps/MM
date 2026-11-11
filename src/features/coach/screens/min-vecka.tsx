@@ -22,6 +22,7 @@ import { notifRead } from "@/features/notiser/api";
 import { pendingNotes } from "@/features/rost/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
 import { ATT, kindOf, lc, PageState, Persp } from "./shared";
+import { SmsAttSkicka } from "./sms-att-skicka";
 
 export function MinVeckaScreen() {
   const q = useQuery(minVecka, {});
@@ -449,6 +450,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         empty="Inget att göra just nu – allt är registrerat och granskat."
         foot={foot || undefined}
       />
+      <SmsAttSkicka />
       {v.toMap.length > 0 ? (
         <Split wide>
           <FollowUp v={v} />

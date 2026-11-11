@@ -193,6 +193,20 @@ Kontroll efteråt (i SQL Editor):
 - Efter steg 3: `select id, contract_number, intake_coach_id from public.contracts where contract_number = '332026110';` visar personen, och `select details from public.audit_log where action = 'contract.intake_coach_changed' order by occurred_at desc limit 1;` har bara `from`, `to` och `source`.
 - Prova i appen: som systemadministratör visar avtalssidan fältet **Intagsansvarig – tar emot nya deltagare**. Som den intagsansvarige: en ny beställning ger notisen "Ny beställning att ta emot – BOT-…" och en rad på Min vecka med **Ta emot**; efter Ta emot ser en samordnare notisen "Ny deltagare mottagen – BOT-…". Som en annan coach syns varken raden eller knappen. Som kommunens handläggare syns ingenting om vem som är intagsansvarig.
 
+### Migration 0042 (SMS att skicka) – körs FÖRE koden
+
+`supabase/migrations/0042_sms_for_hand.sql` i *SQL Editor* (hela filen – den tål att köras igen, och en andra körning ändrar ingenting): Karims beslut 2026-11-11 (SPEC beslutet 2026-11-11 punkt 8, §9). Körs efter 0041 – kör migrationerna i nummerordning.
+
+- **Nytt på `outbound_messages`:** kolumnen `sent_by` (text, får vara tom) – vem som markerade ett SMS som skickat för hand på coachens Min vecka (status `sent_manually`, en ny status – kolumnen `status` är text utan check sedan 0006). Tom för allt som servern skickar. Ingen främmande nyckel, inget standardvärde (ingen omskrivning av tabellen), ett kort lås (`lock_timeout` 5 sekunder – kör filen igen om den avbryts med 55P03).
+- **Behörigheten är oförändrad** (0006): systemadministratören och samordnaren läser utskicksloggen, ingen inloggad skriver – raden skrivs av servern.
+
+**Driftordning:** 0042 **före** koden – koden skriver `sent_by` när en coach trycker **Markera som skickat**; utan kolumnen misslyckas markeringen (felet syns för coachen, ingenting sparas). Övriga delar av appen påverkas inte. Koden från före 0042 påverkas inte av migrationen.
+
+Kontroll efteråt (i SQL Editor):
+
+- `select data_type, is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'outbound_messages' and column_name = 'sent_by';` ger `text`, `YES`.
+- Prova i appen: som coach visar Min vecka **SMS att skicka** (från fredag med veckans tider). **Markera som skickat** tar bort raden; i utskicksloggen (`/admin/mallar`) står SMS:et med statusen "Skickat för hand" – utan nummer.
+
 ### Så läggs kollegor till (ingen SQL)
 
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
@@ -246,6 +260,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Migration 0038 (Karims beslut 2026-10-29) | **Skriven, inte applicerad.** Ändra startdatum (`case_start_changes`, triggrarna `case_start_changes_check`, `case_start_changes_apply`, `case_notes_start_change_lock` och `cases_start_date_guard`, funktionerna `mm.apply_case_start_change`, `mm.start_change_locked_month` och `mm.start_change_report_month`). Appliceras i SQL Editor efter 0037 och **före** koden (se "Migration 0038" ovan) |
 | Migration 0039 och prislistan för bonus (Karims beslut 2026-11-04) | **Skriven, inte applicerad.** Bonussteg 1–5 (`bonus_claims` utbyggd, `bonus_claim_decisions`, triggrarna `bonus_claims_check`, `bonus_claims_guard`, `bonus_claim_decisions_check`, `bonus_claim_decisions_apply` och `invoice_lines_bonus_check`, `invoice_lines.bonus_claim_id`, `mm.customer_safe_config` utan taket). 0039 appliceras i SQL Editor efter 0038 och **före** koden; `supabase/manual/2026-11-bonus-botkyrka.sql` (prislistan och konfigurationen) körs av Karim **efter** koden (se "Migration 0039 och prislistan" ovan) |
 | Migration 0040 (Karims beslut 2026-11-09) | **Skriven, inte applicerad.** Deltagaren kom inte till första mötet (`first_meeting_no_shows`, triggrarna `first_meeting_no_shows_check` och `first_meeting_no_shows_append_only`, funktionen `mm.first_meeting_no_show_problem`, och triggern `cases_start_date_no_show_guard` på `cases`). Appliceras i SQL Editor efter 0039 och **före** koden (se "Migration 0040" ovan) |
+| Migration 0042 (Karims beslut 2026-11-11) | **Skriven, inte applicerad.** SMS att skicka: kolumnen `outbound_messages.sent_by` (vem som markerade ett SMS som skickat för hand, status `sent_manually`). Appliceras i SQL Editor efter 0041 och **före** koden (se "Migration 0042" ovan) |
 | Migration 0041 och intagsansvarig (Karims beslut 2026-11-09) | **Skriven, inte applicerad.** Intagsansvarig tar emot nya beställningar (`contracts.intake_coach_id`, triggrarna `contracts_intake_coach_check` och `cases_accept_guard`, funktionen `mm.is_intake_coach`, `mm.visible_contracts()` och vyn `contracts_public` ombyggda med den nya kolumnen sist, och läsrätten på `cases.status` för inloggade). 0041 appliceras i SQL Editor efter 0040, som en transaktion, och **före** koden – utan den går det inte att acceptera avrop eller starta insatser; `supabase/manual/2026-11-intagsansvarig-botkyrka.sql` (vem som är intagsansvarig i Botkyrkaavtalet) körs av Karim **efter** koden – eller så väljs personen i appen (se "Migration 0041 och intagsansvarig" ovan) |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |

@@ -58,11 +58,13 @@ describe("sidopanelens räknare (navCounts)", () => {
     // (eskalerad från coachen), två svar på avrop och två veckorapporter – inte coachens närvaroregistrering. Avtalsansvarig: inget
     // av det är hans. Chefen: slutrapporten, som har eskalerats till chefen. Uppgifter: inga öppna i testdatat. Amira är avtalets
     // intagsansvarige (Karims beslut 2026-11-09): de tre beställningarna som väntar på svar står vid Min vecka – inte hos en annan coach.
+    // Coachens siffra räknar också SMS att skicka (Karims beslut 2026-11-11) – samma rader för alla coacher.
+    const smsRows = async (actor: Actor) => (await rt.run("query", "coach.smsAttSkicka", {}, actor) as { rows: unknown[] }).rows.length;
     expect(await q(navCounts, {}, sara())).toEqual({ inbox: 6, deadlines: 5, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, johan())).toEqual({ inbox: 6, deadlines: 0, unregistered: 0, tasks: 0, notifications: 0 });
     expect(await q(navCounts, {}, karin())).toEqual({ inbox: 0, deadlines: 1, unregistered: 0, tasks: 0, notifications: 3 });
-    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 3, notifications: 4 });
-    expect((await q(navCounts, {}, as("u-erik", "coach"))).tasks).toBe(0);
+    expect(await q(navCounts, {}, amira())).toEqual({ inbox: 0, deadlines: 0, unregistered: 6, tasks: 3 + (await smsRows(amira())), notifications: 4 });
+    expect((await q(navCounts, {}, as("u-erik", "coach"))).tasks).toBe(await smsRows(as("u-erik", "coach")));
   });
 });
 

@@ -45,7 +45,8 @@ const USER: Record<StaffRole, string> = {
 const ALLOWED: Record<StaffRole, string[]> = {
   samordnare: ["inkorg.start", "notiser.list"],
   avtalsansvarig: ["inkorg.start", "notiser.list"],
-  coach: ["coach.minVecka", "rost.pendingNotes"],
+  // SMS att skicka (Karims beslut 2026-11-11): sektionen har en egen fråga – bara coachens.
+  coach: ["coach.minVecka", "coach.smsAttSkicka", "rost.pendingNotes"],
   chef: ["ledning.overview", "inkorg.deadlines", "rapporter.lista", "notiser.list"],
   ekonom: ["ekonomi.start", "notiser.list"],
   admin: ["admin.integrations", "admin.users", "admin.templates", "notiser.list"],

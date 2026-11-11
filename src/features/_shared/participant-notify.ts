@@ -23,7 +23,7 @@
 import type { Ctx, OutgoingMessage } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { hasEmail, hasPhone } from "@/core/contact";
-import { fmtTime, fmtWeekday, type LocalDateTime } from "@/core/time";
+import { dayOf, fmtDateShort, fmtTime, fmtWeekday, weekday, WEEKDAYS_SHORT, type LocalDate, type LocalDateTime } from "@/core/time";
 import type { Case, OutboundMessage, Person, PreferredContact, Task } from "@/data/schema";
 import { CONTACT_PHONE } from "./contact";
 import {
@@ -185,9 +185,13 @@ export const isKallelseTask = (text: string): boolean => text.startsWith(TASK_ST
 
 const isParticipantTemplate = (t: string): t is ParticipantTemplate => (PARTICIPANT_TEMPLATES as readonly string[]).includes(t);
 
+/** Tiden och platsen i uppgiftens början: "måndag 17 november kl. 10.00, Alby". */
+const slotText = (when: LocalDateTime, place: string): string => `${fmtWeekday(when)} kl. ${fmtTime(when)}, ${placeText(place)}`;
+/** Uppgiftens början av mallen, ärendenumret och tiden och platsen (slotText). */
+const headOfSlot = (template: ParticipantTemplate, caseNumber: string, slot: string): string => `${TASK_START[template]} – ärende ${caseNumber}, ${slot}.`;
 /** Uppgiftens början: mallen, ärendenumret, tiden och platsen. Samma början = samma möte eller aktivitet. */
 const taskHead = (template: ParticipantTemplate, caseNumber: string, when: LocalDateTime, place: string): string =>
-  `${TASK_START[template]} – ärende ${caseNumber}, ${fmtWeekday(when)} kl. ${fmtTime(when)}, ${placeText(place)}.`;
+  headOfSlot(template, caseNumber, slotText(when, place));
 
 /**
  * Uppgiften till samordnaren när ingen kanal fanns eller inget utskick gick fram. Ärendenumret, tiden, platsen och varför –
@@ -383,6 +387,66 @@ export async function participantSendStopped(ctx: Ctx, messageId: string, invita
   const sms = round.find((m) => m.channel === "sms");
   const reasons: UnreachableReason[] = [mail ? reasonOfRow(mail) : "no_email", sms ? reasonOfRow(sms) : "no_phone"];
   return contactTask(ctx, { caseId: c.id, template: row.template, when: invitation.when, place: invitation.place }, c, reasons);
+}
+
+// ---------------------------------------------------------------- SMS att skicka (Karims beslut 2026-11-11)
+// Coachen skickar SMS:et själv från sin telefon (src/features/_shared/sms-to-send.ts): veckans tider och meddelanden som inte
+// kunde skickas automatiskt. Texterna byggs här, med samma plats och telefonnummer som participantMessage.
+
+/** Mallen för en uppgift att ringa deltagaren (tasks.text, kind participant_contact) – ur uppgiftens första mening. */
+export const templateOfContactTask = (text: string): ParticipantTemplate | null => PARTICIPANT_TEMPLATES.find((t) => text.startsWith(`${TASK_START[t]} – `)) ?? null;
+
+/** Tiden och platsen i texten till deltagaren, i participantMessage-ordning. Kallelsen säger "klockan" och "i". */
+const SLOT_RE: Record<ParticipantTemplate, RegExp> = {
+  kallelse: /^Välkommen till Miljonbemanning! Ditt första möte är (.+?) klockan (\d{1,2}\.\d{2}) i (.+)\.$/,
+  aktivitetsinbjudan: /^Hej! Du är inbjuden till en aktivitet hos Miljonbemanning (.+? kl\. \d{1,2}\.\d{2}, .+)\.$/,
+  aktivitet_andrad: /^Hej! Aktiviteten hos Miljonbemanning.* är ändrad\. Nu gäller (.+? kl\. \d{1,2}\.\d{2}, .+)\.$/,
+  aktivitet_installd: /^Hej! Aktiviteten hos Miljonbemanning (.+? kl\. \d{1,2}\.\d{2}, .+), är inställd\.$/,
+};
+
+/**
+ * Tiden och platsen ur en text som participantMessage skrev, i samma form som uppgiftens början ("måndag 17 november kl. 10.00,
+ * Alby"). null när texten inte är mallens.
+ */
+export function slotOfMessage(template: ParticipantTemplate, body: string): string | null {
+  const phone = phoneSentence();
+  const core = phone && body.endsWith(phone) ? body.slice(0, -phone.length) : body;
+  const m = SLOT_RE[template].exec(core);
+  if (!m) return null;
+  return template === "kallelse" ? `${m[1]} kl. ${m[2]}, ${m[3]}` : m[1];
+}
+
+/**
+ * Gäller texten (ett SMS i utskicksloggen) samma möte eller aktivitet som uppgiften att ringa deltagaren? Uppgiften börjar med
+ * mallen, ärendenumret, tiden och platsen – texten har samma tid och plats.
+ */
+export const messageMatchesTask = (template: ParticipantTemplate, body: string, caseNumber: string, taskText: string): boolean => {
+  const slot = slotOfMessage(template, body);
+  return !!slot && taskText.startsWith(headOfSlot(template, caseNumber, slot));
+};
+
+/** Ett tillfälle i veckans tider: tiden och platsen (tillfällets plats, som i participantMessage). */
+export type ScheduleSlot = { startsAt: LocalDateTime; place: string };
+
+/**
+ * Veckans tider till deltagaren (SMS att skicka – coachen skickar det själv): bara veckodag, datum, klockslag, plats och
+ * Miljonbemannings telefonnummer (CLAUDE.md punkt 9) – aldrig namn, ärendenummer, aktivitetens namn eller typ eller vad insatsen
+ * gäller. Tillfällen samma dag och plats slås ihop ("mån 17 nov kl. 10.00 och 13.30, Alby."). upcoming = veckan har inte börjat
+ * ("nästa vecka"), annars "den här veckan". Ett SMS är 160 tecken; en vanlig vecka blir ett eller två.
+ */
+export function weeklyScheduleMessage(slots: readonly ScheduleSlot[], upcoming: boolean): string {
+  const groups: { day: LocalDate; where: string; times: string[] }[] = [];
+  for (const x of [...slots].sort((a, b) => (a.startsAt < b.startsAt ? -1 : a.startsAt > b.startsAt ? 1 : 0))) {
+    const day = dayOf(x.startsAt);
+    const where = placeText(x.place);
+    const time = fmtTime(x.startsAt);
+    const last = groups[groups.length - 1];
+    if (last && last.day === day && last.where === where) {
+      if (!last.times.includes(time)) last.times.push(time);
+    } else groups.push({ day, where, times: [time] });
+  }
+  const parts = groups.map((g) => `${WEEKDAYS_SHORT[weekday(g.day)]} ${fmtDateShort(g.day)} kl. ${listSv(g.times)}, ${g.where}.`);
+  return `Hej! Dina tider hos Miljonbemanning ${upcoming ? "nästa vecka" : "den här veckan"}: ${parts.join(" ")}${phoneSentence()}`;
 }
 
 /**

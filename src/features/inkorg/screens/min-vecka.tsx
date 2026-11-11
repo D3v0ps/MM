@@ -344,9 +344,10 @@ function inboxPart(x: InboxRow, setDialog: (d: Dialog) => void): Part {
  * Deltagarens telefonnummer i uppgiften att ringa (S2). Numret är markerbar text med knappen Kopiera numret – aldrig en
  * tel:-länk (CLAUDE.md punkt 2: inga personuppgifter i URL:er). navigator.clipboard.writeText anropas direkt i klickhändelsen;
  * går det inte (ingen behörighet, osäker sida eller ramen i prototypen) markeras numret så att det kan kopieras med tangentbordet.
- * Numret kommer bara med i vy-modellen när rollen redan får läsa personen (StartTask.call.phone).
+ * Numret kommer bara med i vy-modellen när rollen redan får läsa personen (StartTask.call.phone, och SMS att skicka på coachens
+ * Min vecka).
  */
-function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: string | null }) {
+export function PhoneToCopy({ phone, caseNumber }: { phone: string; caseNumber: string | null }) {
   const ref = useRef<HTMLSpanElement>(null);
   const selectNumber = () => {
     const el = ref.current;

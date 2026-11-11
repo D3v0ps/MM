@@ -140,7 +140,7 @@ export const checkinSave = command("coach.checkinSave", z.object({
     changed: z.boolean().optional(),
   })).max(20).optional(),
   ...AutosaveFields,
-}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, GRUPPER, BONUS, ...LOG] }).returns<
+}), { invalidates: ["coach.minVecka", "coach.smsAttSkicka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, GRUPPER, BONUS, ...LOG] }).returns<
   Result<{ checkInId: string; deviationId: string | null; rawTranscriptDeletedAt: string | null } & SavedInfo, "not_found" | "forbidden" | "deviation_required" | "ai_not_allowed" | "invalid" | "approved" | "conflict">
 >();
 
@@ -488,6 +488,36 @@ export type MinVeckaView = {
   calendar: { mon: LocalDate; activities: CalendarActivity[] };
 };
 export const minVecka = query("coach.minVecka", z.object({})).returns<MinVeckaView>();
+
+// ---------------------------------------------------------------- SMS att skicka (Min vecka, Karims beslut 2026-11-11)
+/** Vad SMS:et är: veckans tider eller ett meddelande som inte kunde skickas automatiskt (mallarna i participant-notify.ts). */
+export const SMS_KINDS = ["veckoschema", "kallelse", "aktivitetsinbjudan", "aktivitet_andrad", "aktivitet_installd"] as const;
+export type SmsKind = (typeof SMS_KINDS)[number];
+/**
+ * En rad: deltagaren (bara i appen), numret att kopiera och texten att skicka – bara tid, plats och Miljonbemannings
+ * telefonnummer (CLAUDE.md punkt 9). key = radens nyckel till Markera som skickat. week = veckans tider (veckonumret).
+ */
+export type SmsToSendRow = {
+  key: string;
+  kind: SmsKind;
+  week: number | null;
+  caseId: string;
+  caseNumber: string;
+  name: string;
+  leadCoach: string | null;
+  phone: string;
+  text: string;
+};
+/** Bara coachen. Raderna räknas fram av servern (src/features/_shared/sms-to-send.ts). */
+export const smsAttSkicka = query("coach.smsAttSkicka", z.object({})).returns<{ rows: SmsToSendRow[] }>();
+/**
+ * Markera som skickat: en rad i utskicksloggen (SMS skickat för hand, vem och när – aldrig numret) och samordnarens uppgift att
+ * ringa deltagaren stängs. text = texten som coachen kopierade – har den ändrats (nya tider) stoppas markeringen (changed).
+ * already = raden var redan markerad (två coacher samtidigt).
+ */
+export const smsMarkSent = command("coach.smsMarkSent", z.object({ key: z.string().trim().min(1).max(200), text: z.string().min(1).max(2000) }), {
+  invalidates: ["coach.minVecka", "coach.smsAttSkicka", NAV, INBOX, CASES, "admin.templates", ...LOG],
+}).returns<Result<{ already: boolean }, "not_found" | "changed">>();
 
 // ---------------------------------------------------------------- Närvaro (/narvaro)
 export type NarvaroRow = {

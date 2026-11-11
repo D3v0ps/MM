@@ -381,8 +381,11 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(24);
+    expect(d.templates).toHaveLength(25);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
+    // Veckans tider (Karims beslut 2026-11-11): SMS som coachen skickar själv – bara tid, plats och telefonnummer.
+    expect(t("veckoschema")).toMatchObject({ name: "Veckans tider", channel: "sms", alsoVia: [] });
+    expect(templateCheck(t("veckoschema").body)).toMatchObject({ ok: true, unknown: [] });
     // Inloggningskoden (beslut 2026-10-02): e-post från appen, fast text, ingen länk – bara {kod} (fylls i av servern).
     expect(t("inloggningskod")).toMatchObject({ name: "Inloggningskod", channel: "email", alsoVia: [], from: "notis@miljonmatch.se", subject: "Din inloggningskod till Miljonmatch", fixed: true, version: 1 });
     expect(t("inloggningskod").to).toMatch(/personal.*kommunens användare/);

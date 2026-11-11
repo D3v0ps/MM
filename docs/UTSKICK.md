@@ -30,6 +30,7 @@ src/server/jobs    runJobs()  ◄── POST /api/jobs/run  ◄── pg_cron i 
 | `sent` | Lämnat till Resend eller 46elks. `sent_at` och `provider_message_id` (Resends eller 46elks id) sätts | – · `redirected` = testmiljön skickade mejlet till testaren i stället (`MM_EMAIL_REDIRECT_TO`) |
 | `suppressed` | Stoppat med avsikt | `Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST` · `Mottagaren saknar giltig e-postadress` · `SMS-leverantör inte vald` · `Utringning inte kopplad` · `Mottagaren saknar telefonnummer` · `Testmiljön: numret finns inte i MM_SMS_ALLOWLIST` · `Stoppat: texten ser ut att innehålla ett personnummer` |
 | `manual` | Brev – skickas för hand | `Brev skickas manuellt` |
+| `sent_manually` | SMS som coachen skickade själv från sin telefon och markerade som skickat på Min vecka (SMS att skicka, Karims beslut 2026-11-11). `sent_at` och `sent_by` (vem, migration 0042) sätts – aldrig numret | – |
 | `failed` | Gick inte att skicka efter alla försök, eller leverantören avvisade det | `Resend svarade 422 (validation_error)` · `Telefonnumret har fel format` · `46elks svarade 400 (…)` · `Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen` |
 
 Kanaler:
@@ -37,6 +38,15 @@ Kanaler:
 - **SMS** och **utringning** (kanalen `call`, beslut 2026-10-09) skickas via 46elks när variablerna finns (`docs/DRIFT.md` avsnitt 13, `src/server/notify/elks.ts`). Annars sparas de med status `suppressed` och orsaken `SMS-leverantör inte vald` respektive `Utringning inte kopplad` – inget jobb läggs. Numret slås upp via ärendet precis innan utskicket skickas och normaliseras till `+46…`; testmiljön har samma spärr som e-posten (`MM_SMS_ALLOWLIST`, `MM_SMS_REDIRECT_TO`). 46elks har ingen nyckel mot dubbletter: utskicket markeras (`provider_message_id = 'pending'`) innan anropet, och ett avbrutet försök skickas aldrig igen automatiskt.
 - **Till deltagare** (kallelse, inbjudan till aktivitet, inspelningslänk): mottagaren i utskicksloggen är bara en beskrivning (`deltagare (e-post)`, `deltagare (SMS)`, `deltagare (samtal)`). Adressen eller numret slås upp via ärendet med service role när utskicket skickas och lämnas aldrig ut. Kanalvalet för kallelse och inbjudan: `notifyParticipant` (`src/features/_shared/participant-notify.ts`).
 - **Brev** (kallelse när deltagaren vill ha post): status `manual`.
+
+## SMS som coachen skickar själv (SMS att skicka, Karims beslut 2026-11-11)
+
+Så länge SMS till deltagare inte är kopplat (46elks, `docs/DRIFT.md` avsnitt 13) och e-post till deltagare stoppas av spärrlistan skickar coachen SMS:en själv. Coachens Min vecka har sektionen **SMS att skicka** (`src/features/_shared/sms-to-send.ts`, `src/features/coach/screens/sms-att-skicka.tsx`):
+
+- **Veckans tider** (mallen `veckoschema`): från fredag kl. 00.00 (Stockholms tid) för nästa ISO-vecka, en rad per deltagare i en pågående eller pausad insats med tillfällen i veckan (egna tillfällen och gruppaktiviteter, inte inställda, inte en pausad vecka). Texten byggs av `weeklyScheduleMessage` i `src/features/_shared/participant-notify.ts` – bara veckodag, datum, klockslag, plats och Miljonbemannings telefonnummer. Raden står kvar tills den är markerad eller veckan är slut.
+- **Meddelanden som inte kunde skickas** (`kallelse`, `aktivitetsinbjudan`, `aktivitet_andrad`, `aktivitet_installd`): samordnarens öppna uppgift att ringa deltagaren (`participant_contact`) och SMS:et i utskicksloggen med status `suppressed` eller `failed` för samma mall, tid och plats. Texten är exakt den som skulle ha skickats. Går meddelandet fram automatiskt blir det ingen rad.
+- **Markera som skickat** (`coach.smsMarkSent`): en rad i `outbound_messages` med kanalen `sms`, mottagaren `deltagare (SMS)`, status `sent_manually`, texten, ärendet, `sent_at` och `sent_by`. Id:t bestäms av raden (`out-hand-vecka-<ärende>-<vecka>` eller `out-hand-uppgift-<uppgift>`) – två samtidiga tryck ger en rad (primärnyckeln). Samordnarens uppgift för samma meddelande stängs; klarmarkerar samordnaren uppgiften försvinner raden. Revisionsloggen: `outbound_message.sent_manually` med bara id:n, mallen och veckan.
+- Numret visas bara i appen för coachen, som markerbar text med Kopiera numret – aldrig i en länk, aldrig i utskicksloggen, revisionsloggen eller loggarna.
 
 ## Spärren för mottagare (testmiljön)
 

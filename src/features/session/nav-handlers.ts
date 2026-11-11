@@ -3,7 +3,8 @@
 //   deadlines      förfaller: försenat + i dag som är användarens eget ansvar (samordnare, avtalsansvarig, chef)
 //   unregistered   coachens oregistrerade närvaro från förra veckans måndag till i dag
 //   tasks          öppna uppgifter till rollen eller personen (samordnare, avtalsansvarig, ekonom – siffran vid Min vecka);
-//                  för avtalets intagsansvarige (coach): nya beställningar att ta emot (Karims beslut 2026-11-09)
+//                  för coachen: nya beställningar att ta emot (avtalets intagsansvarige, Karims beslut 2026-11-09) och
+//                  SMS att skicka (Karims beslut 2026-11-11)
 //   notifications  olästa personliga notiser (alla MB-roller)
 // Bara räknarna för rollens menyrader räknas fram (övriga är 0 – de visas inte).
 import type { Ctx } from "@/api/server";
@@ -17,6 +18,7 @@ import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
 import { coachCases } from "@/features/_shared/coach-cases";
 import { ordersToReceive } from "@/features/_shared/intake";
+import { smsToSend } from "@/features/_shared/sms-to-send";
 import { deadlineItems, deadlineRow, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
 import { navCounts, type NavCounts } from "./nav-api";
 
@@ -74,7 +76,8 @@ handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   if (role === "coach") out.unregistered = await unregisteredCount(ctx, e);
   if (TASK_ROLES.includes(role)) out.tasks = await openTaskCount(ctx);
   // Avtalets intagsansvarige: beställningarna som väntar på Ta emot står på Min vecka (0 för andra coacher).
-  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length;
+  // SMS att skicka (Karims beslut 2026-11-11): raderna på Min vecka räknas med – bara antalet lämnas ut.
+  if (role === "coach") out.tasks = (await ordersToReceive(ctx)).length + (await smsToSend(ctx)).length;
   out.notifications = await notificationCount(ctx, e);
   return out;
 });

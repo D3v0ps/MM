@@ -96,7 +96,7 @@ export const COLUMNS = {
   messages: { id: "text", caseId: "text", senderId: "text", body: "text", createdAt: "timestamptz", readBy: "text[]", readAt: "timestamptz | null", kind: "text | null" },
   audit_log: { id: "text", occurredAt: "timestamptz", actorId: "text | null", action: "text", entity: "text", entityId: "text | null", contractId: "text | null", details: "jsonb" },
   holidays: { id: "text", date: "date", name: "text" },
-  outbound_messages: { id: "text", createdAt: "timestamptz", channel: "text", to: "text", template: "text", subject: "text | null", body: "text", caseId: "text | null", status: "text", sentAt: "timestamptz | null", statusReason: "text | null", providerMessageId: "text | null" },
+  outbound_messages: { id: "text", createdAt: "timestamptz", channel: "text", to: "text", template: "text", subject: "text | null", body: "text", caseId: "text | null", status: "text", sentAt: "timestamptz | null", statusReason: "text | null", providerMessageId: "text | null", sentBy: "text | null" },
   user_notifications: { id: "text", recipientId: "text", kind: "text", caseId: "text | null", createdAt: "timestamptz", channels: "text[]", title: "text", body: "text", emailBody: "text" },
   notification_reads: { id: "text", userId: "text", notificationKey: "text", readAt: "timestamptz" },
   tasks: { id: "text", toRole: "text", toId: "text | null", fromId: "text", createdAt: "timestamptz", status: "text", kind: "text | null", caseIds: "text[]", text: "text", deviationId: "text | null", emailId: "text | null", responseId: "text | null", month: "text | null", doneAt: "timestamptz | null", doneBy: "text | null", doneNote: "text | null" },

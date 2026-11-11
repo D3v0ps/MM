@@ -26,6 +26,8 @@ import { publishWeeklyIfComplete, type WeeklyPublished } from "../_shared/weekly
 import "./query-handlers";
 // Röstinspelning: inspelad avstämning och AI-utkast till månadsbedömningen.
 import "./voice-handlers";
+// SMS att skicka på Min vecka (Karims beslut 2026-11-11).
+import "./sms-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

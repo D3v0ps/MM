@@ -28,7 +28,7 @@ Alla på Miljonbemanning börjar på **Min vecka**. Varje roll har en egen Min v
 
 Överst står listan **Att göra** (coachen: **Att göra i dag**). Den är sorterad på sista tid – det som är försenat och det som ska göras snart står först. Varje sak står en gång med sin knapp, och knappen säger vad den gäller, till exempel **Acceptera BOT-27-0048**. Har ett ärende flera saker står de på samma rad. Siffran vid **Min vecka** i menyn är dina öppna uppgifter.
 
-Coachen har under listan **Följ upp** (påminnelser, egna flaggor och olästa notiser – ett ärende en gång) och **Att kartlägga** när någon av dina deltagare saknar nivå. Veckokalendern visas när du trycker på **Visa hela veckan**.
+Coachen har under listan **SMS att skicka** (se **Skicka SMS själv**), **Följ upp** (påminnelser, egna flaggor och olästa notiser – ett ärende en gång) och **Att kartlägga** när någon av dina deltagare saknar nivå. Veckokalendern visas när du trycker på **Visa hela veckan**.
 
 Sidopanelen har alltid:
 
@@ -84,6 +84,8 @@ Avtalet kan ha en **intagsansvarig**. Det är en coach som tar emot nya beställ
 ### Ring deltagaren
 
 Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift i listan **Att göra** på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Sista tiden är första mötets tid. Telefonnumret står i raden. Tryck på **Kopiera numret** och ring från din telefon. När du har ringt trycker du på **Ringt – kallad**. Ska mötet ha en annan tid trycker du på **Boka om**.
+
+Har deltagaren ett telefonnummer kan coachen skicka samma meddelande som SMS från Min vecka (se **Skicka SMS själv**). Då försvinner uppgiften av sig själv. Har du ringt försvinner SMS:et från coachens lista.
 
 ### Avbrott via mejl
 
@@ -342,6 +344,20 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 Ska ett kommande tillfälle ha en annan tid? Tryck på **Ändra tid** på raden i **Närvaro** eller under **Kommande tillfällen** på deltagarkortets flik **Närvaro**. Välj ny dag och tid, **Längd** och plats och tryck på **Spara ny tid**. Du behöver inte göra om tillfället. **Skicka den nya tiden till deltagaren** är förvalt: deltagaren får e-post eller SMS med dag, tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren. Tiden kan inte ändras när närvaron är registrerad, till en helgdag, en vecka med uppehåll, en månad som är fakturerad eller en tid då deltagaren redan har något annat. **Längd** väljer du i listan – du skriver aldrig timmar. Ett tillfälle i en gruppaktivitet ändrar du i aktiviteten.
 6. Närvaron ligger till grund för veckorapporten till kommunen, närvarograden och fakturan. Ändras närvaron efter att veckorapporten har gått ut: öppna rapporten under **Rapporter** och tryck på **Rätta**.
+
+### Skicka SMS själv
+
+Appen skickar inte SMS till deltagarna ännu. Därför står de SMS som ska skickas på din Min vecka under **SMS att skicka**. Alla coacher ser alla deltagare.
+
+- **Veckans tider**: från fredag finns en rad per deltagare med nästa veckas tider – dag, datum, tid och plats. Raden står kvar tills den är skickad eller veckan är slut.
+- **Kallelse, inbjudan, ändrad tid och inställd aktivitet** som inte gick att skicka: texten är samma som deltagaren skulle ha fått.
+
+1. Tryck på **Kopiera numret** och klistra in numret i ett nytt SMS i din telefon. Numret står också på raden.
+2. Tryck på **Kopiera texten** och klistra in texten i SMS:et. Ändra inte texten – den har bara tid, plats och vårt telefonnummer, aldrig namn.
+3. Skicka SMS:et från din telefon.
+4. Tryck på **Markera som skickat**. Raden försvinner för alla coacher, och samordnaren behöver inte ringa om samma sak.
+
+Har tiderna ändrats efter att du kopierade texten? Då står den nya texten på raden. Kopiera den och skicka den nya texten.
 
 ### Möte med inspelning och AI-förslag
 

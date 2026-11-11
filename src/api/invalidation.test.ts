@@ -61,7 +61,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.yrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   // BOT-27-0031 har testdatats ändring av startdatum (motiveringen läses).
   "arenden.startdatum": [...one("u-amira", { caseId: "case-270031" }), ...one("u-karin", { caseId: "case-270031" })],
-  "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
+  "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.smsAttSkicka": one("u-erik"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],
   "coach.checkInAttendance": one("u-amira", { caseId: NADIA, date: "2027-01-28" }), "coach.aiRunInfo": one("u-amira", { runId: "ai-run-mehmet" }),
@@ -140,6 +140,8 @@ const WRITES: Record<string, string[]> = {
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
+  // SMS att skicka (Karims beslut 2026-11-11): raden i utskicksloggen och samordnarens uppgift att ringa deltagaren.
+  "coach.smsMarkSent": ["outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "coach.attendanceSetAll": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", "monthly_assessments", "monthly_plans", AUDIT_CASE, AUDIT],
   "coach.deviationSave": ["deviations", "tasks", AUDIT_CASE, AUDIT], "coach.deviationCallCustomer": ["deviations", "messages", "outbound_messages", AUDIT_CASE, AUDIT],

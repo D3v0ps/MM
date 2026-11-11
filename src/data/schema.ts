@@ -315,9 +315,10 @@ export type OutboundChannel = (typeof OUTBOUND_CHANNELS)[number];
 /**
  * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till leverantören (Resend, 46elks) ·
  * failed gick inte att skicka (t.ex. telefonnummer med fel format) · suppressed stoppat med avsikt (t.ex. testmiljöns spärr,
- * SMS eller utringning som inte är kopplad) · manual skickas för hand (brev).
+ * SMS eller utringning som inte är kopplad) · manual skickas för hand (brev) · sent_manually ett SMS som coachen skickade själv
+ * från sin telefon och markerade som skickat på Min vecka (SMS att skicka, Karims beslut 2026-11-11 – sentBy, 0042).
  */
-export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual"] as const;
+export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual", "sent_manually"] as const;
 export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
 
 export const ALERT_KINDS = [
@@ -1756,6 +1757,11 @@ export type OutboundMessage = {
   statusReason?: string | null;
   /** Leverantörens id för utskicket (Resend för e-post, 46elks för SMS och samtal). */
   providerMessageId?: string | null;
+  /**
+   * Vem som markerade ett SMS som skickat för hand (status sent_manually, profiles.id – 0042). Null för utskick som servern
+   * skickar. Aldrig deltagarens nummer eller adress.
+   */
+  sentBy?: string | null;
 };
 
 /** Personlig notis i appen. Exakt en mottagare – ingen ser andras notiser. */
