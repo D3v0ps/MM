@@ -108,9 +108,10 @@ test("länk i kortet ('Visa närvaro per vecka'): fliken byts, flikraden ligger 
 
 // ------------------------------------------------------------ 3. Tillbaka efter flikbyte
 test("Tillbaka efter flikbyte: tillbaka till listan med samma filter och samma skrollposition", async ({ page }, info) => {
-  const errors = await open(page, info, "/arenden", AMIRA);
+  // Mina ärenden (listan börjar i alla ärenden i avtalet sedan Karims beslut 2026-11-11 – Nadia står på första sidan bland de egna).
+  const errors = await open(page, info, "/arenden?vilka=mina", AMIRA);
   await page.selectOption("#arn-status", "active");
-  await expect.poll(() => here(page, info)).toBe("/arenden?status=active");
+  await expect.poll(() => here(page, info)).toBe("/arenden?vilka=mina&status=active");
   await page.evaluate(() => window.scrollTo(0, 320));
   const row = page.getByRole("table", { name: "Ärenden" }).locator("tbody tr").filter({ hasText: "BOT-26-0143" });
   // Raden i bild före mätningen (klicket skulle annars skrolla dit själv) – platsen man lämnar är den som ska återställas.
@@ -129,7 +130,7 @@ test("Tillbaka efter flikbyte: tillbaka till listan med samma filter och samma s
   expect(await here(page, info)).toBe(`/arenden/${NADIA}?flik=narvaro`);
   // Flikbyten lägger inga egna historikposter: ett steg tillbaka leder till listan.
   await page.goBack();
-  await expect.poll(() => here(page, info)).toBe("/arenden?status=active");
+  await expect.poll(() => here(page, info)).toBe("/arenden?vilka=mina&status=active");
   await settle(page, info);
   await expect(page.locator("#arn-status")).toHaveValue("active");
   await expect.poll(() => scrollY(page), { timeout: 4000 }).toBeGreaterThanOrEqual(y0 - 20);

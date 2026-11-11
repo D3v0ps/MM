@@ -229,7 +229,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
               </Card>
             )}
             {/* De tre senaste anteckningarna (Karims beslut 2026-11-11) – samma läsregler som fliken Anteckningar. */}
-            <LatestNotesCard card={card} setTab={setTab} />
+            <LatestNotesCard card={card} setTab={setTab} notes={o.notes} />
             {/* Filer på deltagarkortet (CV, personligt brev, betyg och intyg) – bara Miljonbemanning (Karims beslut 2026-10-29). */}
             {card.files && o.files && <ParticipantFilesCard card={card} files={o.files} />}
             {/* Beställningens bakgrund och bilagor – bara med full åtkomst (samordnare, avtalsansvarig, huvudcoach). */}

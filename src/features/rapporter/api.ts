@@ -93,7 +93,7 @@ export type ReportListRow = {
 };
 export type ReportList = {
   rows: ReportListRow[];
-  /** Coachens lista ("Dina ärenden"). */
+  /** Coachens lista ("Alla ärenden i avtalet" – alla coacher ser alla deltagare, Karims beslut 2026-11-11). */
   coach: boolean;
   customerName: string;
   contractNumber: string;

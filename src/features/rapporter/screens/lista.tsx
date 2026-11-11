@@ -201,7 +201,7 @@ function ListView({ data, query }: { data: ReportList; query: URLSearchParams })
   return (
     <Page
       title="Rapporter"
-      eyebrow={coach ? "Dina ärenden" : `${data.customerName} · avtal ${data.contractNumber}`}
+      eyebrow={coach ? "Alla ärenden i avtalet" : `${data.customerName} · avtal ${data.contractNumber}`}
       lead={
         coach
           ? "Månadsrapporter, slutrapporter och orderbekräftelser för dina ärenden, och veckorapporter där du har deltagare. Rapporterna byggs bara av godkända uppgifter."

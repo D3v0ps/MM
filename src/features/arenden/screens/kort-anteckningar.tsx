@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useQuery } from "@/shell/backend";
 import { dayOf } from "@/core/time";
 import { Button, Card, cn, Empty, List, ListItem, Section } from "@/ui";
-import { caseNotes, type CaseNoteRow, type TimelineNote } from "../api";
+import { caseNotes, type CaseNoteRow, type CaseNotes, type TimelineNote } from "../api";
 import { fd, TabQuery } from "./common";
 import { NoteActions, NoteDialog } from "./kort-tidslinje";
 import type { TabProps } from "./kort";
@@ -69,12 +69,11 @@ export function TabAnteckningar({ card }: TabProps) {
   );
 }
 
-/** Översiktens kort: de tre senaste anteckningarna och länken till fliken. Inga knappar för att ändra – det görs i fliken. */
-export function LatestNotesCard({ card, setTab }: Pick<TabProps, "card" | "setTab">) {
-  const q = useQuery(caseNotes, { caseId: card.caseId, limit: 3 });
-  const d = q.data;
-  // Inget kort för den som inte ser anteckningar (null) eller medan det laddar – Översikt har annat att visa.
-  if (!d) return null;
+/**
+ * Översiktens kort: de tre senaste anteckningarna och länken till fliken. Inga knappar för att ändra – det görs i fliken. Raderna
+ * följer med Översikt (CaseOverview.notes) – inget eget anrop.
+ */
+export function LatestNotesCard({ card, setTab, notes: d }: Pick<TabProps, "card" | "setTab"> & { notes: CaseNotes }) {
   return (
     <Card
       title="Senaste anteckningar"

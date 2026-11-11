@@ -60,7 +60,8 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   // 2. Coachens Min vecka: insatsen att starta är en rad i Att göra i dag (paket 2) med knappen.
   await switchTo(page, info, "/min-vecka", AMIRA);
   const todo = main(page).getByRole("list", { name: "Att göra i dag", exact: true }).locator(":scope > li");
-  const starta = todo.filter({ hasText: "Insats att starta" });
+  // Alla deltagare i avtalet (Karims beslut 2026-11-11): också kollegornas insatser att starta står i listan.
+  const starta = todo.filter({ hasText: "Insats att starta" }).filter({ hasText: "Diego Morales" });
   await expect(starta).toContainText("Diego Morales");
   await expect(starta).toContainText(CASE_NO);
   await starta.getByRole("link", { name: /^Starta insatsen/ }).click();
@@ -89,7 +90,8 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   const upcoming = main(page).locator("section").filter({ has: page.locator("h2", { hasText: "Kommande tillfällen" }) });
   await expect(upcoming).toContainText(/tisdag 2 feb 2027 kl\. 09\.00/i);
   await expect(upcoming).toContainText("Yrkesmoment");
-  await expect(main(page).getByRole("button", { name: "Ändra veckoplan" })).toBeVisible();
+  // Ändra veckoplan står också bland åtgärderna i kortets huvud (Karims beslut 2026-11-11) – två knappar.
+  await expect(main(page).getByRole("button", { name: "Ändra veckoplan" })).toHaveCount(2);
   await expect(main(page).getByRole("button", { name: "Lägg till tillfälle" })).toBeVisible();
 
   // 5. Närvaro: dagens coachträff registreras som närvarande.
@@ -107,7 +109,8 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
 
   // 6. Min vecka: dagens tillfälle med närvaron (mötesrapporten är inte skriven än), och veckan i kalendern.
   await go(page, info, "/min-vecka");
-  await expect(todo.filter({ hasText: "Insats att starta" })).toHaveCount(0);
+  // Diegos insats har startat – kvar står bara kollegornas (Munas) insats att starta (alla deltagare i avtalet).
+  await expect(todo.filter({ hasText: "Insats att starta" }).filter({ hasText: "Diego Morales" })).toHaveCount(0);
   const today = todo.filter({ hasText: "Diego Morales" });
   await expect(today).toContainText("Närvarande");
   await expect(today).toContainText("09.00");

@@ -56,7 +56,7 @@ export function addCaseNotes(db: Db): void {
     }),
     note(skyddad, {
       id: "note-skyddad", authorId: skyddad.leadCoachId ?? "u-erik", occurredOn: "2027-01-25", kind: "conversation", audience: "full", createdAt: "2027-01-25T10:30",
-      body: "Samtal per telefon enligt den säkra rutinen. Deltagaren följer planen och vill fortsätta med yrkesmomenten i februari.",
+      body: "Samtal per telefon. Deltagaren följer planen och vill fortsätta med yrkesmomenten i februari.",
     }),
   ];
   db.case_notes.push(...notes);

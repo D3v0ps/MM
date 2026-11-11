@@ -884,6 +884,11 @@ export type CaseOverview = {
    * samordnare, avtalsansvarig och coach med full åtkomst (samma som CaseCard.files).
    */
   files: CaseFiles | null;
+  /**
+   * Kortet Senaste anteckningar (Karims beslut 2026-11-11): de tre senaste – samma rader som fliken Anteckningar
+   * (arenden.kortAnteckningar med limit 3), med i Översikt så att kortet inte gör ett eget anrop.
+   */
+  notes: CaseNotes;
   /** Rollen skriver anteckningar i ärendet (samma roller som arenden.noteSave) – knappen "Skriv anteckning" på Översikt. */
   canWriteNotes: boolean;
 };
@@ -1109,13 +1114,13 @@ export const caseNoteSave = command("arenden.noteSave", z.object({
   kind: z.enum(CASE_NOTE_KINDS),
   audience: z.enum(CASE_NOTE_AUDIENCES),
   body: z.string().trim().min(1).max(2000),
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "locked" | "pnr" | "date">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortOversikt", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "locked" | "pnr" | "date">>();
 
 /** Ta bort (dölja) en anteckning: författaren, eller samordnare och avtalsansvarig i avtalet. Inget raderas på riktigt. */
 export const caseNoteRemove = command("arenden.noteRemove", z.object({
   caseId: IdSchema,
   noteId: IdSchema,
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author" | "locked">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortAnteckningar", "arenden.kortOversikt", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author" | "locked">>();
 
 // ---------------------------------------------------------------- Flik: Månadsunderlag (?flik=manad)
 /** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */

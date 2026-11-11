@@ -223,6 +223,8 @@ const AUDIT_READS: Record<string, string[]> = {
   // Aktiviteten som en anteckning skrevs i (Karims beslut 2026-11-11): loggraden case_note.created skrivs av samma kommando som
   // anteckningen (case_notes) – tabellen räcker, ingen egen tagg.
   "arenden.kortAnteckningar": [],
+  // Översiktens kort Senaste anteckningar läser samma rader som fliken (CaseOverview.notes).
+  "arenden.kortOversikt": [],
   "arenden.kortTidslinje": [],
   // Veckoplanen räknar ett flyttat tillfälle på sin tidigare tid (activity.moved) – loggraden skrivs av arenden.activityMove,
   // som skriver activities och räknar om kortet.

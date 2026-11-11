@@ -216,13 +216,13 @@ test("massanteckningar: samordnaren börjar med Ett yrkesområde och sidan säge
   await expect(main(page)).toContainText("Välj yrkesområde i rutan Yrkesområde ovanför");
   await page.getByLabel("Yrkesområde", { exact: true }).selectOption("G");
   await expect(page.locator("[data-mass-note-row]").first()).toBeVisible();
-  // Coachen börjar som förut med Mina ärenden.
+  // Coachen börjar med alla deltagare i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare).
   if (isDemo(info)) await open(page, info, "/anteckningar", COACH);
   else {
     await switchPersona(page, COACH);
     await page.goto("/anteckningar");
   }
-  await expect(page.getByLabel("Visa", { exact: true })).toHaveValue("mina");
+  await expect(page.getByLabel("Visa", { exact: true })).toHaveValue("alla");
   expect(relevant(errors)).toEqual([]);
 });
 

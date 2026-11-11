@@ -1300,10 +1300,12 @@ handleQuery(caseOverview, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseOve
   const { c, team, today, env } = L;
   const now = env.now;
   const q = { caseId: c.id };
-  // Kortet Filer följer med Översikt (inget eget anrop) – bara för samordnare, avtalsansvarig och coach med full åtkomst.
-  const [db, files] = await Promise.all([
+  // Kortet Filer följer med Översikt (inget eget anrop) – bara för samordnare, avtalsansvarig och coach med full åtkomst. Kortet
+  // Senaste anteckningar likaså (de tre senaste, samma läsning som fliken Anteckningar – TEAM_TABS har fliken).
+  const [db, files, notes] = await Promise.all([
     loadDb(ctx.repo, ["activities", "attendance", "check_ins", "placements", "employers"], { activities: q, attendance: q, check_ins: q, placements: q }),
     participantFilesFor(ctx, c, L.access),
+    notesView(ctx, L, 3),
   ]);
   const acts = activitiesOf(db, c.id);
   const nm = acts.find((a) => a.kind === "möte" && a.startsAt >= now);
@@ -1326,6 +1328,7 @@ handleQuery(caseOverview, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseOve
     upcoming: acts.filter((a) => a.startsAt >= now && a.startsAt <= limit && (!team || a.kind !== "möte")).map(activityView),
     placement: pl ? { employerName: emp?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, supervisorName: pl.supervisorName, fourRights: pl.fourRights ?? null } : null,
     files,
+    notes,
     // "Skriv anteckning" på Översikt: samma roller som kommandot (NOTE_WRITERS).
     canWriteNotes: NOTE_WRITERS.includes(L.role),
   };
@@ -1461,7 +1464,11 @@ async function noteContextsFor(ctx: Ctx, notes: readonly CaseNote[]): Promise<No
 // team och inga avstämningar. Mötesrapporternas korta anteckning bara när rapporten är godkänd (buildNotes).
 handleQuery(caseNotes, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseNotes | null> => {
   const L = await loadCase(ctx, p.caseId, "anteckningar");
-  if (!L) return null;
+  return L ? notesView(ctx, L, p.limit) : null;
+});
+
+/** Anteckningarna för fliken och Översiktens kort Senaste anteckningar (limit). L = loadCase – åtkomsten är redan prövad. */
+async function notesView(ctx: Ctx, L: Loaded, limit?: number): Promise<CaseNotes> {
   const { c, env, team, role, me, access } = L;
   const q = { caseId: c.id };
   const db = await loadDb(ctx.repo, ["persons", "case_notes", "profiles", "case_area_changes", "case_start_changes"], {
@@ -1469,8 +1476,8 @@ handleQuery(caseNotes, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseNotes 
   });
   const check_ins = team ? [] : await ctx.repo.table("check_ins").list({ caseId: c.id, status: "approved" });
   const noteContexts = await noteContextsFor(ctx, db.case_notes);
-  return buildNotes({ cases: [c], ...db, check_ins }, { caseId: c.id, viewer: { access, role, userId: me }, now: env.now, noteContexts, limit: p.limit });
-});
+  return buildNotes({ cases: [c], ...db, check_ins }, { caseId: c.id, viewer: { access, role, userId: me }, now: env.now, noteContexts, limit });
+}
 
 // ---------------------------------------------------------------- Fria anteckningar (case_notes)
 const NOTE_NOT_FOUND = "Anteckningen finns inte, eller så har du inte behörighet att se den.";
