@@ -891,9 +891,8 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
   const due = c.firstMeeting.dueAt;
   const [at, setAt] = useState(`${addWorkingDays(today, 1)}T10:00`);
   const [err, setErr] = useState<string | null>(null);
-  // Efter att deltagaren inte kom räknas nyckeltalet på det första bokade mötet (Karims beslut 2026-11-09) – ingen varning.
-  const afterNoShow = !!c.noShow?.missedBefore;
-  const late = !!at && !!due && at > due && !afterNoShow;
+  // Ingen varning för en tid efter avtalets gräns (Karims beslut 2026-11-11: "Det ska inte vara med") – nyckeltalet och
+  // uppföljningen räknas som förut.
   const save = async () => {
     if (!at || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)) {
       setErr("Välj datum och tid för mötet.");
@@ -948,11 +947,6 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
           }}
         />
       </Field>
-      {late && due && (
-        <Notice tone="warn" title="Senare än avtalets gräns">
-          Tiden ligger efter {fmtDateTimeLong(due)}. Mötet markeras som sent i uppföljningen.
-        </Notice>
-      )}
       <p>
         {c.contactMissing
           ? "Deltagaren saknar telefonnummer och e-postadress, så kallelsen når inte fram. Kontakta handläggaren och be om en kontaktuppgift."
@@ -964,7 +958,6 @@ function MeetingModal({ card: c, onClose, rebook }: { card: CaseCard; onClose: (
           inte kom står kvar i tidslinjen och syns aldrig för kommunen.
         </p>
       )}
-      {afterNoShow && <p className="text-text-muted">Uppföljningen av nyckeltalet räknar det första bokade mötet – den nya tiden gör inte ärendet sent.</p>}
     </Modal>
   );
 }

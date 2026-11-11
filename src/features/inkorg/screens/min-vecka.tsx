@@ -11,7 +11,7 @@ import { alertAck } from "@/features/ledning/api";
 import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import { plural } from "@/core/format";
 import { slaStatus } from "@/core/sla";
-import { addWorkingDays, dayOf, fmtTime, fmtWeekday } from "@/core/time";
+import { addWorkingDays, fmtTime, fmtWeekday } from "@/core/time";
 import { todoRows, todoSummary, whenText, type TodoPart } from "@/core/todo";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link } from "@/shell/nav";
@@ -602,7 +602,6 @@ function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; reb
   const [date, setDate] = useState(addWorkingDays(today, 1));
   const [time, setTime] = useState("10:00");
   const [tried, setTried] = useState(false);
-  const due = c.due?.dueAt ?? null;
   const err = !date ? "Välj datum." : date < today ? "Datumet har redan passerat." : null;
   const submit = async () => {
     setTried(true);
@@ -642,12 +641,7 @@ function BookModal({ c, rebook, today, meetingText, onClose }: { c: Booking; reb
           <TimeInput value={time} onValueChange={setTime} />
         </Field>
       </FormGrid>
-      {due && date > dayOf(due) && !c.afterNoShow && (
-        <Notice tone="warn" title={`Senare än ${meetingText} efter avropet`}>
-          Mötet markeras i uppföljningen av nyckeltalet för första möte.
-        </Notice>
-      )}
-      {c.afterNoShow && <div className="text-text-muted">Uppföljningen av nyckeltalet räknar det första bokade mötet – den nya tiden gör inte ärendet sent.</div>}
+      {/* Ingen varning för en tid efter avtalets gräns (Karims beslut 2026-11-11: "Det ska inte vara med"). */}
       <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
     </Modal>
   );
