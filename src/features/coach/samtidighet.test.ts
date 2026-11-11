@@ -218,7 +218,8 @@ describe("samtidiga närvarokommandon", () => {
     expect(rep("k-maria").status).toBe("delivered");
     expect(audit("report.published").filter((e) => e.entityId === rep("k-maria").id)).toHaveLength(1);
     expect(audit("report.published").filter((e) => e.entityId === rep("k-linda").id)).toHaveLength(1);
-    expect(mails("ny_rapport")).toHaveLength(mailsBefore + 2);
+    // Inget mejl om veckorapporten sedan Karims beslut 2026-11-11 (reportDelivery.weeklyAttendanceEmail) – en publicering per rapport.
+    expect(mails("ny_rapport")).toHaveLength(mailsBefore);
 
     // Samma sak med två masskommandon i en färsk körning.
     const r2 = fresh();
@@ -230,8 +231,8 @@ describe("samtidiga närvarokommandon", () => {
     const pubs = [p, s].flatMap((r) => (r.ok ? r.published : []));
     expect(pubs.map((x) => x.recipientId).sort()).toEqual(["k-linda", "k-maria"]);
     expect(audit("report.published", r2).filter((e) => e.details.week === "2027-W04")).toHaveLength(2);
-    expect(mails("ny_rapport").length).toBe(mailsBefore + 2);
-    expect(rows("outbound_messages", r2).filter((m) => m.template === "ny_rapport")).toHaveLength(mailsBefore + 2);
+    expect(mails("ny_rapport").length).toBe(mailsBefore);
+    expect(rows("outbound_messages", r2).filter((m) => m.template === "ny_rapport")).toHaveLength(mailsBefore);
   });
 });
 

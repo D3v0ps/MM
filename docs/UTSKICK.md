@@ -101,7 +101,7 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `ordererkannande` | Vi har tagit emot er beställning – {ärendenummer} |
 | `generisk_mottagningsbekraftelse` | Vi har tagit emot ditt mejl · portalvarianten: Vi har tagit emot er beställning – **skickas inte sedan 2026-10-07** (skyddade personuppgifter är borttagna ur appen) |
 | `orderbekraftelse` | Orderbekräftelse – {ärendenummer} |
-| `ny_rapport` | Ny rapport i portalen |
+| `ny_rapport` | Ny rapport i portalen – månads- och slutrapporten. **Inte för veckorapporten om närvaro** sedan Karims beslut 2026-11-11 (avtalets `reportDelivery.weeklyAttendanceEmail`; saknas värdet skickas inget mejl) – handläggaren ser den som ny i portalen |
 | `nytt_meddelande` | Nytt meddelande om {ärendenummer} |
 | `tilldelning_coach` | Nytt ärende i Miljonmatch |
 | `avbojt` | Besked om beställning {ärendenummer} |
@@ -256,7 +256,7 @@ Alla körs av samma anrop varje minut. Appen lägger jobben när appens klocka p
 |---|---|---|
 | Påminnelse om närvaro | Måndag 08.00 (föregående vecka) och fredag (innevarande vecka) | Coacher som inte registrerat all närvaro får en påminnelse |
 | Eskalering av närvaro | Måndag 10.00 | Förfallotiden för registrering (`veckorapport_registrering`) – samordnaren får en flagga |
-| Veckorapport | Måndag 16.00 | Publicera veckorapporterna till kommunen (`veckorapport_publicering`) och skicka "Ny rapport" |
+| Veckorapport | Måndag 16.00 | Publicera veckorapporterna till kommunen (`veckorapport_publicering`). Inget mejl "Ny rapport" sedan 2026-11-11 (`reportDelivery.weeklyAttendanceEmail`) |
 | Progressionsbevakning | Enligt interna regler (`reminderSchedule`, i dag måndag 08.00) | Påminnelse till coachen (`paminnelse_progression`), eskalering till chef efter två veckor i rad (`eskalering_chef`) |
 | Mötespåminnelse och pulslänk | Dagen före kl. 18.00 · enligt avtalets pulsmätning | SMS – när 46elks är kopplat (jobben finns inte ännu) |
 | Gallring | Varje natt | Ljud (senast 24 timmar), råtranskript (30 dagar), gamla `login_attempts`, avslutade jobb, utskickslogg enligt gallringsreglerna |

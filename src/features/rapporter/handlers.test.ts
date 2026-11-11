@@ -435,6 +435,19 @@ describe("7. veckorapport som väntar på närvaro", () => {
     // Handledaren kan läsa veckorapporten (närvaro)
     expect(await doc(WEEKLY_WAIT, petra())).toMatchObject({ ok: true, doc: { kind: "weekly_attendance" } });
   });
+
+  it("en rättad veckorapport levereras utan mejl; månadsrapporten har kvar sitt (Karims beslut 2026-11-11)", async () => {
+    const week = rows("reports").find((r) => r.kind === "weekly_attendance" && r.status === "delivered" && !r.superseded && !r.correctionPending)!;
+    const fix = await run(reportCorrect, { reportId: week.id }, sara());
+    if (!fix.ok) throw new Error("rättelsen misslyckades");
+    expect(await run(reportApprove, { reportId: fix.reportId }, sara())).toMatchObject({ ok: true });
+    const out0 = rows("outbound_messages").length;
+    expect(await run(reportDeliver, { reportId: fix.reportId }, sara())).toMatchObject({ ok: true });
+    expect(row("reports", fix.reportId)).toMatchObject({ status: "delivered", openedAt: null, deliveredTo: [week.recipientUserId] });
+    expect(rows("outbound_messages").slice(out0)).toEqual([]);
+    await deliverNadiaJan();
+    expect(rows("outbound_messages").slice(out0).map((m) => m.template)).toEqual(["ny_rapport"]);
+  });
 });
 
 // ================================================================ 8. Slutrapport

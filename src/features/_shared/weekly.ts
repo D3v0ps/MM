@@ -5,6 +5,7 @@
 // registrerar (coach eller handledare) inte har åtkomst till – och publiceringen till kommunen är ett systemsteg.
 // Ingen av raderna lämnas ut till anroparen, bara rapportens id, veckan och handläggarens namn.
 import type { Ctx } from "@/api/server";
+import { reportDeliveryEmail, requireOperational } from "@/core/config";
 import { addDays, fmtWeekKey, weekMonday, type WeekKey } from "@/core/time";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Report } from "@/data/schema";
@@ -31,9 +32,11 @@ export async function weeklyComplete(ctx: Ctx, contractId: string, recipientId: 
   return weeklyReport({ cases, activities, attendance, deviations: [] }, recipientId, weekKey, { now: ctx.now() }).complete;
 }
 
-/** Leverera en väntande veckorapport till handläggaren automatiskt: status, revisionslogg, ögonblicksbild och mejl utan
- *  personuppgifter. Ögonblicksbilden (prototypens rap.snapshot efter automatisk publicering) fryser innehållet som
- *  levererades – en senare ändring av närvaron ändrar inte den publicerade rapporten. */
+/** Leverera en väntande veckorapport till handläggaren automatiskt: status, revisionslogg och ögonblicksbild. Ögonblicksbilden
+ *  (prototypens rap.snapshot efter automatisk publicering) fryser innehållet som levererades – en senare ändring av närvaron
+ *  ändrar inte den publicerade rapporten. Mejl (utan personuppgifter) bara när avtalet uttryckligen säger det
+ *  (reportDelivery.weeklyAttendanceEmail): Karims beslut 2026-11-11 – inga automatiska utskick, handläggaren ser närvaron i
+ *  portalen, där rapporten står som ny tills hen öppnat den. */
 async function publishWeekly(ctx: Ctx, rep: Report, recipientId: string): Promise<WeeklyPublished | null> {
   const now = ctx.now();
   const weekKey = rep.week as WeekKey;
@@ -44,9 +47,23 @@ async function publishWeekly(ctx: Ctx, rep: Report, recipientId: string): Promis
   if (!changed) return null;
   await ctx.audit({ action: "report.published", entity: "report", entityId: rep.id, contractId: rep.contractId, details: { kind: "weekly_attendance", week: weekKey, automatic: true } });
   await freezeReport(ctx, rep.id);
-  await ctx.notify({ channel: "email", to: await userEmail(ctx, recipientId), template: "ny_rapport", body: `Veckorapporten för ${fmtWeekKey(weekKey)} finns i portalen – logga in för att läsa.`, caseId: null });
+  if (await weeklyEmailOn(ctx, rep.contractId)) {
+    await ctx.notify({ channel: "email", to: await userEmail(ctx, recipientId), template: "ny_rapport", body: `Veckorapporten för ${fmtWeekKey(weekKey)} finns i portalen – logga in för att läsa.`, caseId: null });
+  }
   const recipientName = await userName(ctx, recipientId);
   return { reportId: rep.id, weekKey, recipientId, recipientName, text: `Veckorapporten för ${fmtWeekKey(weekKey)} till ${recipientName} publicerades automatiskt.` };
+}
+
+/** Avtalets val för mejlet om veckorapporten (systemsteg – läses med ctx.system som resten av publiceringen). Saknas avtalet
+ *  eller konfigurationen: inget mejl. */
+async function weeklyEmailOn(ctx: Ctx, contractId: string): Promise<boolean> {
+  const contract = await ctx.system.table("contracts").get(contractId);
+  if (!contract) return false;
+  try {
+    return reportDeliveryEmail(requireOperational(contract.config), "weekly_attendance");
+  } catch {
+    return false;
+  }
 }
 
 /** Publicera handläggarens väntande veckorapport om all närvaro nu är registrerad. Null om inget publicerades. */

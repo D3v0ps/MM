@@ -99,7 +99,11 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     // Avvikelse (beslut 2026-10-07, synpunkt #13): en faktura per avtal och månad (billing.invoicePer, collectiveInvoiceAllowed).
     // Tillägg (beslut 2026-10-08, skarp drift): activities.defaultWeekPlan – se testet för veckoplanen nedan.
     // Avvikelse (Karims beslut 2026-11-04): bonus är påslagen med incitamentsmodellen (bonussteg 1–5) – se testerna för bonus nedan.
-    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, billing, activities, bonus, ...rest } = BOTKYRKA_CONFIG;
+    // Tillägg (Karims beslut 2026-11-11): reportDelivery.weeklyAttendanceEmail = false – inget mejl om veckorapporten.
+    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, billing, activities, bonus, reportDelivery, ...restAll } = BOTKYRKA_CONFIG;
+    const { weeklyAttendanceEmail, ...delivery } = reportDelivery;
+    expect(weeklyAttendanceEmail).toBe(false);
+    const rest = { ...restAll, reportDelivery: delivery };
     void reportSchedule;
     void activities;
     void orderPeriods;

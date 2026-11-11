@@ -278,6 +278,8 @@ export type KomReports = {
   unreadMessages: number;
   /** Meddelanden per deltagare (handläggaren). Olästa först. */
   threads: KomThread[];
+  /** Får handläggaren ett mejl när veckorapporten om närvaro levereras? Nej sedan Karims beslut 2026-11-11 (avtalets reportDelivery). */
+  weeklyReportEmail: boolean;
 };
 export const kommunReports = query("kommun.rapporter", z.object({})).returns<KomReports>();
 

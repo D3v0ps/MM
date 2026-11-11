@@ -81,7 +81,7 @@ Lämna bara de uppgifter som behövs.
 3. Insatsen startar. Varje månad får du en **månadsrapport** för deltagaren. Du får också en **veckorapport om närvaro**.
 4. När insatsen avslutas får du en **slutrapport**.
 
-Varje gång något nytt finns i portalen får du ett mejl utan personuppgifter med en länk till portalen.
+När en orderbekräftelse, månadsrapport eller slutrapport finns i portalen får du ett mejl utan personuppgifter med en länk till portalen. Veckorapporten om närvaro kommer varje vecka utan mejl. Du ser den under **Rapporter och meddelanden** när du loggar in. Nya rapporter har märket **Ny**.
 
 ## Mina deltagare
 

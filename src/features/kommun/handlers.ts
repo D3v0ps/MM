@@ -9,7 +9,7 @@ import { attendanceStats } from "@/core/attendance";
 import { BONUS_STATUS_TEXT } from "@/core/bonus";
 import { hidesCommercial } from "@/api/tester-access";
 import { duplicateActive } from "@/core/cases";
-import { isUnset } from "@/core/config";
+import { isUnset, reportDeliveryEmail } from "@/core/config";
 import { avropDue, firstMeetingDays } from "@/core/sla";
 import { addDays, dayOf, diffDays, monday } from "@/core/time";
 import { by } from "@/core/util";
@@ -314,7 +314,9 @@ handleQuery(kommunReports, { roles: HANDL }, async (ctx) => {
     }
     threads.sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0) || (a.lastAt < b.lastAt ? 1 : -1));
   }
-  return { customerName: k.customerName, unit: k.me?.customerUnit ?? null, reports: rows, unreadMessages, threads };
+  // Mejl när veckorapporten levereras: bara om avtalet säger det (Karims beslut 2026-11-11) – sidans text följer valet.
+  const weeklyReportEmail = !!k.active && reportDeliveryEmail(k.cfg(k.active.id), "weekly_attendance");
+  return { customerName: k.customerName, unit: k.me?.customerUnit ?? null, reports: rows, unreadMessages, threads, weeklyReportEmail };
 });
 
 // ================================================================ Kommandon
