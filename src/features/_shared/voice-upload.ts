@@ -16,6 +16,7 @@ import { ApiError, type Ctx } from "@/api/server";
 import { aiLanguages, recordingMaxMinutes, type ContractConfig, type RecordingKind } from "@/core/config";
 import { PARTICIPANT_USER_ID } from "@/data/actors";
 import { AUDIO_PURPOSES, type AudioUpload, type Case, type Person, type VoiceLink } from "@/data/schema";
+import { hasRoleIn } from "./context";
 import { AI_OFF_TEXT, RECORDING_BLOCK_TEXT, recordingBlock, requireAi, type RecordingBlock } from "./ai-port";
 import { requireAudio, validateAudioMeta, type AudioRef, type AudioUploadTicket } from "./audio-port";
 import { sha256Hex } from "@/features/rost/sha256";
@@ -126,13 +127,17 @@ export async function audioUploadTarget(ctx: Ctx, req: Pick<AudioUploadRequest, 
     return ok({ caseId: l.case.id, contractId: l.case.contractId, ownerId: PARTICIPANT_USER_ID, kind: "participant", config: l.config, linkId: l.link.id });
   }
   if (req.purpose === "checkin") {
-    // Veckoavstämningen är huvudcoachens (checkinSave: roles coach).
+    // Mötet spelas in av en coach med full åtkomst till ärendet (checkinSave: roles coach) – alla coacher i avtalet, inte bara
+    // huvudcoachen (beslut 2026-10-09 och Karims beslut 2026-11-11). Full åtkomst = personen är läsbar via behörigheten (vid den
+    // vilande spärren för skyddade personuppgifter bara namngiven huvudcoach) och rollen coach i ärendets avtal.
     if (a.role !== "coach") return no("forbidden");
     if (!req.caseId) return no("not_found");
     const c = await ctx.repo.table("cases").get(req.caseId);
     if (!c) return no("not_found");
-    if (c.leadCoachId !== a.userId) return no("forbidden");
-    const [contract, person] = await Promise.all([ctx.repo.table("contracts").get(c.contractId), ctx.repo.table("persons").get(c.personId)]);
+    const [contract, person, isCoach] = await Promise.all([
+      ctx.repo.table("contracts").get(c.contractId), ctx.repo.table("persons").get(c.personId), hasRoleIn(ctx, a.userId, c.contractId, ["coach"]),
+    ]);
+    if (!person || !isCoach) return no("forbidden");
     const block = recordingBlock({ cfg: contract?.config, kind: "coach", person, consent: c.aiConsentStatus });
     if (block) return no(block);
     return ok({ caseId: c.id, contractId: c.contractId, ownerId: a.userId, kind: "coach", config: contract?.config ?? null, linkId: null });

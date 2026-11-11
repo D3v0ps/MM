@@ -21,6 +21,7 @@ import { monthReportNeed } from "@/core/report-schedule";
 import { scopeToContract } from "@/core/scope";
 import { avropDue, finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, weekMonday, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
+import { coachCases, leadCoachFirstName } from "../_shared/coach-cases";
 import { by, uniq } from "@/core/util";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Case, CheckIn, Contract, MonthlyPrefill, Person, Report } from "@/data/schema";
@@ -128,9 +129,12 @@ async function referrerOf(ctx: Ctx, c: Case): Promise<ReferrerView> {
   return { id: p ? p.id : null, name: p?.fullName ?? c.referrerName ?? null, unit: p?.customerUnit ?? c.referrerUnit ?? null };
 }
 
-/** Coachens ärenden (huvudcoach), med personerna. */
+/**
+ * Coachens ärenden med personerna: alla ärenden i avtalen där personen har rollen coach (Karims beslut 2026-11-11: "Alla ser
+ * alla") – inte bara de där hen är huvudcoach. Huvudcoachen styr bara notiser, mejl, påminnelser och kommunens kontakt.
+ */
 async function myCases(ctx: Ctx) {
-  const cases = (await ctx.repo.table("cases").list({ leadCoachId: ctx.actor.userId })).sort(by<Case>("caseNumber"));
+  const cases = await coachCases(ctx);
   const persons = cases.length ? await ctx.repo.table("persons").list({ id: { in: uniq(cases.map((c) => c.personId)) } }) : [];
   const personOf = new Map(persons.map((p) => [p.id, p]));
   return { cases, person: (c: Case) => personOf.get(c.personId) ?? null };
@@ -175,7 +179,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const noShows = db.first_meeting_no_shows;
 
   // Närvaro att registrera (förra veckan)
-  const unreg = unregistered(all, me, lastMon, addDays(lastMon, 6), main);
+  // Alla deltagare i coachens avtal (Karims beslut 2026-11-11) – inte bara huvudcoachens.
+  const unreg = unregistered(all, null, lastMon, addDays(lastMon, 6), main);
   const regDue = regDueFor(main.cfg, lastMon);
   const unregByCase = new Map<string, typeof unreg>();
   for (const x of unreg) unregByCase.set(x.case.id, [...(unregByCase.get(x.case.id) ?? []), x]);
@@ -230,12 +235,13 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     if (!caseById.has(m.caseId) || !fromCustomer.has(m.senderId) || m.readBy.includes(me)) continue;
     unreadByCase.set(m.caseId, [...(unreadByCase.get(m.caseId) ?? []), m]);
   }
-  const reminders = progressionWatch(all, { coachId: me }, main);
+  // Påminnelserna på Min vecka gäller alla deltagare i avtalet; notiserna och mejlen går som förut till huvudcoachen.
+  const reminders = progressionWatch(all, { coachId: null }, main);
   const flagList = envs
-    .flatMap((env) => alerts(scopeToContract(all, env.contractId), { role: "coach", personaId: me, hideCommercial: hidesCommercial(ctx.actor) }, env))
+    .flatMap((env) => alerts(scopeToContract(all, env.contractId), { role: "coach", personaId: me, hideCommercial: hidesCommercial(ctx.actor), allCases: true }, env))
     .filter((a) => !["no_progress", "ai_draft"].includes(a.kind) && !/escalat/i.test(a.kind));
   const due = envs
-    .flatMap((env) => deadlines(scopeToContract(all, env.contractId), { days: 7, coachId: me }, env))
+    .flatMap((env) => deadlines(scopeToContract(all, env.contractId), { days: 7, coachId: me, allCases: true }, env))
     .filter((x) => x.kind !== "veckorapport_registrering");
   const dueMonthly = due.filter((x) => x.kind === "manadsrapport");
   const byStatus: Partial<Record<Report["status"], number>> = {};
@@ -257,6 +263,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   );
 
   const row = (c: Case) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person(c)) });
+  // Huvudcoachen på raderna där det skiljer dem åt (alla coacher ser alla deltagare, Karims beslut 2026-11-11).
+  const withLead = (c: Case) => ({ ...row(c), leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId) });
   const auto = autoAttendanceOf(main.org);
   // Bonus att granska (beslut 2026-11-04): förslagen i coachens egna ärenden. Bonus är ett ekonomiskt villkor – inte för begränsade
   // testare. Bara läsning via ctx.repo (policyn för bonus_claims).
@@ -272,7 +280,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     },
     unregistered: {
       count: unreg.length,
-      byCase: [...unregByCase.values()].map((rows) => ({ ...row(rows[0].case), items: rows.map((x) => ({ startsAt: x.activity.startsAt, kind: x.activity.kind })) })),
+      byCase: [...unregByCase.values()].map((rows) => ({ ...withLead(rows[0].case), items: rows.map((x) => ({ startsAt: x.activity.startsAt, kind: x.activity.kind })) })),
       waitingFor: waiting.map((r) => personName(db.profiles, r.recipientUserId)),
     },
     today: todays.map((a) => {
@@ -280,7 +288,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       const at = attendanceFor(all, a.id);
       const ci = a.kind === "möte" ? ciToday(c.id) : null;
       return {
-        id: a.id, ...row(c), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin, location: a.location,
+        id: a.id, ...withLead(c), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin, location: a.location,
         attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, checkIn: ci ? { id: ci.id, approved: ci.status === "approved" } : null,
         recordable: recordingOffered(c.aiConsentStatus),
       };
@@ -292,7 +300,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     toStart: toStart.map((c) => {
       // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): registreringen för det nuvarande mötet, och om den kan göras nu.
       const cur = noShowOpen(c) ? currentNoShow(c, noShows) : null;
-      return { ...row(c), firstMeetingAt: c.firstMeetingAt as string, noShow: cur ? { text: noShowSentence(cur) } : null, canRegisterNoShow: canRegisterNoShow(c, now, noShows) };
+      return { ...withLead(c), firstMeetingAt: c.firstMeetingAt as string, noShow: cur ? { text: noShowSentence(cur) } : null, canRegisterNoShow: canRegisterNoShow(c, now, noShows) };
     }),
     toReceive,
     drafts: drafts.map((ci) => ({
@@ -303,7 +311,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       month: pm, dueAt: monthDue ?? `${monthEnd(addMonths(pm, 1))}T23:59`, dueNote: monthDueNote(main.cfg),
       done: assessments.length - maOpen.length, total: assessments.length,
       open: maOpen.map(({ c, ma }) => ({
-        ...row(c),
+        ...withLead(c),
         hasAi: !!ma?.aiSummaryDraft || Object.values(ma?.areas ?? {}).some((x) => !!x?.aiObservationDraft && !x.aiObservationDraft.noEvidence),
         // Förifylld (Karims beslut 2026-10-22): något är fortfarande ifyllt automatiskt – eller raden finns inte än (sidan visar
         // samma förifyllnad).
@@ -374,11 +382,14 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   const thisMon = monday(today);
   const lastMon = addDays(thisMon, -7);
   const envOf = envCache(ctx);
-  // Coachen: ärenden där hen är huvudcoach. Handledaren: ärenden där hen ingår i teamet. Alla ärenden i avtalet är läsbara
-  // (beslut 2026-10-09), så tilldelningen filtreras här – Närvaro är listan över de egna tillfällena.
-  const visible = await ctx.repo.table("cases").list();
-  const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
-  const cases = visible.filter((c) => (ctx.actor.role === "coach" ? c.leadCoachId === me : myTeam.has(c.id)) && c.startDate);
+  // Coachen: alla ärenden i avtalen där hen är coach (Karims beslut 2026-11-11: "Alla ser alla" – inte bara där hen är huvudcoach).
+  // Den vilande rollen handledare: ärenden där hen ingår i teamet, som förut.
+  const cases = ctx.actor.role === "coach"
+    ? (await coachCases(ctx)).filter((c) => c.startDate)
+    : await (async () => {
+      const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
+      return (await ctx.repo.table("cases").list()).filter((c) => myTeam.has(c.id) && c.startDate);
+    })();
   const ids = cases.map((c) => c.id);
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
   if (!main) throw new Error("Inget avtal med driftkonfiguration");
@@ -406,7 +417,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
         location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
-        referrerId: c.referrerId, groupActivityId: a.groupActivityId,
+        referrerId: c.referrerId, groupActivityId: a.groupActivityId, leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId),
       });
     }
     const open = rows.filter((r) => r.startsAt < now && !r.attendance);

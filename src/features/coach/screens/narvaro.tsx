@@ -235,6 +235,7 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
           <div className="font-bold">{a.name}</div>
           <div className="text-small text-text-muted">
             {k.label} · {a.location} · {fmtDuration(a.durationMin)} · <span data-testid="arendenummer" className="tabular-nums tracking-[0.01em]">{a.caseNumber}</span>
+            {a.leadCoach ? ` · huvudcoach ${a.leadCoach}` : ""}
           </div>
           {/* Statusen en gång per rad: den valda står i knappgruppen – här bara det som knappgruppen inte visar. */}
           <Row gap="sm">

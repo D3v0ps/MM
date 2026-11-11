@@ -73,7 +73,8 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   // Alla på Miljonbemanning ser alla ärenden i avtalet (beslut 2026-10-09). Coachen börjar i sina egna (huvudcoach eller i
   // teamet). Den vilande rollen handledare (beslut 2026-10-09) börjar i alla.
   const scopeable = role === "coach" || role === "handledare";
-  const defaultScope: (typeof CASE_LIST_SCOPES)[number] = role === "coach" ? "mina" : "alla";
+  // Coachen börjar med alla ärenden i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare) – Mina ärenden finns kvar.
+  const defaultScope: (typeof CASE_LIST_SCOPES)[number] = "alla";
   const scope = scopeable ? pick(query, "vilka", CASE_LIST_SCOPES, defaultScope) : "alla";
   const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";

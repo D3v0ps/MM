@@ -46,7 +46,11 @@ export type AlertDb = BillingDb &
  * Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07 – samma regel som hidesMoney i src/api/tester-access.ts): chefen
  * får flaggan om ofakturerade veckor med antal veckor utan kronor och en länk till ärendet i stället för till Ekonomi.
  */
-export type AlertOpts = { role: Role; personaId?: string | null; includeAcked?: boolean; hideCommercial?: boolean };
+/**
+ * allCases: coachen ser flaggorna för alla ärenden i db (Karims beslut 2026-11-11: alla coacher ser alla deltagare i Min vecka) –
+ * bara flaggor för rollen coach, som förut; utan allCases bara de egna ärendenas (huvudcoach).
+ */
+export type AlertOpts = { role: Role; personaId?: string | null; includeAcked?: boolean; hideCommercial?: boolean; allCases?: boolean };
 
 type Draft = Omit<AlertItem, "ack" | "href">;
 const SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -55,7 +59,7 @@ const toRoles = (xs: readonly string[]): Role[] => xs.map((x) => (x === "control
 
 /** Flaggor för en roll (och persona för coachen), allvarligast och senast först. Kvitterade flaggor bara med includeAcked. */
 export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[] {
-  const { role, personaId = null, includeAcked = false, hideCommercial = false } = opts;
+  const { role, personaId = null, includeAcked = false, hideCommercial = false, allCases = false } = opts;
   const today = dayOf(env.now);
   const at6 = `${today}T06:00`;
   const acks = byId(db.alert_acks);
@@ -228,7 +232,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
 
   const roleKey: Role[] = role === "avtalsansvarig" ? ["avtalsansvarig", "samordnare"] : [role];
   return out
-    .filter((a) => a.roles.some((r) => roleKey.includes(r)) && (role !== "coach" || !a.coachId || a.coachId === personaId))
+    .filter((a) => a.roles.some((r) => roleKey.includes(r)) && (role !== "coach" || allCases || !a.coachId || a.coachId === personaId))
     // Samma jämförelse som prototypen (lika tidpunkter behåller inte sin ordning – prototypens beteende).
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.createdAt < b.createdAt ? 1 : -1));
 }

@@ -39,7 +39,7 @@ Sidopanelen har alltid:
 
 ## Regler som gäller alla
 
-- Alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet. Teamet som tilldelas ett ärende styr vem som får notiser, påminnelser och vad som visas under Mina ärenden.
+- Alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet. Alla coacher ser alla deltagare på Min vecka och i Närvaro. Huvudcoachen och teamet styr bara vem som får notiser, mejl och påminnelser och vem som är kommunens kontakt. Raderna visar vem som är huvudcoach.
 - Mejl och SMS innehåller aldrig personuppgifter – bara ärendenummer och en länk till portalen. Skriv aldrig personnummer i meddelanden eller anteckningar. Ärendenumret räcker.
 - Kallelser och inbjudningar till deltagaren innehåller bara tid, plats och vårt telefonnummer. Där står aldrig namn, personnummer, ärendenummer eller vad insatsen gäller.
 - Närvaro som inte är registrerad när dagen är slut registreras automatiskt som närvarande klockan 18.00. Frånvaro registrerar du själv, samma dag.
@@ -238,7 +238,7 @@ Alla coacher, samordnaren, avtalsansvarig, chefen och systemadministratören ser
 
 ### Mina ärenden och Alla ärenden
 
-Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **Alla ärenden i avtalet** i listan för att se alla ärenden.
+Listan börjar med **Alla ärenden i avtalet**. Välj **Mina ärenden** för att bara se ärendena där du är huvudcoach eller ingår i teamet.
 
 Du kan filtrera listan på **Yrkesområde**, **Nivå** och **Tagg**. Kolumnen **Nivå** visar deltagarens nivå. Samma filter finns i **Närvaro**.
 
@@ -283,7 +283,7 @@ Inget raderas – en arkiverad tagg kan inte väljas för fler deltagare.
 Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en gruppträff.
 
 1. Öppna **Anteckningar**.
-2. Välj vilka deltagare som ska visas under **Visa**: **Mina ärenden**, **En nivå**, **Ett yrkesområde** eller **En tagg**. Coachen börjar med **Mina ärenden**. Samordnaren och avtalsansvarig börjar med **Ett yrkesområde** – välj yrkesområdet i rutan under. Bara pågående ärenden visas.
+2. Välj vilka deltagare som ska visas under **Visa**: **Alla deltagare**, **Mina ärenden**, **En nivå**, **Ett yrkesområde** eller **En tagg**. Coachen börjar med **Alla deltagare**. Samordnaren och avtalsansvarig börjar med **Ett yrkesområde** – välj yrkesområdet i rutan under. Bara pågående ärenden visas.
 3. Kontrollera **Typ** och **Datum**. I dag är förvalt. Det finns ingen tid.
 4. Skriv en rad för varje deltagare du vill skriva om. Tomma rader sparas inte.
 5. Tryck på knappen som visar antalet, till exempel **Spara 3 anteckningar**. Varje rad blir en vanlig anteckning i deltagarens kort. Står det något som ser ut som ett personnummer på en rad sparas ingenting, och felet visas vid raden.

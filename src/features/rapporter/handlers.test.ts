@@ -127,11 +127,11 @@ describe("1. rapportlistan", () => {
     expect(diff.map((x) => x.id)).toEqual([]);
   });
 
-  it("coachen ser bara egna ärenden och veckorapporter där hon har deltagare", async () => {
+  it("coachen ser rapporterna för alla deltagare i avtalet (Karims beslut 2026-11-11) – aldrig beställarrapporten", async () => {
     const l = await ask(reportList, {}, amira());
     expect(l.coach).toBe(true);
-    const foreign = rows("cases").find((c) => c.leadCoachId !== "u-amira" && c.status === "active")!;
-    expect(text(l.rows)).not.toContain(foreign.caseNumber);
+    const foreign = rows("cases").find((c) => c.leadCoachId !== "u-amira" && c.status === "active" && rows("reports").some((r) => r.caseId === c.id && r.kind === "monthly"))!;
+    expect(text(l.rows)).toContain(foreign.caseNumber);
     expect(l.rows.some((x) => x.kind === "customer_summary")).toBe(false);
     expect(l.rows.some((x) => x.kind === "weekly_attendance")).toBe(true);
   });

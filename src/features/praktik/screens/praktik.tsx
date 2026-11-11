@@ -262,7 +262,8 @@ function DetailContent({ d }: { d: Found }) {
   const canPlan = PLANNERS.includes(actor.role);
   const cl = useQuery(caseList, newPl ? {} : null);
   const planCases = (cl.data?.rows ?? [])
-    .filter((r) => (r.status === "active" || r.status === "paused") && (actor.role !== "coach" || r.detail.leadCoachId === actor.userId))
+    // Alla pågående och pausade ärenden – också för coachen (Karims beslut 2026-11-11: alla coacher ser alla deltagare).
+    .filter((r) => r.status === "active" || r.status === "paused")
     .map((r) => ({ caseId: r.id, caseNumber: r.caseNumber, name: r.displayName, plannedEnd: r.detail.end }));
   const e = d.employer;
   const group: PlacementGroup = show === "ongoing" ? d.ongoing : d.done;

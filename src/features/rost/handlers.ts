@@ -23,6 +23,7 @@ import {
   caseVoice, linkSend, noteReview, notesSeen, pendingNotes, rostLink, rostSend, rostSendStatus, ROST_LANGS, uploadStart,
   type CaseVoiceView, type RostLang, type RostLinkView, type VoiceLinkView, type VoiceNoteView, type VoiceState,
 } from "./api";
+import { coachContractIds } from "../_shared/coach-cases";
 import { sha256Hex } from "./sha256";
 import { languageCodeOf, languageName, linkMessageText, VOICE_CONSENT_VERSION } from "./texts";
 
@@ -296,8 +297,9 @@ handleQuery(pendingNotes, { roles: ["coach"] }, async (ctx) => {
   const notes = await ctx.repo.table("participant_voice_notes").list({ status: "new" });
   if (!notes.length) return [];
   const cases = await ctx.repo.table("cases").list({ id: { in: [...new Set(notes.map((n) => n.caseId))] } });
-  // Coachen: bara de egna ärendena (huvudcoach).
-  const mine = new Map(cases.filter((c) => c.leadCoachId === ctx.actor.userId).map((c) => [c.id, c]));
+  // Coachen: alla ärenden i avtalen där hen är coach (Karims beslut 2026-11-11: alla coacher ser alla deltagare på Min vecka).
+  const coachContracts = new Set(await coachContractIds(ctx));
+  const mine = new Map(cases.filter((c) => coachContracts.has(c.contractId)).map((c) => [c.id, c]));
   const persons = await ctx.repo.table("persons").list({ id: { in: [...mine.values()].map((c) => c.personId) } });
   const pname = new Map(persons.map((x) => [x.id, `${x.firstName} ${x.lastName}`]));
   return notes

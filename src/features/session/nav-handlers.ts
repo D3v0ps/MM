@@ -15,6 +15,7 @@ import { unregistered } from "@/core/attendance";
 import { unreadNotifications } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
+import { coachCases } from "@/features/_shared/coach-cases";
 import { ordersToReceive } from "@/features/_shared/intake";
 import { deadlineItems, deadlineRow, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
 import { navCounts, type NavCounts } from "./nav-api";
@@ -32,9 +33,9 @@ async function openTaskCount(ctx: Ctx): Promise<number> {
 }
 
 async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
-  const me = ctx.actor.userId;
-  // Coachens egna ärenden och deras närvaro (policyn ger coachen bara egna ärenden och team).
-  const cases = await ctx.repo.table("cases").list({ leadCoachId: me, status: { in: ["active", "closed"] } });
+  // Alla ärenden i avtalen där personen är coach (Karims beslut 2026-11-11: alla coacher ser alla deltagare i Närvaro) – samma
+  // urval som sidan Närvaro, så att räknaren och sidan visar samma tillfällen.
+  const cases = await coachCases(ctx, { status: { in: ["active", "closed"] } });
   const ids = cases.map((c) => c.id);
   if (!ids.length) return 0;
   const [activities, attendance] = await Promise.all([
@@ -42,7 +43,7 @@ async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
     ctx.repo.table("attendance").list({ caseId: { in: ids } }),
   ]);
   const lastMon = addDays(monday(e.today), -7);
-  return unregistered({ cases, activities, attendance }, me, lastMon, e.today, e.env).length;
+  return unregistered({ cases, activities, attendance }, null, lastMon, e.today, e.env).length;
 }
 
 async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {

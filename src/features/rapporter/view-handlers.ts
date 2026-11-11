@@ -87,7 +87,7 @@ const monthlyAssessmentOf = async (ctx: Ctx, r: Report): Promise<MonthlyAssessme
 
 // ================================================================ Rapportlistan
 handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> => {
-  const { role, userId } = ctx.actor;
+  const { role } = ctx.actor;
   const now = ctx.now();
   // Avtalet där rapporterna hanteras (ett nytt avtal i utkast har inga rapporter än).
   const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
@@ -102,7 +102,9 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
   ]);
   const caseMap = new Map(cases.map((c) => [c.id, c]));
   const viewer = await viewerFor(ctx, cases);
-  const myCases = role === "coach" ? cases.filter((c) => c.leadCoachId === userId) : [];
+  // Coachen ser rapporterna för alla deltagare i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare) – vem som
+  // godkänner och levererar är oförändrat (huvudcoachen, rapporter/handlers.ts).
+  const myCases = role === "coach" ? cases : [];
   const hasCaseIn = (r: Report) =>
     myCases.some((c) => c.referrerId === r.recipientUserId && c.startDate && c.startDate <= (r.periodEnd ?? "") && (!c.endDate || c.endDate >= (r.periodStart ?? "")));
   const monthlyCaseIds = [...new Set(reports.filter((r) => r.kind === "monthly" && r.caseId).map((r) => r.caseId as string))];
@@ -119,7 +121,7 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
     if (r.superseded || !(REPORT_LIST_KINDS as readonly string[]).includes(r.kind)) continue;
     const c = r.caseId ? caseMap.get(r.caseId) ?? null : null;
     if (r.caseId && !c) continue; // ärendet syns inte för rollen
-    if (role === "coach" && (c ? c.leadCoachId !== userId : !(r.kind === "weekly_attendance" && hasCaseIn(r)))) continue;
+    if (role === "coach" && !c && !(r.kind === "weekly_attendance" && hasCaseIn(r))) continue;
     if (r.kind === "customer_summary" && role === "coach") continue;
     const who = c ? `${c.caseNumber} · ${viewer.name(c)}` : `Till ${personName(profiles, r.recipientUserId)}`;
     const sub = r.kind === "final" || r.kind === "order_confirmation" ? `${who} · ${periodText(r)}` : r.kind === "weekly_attendance" && r.week ? `${who} · ${fmtWeekRange(r.week)}` : who;

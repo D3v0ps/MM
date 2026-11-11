@@ -463,7 +463,10 @@ handleQuery(massNotePage, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
   const catalog = await buildCatalog(ctx, contract, contracts, false);
   const cases = await ctx.repo.table("cases").list({ contractId: contract.id, status: { in: OPEN_STATUSES } });
   let chosen: Case[];
-  if (p.urval === "mina") {
+  if (p.urval === "alla") {
+    // Alla öppna ärenden i avtalet (Karims beslut 2026-11-11: alla coacher ser alla deltagare).
+    chosen = cases;
+  } else if (p.urval === "mina") {
     const team = new Set((await ctx.repo.table("case_team").list({ userId: ctx.actor.userId })).map((t) => t.caseId));
     chosen = cases.filter((c) => c.leadCoachId === ctx.actor.userId || team.has(c.id));
   } else if (p.urval === "omrade") {

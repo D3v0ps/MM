@@ -52,10 +52,13 @@ export function attendanceStats(db: AttendanceDb, caseId: string | null, from: L
 
 export type UnregisteredItem = { activity: Activity; case: Case };
 
-/** Passerade tillfällen utan registrerad närvaro för coachens ärenden (pågående och avslutade), i tidsordning. */
-export function unregistered(db: AttendanceDb & Pick<Db, "cases">, coachId: string, from: LocalDate, to: LocalDate, env: Pick<DomainEnv, "now">): UnregisteredItem[] {
+/**
+ * Passerade tillfällen utan registrerad närvaro i perioden för pågående och avslutade ärenden, i tidsordning. coachId: bara huvudcoachens ärenden; null: alla ärenden i db (Karims
+ * beslut 2026-11-11 – alla coacher ser alla deltagare i Min vecka och Närvaro; db är då ärendena i coachens avtal).
+ */
+export function unregistered(db: AttendanceDb & Pick<Db, "cases">, coachId: string | null, from: LocalDate, to: LocalDate, env: Pick<DomainEnv, "now">): UnregisteredItem[] {
   const out: UnregisteredItem[] = [];
-  for (const c of db.cases.filter((x) => x.leadCoachId === coachId && (x.status === "active" || x.status === "closed"))) {
+  for (const c of db.cases.filter((x) => (coachId === null || x.leadCoachId === coachId) && (x.status === "active" || x.status === "closed"))) {
     for (const a of activitiesOf(db, c.id)) {
       const day = dayOf(a.startsAt);
       if (day < from || day > to || a.startsAt >= env.now) continue;

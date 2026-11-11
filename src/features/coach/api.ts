@@ -393,6 +393,8 @@ export type TodayActivity = {
   checkIn: { id: string; approved: boolean } | null;
   /** Inspelning erbjuds (deltagaren har inte sagt nej eller återkallat samtycket) – annars är "Nytt möte" vägen. */
   recordable: boolean;
+  /** Huvudcoachens förnamn – alla coacher ser alla deltagare (Karims beslut 2026-11-11). */
+  leadCoach?: string | null;
 };
 export type CalendarActivity = {
   id: string;
@@ -414,7 +416,7 @@ export type MinVeckaView = {
   reg: { dueAt: LocalDateTime; sla: CoachSla; dueText: string; pubText: string };
   unregistered: {
     count: number;
-    byCase: { caseId: string; caseNumber: string; name: string; items: { startsAt: LocalDateTime; kind: ActivityKind }[] }[];
+    byCase: { caseId: string; caseNumber: string; name: string; leadCoach?: string | null; items: { startsAt: LocalDateTime; kind: ActivityKind }[] }[];
     /** Handläggare vars veckorapport väntar på coachens registrering. */
     waitingFor: string[];
   };
@@ -434,7 +436,7 @@ export type MinVeckaView = {
    * "Deltagaren kom inte").
    */
   toStart: {
-    caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime;
+    caseId: string; caseNumber: string; name: string; leadCoach?: string | null; firstMeetingAt: LocalDateTime;
     noShow: { text: string } | null;
     canRegisterNoShow: boolean;
   }[];
@@ -453,7 +455,7 @@ export type MinVeckaView = {
     done: number;
     total: number;
     /** prefilled: något är fortfarande ifyllt automatiskt (eller raden finns inte än) – "Ifylld automatiskt – gå igenom". */
-    open: { caseId: string; caseNumber: string; name: string; hasAi: boolean; prefilled: boolean }[];
+    open: { caseId: string; caseNumber: string; name: string; leadCoach?: string | null; hasAi: boolean; prefilled: boolean }[];
   };
   /**
    * Olästa meddelanden från kommunen, ett per ärende (det senaste) – samma räkning som deltagarkortets olästa (unread):
@@ -503,6 +505,8 @@ export type NarvaroRow = {
   referrerId: string | null;
   /** Tillfället hör till en gruppaktivitet: ändras och tas bort i aktivitetsvyn, inte här. */
   groupActivityId: string | null;
+  /** Huvudcoachens förnamn – alla coacher ser alla deltagare (Karims beslut 2026-11-11). null utan huvudcoach. */
+  leadCoach: string | null;
 };
 export type NarvaroReport = {
   recipientId: string;

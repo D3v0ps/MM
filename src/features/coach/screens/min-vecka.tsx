@@ -214,7 +214,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         </Button>
       ) : null;
     const action = actionOf(kind);
-    const meetingNote = `${k.label} · ${a.location} · ${fmtDuration(a.durationMin)}${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
+    // Huvudcoachen på samma rad – alla coacher ser alla deltagare (Karims beslut 2026-11-11).
+    const meetingNote = `${k.label} · ${a.location} · ${fmtDuration(a.durationMin)}${a.leadCoach ? ` · huvudcoach ${a.leadCoach}` : ""}${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
     const status: TodoStatus | null = isNext
       ? { text: `Nästa · ${relative(a.startsAt, now)}`, tone: "next" }
       : past && !a.attendance
