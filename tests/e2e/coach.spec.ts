@@ -102,9 +102,10 @@ test("Min vecka: Att göra i dag sorterad på tid, månadsbedömningar, Följ up
   expect(text).not.toMatch(/\b1 (godkända|granskade|tillfällen|olästa)\b/);
   // Månadsbedömningarna: en rad – nästa att bedöma som knapp, resten bakom Visa alla.
   const manad = todo(page).filter({ hasText: "Månadsbedömningar januari 2027" });
-  // Alla deltagare i avtalet (Karims beslut 2026-11-11): 100 bedömningar, 81 månadsrapporter.
+  // Alla deltagare i avtalet (Karims beslut 2026-11-11): 100 bedömningar. Månadsrapporterna: bara de där Amira är huvudcoach
+  // (granskningen 2026-11-11) – 14.
   await expect(manad).toContainText("52 av 100 godkända – 48 kvar att gå igenom");
-  await expect(manad).toContainText("Månadsrapporterna byggs av bedömningarna: 81 st · 48 väntar på din bedömning · 33 godkända, ska levereras");
+  await expect(manad).toContainText("Månadsrapporterna byggs av bedömningarna: 14 st · 11 väntar på din bedömning · 3 godkända, ska levereras");
   await expect(manad.getByRole("link", { name: /^Bedöm / })).toHaveCount(1);
   await manad.getByRole("button", { name: "Visa alla 48" }).click();
   await expect(manad.getByRole("list", { name: "Månadsbedömningar som återstår" }).locator("li")).toHaveCount(47);
@@ -155,12 +156,12 @@ test("Min vecka (C17): bara nästa möte har en svart knapp – övriga möten �
   const list = main(page).getByRole("list", { name: "Att göra i dag", exact: true });
   await expect(list).toBeVisible();
   const black = await list.evaluate((el) => [...el.querySelectorAll("a, button")].filter((b) => b.classList.contains("bg-antracit")).map((b) => (b.textContent ?? "").trim()));
-  // Nästa möte bland alla deltagare i avtalet (Karims beslut 2026-11-11): Mikael kl. 10.00 (Eriks deltagare).
-  expect(black).toEqual(["Spela in mötet med Mikael Lindström"]);
+  // Nästa bara bland coachens egna möten (granskningen 2026-11-11): Nadia kl. 10.00 – inte Eriks deltagare Mikael, som också är kl. 10.00.
+  expect(black).toEqual(["Spela in mötet med Nadia Warsame"]);
   const next = todo(page).filter({ hasText: "Nästa" });
-  await expect(next).toContainText("Mikael Lindström");
-  await expect(next.getByRole("link", { name: "Spela in mötet med Mikael Lindström" })).toHaveAttribute("href", isDemo(info) ? `#/avstamning/${SC.mikael}?spela=1` : `/avstamning/${SC.mikael}?spela=1`);
-  await expect(todo(page).filter({ hasText: "Nadia Warsame" }).getByRole("link", { name: "Spela in mötet med Nadia Warsame" })).toBeVisible();
+  await expect(next).toContainText("Nadia Warsame");
+  await expect(next.getByRole("link", { name: "Spela in mötet med Nadia Warsame" })).toHaveAttribute("href", isDemo(info) ? `#/avstamning/${SC.nadia}?spela=1` : `/avstamning/${SC.nadia}?spela=1`);
+  await expect(todo(page).filter({ hasText: "Mikael Lindström" }).getByRole("link", { name: "Spela in mötet med Mikael Lindström" })).toBeVisible();
   await expect(todo(page).filter({ hasText: "Habiba Karlsson" }).getByRole("link", { name: "Spela in mötet med Habiba Karlsson" })).toBeVisible();
   // Klara möten (närvaro och godkänd mötesrapport) står i listans fot.
   await expect(main(page)).toContainText(/Klart i dag: .*09\.00 Jonna Osman, .*09\.00 Guled Farah/);
@@ -185,7 +186,8 @@ test("Närvaro: snabbregistrering vecka 4 publicerar veckorapporterna automatisk
   await expect(main(page)).toContainText("Registrera bara frånvaro och sen ankomst, senast kl. 18.00 samma dag. Övriga blir Närvarande automatiskt.");
   await expect(page.getByTestId("narvaro-regel")).toContainText("Kl. 18.00 blir passerade tillfällen utan registrering Närvarande automatiskt");
   // Listan först – filtren bakom Filtrera, de valda som text.
-  await expect(page.getByTestId("narvaro-filtertext")).toHaveText("Visar: Förra veckan (v. 4) · Ej registrerade · Hela veckan");
+  // Alla deltagare är förvalt (granskningen 2026-11-11: Mina deltagare eller Alla deltagare).
+  await expect(page.getByTestId("narvaro-filtertext")).toHaveText("Visar: Förra veckan (v. 4) · Ej registrerade · Hela veckan · Alla deltagare");
   await expect(page.getByRole("group", { name: "Vecka" })).toBeHidden();
   await expect(page.getByTestId("narvaro-raknare")).toContainText("6 tillfällen kvar – senast måndag 10.00");
   const rows = page.getByTestId("narvaro-rad");
