@@ -35,7 +35,7 @@ export function bonusRuleText(m: BonusModel, step: number): string {
     case 4:
       return `Hållbart resultat: arbetet eller studierna kvarstår ${m.sustainMonths} månader efter resultatdatum. Underlag: uppföljning efter ${m.sustainMonths} månader med intyg eller annan verifiering som kommunen godtar.`;
     case 5:
-      return `Snabbhetspremie: bonussteg 3 nås senast ${m.speedWeeks} veckor från start. Underlag: samma som bonussteg 3, startdatum och resultatdatum.`;
+      return `Snabbhetspremie: steg 3 nås senast ${m.speedWeeks} veckor från start. Underlag: samma som steg 3, startdatum och resultatdatum.`;
     default:
       return "";
   }
@@ -138,4 +138,4 @@ export const windowEndOf = (c: Pick<Case, "endDate">, m: BonusModel) => resultWi
 
 /** PDF:ens filnamn: bara ärendenummer och steg – inga namn. */
 export const underlagFilename = (u: Pick<BonusUnderlag, "caseNumber" | "step" | "draft">): string =>
-  `redovisningsunderlag-bonus-${u.caseNumber}-steg${u.step}${u.draft ? "-utkast" : ""}.pdf`;
+  `redovisningsunderlag-progression-och-resultat-${u.caseNumber}-steg${u.step}${u.draft ? "-utkast" : ""}.pdf`;

@@ -66,7 +66,7 @@ describe("startsidan och listorna – samma siffror som den gamla prototypen", (
     // inte i Att göra. Bonussteget och namnet – inga belopp.
     expect(s.bonus.map((b) => [b.caseNumber, b.step, b.status, b.canDecide])).toEqual([["BOT-26-0027", 3, "submitted", true]]);
     const d = (await ask(kommunCase, { caseId: "case-260027" }, maria())) as KomCaseDetail;
-    expect(d.bonus.map((b) => [b.step, b.statusText, b.waitingForStep3, b.canDecide])).toEqual([[3, "Skickat till kommunen", false, true], [5, "Beslutas efter bonussteg 3", true, false]]);
+    expect(d.bonus.map((b) => [b.step, b.statusText, b.waitingForStep3, b.canDecide])).toEqual([[3, "Skickat till kommunen", false, true], [5, "Beslutas efter steg 3", true, false]]);
     expect(JSON.stringify(s.bonus)).not.toMatch(/Ore|kr\b|amount|price/i);
   });
   it("listan: handläggaren ser 71 egna – inga fält om skyddade personuppgifter, inga belopp", async () => {

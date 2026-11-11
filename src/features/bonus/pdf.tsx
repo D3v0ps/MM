@@ -15,7 +15,7 @@ export function BonusPdf({ u, participantName }: { u: BonusUnderlag; participant
       metaTitle={`${underlagTitle(u)} – ${u.caseNumber}${u.draft ? ` – ${DRAFT_LABEL.toLowerCase()}` : ""}`}
       title={underlagTitle(u)}
       label={u.draft ? DRAFT_LABEL : null}
-      info={[["Avtal", `${u.contractNumber}, ${u.customerName}`], ["Ärende", u.caseNumber], ["Bonussteg", `${u.step} · ${u.stepLabel}`]]}
+      info={[["Avtal", `${u.contractNumber}, ${u.customerName}`], ["Ärende", u.caseNumber], ["Steg", `${u.step} · ${u.stepLabel}`]]}
     >
       {sections.map((s, i) => (
         <Sec key={s.title} n={String(i + 1)} title={s.title}>

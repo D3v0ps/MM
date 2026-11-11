@@ -490,7 +490,7 @@ describe("revisionslogg och loggkontroll", () => {
     expect(details).not.toMatch(/Tolkning: template|Kanal: email|Typ: parse_email|rolling_6m|Mall: generisk_|approved|rejected|: auto\b|Via: portal\b/);
     // Bonusanspråken: steg och beslut i klarspråk – aldrig underlaget eller belopp.
     expect(d.rows.find((r) => r.action === "bonus_claim.decided" && r.caseNumber === "BOT-26-0064")).toMatchObject({
-      actionLabel: "Registrerade kommunens beslut om bonus", entityLabel: "Bonusanspråk", actorName: "Maria Ekdahl", detailText: expect.stringMatching(/^Steg: 3 · Beslut: avslaget · Via: portalen/),
+      actionLabel: "Registrerade kommunens beslut om progression och resultat", entityLabel: "Underlag om progression och resultat", actorName: "Maria Ekdahl", detailText: expect.stringMatching(/^Steg: 3 · Beslut: avslaget · Via: portalen/),
     });
     expect(details).not.toMatch(/Ore|kr\b/);
     expect(d.rows[0]).toMatchObject({ at: "2027-02-01T09:05", actorName: "Lars Nyström", actionLabel: "Visade fakturaunderlag", entityLabel: "Fakturakörning", entityText: "Januari 2027" });
@@ -525,10 +525,10 @@ describe("revisionslogg och loggkontroll", () => {
     // kommer med i stickprovet (var n:e post efter visningarna) i stället för prototypens poster.
     expect(d.logCheck.sample.map((s) => [s.actionLabel, s.at, s.actorName, s.entityLabel, s.caseNumber])).toEqual([
       ["Visade rapport", "2027-01-29T16:10", "Karin Wallin", "Rapport", ""],
-      ["Föreslog bonussteg automatiskt", "2027-01-02T06:00", "Miljonmatch (automatiskt)", "Bonusanspråk", "BOT-26-0043"],
-      ["Skickade bonusanspråk till kommunen", "2027-01-11T09:40", "Amira Haddad", "Bonusanspråk", "BOT-26-0008"],
-      ["Föreslog bonussteg automatiskt", "2027-01-17T06:00", "Miljonmatch (automatiskt)", "Bonusanspråk", "BOT-26-0008"],
-      ["Skickade bonusanspråk till kommunen", "2027-01-28T13:40", "Erik Sjöberg", "Bonusanspråk", "BOT-26-0027"],
+      ["Föreslog progressionssteg automatiskt", "2027-01-02T06:00", "Miljonmatch (automatiskt)", "Underlag om progression och resultat", "BOT-26-0043"],
+      ["Skickade underlag om progression och resultat till kommunen", "2027-01-11T09:40", "Amira Haddad", "Underlag om progression och resultat", "BOT-26-0008"],
+      ["Föreslog progressionssteg automatiskt", "2027-01-17T06:00", "Miljonmatch (automatiskt)", "Underlag om progression och resultat", "BOT-26-0008"],
+      ["Skickade underlag om progression och resultat till kommunen", "2027-01-28T13:40", "Erik Sjöberg", "Underlag om progression och resultat", "BOT-26-0027"],
     ]);
     const items = d.logCheck.sample.map((s, i) => ({ logId: s.id, verdict: i === 0 ? "avvikelse" : "ok" }));
     expect(await rt.command(adminLogCheck, { month: "2027-01", items, note: " " }, karin())).toMatchObject({ ok: false, error: "note" });

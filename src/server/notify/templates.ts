@@ -40,7 +40,7 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   beslut_behovs: T("Beslut behövs från kommunen", "Ärende {arendenummer} behöver ert beslut", "kommun"),
   // Bonusanspråk skickat till kommunen (beslut 2026-11-04, src/features/bonus/handlers.ts): bara ärendenumret och länken till
   // portalen – aldrig namn, belopp eller vad anspråket gäller.
-  bonusansprak: T("Bonusanspråk att besluta om", "Bonusanspråk att besluta om – {arendenummer}", "kommun"),
+  bonusansprak: T("Progression och resultat att besluta om", "Underlag om progression och resultat att besluta om – {arendenummer}", "kommun"),
   atgardsplan_godkannande: T("Åtgärdsplan att godkänna", "Åtgärdsplan väntar på ert godkännande", "kommun"),
   atgardsplan_godkand: T("Åtgärdsplan godkänd", "Åtgärdsplan godkänd", "mb"),
   inbjudan_kommun: T("Inbjudan till portalen", "Inbjudan till Miljonbemannings portal", "kommun"),

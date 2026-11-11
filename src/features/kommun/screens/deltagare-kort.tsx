@@ -310,16 +310,16 @@ function AttendanceLine({ a }: { a: NonNullable<KomCaseDetail["attendance"]> }) 
 /** Bonusanspråk som Miljonbemanning har skickat: steget, läget som text och ikon och länken till underlaget och beslutet. Inga belopp. */
 function BonusList({ d }: { d: KomCaseDetail }) {
   return (
-    <Card flush title="Bonus" icon="award">
+    <Card flush title="Progression och resultat" icon="award">
       <List>
         {d.bonus.map((b) => (
-          <ListItem key={b.claimId} title={`Bonussteg ${b.step} · ${b.label}`} sub={b.sentAt ? `Skickat ${fD(b.sentAt)}${b.decidedAt ? ` · beslut ${fD(b.decidedAt)}` : ""}` : undefined}>
+          <ListItem key={b.claimId} title={`Steg ${b.step} · ${b.label}`} sub={b.sentAt ? `Skickat ${fD(b.sentAt)}${b.decidedAt ? ` · beslut ${fD(b.decidedAt)}` : ""}` : undefined}>
             <span className="flex flex-wrap items-center gap-2">
               <Badge tone={b.status === "approved" ? "blue" : b.status === "rejected" ? "red" : "grey"} icon={b.icon}>
                 {b.canDecide ? "Väntar på ditt beslut" : b.statusText}
               </Badge>
               <Button kind={b.canDecide ? "primary" : "ghost"} iconRight="arrow-right" to={`/portal/bonus/${encodeURIComponent(b.claimId)}`}>
-                {b.canDecide ? "Läs och besluta" : "Läs underlaget"} <span className="sr-only">för bonussteg {b.step}</span>
+                {b.canDecide ? "Läs och besluta" : "Läs underlaget"} <span className="sr-only">för steg {b.step}</span>
               </Button>
             </span>
           </ListItem>

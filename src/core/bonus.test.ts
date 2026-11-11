@@ -139,9 +139,9 @@ describe("coachen skapar ett anspråk själv", () => {
   const c = { startDate: "2027-01-04", status: "active" as const };
   it("insatsen ska ha startat, inget anspråk som räknas för steget, och steg 4–5 kräver steg 3", () => {
     expect(manualCreateProblem({ startDate: null, status: "confirmed" }, [], 2)).toMatch(/har inte startat/);
-    expect(manualCreateProblem(c, [{ id: "k", step: 2, status: "submitted" }], 2)).toMatch(/redan ett anspråk för bonussteg 2/);
-    expect(manualCreateProblem(c, [], 5)).toMatch(/bygger på bonussteg 3/);
-    expect(manualCreateProblem(c, [{ id: "k3", step: 3, status: "rejected" }], 4)).toMatch(/bygger på bonussteg 3/);
+    expect(manualCreateProblem(c, [{ id: "k", step: 2, status: "submitted" }], 2)).toMatch(/redan ett anspråk för steg 2/);
+    expect(manualCreateProblem(c, [], 5)).toMatch(/bygger på steg 3/);
+    expect(manualCreateProblem(c, [{ id: "k3", step: 3, status: "rejected" }], 4)).toMatch(/bygger på steg 3/);
     expect(manualCreateProblem(c, [{ id: "k3", step: 3, status: "suggested" }], 5)).toBeNull();
   });
   it("ett avslaget eller återtaget anspråk hindrar inte ett nytt", () => {
@@ -181,9 +181,9 @@ describe("innan anspråket skickas till kommunen", () => {
     ]);
   });
   it("steg 5: steg 3 skickat och nått inom tio veckor; steg 4: tidigast efter tre månader med en ny verifiering", () => {
-    expect(submitProblems(ctx({ step: 5 }, { step3: { status: "suggested", reachedOn: "2027-01-20" } }), M)).toEqual(["Skicka bonussteg 3 till kommunen först."]);
+    expect(submitProblems(ctx({ step: 5 }, { step3: { status: "suggested", reachedOn: "2027-01-20" } }), M)).toEqual(["Skicka steg 3 till kommunen först."]);
     expect(submitProblems(ctx({ step: 5 }, { step3: { status: "submitted", reachedOn: "2027-01-20" } }), M)).toEqual([]);
-    expect(submitProblems(ctx({ step: 5 }, { step3: { status: "approved", reachedOn: "2027-03-16" }, today: "2027-04-01" }), M)).toEqual(["Bonussteg 3 nåddes inte inom 10 veckor från start."]);
+    expect(submitProblems(ctx({ step: 5 }, { step3: { status: "approved", reachedOn: "2027-03-16" }, today: "2027-04-01" }), M)).toEqual(["Steg 3 nåddes inte inom 10 veckor från start."]);
     const s4 = (today: string, verificationOn: string) => submitProblems(ctx({ step: 4, verificationOn }, { step3: { status: "approved", reachedOn: "2026-10-16" }, today }), M);
     expect(s4("2027-01-15", "2027-01-14")).toEqual(["Hållbart resultat kan skickas tidigast 2027-01-16."]);
     expect(s4("2027-01-20", "2027-01-15")).toEqual(["Verifieringen ska vara daterad 2027-01-16 eller senare (efter 3 månader)."]);

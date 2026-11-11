@@ -366,13 +366,13 @@ Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och
 
 Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
 
-### Bonus
+### Progression och resultat
 
-Bonus begärs per bonussteg (1–5). Reglerna står i kortet **Bonus** under deltagarkortets flik **Händelser och utfall**. Inga belopp syns – bara ekonomen ser belopp.
+Progression och resultat redovisas till kommunen i steg (1–5). Reglerna står i kortet **Progression och resultat** under deltagarkortets flik **Händelser och utfall**. Inga belopp syns – bara ekonomen ser belopp. Ekonomen kallar samma steg för bonussteg.
 
-1. Miljonmatch föreslår ett bonusanspråk när reglerna är uppfyllda, till exempel när arbete med verifiering är registrerat. Förslaget står på Min vecka som **Bonus att granska**. Du kan också trycka på **Skapa bonusanspråk** i kortet **Bonus**.
-2. Tryck på **Öppna bonusförslaget** eller **Granska och skicka**.
-3. Fyll i vilken verifiering som finns och verifieringens datum. För bonussteg 1 bockar du av checklistan och skriver var underlaget finns. Skriv aldrig personnummer.
+1. Miljonmatch föreslår ett underlag när reglerna är uppfyllda, till exempel när arbete med verifiering är registrerat. Förslaget står på Min vecka som **Progression att granska**. Du kan också trycka på **Skapa underlag** i kortet **Progression och resultat**.
+2. Tryck på **Öppna förslaget** eller **Granska och skicka**.
+3. Fyll i vilken verifiering som finns och verifieringens datum. För steg 1 bockar du av checklistan och skriver var underlaget finns. Skriv aldrig personnummer.
 4. Läs förhandsvisningen av redovisningsunderlaget. Tryck på **Spara**.
 5. Tryck på **Skicka till kommunen**. Underlaget låses och handläggaren får ett mejl med bara ärendenumret.
 

@@ -12,16 +12,16 @@ const pct = (v: number | null) => (v == null ? "Inget registrerat" : `${String(v
 /** Märkningen på en förhandsvisning av ett anspråk som inte är skickat (HTML och PDF). */
 export const DRAFT_LABEL = "Utkast – inte skickat";
 
-/** Rubriken: "Redovisningsunderlag bonus – bonussteg 3". */
-export const underlagTitle = (u: Pick<BonusUnderlag, "step">) => `Redovisningsunderlag bonus – bonussteg ${u.step}`;
+/** Rubriken: "Redovisningsunderlag – progression och resultat, steg 3" (Karims beslut 2026-11-11). */
+export const underlagTitle = (u: Pick<BonusUnderlag, "step">) => `Redovisningsunderlag – progression och resultat, steg ${u.step}`;
 
 /** Avsnitten i ordning: bonussteget, insatsen, närvaro och aktiviteter, progression, resultatet och verifieringen, coachens kommentar. */
 export function underlagSections(u: BonusUnderlag, participantName: string): UnderlagSection[] {
   const out: UnderlagSection[] = [];
   out.push({
-    title: "Bonussteg",
+    title: "Steg",
     rows: [
-      ["Bonussteg", `${u.step} · ${u.stepLabel}`],
+      ["Steg", `${u.step} · ${u.stepLabel}`],
       ["Deltagare", participantName],
       ["Ärendenummer", u.caseNumber],
       u.draft ? ["Läge", DRAFT_LABEL] : ["Skickat", `${fmtDateTime(u.createdAt)}${u.sentByName ? ` av ${u.sentByName}` : ""}`],
@@ -43,7 +43,7 @@ export function underlagSections(u: BonusUnderlag, participantName: string): Und
     title: "Närvaro och aktiviteter",
     rows: [
       ["Närvarograd", `${pct(u.attendance.percent)} (${u.attendance.attended} av ${u.attendance.registered} registrerade tillfällen${u.attendance.from ? `, ${date(u.attendance.from)} – ${date(u.attendance.to)}` : ""})`],
-      ...(u.step === 1 ? [["Gräns för bonussteg 1", `Minst ${u.attendance.minPercent} procent`] as const] : []),
+      ...(u.step === 1 ? [["Gräns för steg 1", `Minst ${u.attendance.minPercent} procent`] as const] : []),
       ["Aktiviteter", u.activities.length ? u.activities.map((a) => `${a.label} ${a.count}`).join(", ") : "Inga registrerade"],
     ],
   });

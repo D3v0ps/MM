@@ -105,12 +105,12 @@ export function TabHandelser({ card }: TabProps) {
                         {ev.needsVerification && <Badge tone="red" icon="alert-circle">Preliminärt</Badge>}
                         {ev.possibleBonus && (
                           <>
-                            <Badge tone="outline" icon="star">Möjligt bonusunderlag</Badge>
+                            <Badge tone="outline" icon="star">Möjligt underlag för progression och resultat</Badge>
                             {!e.bonusEnabled && <BuildPhase fas={3} off />}
                           </>
                         )}
                       </span>
-                      {ev.possibleBonus && !e.bonusEnabled && <span className="text-small text-text-muted">Bonus är avstängd i avtalet. Underlaget samlas in.</span>}
+                      {ev.possibleBonus && !e.bonusEnabled && <span className="text-small text-text-muted">Progression och resultat är avstängt i avtalet. Underlaget samlas in.</span>}
                     </ListItem>
                   ))}
                 </List>

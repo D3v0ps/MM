@@ -676,10 +676,11 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   const events = card(page, "Registrerade händelser").locator("tbody tr");
   await expect(events).toHaveCount(2);
   await btn(group(page, "Typ av händelse"), "Arbete påbörjat").click();
-  await expect(main(page).getByText("Möjligt bonusunderlag", { exact: true })).toBeVisible();
-  // Bonus är påslagen (Karims beslut 2026-11-04): kortet Bonus leder till bonusstegen på deltagarkortet – ingen avstängd-bricka.
-  await expect(page.getByText("Bonus avstängd – modellen ej fastställd")).toHaveCount(0);
-  await expect(card(page, "Bonus").getByRole("link", { name: "Bonus på deltagarkortet" })).toBeVisible();
+  await expect(main(page).getByText("Möjligt underlag för progression och resultat", { exact: true })).toBeVisible();
+  // Stegen är påslagna (Karims beslut 2026-11-04): kortet Progression och resultat (2026-11-11) leder till stegen på
+  // deltagarkortet – ingen avstängd-bricka.
+  await expect(page.getByText("Progression och resultat avstängt – modellen ej fastställd")).toHaveCount(0);
+  await expect(card(page, "Progression och resultat").getByRole("link", { name: "Progression och resultat på deltagarkortet" })).toBeVisible();
   await btn(page, "Tumba Städ & Fastighet AB").click();
   await expect(page.locator("#ev-actor")).toHaveValue("Tumba Städ & Fastighet AB");
   await btn(group(page, "Verifiering"), "Anställningsbevis").click();
@@ -691,7 +692,7 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   await expect(row).toContainText("Tumba Städ & Fastighet AB");
   await expect(row).toContainText("Anställningsbevis");
   await expect(row).toContainText("Möjligt");
-  await expect(main(page)).toContainText("1 händelse i ärendet är markerad som möjligt bonusunderlag.");
+  await expect(main(page)).toContainText("1 händelse i ärendet är markerad som möjligt underlag för progression och resultat.");
 
   // Lägesväxlaren säger "Avslut" – "Avsluta insatsen" är bara den riktiga knappen i kortet.
   await btn(group(page, "Välj uppgift"), "Avslut").click();

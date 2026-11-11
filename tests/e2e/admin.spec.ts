@@ -82,7 +82,7 @@ test("avtal: konfiguration och ej fastställda värden – ett avtal, ingen väl
   let t = await text(page);
   expect(t).not.toContain("Gallring av bilagor");
   expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(8);
-  expect(t).toContain("Påslagen – bonussteg 1–5");
+  expect(t).toContain("Påslagen – steg 1–5");
   expect(t).toContain("Enligt avtalet – beloppet syns bara för ekonomen.");
   expect(!/\b35 %/.test(t) || t.includes("Internt mål")).toBe(true);
   expect(t).not.toMatch(/deadline/i);

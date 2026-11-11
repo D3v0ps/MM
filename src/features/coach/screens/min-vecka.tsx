@@ -390,19 +390,19 @@ function MinVecka({ v }: { v: MinVeckaView }) {
       rest: {
         action: (
           <Button kind="ghost" iconRight="arrow-right" to={to}>
-            Öppna bonusförslaget <span className="sr-only">bonussteg {b.step} för {b.name} {b.caseNumber}</span>
+            Öppna förslaget <span className="sr-only">steg {b.step} för {b.name} {b.caseNumber}</span>
           </Button>
         ),
       },
       item: {
         icon: "award", title: <CaseName big caseId={b.caseId} name={b.name} caseNumber={b.caseNumber} />,
         notes: [
-          `Bonus att granska – ${b.caseNumber} · bonussteg ${b.step} (${b.label})`,
+          `Progression att granska – ${b.caseNumber} · steg ${b.step} (${b.label})`,
           b.sustain ? "Hållbart resultat: registrera en ny verifiering innan du skickar till kommunen." : "Granska underlaget och skicka till kommunen – eller återta förslaget.",
         ],
         action: (
           <Button kind="secondary" iconRight="arrow-right" to={to}>
-            Öppna bonusförslaget <span className="sr-only">bonussteg {b.step} för {b.name} {b.caseNumber}</span>
+            Öppna förslaget <span className="sr-only">steg {b.step} för {b.name} {b.caseNumber}</span>
           </Button>
         ),
       },
@@ -569,7 +569,7 @@ function FollowUp({ v }: { v: MinVeckaView }) {
       ),
       action: bonus ? (
         <Button kind="secondary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(n.caseId as string)}?flik=handelser`}>
-          Visa bonus <span className="sr-only">– {n.name ?? n.caseNumber}</span>
+          Visa progression och resultat <span className="sr-only">– {n.name ?? n.caseNumber}</span>
         </Button>
       ) : undefined,
     });
