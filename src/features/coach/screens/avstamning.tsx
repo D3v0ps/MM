@@ -11,7 +11,7 @@
 // utkast" behåller minnet. Samma utkast i en annan flik: servern svarar conflict (versionen, 0022) och inget skrivs över.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AUTOSAVE_CHECKIN } from "@/api/invalidation";
-import { pct, plural } from "@/core/format";
+import { fmtDuration, pct, plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtWeekday, fmtWeekKey, monday } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
@@ -110,7 +110,7 @@ function CheckInReadOnly({ v, ci }: { v: Ok; ci: CheckInView }) {
       <Card title={`Mötesrapport ${fmtDateTimeLong(ci.heldAt)}`} icon="clipboard">
         <Kv
           items={[
-            ["Sätt och längd", `${cap(ci.mode || "fysiskt")}, ${ci.durationMin || "–"} min`],
+            ["Sätt och längd", `${cap(ci.mode || "fysiskt")}, ${ci.durationMin ? fmtDuration(ci.durationMin) : "–"}`],
             ["Fas", phaseText(ci.phase)],
             ["Veckomål uppnått", ci.goalStatus ? GOAL_TEXT[ci.goalStatus] : "–"],
             ["Nytt veckomål", ci.nextGoal || "–"],
@@ -814,7 +814,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
                 <DateInput value={form.date} onValueChange={(x) => setF("date", x)} />
               </Field>
               <Field label="Längd" id="ci-dur">
-                <Seg id="ci-dur" ariaLabel="Längd" value={form.durationMin} onValueChange={(x) => setF("durationMin", x)} options={["30", "45", "60", "90"].map((x) => ({ value: x, label: `${x} min` }))} />
+                <Seg id="ci-dur" ariaLabel="Längd" value={form.durationMin} onValueChange={(x) => setF("durationMin", x)} options={["30", "45", "60", "90"].map((x) => ({ value: x, label: fmtDuration(Number(x)) }))} />
               </Field>
               <Field label="Sätt" id="ci-mode">
                 <Seg id="ci-mode" ariaLabel="Sätt" value={form.mode} onValueChange={(x) => setF("mode", x)} options={MODE_OPTIONS} />

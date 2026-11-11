@@ -293,6 +293,30 @@ export const activityRemove = command("arenden.activityRemove", z.object({ activ
 }).returns<Result<object, "not_found" | "forbidden" | "has_attendance" | "group_activity">>();
 
 /**
+ * Ändra tiden för ett tillfälle utan att göra om det (Karims beslut 2026-11-11): ny dag, tid och längd – och plats om den anges.
+ * Reglerna: src/core/activity-move.ts (ingen närvaro, inom insatsen, arbetsdag, inget uppehåll, ingen fakturerad eller godkänd
+ * månad, ingen krock). Deltagaren får meddelandet aktivitet_andrad (tid, plats och Miljonbemannings telefonnummer – CLAUDE.md
+ * punkt 9) när notify är sant och den nya tiden inte har passerat. Ett tillfälle i en gruppaktivitet flyttas i aktivitetsvyn
+ * (group_activity). expectedStartsAt = tiden dialogen visade: flyttades tillfället under tiden nekas flytten (conflict).
+ * Logg activity.moved med id:n och tiderna.
+ */
+export const activityMove = command("arenden.activityMove", z.object({
+  activityId: IdSchema,
+  expectedStartsAt: LocalDateTimeSchema,
+  startsAt: LocalDateTimeSchema,
+  durationMin: z.number().int().min(15).max(600),
+  location: ShortText.optional(),
+  notify: z.boolean(),
+}), {
+  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG],
+}).returns<
+  Result<
+    { changed: boolean; notified: string | null },
+    "not_found" | "group_activity" | "wrong_status" | "conflict" | "has_attendance" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap" | "location"
+  >
+>();
+
+/**
  * Ändra teamet (samordnare och avtalsansvarig): arbetsgivarmatchare och SYV/metodstöd läggs till eller tas bort (teamvalet
  * Handledare finns inte sedan 2026-10-09 – en befintlig yrkesspecifik handledare tas bort när teamet sparas). Huvudcoachen byts med arenden.caseChangeCoach (orsak och notis till kommunen). Nya medlemmar får samma notis som
  * vid accept (bara ärendenummer). Logg case.team_changed.

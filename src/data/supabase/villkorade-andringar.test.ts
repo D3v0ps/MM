@@ -164,6 +164,36 @@ describe("bonusanspråken: samma väg – rättigheten fanns redan (0039)", () =
   });
 });
 
+describe("ändra tid för ett tillfälle: den villkorade ändringen som arenden.activityMove skickar (Karims beslut 2026-11-11)", () => {
+  /** Nadias nästa egna tillfälle (inte en gruppaktivitet), läst som användaren – och flytten med villkoret på tid, längd och plats. */
+  const moveNext = (repo: AppRepo) => async () => {
+    const acts = repo.table("activities");
+    const a = (await acts.list({ caseId: "case-260143", groupActivityId: { isNull: true }, startsAt: { gt: NOW } }, { orderBy: "startsAt" }))[0];
+    if (!a) return { first: null, second: "ingen rad" as Outcome };
+    const go = () => acts.updateIf(a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { startsAt: "2027-02-05T13:30", durationMin: 60, location: a.location });
+    return { first: await go(), second: await outcome(go()) };
+  };
+
+  it("huvudcoachen, en annan coach, samordnaren och avtalsansvarig: raden flyttas (RLS activities_update) – ett andra försök med den gamla tiden träffar ingen rad", async () => {
+    for (const userId of ["u-amira", "u-erik", "u-sara", "u-johan"]) {
+      const got = await asRepo(userId, (repo) => moveNext(repo)());
+      expect(got.first, userId).toMatchObject({ caseId: "case-260143", startsAt: "2027-02-05T13:30", durationMin: 60 });
+      expect(got.second, userId).toBe("ingen rad");
+    }
+  });
+
+  it("kommunen, ekonomen, chefen och admin flyttar aldrig ett tillfälle", async () => {
+    for (const userId of ["k-maria", "k-ahmed", "u-lars", "u-karin", "u-robin"]) {
+      const got = await asRepo(userId, (repo) => moveNext(repo)().catch((e: unknown) => (e instanceof PolicyError ? { first: null, second: "nekad" as Outcome } : Promise.reject(e))));
+      expect(got.first, userId).toBeNull();
+    }
+  });
+
+  it("villkoret läser bara kolumner som inloggade får läsa: activities har ingen gräns i USER_FILTER_COLUMNS", () => {
+    expect(USER_FILTER_COLUMNS.activities).toBeUndefined();
+  });
+});
+
 describe("kolumnerna som en villkorad ändring får villkoras på", () => {
   it("USER_FILTER_COLUMNS är exakt databasens kolumnrättigheter: tabellerna där inloggade inte läser alla kolumner, och kolumnerna de får läsa", async () => {
     const tableLevel = new Set((await db.query<{ t: string }>(

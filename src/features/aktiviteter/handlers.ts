@@ -21,12 +21,13 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { areaLabel, audienceColumns, audienceLabel, audienceOf, type Audience } from "@/core/audience";
 import { GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, type InviteGrouping, type UninvitableMember } from "@/core/group-activities";
 import { byOrder } from "@/core/groupings";
-import { normalizeWeekdays, seriesScheduleError, seriesScheduleText } from "@/core/group-series";
+import { normalizeWeekdays, SERIES_OCCURRENCE_MOVED, seriesScheduleError, seriesScheduleText } from "@/core/group-series";
 import { ABSENCE_REASONS } from "@/core/labels";
-import { addDays, dayOf, fmtDate, type LocalDate } from "@/core/time";
+import { addDays, dayOf, fmtDate, fmtDateTime, type LocalDate } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { looksLikePnr } from "@/core/validation";
 import { GROUP_ACTIVITY_KINDS, type Activity, type Case, type CaseStatus, type GroupActivity, type GroupActivitySeries, type Person } from "@/data/schema";
+import { UniqueError } from "@/data/repo";
 import { NOTE_PNR_TEXT, noteProblem } from "../_shared/notes";
 import {
   groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityList, groupActivityNotes, groupActivityRemove, groupActivitySeriesCreate,
@@ -46,6 +47,8 @@ const GROUP_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach",
 const GROUP_READERS: readonly Role[] = [...GROUP_WRITERS, "chef", "admin"];
 
 const NOT_FOUND = "Aktiviteten finns inte, eller så har du inte behörighet att se den.";
+/** Postgres felkod (t.ex. 23505 – unik nyckel). */
+const isCode = (e: unknown, code: string): boolean => (e as { code?: unknown } | null)?.code === code;
 const CANCELLED = "Aktiviteten är inställd och kan inte ändras.";
 const CASES_NOT_FOUND = "Någon av deltagarna finns inte längre eller får inte bjudas in av dig. Ladda om sidan.";
 const HAS_ATTENDANCE_TIME = "Närvaron är redan registrerad för minst en deltagare. Tiden kan inte flyttas – ändra namn, plats eller längd i stället.";
@@ -484,9 +487,17 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const next = { name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal };
   const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== g[k]);
   if (!fields.length) return ok({ changed: 0, replaced: 0, dropped: 0, notified: null });
-  // Ett tillfälle i en återkommande aktivitet behåller seriens dag, tid och längd – annars skapas tillfället igen på den gamla tiden.
-  if (g.seriesId && (moved || next.durationMin !== g.durationMin)) {
-    return fail("series", "Tillfället hör till en återkommande aktivitet. Dag, tid och längd ändras för hela serien: avsluta serien och skapa en ny.");
+  // Ett enskilt tillfälle i en återkommande aktivitet får ny dag, tid och längd (Karims beslut 2026-11-11) när det inte har börjat
+  // och ingen närvaro är registrerad. Det hör fortfarande till serien: seriens tid för tillfället (seriesSlot) loggas, så att jobbet
+  // aldrig skapar det igen på den gamla tiden (ensureSeriesOccurrences läser movedSeriesSlots). Hela seriens tid ändras inte här.
+  const seriesSchedule = !!g.seriesId && (moved || next.durationMin !== g.durationMin);
+  if (seriesSchedule) {
+    if (!upcoming(ctx, g.startsAt)) return fail("series", "Tillfället har redan börjat. Dag, tid och längd kan inte ändras.");
+    if (moved && !upcoming(ctx, next.startsAt)) return fail("series", "Den nya tiden har redan passerat. Välj en senare tid.");
+    if (acts.length && (await ctx.repo.table("attendance").list({ activityId: { in: acts.map((a) => a.id) } })).length) return fail("has_attendance", HAS_ATTENDANCE_TIME);
+    if (moved && (await ctx.repo.table("group_activities").first({ seriesId: g.seriesId, startsAt: next.startsAt }))) {
+      return fail("series", `Den återkommande aktiviteten har redan ett tillfälle ${fmtDateTime(next.startsAt)}. Välj en annan tid.`);
+    }
   }
   // Tid, längd, plats och typ ändras på alla deltagarnas tillfällen – också de aktören inte ser måste kunna ändras.
   const actFields = fields.filter((k) => k === "kind" || k === "startsAt" || k === "durationMin" || k === "location");
@@ -524,7 +535,22 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const now = ctx.now();
   // Ett nytt mål (ändrat, borttaget eller inskrivet igen) får en ny version – coachens val för det tidigare målet gäller inte längre.
   const goalVersion = next.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
-  await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
+  // Seriens tid för tillfället: den första flytten loggade den – annars är det tiden tillfället har nu (skapat av jobbet).
+  const seriesSlot = seriesSchedule && moved && g.seriesId ? await seriesSlotOf(ctx, g.seriesId, g.id, g.startsAt) : null;
+  try {
+    await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
+  } catch (e) {
+    // Ett annat tillfälle i serien fick samma tid under tiden (unikt series_id + starts_at).
+    if (g.seriesId && (e instanceof UniqueError || isCode(e, "23505"))) return fail("series", `Den återkommande aktiviteten har redan ett tillfälle ${fmtDateTime(next.startsAt)}. Välj en annan tid.`);
+    throw e;
+  }
+  if (seriesSlot && g.seriesId) {
+    // Loggen på serien: jobbet läser seriesSlot och skapar aldrig ett nytt tillfälle på den tiden. Bara id:n och tider.
+    await ctx.audit({
+      action: SERIES_OCCURRENCE_MOVED, entity: "group_activity_series", entityId: g.seriesId, contractId: g.contractId,
+      details: { groupActivityId: g.id, seriesSlot, from: g.startsAt, to: next.startsAt, durationMin: next.durationMin },
+    });
+  }
   const replacedActivityIds = await removeReplaced(ctx, replaceable);
   const droppedIds = new Set(dropped.map((c) => c.id));
   const droppedNow: string[] = [];
@@ -551,11 +577,14 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const staying = cases.filter((c) => !droppedIds.has(c.id));
   const droppedCases = cases.filter((c) => droppedNow.includes(c.id));
   if (droppedCases.length) await supersedeTasks(ctx, droppedCases, g, "Deltagaren kan inte vara med vid aktivitetens nya tid och är borttagen.");
+  // Meddelandet: aktiviteten själv – dialogens val. Ett tillfälle i en återkommande aktivitet följer seriens val (notify): på =
+  // deltagarna får aktivitet_andrad (dialogen kan välja bort det), av = inga meddelanden, som för seriens övriga utskick.
+  const notifyOn = g.seriesId ? g.notify && !!p.notify : !!p.notify;
   if (moved || next.location !== g.location) {
     await supersedeTasks(ctx, staying, g, "Aktiviteten har fått ny tid eller plats.");
-    if (p.notify && upcoming(ctx, next.startsAt)) add(await notifyAll(ctx, g, "aktivitet_andrad", staying.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt));
+    if (notifyOn && upcoming(ctx, next.startsAt)) add(await notifyAll(ctx, g, "aktivitet_andrad", staying.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt));
   }
-  if (droppedCases.length && p.notify && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
+  if (droppedCases.length && notifyOn && upcoming(ctx, g.startsAt)) add(await notifyAll(ctx, g, "aktivitet_installd", droppedCases.map((c) => c.id), { when: g.startsAt, place: g.location }));
   // Med målgrupp och ny dag: de som hör till målgruppen och kan vara med den nya dagen bjuds in (en insats som slutar före den
   // nya dagen har redan fallit bort ovan).
   if (moved && g.audience !== "manual") await syncAudienceInvites(ctx, { contractId: g.contractId, groupActivityIds: [g.id] });
@@ -748,6 +777,16 @@ handleCommand(groupActivityNotes, { roles: GROUP_WRITERS }, async (ctx, p) => {
   }
   return ok({ saved: noteIds.length, noteIds });
 });
+
+/**
+ * Seriens tid för tillfället (den tid jobbet skapade det på): den första flyttens seriesSlot i loggen, annars tillfällets tid nu.
+ * ctx.system: loggen läses annars bara av chef och admin – här bara tiden för aktivitetens id, inget lämnas ut.
+ */
+async function seriesSlotOf(ctx: Ctx, seriesId: string, groupActivityId: string, current: string): Promise<string> {
+  const logged = await ctx.system.table("audit_log").list({ entity: "group_activity_series", entityId: seriesId, action: SERIES_OCCURRENCE_MOVED });
+  const first = logged.filter((l) => l.details?.groupActivityId === groupActivityId).sort((a, b) => (a.occurredAt < b.occurredAt ? -1 : 1))[0];
+  return typeof first?.details?.seriesSlot === "string" ? first.details.seriesSlot : current;
+}
 
 // ================================================================ Återkommande aktiviteter (Karims beslut 2026-10-22)
 const SERIES_NOT_FOUND = "Den återkommande aktiviteten finns inte, eller så har du inte behörighet att se den.";

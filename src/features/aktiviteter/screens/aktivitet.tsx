@@ -338,7 +338,7 @@ function Aktivitet({ v }: { v: Ok }) {
             <span>
               {series.ended
                 ? `Den återkommande aktiviteten är avslutad${series.endsOn ? ` ${fmtDate(series.endsOn)}` : ""}.`
-                : `Ändringar här gäller bara det här tillfället. ${v.canEdit ? "Under Fler val ändrar du alla kommande tillfällen (namn, plats, ansvarig och gruppmål) eller avslutar hela serien. " : ""}Dag, tid och längd gäller hela serien – ska tiden ändras avslutar du serien och skapar en ny.`}
+                : `Ändringar här gäller bara det här tillfället. ${v.canEdit ? "Under Fler val ändrar du alla kommande tillfällen (namn, plats, ansvarig och gruppmål) eller avslutar hela serien. " : ""}Hela seriens dag, tid och längd ändras inte här – ska de ändras avslutar du serien och skapar en ny.`}
             </span>
             {v.canEdit && !series.ended && (
               <div>
@@ -549,6 +549,9 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const [notify, setNotify] = useState(true);
   // Ny tid eller plats: deltagarna kan få ett meddelande (bara när aktiviteten inte har börjat).
   const timeOrPlace = value.date !== initial.date || value.time !== initial.time || value.location.trim() !== initial.location.trim();
+  // Ett enskilt tillfälle i en återkommande aktivitet får ny dag, tid och längd när det inte har börjat och ingen närvaro finns
+  // (Karims beslut 2026-11-11) – servern prövar samma sak.
+  const scheduleLocked = !!v.activity.series && (!isUpcoming(v.activity.startsAt, v.now) || v.participants.some((x) => !!x.attendance));
   const upcoming = isUpcoming(`${value.date}T${value.time}`, v.now);
   const submit = async () => {
     setTried(true);
@@ -600,9 +603,10 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
             onChange={setValue}
             tried={tried}
             idPrefix="andra-akt"
-            lockSchedule={v.activity.series ? `Dag, tid och längd gäller hela den återkommande aktiviteten (${v.activity.series.schedule}).` : undefined}
+            lockSchedule={scheduleLocked ? "Tillfället har redan börjat eller har registrerad närvaro." : undefined}
           />
-          {timeOrPlace && v.participants.length > 0 && (
+          {/* Ett tillfälle i en återkommande aktivitet följer seriens val: utan meddelanden skickas inget (Karims beslut 2026-11-11). */}
+          {timeOrPlace && v.participants.length > 0 && (!v.activity.series || v.activity.notify) && (
             <NotifyCheck id="andra-meddela" checked={notify} onChange={setNotify} label="Skicka ny tid och plats till deltagarna" upcoming={upcoming} />
           )}
           {problems.length > 0 && (

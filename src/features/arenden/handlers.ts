@@ -64,6 +64,7 @@ import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./area-handlers";
 import { billingForMonths } from "./start-handlers";
 import "./no-show-handlers";
+import "./activity-move";
 import "./attachment-handlers";
 import "./contact-handlers";
 import { participantFilesFor } from "./participant-file-handlers";

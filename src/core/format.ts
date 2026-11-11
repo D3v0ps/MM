@@ -37,3 +37,14 @@ export function withoutPrototypeWords(text: string, mode: "demo" | "app"): strin
   if (mode === "demo") return text;
   return text.replace(/^I prototypen:\s*/i, "Tills vidare: ").replace(/\s+i prototypen\b/gi, "");
 }
+
+/**
+ * Längden på ett tillfälle i klarspråk – samma ord i formulären och listorna (Karims beslut 2026-11-11: "behöver vi skriva antal
+ * timmar?" – ingen skriver timmar, Längd är en vallista): "45 minuter", "1 timme", "1,5 timmar", "3 timmar".
+ */
+export function fmtDuration(min: number): string {
+  if (min < 60) return `${min} minuter`;
+  const h = min / 60;
+  const text = Number.isInteger(h) ? String(h) : (Math.round(h * 100) / 100).toString().replace(".", ",");
+  return `${text} ${h === 1 ? "timme" : "timmar"}`;
+}

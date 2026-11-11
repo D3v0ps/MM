@@ -316,7 +316,7 @@ const CARDS: Record<string, CardDef> = {
               "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Inte fastställt – beslut i ledningen.</div></>],
               c.reportDelivery && ["Rapporter levereras", c.reportDelivery.channel === "portal" ? "I portalen – mottagaren får en notis utan personuppgifter" : c.reportDelivery.channel],
               c.reportDelivery && ["Rapport som bilaga i e-post", <YesNo key="v" v={!!c.reportDelivery.emailAttachmentAllowed} />],
-              c.reportDelivery && ["Mejl när veckorapporten om närvaro levereras", <><YesNo v={!!c.reportDelivery.weeklyAttendanceEmail} /><div className="text-small text-text-muted">Utan mejl ser handläggaren veckorapporten som ny i portalen.</div></>],
+              c.reportDelivery && ["Mejl när veckorapporten om närvaro levereras", <YesNo key="v" v={!!c.reportDelivery.weeklyAttendanceEmail} />],
               c.orderChannels && ["Beställningskanaler", cap(c.orderChannels.map((o) => channelWord[o] ?? o).join(", "))],
               c.thirdCountryProcessing && ["Behandling utanför EU/EES", c.thirdCountryProcessing === "forbidden_without_written_approval" ? "Förbjuden utan kommunens skriftliga förhandsgodkännande" : c.thirdCountryProcessing],
             ]}

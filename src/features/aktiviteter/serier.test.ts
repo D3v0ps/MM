@@ -54,6 +54,77 @@ async function createSeries(extra: Partial<ParamsOf<typeof groupActivitySeriesCr
   return res;
 }
 
+describe("ett tillfälle i en serie får ny tid (Karims beslut 2026-11-11)", () => {
+  const baseOf = (g: Tables["group_activities"]) => ({ name: g.name, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location });
+
+  it("ett kommande tillfälle utan närvaro får ny dag, tid och längd – det hör kvar till serien och jobbet skapar det aldrig igen på den gamla tiden", async () => {
+    const res = await createSeries();
+    const occ = occurrencesOf(res.seriesId);
+    const thu = occ[1];
+    expect(thu.startsAt).toBe("2027-02-04T15:00");
+    const parts = partsOf(thu.id).length;
+    const moved = await run(groupActivityUpdate, { id: thu.id, ...baseOf(thu), startsAt: "2027-02-05T10:00", durationMin: 90, replaceOverlapping: true }, amira());
+    expect(moved).toMatchObject({ ok: true });
+    expect(rows("group_activities").find((g) => g.id === thu.id)).toMatchObject({ seriesId: res.seriesId, startsAt: "2027-02-05T10:00", durationMin: 90 });
+    // Deltagarnas rader följer med (de som kan vara med den nya tiden).
+    expect(partsOf(thu.id).every((a) => a.startsAt === "2027-02-05T10:00" && a.durationMin === 90)).toBe(true);
+    expect(partsOf(thu.id).length).toBeLessThanOrEqual(parts);
+    expect(audit("group_activity_series.occurrence_moved").at(-1)).toMatchObject({
+      entity: "group_activity_series", entityId: res.seriesId, details: { groupActivityId: thu.id, seriesSlot: "2027-02-04T15:00", from: "2027-02-04T15:00", to: "2027-02-05T10:00" },
+    });
+    // Jobbet: ingen ny torsdag 4 februari 15.00 – nästa dag och dagarna efter.
+    for (const t of ["2027-02-01T10:00", "2027-02-02T08:05", "2027-02-03T08:05"]) {
+      rt.clock.set(t);
+      await ensureGroupActivities(system());
+    }
+    expect(occurrencesOf(res.seriesId).some((g) => g.startsAt === "2027-02-04T15:00")).toBe(false);
+    expect(occurrencesOf(res.seriesId).filter((g) => g.id === thu.id)).toHaveLength(1);
+    // Flyttas samma tillfälle igen är seriens tid fortfarande torsdag 15.00.
+    rt.clock.set("2027-02-03T09:00");
+    const again = rows("group_activities").find((g) => g.id === thu.id)!;
+    expect(await run(groupActivityUpdate, { id: thu.id, ...baseOf(again), startsAt: "2027-02-05T13:00", replaceOverlapping: true }, amira())).toMatchObject({ ok: true });
+    expect(audit("group_activity_series.occurrence_moved").at(-1)!.details).toMatchObject({ seriesSlot: "2027-02-04T15:00", from: "2027-02-05T10:00", to: "2027-02-05T13:00" });
+    rt.clock.set("2027-02-04T08:05");
+    await ensureGroupActivities(system());
+    expect(occurrencesOf(res.seriesId).some((g) => g.startsAt === "2027-02-04T15:00" || g.startsAt === "2027-02-05T10:00")).toBe(false);
+  });
+
+  it("ett tillfälle som har börjat, har registrerad närvaro eller krockar med ett annat tillfälle i serien får ingen ny tid", async () => {
+    const res = await createSeries();
+    const occ = occurrencesOf(res.seriesId);
+    // Samma tid som seriens nästa tillfälle.
+    expect(await run(groupActivityUpdate, { id: occ[0].id, ...baseOf(occ[0]), startsAt: occ[1].startsAt }, amira())).toMatchObject({ ok: false, error: "series" });
+    // Den nya tiden har passerat.
+    expect(await run(groupActivityUpdate, { id: occ[0].id, ...baseOf(occ[0]), startsAt: "2027-02-01T08:00" }, amira())).toMatchObject({ ok: false, error: "series" });
+    // Tillfället har börjat.
+    rt.clock.set("2027-02-02T15:30");
+    expect(await run(groupActivityUpdate, { id: occ[0].id, ...baseOf(occ[0]), startsAt: "2027-02-03T15:00" }, amira())).toMatchObject({ ok: false, error: "series", message: "Tillfället har redan börjat. Dag, tid och längd kan inte ändras." });
+    const first = partsOf(occ[0].id)[0];
+    if (first) {
+      expect(await run(attendanceSet, { activityId: first.id, status: "present" }, amira())).toMatchObject({ ok: true });
+      expect(await run(groupActivityUpdate, { id: occ[0].id, ...baseOf(occ[0]), durationMin: 30 }, amira())).toMatchObject({ ok: false });
+    }
+    expect(audit("group_activity_series.occurrence_moved")).toEqual([]);
+  });
+
+  it("meddelandet följer seriens val: av = inget meddelande, på = aktivitet_andrad med bara tid, plats och telefonnummer", async () => {
+    const off = await createSeries();
+    const o = occurrencesOf(off.seriesId)[1];
+    const out0 = rows("outbound_messages").length;
+    expect(await run(groupActivityUpdate, { id: o.id, ...baseOf(o), startsAt: "2027-02-05T10:00", notify: true, replaceOverlapping: true }, amira())).toMatchObject({ ok: true, notified: null });
+    expect(rows("outbound_messages").slice(out0)).toEqual([]);
+    const on = await createSeries({ name: "Studiebesök med meddelande", weekdays: [3], startTime: "13:00", notify: true });
+    const g = occurrencesOf(on.seriesId)[0];
+    expect(partsOf(g.id).length).toBeGreaterThan(0);
+    const out1 = rows("outbound_messages").length;
+    const res = await run(groupActivityUpdate, { id: g.id, ...baseOf(g), startsAt: "2027-02-03T14:00", notify: true, replaceOverlapping: true }, amira());
+    expect(res).toMatchObject({ ok: true });
+    const sent = rows("outbound_messages").slice(out1).filter((m) => m.template === "aktivitet_andrad");
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((m) => m.body.includes("Nu gäller onsdag 3 februari kl. 14.00") && !/BOT-\d|Studiebesök/.test(m.body))).toBe(true);
+  });
+});
+
 describe("ny återkommande aktivitet (aktiviteter.serieSkapa)", () => {
   it("tisdag och torsdag 15.00 för nivå 3: fyra tillfällen de närmaste 14 dagarna, nivån inbjuden, inget meddelande – loggad utan namn", async () => {
     const messages = rows("outbound_messages").length;
@@ -150,11 +221,10 @@ describe("tillfällena över tid, ändra och avsluta", () => {
     expect(await ensureGroupActivities(system())).toEqual({ created: 0, changed: 0 });
   });
 
-  it("ett tillfälle i en serie får inte ny dag eller tid – men namnet går att ändra; serieAndra ändrar alla kommande", async () => {
+  it("namnet på ett tillfälle går att ändra; serieAndra ändrar alla kommande", async () => {
     const res = await createSeries();
     const occ = occurrencesOf(res.seriesId);
     const base = { name: occ[1].name, kind: occ[1].kind, startsAt: occ[1].startsAt, durationMin: occ[1].durationMin, location: occ[1].location };
-    expect(await run(groupActivityUpdate, { id: occ[1].id, ...base, startsAt: "2027-02-04T16:00" }, amira())).toMatchObject({ ok: false, error: "series" });
     expect(await run(groupActivityUpdate, { id: occ[1].id, ...base, name: "Studiebesök – lager" }, amira())).toMatchObject({ ok: true, changed: 1 });
     const upd = await run(groupActivitySeriesUpdate, { id: res.seriesId, name: "Studiebesök 2", location: "Tumba", responsibleId: null, goal: null, notify: false }, amira());
     expect(upd).toMatchObject({ ok: true, changed: 2, occurrences: 4, notified: null });

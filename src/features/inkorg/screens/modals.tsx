@@ -350,11 +350,10 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
       <FormGrid>
         <Field
           id="ink-fm-date" label="Första möte – datum" required error={tried ? errs.date : null}
-          help={`Ska vara inom ${f.meetingText} från avropet: senast ${f.firstMeetingDue ? fmtWeekday(f.firstMeetingDue) : "–"}.`}
+          help={`Ska vara inom ${f.meetingText} från avropet: senast ${f.firstMeetingDue ? fmtWeekday(f.firstMeetingDue) : "–"}.${f.desiredStart ? ` Kommunen önskar start ${fmtDate(f.desiredStart)}.` : ""}`}
         >
+          {/* Förifyllt med kommunens önskade start när den går att boka (Karims beslut 2026-11-11, acceptDefaultDate). */}
           <DateInput value={date} onValueChange={setDate} />
-          {/* Datumet är förifyllt med kommunens önskade start när den går att boka (Karims beslut 2026-11-11). */}
-          {f.desiredStart && <p id="ink-fm-desired" className="m-0 text-small text-text-muted">Kommunen önskade start {fmtDate(f.desiredStart)}.</p>}
         </Field>
         <Field id="ink-fm-time" label="Första möte – tid" required help="Mötet hålls i Alby om inget annat bokas." error={tried ? errs.time : null}>
           <TimeInput value={time} onValueChange={setTime} />
@@ -399,7 +398,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: AcceptFormView; onCl
         )}
         <Field
           id="ink-ref" label="Beställarreferens (valfritt)" error={refErr}
-          help={`${f.refLen} siffror. Kan också fyllas i på fakturan.${f.buyerReference ? " Förifylld från beställningen." : ""}`}
+          help={`${f.refLen} siffror. Kan också fyllas i på fakturan.`}
         >
           <Input value={ref} inputMode="numeric" maxLength={12} onValueChange={(v) => { setRef(v); setRefServerErr(null); }} />
         </Field>

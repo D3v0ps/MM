@@ -47,7 +47,6 @@ export function TabAnteckningar({ card }: TabProps) {
       title={<span id={HEADING_ID} tabIndex={-1}>Anteckningar</span>}
       actions={t?.canWrite ? <Button kind="primary" icon="plus" onClick={() => setDialog({ note: null })}>Skriv anteckning</Button> : undefined}
     >
-      <p>Alla anteckningar om deltagaren, med den senaste först. Anteckningarna från mötesrapporterna kommer från rapporten och ändras där.</p>
       <TabQuery q={q}>
         {(d) =>
           d.rows.length === 0 ? (

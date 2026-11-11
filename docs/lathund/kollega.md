@@ -64,7 +64,7 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 1. Tryck på **Acceptera avropet**.
 2. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde i beställningen är det redan ifyllt. Välj eventuellt **Alternativt område (valfritt)**.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare (valfritt)** och **SYV/metodstöd (valfritt)** om de ska vara med i teamet.
-4. Kontrollera **Första möte – datum** och **Första möte – tid**. Datumet är redan ifyllt med kommunens önskade start om den dagen går att boka, annars med första dagen efter som går. Under datumet står vilken start kommunen önskade. Tiden är 10.00. Ändra om det behövs. Första mötet ska bokas inom den tid som står i avtalet.
+4. Kontrollera **Första möte – datum** och **Första möte – tid**. Datumet är redan ifyllt med kommunens önskade start om den dagen går att boka, annars med första dagen efter som går. Tiden är 10.00. Ändra om det behövs. Första mötet ska bokas inom den tid som står i avtalet.
 5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren. När första mötet har varit står ärendet i coachens lista **Att göra i dag** med knappen **Starta insatsen**. Deltagaren får en kallelse med e-post eller SMS.
 
 Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du det som är ditt ansvar och förfaller i dag och den här veckan. Tryck på **Alla** för att se allt i avtalet.
@@ -307,7 +307,9 @@ Nivåaktiviteterna är samma tid varje vecka, till exempel tisdag och torsdag kl
 
 Har någon i nivån redan ett annat tillfälle vid samma tid bjuds hen inte in till det tillfället. Det står i tillfället vilka det gäller. Är det deltagarens eget tillfälle kan du trycka på **Bjud in och ersätt deras egna tillfällen**. Du ser vilket tillfälle som ersätts för varje deltagare. Rutan **Skicka inbjudan till deltagarna** är förvald om aktiviteten har meddelandet påslaget.
 
-Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle trycker du på **Fler val** för att välja **Ändra alla kommande tillfällen**, **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Dag, tid och längd ändras inte efteråt – avsluta och skapa en ny i stället. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen.
+Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle trycker du på **Fler val** för att välja **Ändra alla kommande tillfällen**, **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen. Hela seriens dag, tid och längd ändras inte – avsluta och skapa en ny i stället.
+
+Ska ett enda tillfälle ha en annan tid? Öppna tillfället och tryck på **Ändra det här tillfället**. Välj ny dag, tid och längd. Det går när tillfället inte har börjat och ingen närvaro är registrerad. Tillfället hör kvar till serien. Har serien meddelandet påslaget får deltagarna den nya tiden.
 
 Yrkesområdena träffas en gång i månaden. Träffen är en vanlig aktivitet för yrkesområdet. Planera den från **Grupper och nivåer** – namnet, typen, yrkesområdet och dagen är redan ifyllda.
 
@@ -328,6 +330,8 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 3. Tryck på **Närvarande**, **Sen**, **Giltig frånvaro** eller **Ogiltig frånvaro** på raden. Rutan överst i listan visar hur många som är kvar och hur många som registrerades automatiskt.
 4. Var alla andra där? Tryck på **Markera övriga som närvarande** och bekräfta namnen. Det gäller alla tillfällen i listan som saknar registrering. Närvaro eller frånvaro som redan är registrerad ändras aldrig. Rätta en enskild rad med knapparna på raden.
 5. Klockan 18.00 registreras tillfällen som har passerat och saknar närvaro som närvarande. De märks **Automatiskt registrerad**. Var deltagaren inte där? Ändra raden till frånvaro. Märket försvinner och raden blir en vanlig registrering.
+
+Ska ett kommande tillfälle ha en annan tid? Tryck på **Ändra tid** på raden i **Närvaro** eller under **Kommande tillfällen** på deltagarkortets flik **Närvaro**. Välj ny dag och tid, **Längd** och plats och tryck på **Spara ny tid**. Du behöver inte göra om tillfället. **Skicka den nya tiden till deltagaren** är förvalt: deltagaren får e-post eller SMS med dag, tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren. Tiden kan inte ändras när närvaron är registrerad, till en helgdag, en vecka med uppehåll, en månad som är fakturerad eller en tid då deltagaren redan har något annat. **Längd** väljer du i listan – du skriver aldrig timmar. Ett tillfälle i en gruppaktivitet ändrar du i aktiviteten.
 6. Närvaron ligger till grund för veckorapporten till kommunen, närvarograden och fakturan. Ändras närvaron efter att veckorapporten har gått ut: öppna rapporten under **Rapporter** och tryck på **Rätta**.
 
 ### Möte med inspelning och AI-förslag

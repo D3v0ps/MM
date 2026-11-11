@@ -77,11 +77,7 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
         eyebrow={d.customerName}
         title="Rapporter och meddelanden"
         back={{ label: "Till start", to: "/portal" }}
-        lead={
-          d.weeklyReportEmail
-            ? "Olästa visas först. Du får ett mejl utan personuppgifter när något nytt kommer."
-            : "Olästa visas först och har märket Ny. Du får ett mejl utan personuppgifter när en orderbekräftelse, månadsrapport eller slutrapport kommer. Veckorapporten om närvaro kommer varje vecka utan mejl."
-        }
+        lead="Olästa visas först. Du får ett mejl utan personuppgifter när något nytt kommer."
       />
       <Tabs
         id="kom-rapporter"

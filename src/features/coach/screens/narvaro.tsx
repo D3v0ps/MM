@@ -14,7 +14,7 @@
 //     (Ej registrerad, Planerat, orsaken och Automatiskt registrerad).
 import { useState, type ReactNode } from "react";
 import { uniq } from "@/core/util";
-import { plural } from "@/core/format";
+import { fmtDuration, plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link } from "@/shell/nav";
@@ -92,6 +92,7 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
   const [bulk, setBulk] = useState<{ marked: number; total: number; published: string[] } | null>(null);
   // Lägg till och ta bort enstaka tillfällen (beslut 2026-10-08) – bara tillfällen utan registrerad närvaro kan tas bort.
   const [adding, setAdding] = useState(false);
+  const [moving, setMoving] = useState<NarvaroRow | null>(null);
   const remove = useCommand(activityRemove);
   const removeActivity = async (a: NarvaroRow) => {
     const ok = await confirm({
@@ -233,7 +234,7 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
         <div className="flex min-w-0 flex-col gap-[3px]">
           <div className="font-bold">{a.name}</div>
           <div className="text-small text-text-muted">
-            {k.label} · {a.location} · {a.durationMin} min · <span data-testid="arendenummer" className="tabular-nums tracking-[0.01em]">{a.caseNumber}</span>
+            {k.label} · {a.location} · {fmtDuration(a.durationMin)} · <span data-testid="arendenummer" className="tabular-nums tracking-[0.01em]">{a.caseNumber}</span>
           </div>
           {/* Statusen en gång per rad: den valda står i knappgruppen – här bara det som knappgruppen inte visar. */}
           <Row gap="sm">
@@ -270,9 +271,15 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
                   Öppna gruppaktiviteten
                 </Button>
               ) : (
-                <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
-                  Ta bort
-                </Button>
+                <>
+                  {/* Ändra tid (Karims beslut 2026-11-11): samma dialog som Lägg till tillfälle – deltagaren får den nya tiden. */}
+                  <Button kind="ghost" icon="clock" ariaLabel={`Ändra tid: ${a.name} ${dayLabel(a.startsAt)} ${fmtTime(a.startsAt)}`} onClick={() => setMoving(a)}>
+                    Ändra tid
+                  </Button>
+                  <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
+                    Ta bort
+                  </Button>
+                </>
               )}
             </Row>
           ) : (
@@ -549,6 +556,14 @@ function Narvaro({ v, initial, caseId, filters, filterLabels = [] }: { v: Narvar
         </Card>
       </Split>
       {adding && <ActivityModal cases={v.cases} caseId={caseId} now={now} onClose={() => setAdding(false)} />}
+      {moving && (
+        <ActivityModal
+          cases={[]}
+          now={now}
+          onClose={() => setMoving(null)}
+          move={{ activityId: moving.activityId, caseNumber: moving.caseNumber, name: moving.name, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin, location: moving.location }}
+        />
+      )}
     </Page>
   );
 }

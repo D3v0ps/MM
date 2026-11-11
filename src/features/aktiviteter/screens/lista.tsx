@@ -120,7 +120,7 @@ function ActivityTable({ rows, now, empty, caption }: { rows: GroupActivityListR
         <>
           <span className="font-bold">{fmtWeekday(dayOf(r.startsAt))}</span>
           <CellSub>
-            kl. {fmtTime(r.startsAt)} · {r.durationMin} min
+            kl. {fmtTime(r.startsAt)} · {durationLabel(r.durationMin)}
           </CellSub>
         </>
       ),

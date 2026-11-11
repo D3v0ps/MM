@@ -7,7 +7,7 @@
 // (src/core/todo.ts), raderna ritas av kitet (TodoList i src/ui/vecka.tsx).
 import { useState, type ReactNode } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
-import { plural } from "@/core/format";
+import { fmtDuration, plural } from "@/core/format";
 import { todoRows, todoSummary, whenText, type TodoPart } from "@/core/todo";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtTime, fmtWeekKey, holidayName, isoWeek, monthName, relative, WEEKDAYS } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -214,7 +214,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         </Button>
       ) : null;
     const action = actionOf(kind);
-    const meetingNote = `${k.label} · ${a.location} · ${a.durationMin} min${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
+    const meetingNote = `${k.label} · ${a.location} · ${fmtDuration(a.durationMin)}${aiDraft ? " · mötesrapport att granska – utkast från AI" : ci && !ci.approved ? " · mötet är påbörjat" : ""}`;
     const status: TodoStatus | null = isNext
       ? { text: `Nästa · ${relative(a.startsAt, now)}`, tone: "next" }
       : past && !a.attendance

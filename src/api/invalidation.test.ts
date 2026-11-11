@@ -133,6 +133,8 @@ const WRITES: Record<string, string[]> = {
   // Starten före det bokade första mötet flyttar mötet: en ny version av orderbekräftelsen och mejlet till kommunen.
   "arenden.caseStart": ["cases", "activities", "case_status_history", "reports", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
+  // Ändra tid (Karims beslut 2026-11-11): tillfället, meddelandet till deltagaren och samordnarens uppgift att ringa (stängd eller ny).
+  "arenden.activityMove": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],

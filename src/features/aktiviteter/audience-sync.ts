@@ -28,7 +28,7 @@
 import type { Ctx } from "@/api/server";
 import { audienceOf, belongsOn, planAudienceSync, type Audience, type AudienceCase, type AudienceSlot } from "@/core/audience";
 import { isOperational } from "@/core/config";
-import { isSystemSendTime, seriesOccurrenceStarts, SERIES_HORIZON_DAYS } from "@/core/group-series";
+import { isSystemSendTime, movedSeriesSlots, SERIES_OCCURRENCE_MOVED, seriesOccurrenceStarts, SERIES_HORIZON_DAYS } from "@/core/group-series";
 import { addDays, dayOf, type LocalDate } from "@/core/time";
 import { uniq } from "@/core/util";
 import { PolicyError, UniqueError } from "@/data/repo";
@@ -253,7 +253,10 @@ export async function ensureSeriesOccurrences(ctx: Ctx, opts: { contractId?: str
   const holidays = new Set((await s.table("holidays").list({ date: { gte: today, lte: addDays(today, SERIES_HORIZON_DAYS) } })).map((h) => h.date));
   const byContract = new Map<string, string[]>();
   for (const x of series) {
-    const existing = new Set((await s.table("group_activities").pick(["startsAt"], { seriesId: x.id })).map((g) => g.startsAt));
+    // Befintliga tider: seriens tillfällen (också inställda) och de tider som flyttade tillfällen lämnat (Karims beslut 2026-11-11) –
+    // ett tillfälle som fått ny tid skapas aldrig igen på den gamla.
+    const moved = movedSeriesSlots(await s.table("audit_log").list({ entity: "group_activity_series", entityId: x.id, action: SERIES_OCCURRENCE_MOVED }));
+    const existing = new Set([...(await s.table("group_activities").pick(["startsAt"], { seriesId: x.id })).map((g) => g.startsAt), ...moved]);
     const created: string[] = [];
     for (const startsAt of seriesOccurrenceStarts(x, { now, holidays, existing })) {
       const g: GroupActivity = {

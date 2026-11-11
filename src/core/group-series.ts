@@ -9,6 +9,17 @@
 import type { GroupActivitySeries } from "@/data/schema";
 import { addDays, dayOf, weekday, type LocalDate, type LocalDateTime } from "./time";
 
+/**
+ * Loggen när ett enskilt tillfälle i en serie får ny dag, tid eller längd (Karims beslut 2026-11-11): entity group_activity_series,
+ * details.seriesSlot = tiden jobbet skapade tillfället på. Jobbet räknar de tiderna som befintliga, så att det flyttade tillfället
+ * aldrig skapas igen på den gamla tiden.
+ */
+export const SERIES_OCCURRENCE_MOVED = "group_activity_series.occurrence_moved";
+
+/** Seriens tider som flyttade tillfällen har lämnat (details.seriesSlot i loggen SERIES_OCCURRENCE_MOVED). */
+export const movedSeriesSlots = (log: readonly { details?: Record<string, unknown> | null }[]): LocalDateTime[] =>
+  log.map((l) => l.details?.seriesSlot).filter((x): x is LocalDateTime => typeof x === "string");
+
 /** Hur långt fram tillfällena skapas (dagar från i dag). */
 export const SERIES_HORIZON_DAYS = 14;
 /**

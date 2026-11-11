@@ -5,13 +5,13 @@
 import { useState } from "react";
 import type { WeekPlanKind } from "@/core/config";
 import { EARLY_START_HELP, earlyStartDateProblem, movedMeetingAt, plannedEndFrom } from "@/core/early-start";
-import { plural } from "@/core/format";
+import { fmtDuration, plural } from "@/core/format";
 import { defaultWeekPlan, type WeekPlanRow } from "@/core/schedule";
 import { addWorkingDays, dayOf, fmtDate, fmtDateTimeLong, isWorkingDay, holidayName, timeOf, WEEKDAYS } from "@/core/time";
 import { useCommand } from "@/shell/backend";
 import { Button, Check, DateInput, DateTimeInput, Field, FormGrid, Input, Kv, Modal, Notice, Select, Stack, TimeInput, toast } from "@/ui";
 import type { ActivityKind, TeamRole } from "@/data/schema";
-import { activityAdd, caseScheduleChange, caseSetTeam, caseStart, type CaseCard } from "../api";
+import { activityAdd, activityMove, caseScheduleChange, caseSetTeam, caseStart, type CaseCard } from "../api";
 import { Label, MiniList } from "./common";
 
 // ---------------------------------------------------------------- Veckoplanen
@@ -19,13 +19,8 @@ const KIND_LABEL: Record<WeekPlanKind, string> = { möte: "Coachträff", yrkesmo
 const KIND_OPTIONS = (Object.keys(KIND_LABEL) as WeekPlanKind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }));
 const ALL_KIND_LABEL: Record<ActivityKind, string> = { ...KIND_LABEL, arbetsgivarbesök: "Arbetsgivarbesök", annat: "Annat" };
 const DURATIONS = [30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480];
-/** "45 minuter", "1 timme", "1,5 timmar", "3 timmar". */
-export const durationLabel = (min: number) => {
-  if (min < 60) return `${min} minuter`;
-  const h = min / 60;
-  const text = Number.isInteger(h) ? String(h) : h.toFixed(1).replace(".", ",");
-  return `${text} ${h === 1 ? "timme" : "timmar"}`;
-};
+/** "45 minuter", "1 timme", "1,5 timmar", "3 timmar" – den delade formateraren (fmtDuration i src/core/format.ts). */
+export const durationLabel = fmtDuration;
 const durationOptions = (current: number) => [...new Set([...DURATIONS, current])].sort((a, b) => a - b).map((m) => ({ value: String(m), label: durationLabel(m) }));
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -242,24 +237,51 @@ export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "
 // ---------------------------------------------------------------- Lägg till tillfälle
 export type ActivityCaseOption = { caseId: string; caseNumber: string; name: string; location: string };
 /** Ett enstaka tillfälle i ett pågående ärende. cases = ärendena att välja bland (ett = förvalt, inget val visas). */
-export function ActivityModal({ cases, caseId, now, onClose }: { cases: ActivityCaseOption[]; caseId?: string | null; now: string; onClose: () => void }) {
+/**
+ * Tillfället som ska få ny tid (Ändra tid – Karims beslut 2026-11-11). Typen och deltagaren ändras inte; dag, tid, längd och plats
+ * gör det, och deltagaren får den nya tiden (aktivitet_andrad) när rutan är ikryssad.
+ */
+export type ActivityMoveTarget = { activityId: string; caseNumber: string; name?: string | null; kind: ActivityKind; startsAt: string; durationMin: number; location: string };
+
+/**
+ * Lägg till tillfälle, eller med move: Ändra tid för ett befintligt tillfälle (samma fält och samma regler för dag och längd).
+ * Längd är en vallista – ingen skriver timmar (Karims beslut 2026-11-11).
+ */
+export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: ActivityCaseOption[]; caseId?: string | null; now: string; onClose: () => void; move?: ActivityMoveTarget }) {
   const add = useCommand(activityAdd);
+  const change = useCommand(activityMove);
   const [sel, setSel] = useState(caseId && cases.some((x) => x.caseId === caseId) ? caseId : cases.length === 1 ? cases[0].caseId : "");
   const chosen = cases.find((x) => x.caseId === sel) ?? null;
-  const [kind, setKind] = useState<ActivityKind>("yrkesmoment");
-  const [at, setAt] = useState(`${addWorkingDays(dayOf(now), 1)}T09:00`);
-  const [duration, setDuration] = useState(180);
-  const [location, setLocation] = useState("");
+  const [kind, setKind] = useState<ActivityKind>(move?.kind ?? "yrkesmoment");
+  const [at, setAt] = useState(move?.startsAt ?? `${addWorkingDays(dayOf(now), 1)}T09:00`);
+  const [duration, setDuration] = useState(move?.durationMin ?? 180);
+  const [location, setLocation] = useState(move?.location ?? "");
+  const [notify, setNotify] = useState(true);
   const [tried, setTried] = useState(false);
-  const loc = location || (chosen?.location ? `Miljonbemanning ${chosen.location}` : "Miljonbemanning");
+  const [serverErr, setServerErr] = useState<string | null>(null);
+  const loc = location || (move ? "" : chosen?.location ? `Miljonbemanning ${chosen.location}` : "Miljonbemanning");
   const errs = {
-    sel: !sel ? "Välj deltagare." : null,
-    at: !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at) ? "Välj datum och tid." : null,
+    sel: !move && !sel ? "Välj deltagare." : null,
+    at: !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at) ? "Välj datum och tid." : move && at <= now ? "Tiden har redan passerat. Välj en senare tid." : null,
     loc: !loc.trim() ? "Skriv plats." : null,
   };
+  const dirty = !!move && (at !== move.startsAt || duration !== move.durationMin || loc.trim() !== move.location.trim());
   const submit = async () => {
     setTried(true);
+    setServerErr(null);
     if (errs.sel || errs.at || errs.loc) return;
+    if (move) {
+      const res = await change.run({ activityId: move.activityId, expectedStartsAt: move.startsAt, startsAt: at, durationMin: duration, location: loc.trim(), notify }).catch(() => null);
+      if (!res || !res.ok) {
+        const msg = res && !res.ok && res.message ? res.message : "Tiden kunde inte ändras.";
+        setServerErr(msg);
+        toast(msg, "error");
+        return;
+      }
+      toast(res.changed ? `${ALL_KIND_LABEL[move.kind]} för ${move.caseNumber} är flyttat till ${fmtDateTimeLong(at)}.${res.notified ? ` ${res.notified}` : ""}` : "Inget var ändrat.");
+      onClose();
+      return;
+    }
     const res = await add.run({ caseId: sel, kind, startsAt: at, durationMin: duration, location: loc.trim() }).catch(() => null);
     if (!res || !res.ok) {
       toast(res && !res.ok && res.message ? res.message : "Tillfället kunde inte läggas till.", "error");
@@ -270,27 +292,43 @@ export function ActivityModal({ cases, caseId, now, onClose }: { cases: Activity
   };
   return (
     <Modal
-      title="Lägg till tillfälle"
+      title={move ? "Ändra tid" : "Lägg till tillfälle"}
       onClose={onClose}
+      dirty={dirty}
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>Avbryt</Button>
-          <Button kind="primary" icon="plus" pending={add.pending} onClick={() => void submit()}>Lägg till tillfälle</Button>
+          {move ? (
+            <Button kind="primary" icon="check" pending={change.pending} onClick={() => void submit()}>Spara ny tid</Button>
+          ) : (
+            <Button kind="primary" icon="plus" pending={add.pending} onClick={() => void submit()}>Lägg till tillfälle</Button>
+          )}
         </>
       }
     >
       <FormGrid>
-        {cases.length > 1 ? (
+        {move ? (
+          <div className="col-span-full">
+            <Kv
+              items={[
+                ["Ärende", <span key="n"><span className="font-bold tabular-nums">{move.caseNumber}</span>{move.name ? ` · ${move.name}` : ""}</span>],
+                ["Tillfälle", `${ALL_KIND_LABEL[move.kind]} ${fmtDateTimeLong(move.startsAt)}, ${fmtDuration(move.durationMin)}`],
+              ]}
+            />
+          </div>
+        ) : cases.length > 1 ? (
           <Field id="arn-act-case" label="Deltagare" required error={tried ? errs.sel : null} full>
             <Select value={sel} onValueChange={setSel} placeholder="Välj deltagare" options={cases.map((x) => ({ value: x.caseId, label: `${x.name} · ${x.caseNumber}` }))} />
           </Field>
         ) : (
           <Kv items={[["Ärende", chosen ? <span key="n"><span className="font-bold tabular-nums">{chosen.caseNumber}</span> · {chosen.name}</span> : "–"]]} />
         )}
-        <Field id="arn-act-kind" label="Typ" required>
-          <Select value={kind} onValueChange={(v) => setKind(v as ActivityKind)} options={(Object.keys(ALL_KIND_LABEL) as ActivityKind[]).map((k) => ({ value: k, label: ALL_KIND_LABEL[k] }))} />
-        </Field>
-        <Field id="arn-act-at" label="Datum och tid" required error={tried ? errs.at : null}>
+        {!move && (
+          <Field id="arn-act-kind" label="Typ" required>
+            <Select value={kind} onValueChange={(v) => setKind(v as ActivityKind)} options={(Object.keys(ALL_KIND_LABEL) as ActivityKind[]).map((k) => ({ value: k, label: ALL_KIND_LABEL[k] }))} />
+          </Field>
+        )}
+        <Field id="arn-act-at" label={move ? "Ny dag och tid" : "Datum och tid"} required error={tried ? errs.at : null}>
           <DateTimeInput value={at} onValueChange={setAt} />
         </Field>
         <Field id="arn-act-dur" label="Längd" required>
@@ -301,7 +339,21 @@ export function ActivityModal({ cases, caseId, now, onClose }: { cases: Activity
         </Field>
         {at && !isWorkingDay(at) && (
           <div className="col-span-full">
-            <Notice tone="warn" title="Inte en arbetsdag">{holidayName(at) ?? "Dagen är en helg"}. Tillfället läggs ändå till om du vill.</Notice>
+            <Notice tone="warn" title="Inte en arbetsdag">
+              {holidayName(at) ?? "Dagen är en helg"}. {move ? "Välj en vardag." : "Tillfället läggs ändå till om du vill."}
+            </Notice>
+          </div>
+        )}
+        {move && (
+          <div className="col-span-full">
+            <Check id="arn-act-meddela" checked={notify} onCheckedChange={setNotify}>
+              <span className="font-bold">Skicka den nya tiden till deltagaren</span>
+            </Check>
+          </div>
+        )}
+        {move && serverErr && (
+          <div className="col-span-full">
+            <Notice tone="critical" title="Tiden kan inte ändras">{serverErr}</Notice>
           </div>
         )}
       </FormGrid>
