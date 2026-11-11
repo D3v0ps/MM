@@ -92,6 +92,25 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
+### Deltagaren kom inte till första mötet
+
+Starta inte insatsen för att kunna skriva frånvaro. Gör så här i stället:
+
+1. Tryck på **Deltagaren kom inte** i deltagarkortet, bredvid **Starta insatsen**. Knappen finns när tiden för första mötet har varit. Den finns också i listan **Att göra** på Min vecka.
+2. Välj **Uteblev utan att meddela** eller **Giltig frånvaro**.
+3. Vid giltig frånvaro: skriv en kort **Orsak**. Kort och sakligt, till exempel "sjuk" eller "krock med annan tid". Inga personnummer, inga diagnoser och inga omdömen om personen.
+4. Tryck på **Spara**.
+5. Tryck på **Boka nytt första möte** och välj en ny tid. Kom deltagaren aldrig? Coachen trycker på **Avsluta – deltagaren kom aldrig** och väljer avslutsorsak.
+
+Det här händer:
+
+- Kommunen får inget besked och ser det inte. Det är bara för Miljonbemanning.
+- Det räknas inte som närvaro och faktureras inte. Inga tillfällen skapas och insatsen startar inte.
+- **Starta insatsen** försvinner tills ett nytt första möte är bokat. Insatsen startar tidigast samma dag som det nya mötet.
+- Det står kvar i tidslinjen, också när ett nytt möte är bokat. Det går inte att ändra eller ta bort.
+- När du bokar ett nytt första möte får kommunen den uppdaterade orderbekräftelsen med den nya tiden, som när ett möte bokas om. Kommunen får inte veta varför. Deltagaren får en ny kallelse.
+- Den nya tiden gör inte ärendet sent i uppföljningen. Nyckeltalet för första mötet räknar det första bokade mötet.
+
 Hela vägen för en deltagare, från beställning till avslut, står i **Rutin för deltagarna från början till slutet** längst ner på den här sidan.
 
 ### Ändra startdatum

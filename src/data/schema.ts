@@ -72,6 +72,8 @@
 //                                       Testdatat: src/data/seed/decisions-2026-10-22.ts
 //   (finns inte i prototypen)        -> case_start_changes (ändra startdatum, Karims beslut 2026-10-29, 0038).
 //                                       Testdatat: src/data/seed/decisions-2026-10-29.ts
+//   (finns inte i prototypen)        -> first_meeting_no_shows (deltagaren kom inte till första mötet, Karims beslut 2026-11-09,
+//                                       0040). Testdatat: src/data/seed/decisions-2026-11-09.ts (ett ärende vars första möte har varit)
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -2046,6 +2048,30 @@ export type CaseStartChange = {
   seq: number;
 };
 
+// ================================================================ Deltagaren kom inte till första mötet (0040, Karims beslut 2026-11-09)
+/** Slaget: uteblev utan att meddela, eller giltig frånvaro (orsaken krävs). */
+export const FIRST_MEETING_NO_SHOW_KINDS = ["uteblev", "giltig"] as const;
+export type FirstMeetingNoShowKind = (typeof FIRST_MEETING_NO_SHOW_KINDS)[number];
+/**
+ * Deltagaren kom inte till första mötet (ett bekräftat ärende där insatsen inte har startat). Internt: kommunen får inget besked
+ * och läser aldrig raden, och den räknas aldrig som närvaro – inga tillfällen och ingen närvaro skapas, och ingen närvarograd,
+ * rapport, resultatfil, export, faktura, bonus, automatisk närvaro eller spärr för Ändra startdatum läser den. En rad per ärende
+ * och möte (meetingAt = ärendets firstMeetingAt när raden registrerades). Append-only för alla roller (0040; policy.ts guard).
+ * Läses av Miljonbemanning med åtkomst full eller team – aldrig kommunen eller ekonomen. Skapas av den som arbetar i ärendet.
+ */
+export type FirstMeetingNoShow = {
+  id: string;
+  caseId: string;
+  contractId: string;
+  /** Första mötet som deltagaren inte kom till (ärendets firstMeetingAt). */
+  meetingAt: LocalDateTime;
+  kind: FirstMeetingNoShowKind;
+  /** Orsaken – krävs vid giltig frånvaro (inte bara blanksteg), frivillig annars. Högst 300 tecken, inga personnummer. */
+  reason: string | null;
+  registeredBy: UserId;
+  registeredAt: LocalDateTime;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -2120,6 +2146,7 @@ export type Tables = {
   grouping_members: GroupingMember;
   case_area_changes: CaseAreaChange;
   case_start_changes: CaseStartChange;
+  first_meeting_no_shows: FirstMeetingNoShow;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -2149,6 +2176,7 @@ export const TABLE_NAMES = [
   "case_area_changes",
   "case_start_changes",
   "bonus_claim_decisions",
+  "first_meeting_no_shows",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -2196,4 +2224,6 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   bonus_claim_decisions: ["claimId"],
   // En rad per anspråk på en bonusfaktura (0039, invoice_lines_draft_bonus_claim_key).
   invoice_lines: [{ fields: ["invoiceDraftId", "bonusClaimId"] }],
+  // Ett första möte en gång per ärende (0040, first_meeting_no_shows_case_meeting_key).
+  first_meeting_no_shows: [{ fields: ["caseId", "meetingAt"] }],
 };

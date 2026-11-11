@@ -28,7 +28,13 @@ export type ReportDb = Pick<
   Db,
   | "cases" | "activities" | "attendance" | "check_ins" | "monthly_assessments" | "monthly_plans" | "outcome_events" | "deviations" | "tasks"
   | "audit_log" | "contract_deviations" | "pulse_responses" | "contract_areas" | "profiles" | "price_items" | "reports" | "case_area_changes"
->;
+> & {
+  /**
+   * Beställarrapportens nyckeltal Första möte inom en vecka (seesSlaStats, Karims beslut 2026-11-09): det första bokade mötet. Bara
+   * ärendet och mötets tid – aldrig slaget eller orsaken. Kommunen ser att mötet bokades om (orderbekräftelsen), aldrig varför.
+   */
+  first_meeting_no_shows: KpiDb["first_meeting_no_shows"];
+};
 
 export type ReportEnv = {
   cfg: OperationalConfig;
@@ -603,7 +609,10 @@ function buildSummary(src: Src, env: ReportEnv, r: Report, frozen: boolean): Sum
     return { value: counted.length ? num / counted.length : null, num, den: counted.length, prelim: counted.filter((c) => c.resultClass === "result" && !isVer(c)).length };
   };
   const pm = monthKey(pFrom);
-  const kpiDb: KpiDb = { cases: src.db.cases, reports: src.db.reports, activities: src.db.activities, attendance: src.db.attendance, pulse_responses: src.db.pulse_responses };
+  const kpiDb: KpiDb = {
+    cases: src.db.cases, reports: src.db.reports, activities: src.db.activities, attendance: src.db.attendance, pulse_responses: src.db.pulse_responses,
+    first_meeting_no_shows: src.db.first_meeting_no_shows,
+  };
   const kpiEnv = { cfg, now: env.now, contractStart: env.contract.startsOn };
   const m: SummaryModel = {
     kind: "customer_summary", month: mk, minN, resultMinN: k?.minN ?? 0, active: active.length, started: started.size, closed: closed.size, byArea, byTrack,

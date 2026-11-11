@@ -11,6 +11,7 @@ import { autoAttendanceOf, bonusModel, bonusStepLabel, isOperational, isUnset, p
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
+import { canRegisterNoShow, currentNoShow, noShowOpen, noShowSentence } from "@/core/first-meeting";
 import {
   ABSENCE_REASONS, areaName, caseNoteKindLabel, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel,
 } from "@/core/labels";
@@ -153,10 +154,10 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     ctx.repo,
     ["activities", "attendance", "check_ins", "monthly_assessments", "reports", "placements", "alert_acks", "profiles", "memberships", "deviations",
       "user_notifications", "notification_reads", "messages", "contract_deviations", "billing_runs", "price_items", "buyer_references", "invoice_drafts",
-      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails", "case_area_changes"],
+      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails", "case_area_changes", "first_meeting_no_shows"],
     {
       activities: byCase, attendance: byCase, check_ins: byCase, monthly_assessments: byCase, placements: byCase, deviations: byCase, messages: byCase, invoice_lines: byCase,
-      case_area_changes: byCase, user_notifications: { recipientId: me },
+      case_area_changes: byCase, first_meeting_no_shows: byCase, user_notifications: { recipientId: me },
     },
   );
   // Bonusnotiserna visas inte för begränsade testare (ett ekonomiskt villkor).
@@ -169,6 +170,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const activeIds = new Set(active.map((c) => c.id));
   // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
   const toStart = cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= today).sort(by<Case>("firstMeetingAt"));
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09) – läst via ctx.repo ovan (policyn för first_meeting_no_shows).
+  const noShows = db.first_meeting_no_shows;
 
   // Närvaro att registrera (förra veckan)
   const unreg = unregistered(all, me, lastMon, addDays(lastMon, 6), main);
@@ -264,7 +267,11 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     next: next
       ? { id: next.id, shortName: shortNameOf(person(caseById.get(next.caseId) as Case)) }
       : nextGroup ? { id: nextGroup.id, shortName: nextGroup.name, group: true } : null,
-    toStart: toStart.map((c) => ({ ...row(c), firstMeetingAt: c.firstMeetingAt as string })),
+    toStart: toStart.map((c) => {
+      // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): registreringen för det nuvarande mötet, och om den kan göras nu.
+      const cur = noShowOpen(c) ? currentNoShow(c, noShows) : null;
+      return { ...row(c), firstMeetingAt: c.firstMeetingAt as string, noShow: cur ? { text: noShowSentence(cur) } : null, canRegisterNoShow: canRegisterNoShow(c, now, noShows) };
+    }),
     drafts: drafts.map((ci) => ({
       checkInId: ci.id, ...row(caseById.get(ci.caseId) as Case), heldAt: ci.heldAt, inputMethod: ci.inputMethod,
       audioDeletedAt: ci.ai?.audioDeletedAt ?? null, rawTranscriptDeleteBy: ci.ai?.rawTranscriptDeleteBy ?? null,

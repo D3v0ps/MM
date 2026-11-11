@@ -373,8 +373,13 @@ export type StartTask = {
   id: string; text: string; sub: string; emailId: string | null; caseId: string | null; href: string | null;
   kind: string | null; caseNumber: string | null; dueAt: string | null;
   call: { phone: string | null; firstMeeting: boolean } | null;
-  rebook: { caseId: string; caseNumber: string; due: SlaInfo | null; coachName: string; dueText: string } | null;
+  rebook: FirstMeetingBooking | null;
 };
+/**
+ * Underlaget för att boka eller boka om första mötet. afterNoShow = deltagaren har inte kommit till ett tidigare första möte i
+ * ärendet: nyckeltalet räknas på det första bokade mötet (Karims beslut 2026-11-09), så dialogen varnar inte för en sen tid.
+ */
+export type FirstMeetingBooking = { caseId: string; caseNumber: string; due: SlaInfo | null; coachName: string; dueText: string; afterNoShow?: boolean };
 export type KpiCardView = {
   key: string;
   label: string;
@@ -408,8 +413,18 @@ export type StartView = {
   kpis: KpiCardView[];
   assign: { quote: string; latest: { id: string; name: string; caseNumber: string; when: string }[] };
   noCoach: { caseId: string; caseNumber: string; sla: SlaInfo | null; sub: string }[];
-  /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
-  toStart: { caseId: string; caseNumber: string; firstMeetingAt: string; coachName: string; sub: string }[];
+  /**
+   * Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. Deltagaren kom inte
+   * till första mötet (Karims beslut 2026-11-09): noShow = registreringen för ärendets nuvarande första möte – raden blir "Boka nytt
+   * första möte" (rebook = underlaget för bokningen); canRegisterNoShow = mötets tid har varit och inget är registrerat (raden får
+   * "Deltagaren kom inte").
+   */
+  toStart: {
+    caseId: string; caseNumber: string; firstMeetingAt: string; coachName: string; sub: string;
+    noShow: { text: string } | null;
+    canRegisterNoShow: boolean;
+    rebook: FirstMeetingBooking;
+  }[];
   /** Dagens gruppaktiviteter i avtalet (coachmötet 2026-10-09) med länk till aktivitetsvyn. */
   groupsToday: TodayGroupActivity[];
   /** Klockan nu (dagens gruppaktiviteter: passerade visar närvaron). */

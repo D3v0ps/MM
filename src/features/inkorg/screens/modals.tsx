@@ -90,7 +90,17 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
   const legacyWeeks = !period && !!f.plannedWeeks;
   const errs: Record<string, string | null> = {
     coach: !coach ? "Välj huvudcoach." : null,
-    date: !date ? "Välj datum för första mötet." : date < f.today ? "Datumet har redan passerat." : null,
+    // Samma regel som servern (firstMeetingBookingProblem i arenden.caseAccept): inte passerat, inte före beställningen och en
+    // arbetsdag. En tid som redan har passerat i dag nekas av servern (felet visas då).
+    date: !date
+      ? "Välj datum för första mötet."
+      : date < f.today
+        ? "Datumet har redan passerat."
+        : date < dayOf(f.referredAt)
+          ? `Första mötet kan inte vara före beställningen ${fmtDate(f.referredAt)}.`
+          : !isWorkingDay(date)
+            ? `${holidayName(date) || "Dagen"} är inte en arbetsdag. Välj en vardag.`
+            : null,
     time: !time ? "Välj tid för första mötet." : null,
     area: !area ? "Välj avtalsområde." : null,
     area2: area2 && area2 === area ? "Välj ett annat alternativt område än det första, eller inget." : null,
@@ -128,7 +138,8 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
       ],
     });
     if (!res.ok) {
-      const field = res.error === "buyer_ref" ? "ink-ref" : res.error === "area" ? "ink-area" : res.error === "order_period" ? "ink-period" : null;
+      const field = res.error === "buyer_ref" ? "ink-ref" : res.error === "area" ? "ink-area" : res.error === "order_period" ? "ink-period"
+        : res.error === "past" || res.error === "before_order" || res.error === "not_working_day" ? "ink-fm-date" : null;
       if (res.error === "buyer_ref") setRefServerErr(res.message || `Beställarreferensen ska vara ${f.refLen} siffror.`);
       toast(res.message ? `Avropet kan inte accepteras ännu. ${res.message}` : "Avropet kunde inte accepteras. Försök igen.", "error");
       if (field) focusField(field);

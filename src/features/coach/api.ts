@@ -427,8 +427,17 @@ export type MinVeckaView = {
   groups: TodayGroupActivity[];
   /** Nästa aktivitet i dag (id) och kortnamn för KPI:n – group: en gruppaktivitet (kortnamnet är aktivitetens namn). */
   next: { id: string; shortName: string; group?: boolean } | null;
-  /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
-  toStart: { caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime }[];
+  /**
+   * Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. Deltagaren kom inte
+   * till första mötet (Karims beslut 2026-11-09): noShow = registreringen för ärendets nuvarande första möte (raden blir "Boka nytt
+   * första möte" med Avsluta – deltagaren kom aldrig); canRegisterNoShow = mötets tid har varit och inget är registrerat (raden får
+   * "Deltagaren kom inte").
+   */
+  toStart: {
+    caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime;
+    noShow: { text: string } | null;
+    canRegisterNoShow: boolean;
+  }[];
   drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];
   monthly: {
     month: MonthKey;

@@ -17,7 +17,7 @@ import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory"
 import { canReadRow, canWriteRow, POLICIES } from "../policy";
 import { TABLE_NAMES, UNIQUE_KEYS, type Case, type TableName, type Tables } from "../schema";
 import {
-  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type DatabaseSnapshot, type Tx,
+  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type Attempt, type DatabaseSnapshot, type Tx,
 } from "./pglite";
 
 // Testarnas konton i auth.users (skapas av servern vid första inloggningen; seeden kopplar dem via e-postadressen).
@@ -245,6 +245,12 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       attachment("att-x-deltagare-skyddad", protectedCase.id, protectedCase.leadCoachId!, false, "personligt_brev"),
       attachment("att-x-deltagare-maria", mariaCase.id, "k-maria", false, "ovrigt"),
     ],
+    // Deltagaren kom inte till första mötet (0040): BOT-27-0043:s första möte fredag 29 januari kl. 14.00 (Erik, Omars beställning) –
+    // Erik registrerade att deltagaren uteblev. Läses av Miljonbemanning, aldrig av Omar eller ekonomen.
+    first_meeting_no_shows: [{
+      id: "fmns-x-0043", caseId: "case-270043", contractId: "c-bot", meetingAt: "2027-01-29T14:00", kind: "uteblev", reason: null, registeredBy: "u-erik",
+      registeredAt: "2027-01-29T15:10",
+    }],
   };
 }
 const EXTRA = extraRows();
@@ -857,6 +863,9 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
     const free = (caseId: string) => !active.some((m) => m.caseId === caseId && (m.groupingId === row.groupingId || (row.slot != null && m.slot === row.slot)));
     c.caseId = data.cases.find((x) => x.contractId === row.contractId && x.personId !== SKYDDAD_PERSON.id && free(x.id))?.id;
   }
+  // Deltagaren kom inte till första mötet (0040): ett möte en gång per ärende – kopian gäller ett annat möte än ärendets första,
+  // som både triggern och policy.ts nekar (skrivreglerna prövas i blocket för 0040).
+  if (t === "first_meeting_no_shows") c.meetingAt = "2027-01-28T14:00";
   // Gruppmål (0033): ett val per deltagare och aktivitet – kopian får en inbjuden deltagare i samma aktivitet som saknar val, och
   // deltagarens tillfälle.
   if (t === "group_goal_results") {
@@ -3845,5 +3854,263 @@ describe("bonusanspråk och kommunens beslut (0039): läsning, övergångar och 
     for (const [label, sql, run, want] of cases) {
       expect({ pg: await service(sql), mem: await memOk(run(system(memWith()))) }, label).toEqual({ pg: want, mem: want });
     }
+  });
+});
+
+// ================================================================ Deltagaren kom inte till första mötet (0040, Karims beslut 2026-11-09)
+describe("deltagaren kom inte till första mötet (0040): läsning och skrivning – samma regler i RLS, triggrarna och policy.ts", () => {
+  // BOT-27-0043 (huvudcoach Erik, handläggare Omar): bekräftat, inget startdatum, första mötet fredag 29 januari kl. 14.00. EXTRA har
+  // Eriks registrering för mötet (fmns-x-0043) – skrivtesterna börjar utan den (tömd som postgres i samma transaktion). Testklockan
+  // (mm.app_now()) står på 09.12 när blocket börjar – se beforeEach.
+  const CASE = "case-270043";
+  const MEETING = "2027-01-29T14:00";
+  const at = "2027-02-01T09:12";
+  type Row = Tables["first_meeting_no_shows"];
+  const row = (by: string, patch: Partial<Row> = {}): Row => ({
+    id: `fmns-t-${by}`, caseId: CASE, contractId: "c-bot", meetingAt: MEETING, kind: "uteblev", reason: null, registeredBy: by, registeredAt: at, ...patch,
+  });
+  const ins = (r: Row) => insertSql("first_meeting_no_shows", r as unknown as Record<string, unknown>);
+  /** Ärendet ändrat som postgres (samma i databasen och minnet). */
+  type CasePrep = { sql: string; patch: Partial<Case> } | null;
+  /** Före satsen, som postgres i samma transaktion: utan EXTRA:s registrering och med ärendet som prep säger. */
+  const prepare = (prep: CasePrep) => async (tx: Tx) => {
+    await tx.exec("truncate public.first_meeting_no_shows");
+    if (prep) await tx.exec(prep.sql);
+  };
+  const asWith = <T,>(key: string, prep: CasePrep, fn: (tx: Tx) => Promise<T>): Promise<T> => {
+    const p = findPersona(key);
+    const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+    return asUser(db, authOf(p.actor.userId), fn, {
+      before: async (tx) => {
+        await prepare(prep)(tx);
+        if (roles.size > 1) await chooseRole(p.actor.userId, p.actor.role)(tx);
+      },
+    });
+  };
+  const pgInsert = async (key: string, r: Row, prep: CasePrep = null) => allowed(await asWith(key, prep, (tx) => attempt(tx, ins(r))));
+  const serviceInsert = (r: Row, prep: CasePrep = null) => asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role", before: prepare(prep) });
+  /** Minnet med samma klocka som databasen, utan EXTRA:s registrering och med ärendet som prep säger. */
+  const memStore = (prep: CasePrep = null) => {
+    const d = structuredClone(data);
+    d.first_meeting_no_shows = [];
+    if (prep) Object.assign(d.cases.find((c) => c.id === CASE)!, prep.patch);
+    const s = new MemoryStore<Tables>(d, UNIQUE_KEYS);
+    s.clock = () => at;
+    return s;
+  };
+  const memInsert = (key: string, r: Row, prep: CasePrep = null) => canWriteRow("first_meeting_no_shows", r, actorOf(findPersona(key)), memStore(prep).raw());
+  const memOk = (p: Promise<unknown>) => p.then(() => true, () => false);
+  const system = (s: MemoryStore<Tables>) => new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true }).table("first_meeting_no_shows");
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
+
+  it("testdatat: BOT-27-0043 är bekräftat utan startdatum och mötet har varit; registreringen läses av Miljonbemanning – aldrig kommunen eller ekonomen", async () => {
+    expect(data.cases.find((c) => c.id === CASE)).toMatchObject({ status: "confirmed", startDate: null, firstMeetingAt: MEETING, referrerId: "k-omar" });
+    const pgRead = (key: string) => asPersona(findPersona(key), async (tx) => (await tx.query<{ id: string }>("select id from public.first_meeting_no_shows order by id")).rows.map((r) => r.id));
+    const memRead = (key: string) => data.first_meeting_no_shows.filter((x) => canReadRow("first_meeting_no_shows", x, actorOf(findPersona(key)), raw)).map((x) => x.id);
+    for (const key of ["u-erik", "u-amira", "u-sara", "u-johan", "u-karin", "u-robin", SUPERVISOR]) {
+      expect({ pg: await pgRead(key), mem: memRead(key) }, key).toEqual({ pg: ["fmns-x-0043"], mem: ["fmns-x-0043"] });
+    }
+    for (const key of ["k-omar", "k-maria", "u-lars", "deltagare"]) expect({ pg: await pgRead(key), mem: memRead(key) }, key).toEqual({ pg: [], mem: [] });
+  });
+
+  it("skapa: den som arbetar i ärendet i eget namn – chef, admin, ekonom och kommunen (också handläggaren som beställde) nekas", async () => {
+    const cases: [string, boolean][] = [
+      ["u-erik", true], ["u-amira", true], ["u-sara", true], ["u-johan", true], [SUPERVISOR, true],
+      ["u-karin", false], ["u-robin", false], ["u-lars", false], ["k-omar", false], ["k-maria", false],
+    ];
+    for (const [key, want] of cases) {
+      const r = row(findPersona(key).actor.userId);
+      expect({ pg: await pgInsert(key, r), mem: memInsert(key, r) }, key).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("nekas: i någon annans namn, fel avtal, ett annat möte, gammal tid, giltig frånvaro utan orsak eller med bara blanksteg, för lång orsak och okänt slag", async () => {
+    const cases: [string, Row, boolean][] = [
+      ["i någon annans namn", row("u-erik", { registeredBy: "u-amira" }), false],
+      ["fel avtal", row("u-erik", { contractId: "c-ny" }), false],
+      ["ett annat möte", row("u-erik", { meetingAt: "2027-01-28T14:00" }), false],
+      ["gammal tid", row("u-erik", { registeredAt: "2027-01-31T09:12" }), false],
+      ["giltig utan orsak", row("u-erik", { kind: "giltig", reason: null }), false],
+      ["giltig med blanksteg", row("u-erik", { kind: "giltig", reason: "   " }), false],
+      ["för lång orsak", row("u-erik", { reason: "x".repeat(301) }), false],
+      ["okänt slag", row("u-erik", { kind: "sjuk" as never }), false],
+      ["giltig med orsak", row("u-erik", { kind: "giltig", reason: "Sjuk enligt handläggaren." }), true],
+      ["uteblev med 300 tecken", row("u-erik", { reason: "x".repeat(300) }), true],
+    ];
+    for (const [label, r, want] of cases) expect({ pg: await pgInsert("u-erik", r), mem: memInsert("u-erik", r) }, label).toEqual({ pg: want, mem: want });
+  });
+
+  it("bara ett bekräftat ärende utan startdatum vars första möte har varit – för inloggade och för servern", async () => {
+    const preps: [string, CasePrep, Row][] = [
+      ["mötet har inte varit", { sql: `update public.cases set first_meeting_at = '2027-02-01 10:00+01' where id = '${CASE}'`, patch: { firstMeetingAt: "2027-02-01T10:00" } },
+        row("u-erik", { meetingAt: "2027-02-01T10:00" })],
+      ["insatsen har startat", { sql: `update public.cases set status = 'active', start_date = '2027-01-29' where id = '${CASE}'`, patch: { status: "active", startDate: "2027-01-29" } }, row("u-erik")],
+      ["bekräftat med startdatum", { sql: `update public.cases set start_date = '2027-02-01' where id = '${CASE}'`, patch: { startDate: "2027-02-01" } }, row("u-erik")],
+      ["mötet har bokats om", { sql: `update public.cases set first_meeting_at = '2027-01-29 09:00+01' where id = '${CASE}'`, patch: { firstMeetingAt: "2027-01-29T09:00" } }, row("u-erik")],
+    ];
+    for (const [label, prep, r] of preps) {
+      expect({ pg: await pgInsert("u-erik", r, prep), mem: memInsert("u-erik", r, prep) }, label).toEqual({ pg: false, mem: false });
+      const service = await serviceInsert(r, prep);
+      expect({ ok: service.ok, code: service.ok ? null : service.code, mem: await memOk(system(memStore(prep)).insert(r)) }, `${label} (servern)`).toEqual({ ok: false, code: "23514", mem: false });
+    }
+    // Det ombokade mötet kan registreras – av den inloggade och av servern.
+    const rebooked = preps[3][1];
+    const r = row("u-erik", { meetingAt: "2027-01-29T09:00" });
+    expect({ pg: await pgInsert("u-erik", r, rebooked), mem: memInsert("u-erik", r, rebooked) }).toEqual({ pg: true, mem: true });
+    expect((await serviceInsert(r, rebooked)).ok).toBe(true);
+  });
+
+  it("ett möte en gång: en andra registrering nekas (unikt index) – också för servern och i minnet", async () => {
+    const got = await asWith("u-erik", null, async (tx) => ({
+      first: await attempt(tx, ins(row("u-erik")), [], { keep: true }),
+      again: await attempt(tx, ins(row("u-erik", { id: "fmns-t-igen", kind: "giltig", reason: "Ändrat sig." }))),
+    }));
+    expect(got.first.ok).toBe(true);
+    expect(got.again).toMatchObject({ ok: false, code: "23505" });
+    // EXTRA:s registrering finns redan: servern nekas också.
+    expect(await asUser(db, null, (tx) => attempt(tx, ins(row("u-sara"))), { role: "service_role" })).toMatchObject({ ok: false, code: "23505" });
+    const s = memStore();
+    await new MemoryRepo<Tables>(s, actorOf(findPersona("u-erik")), POLICIES).table("first_meeting_no_shows").insert(row("u-erik"));
+    await expect(new MemoryRepo<Tables>(s, actorOf(findPersona("u-sara")), POLICIES).table("first_meeting_no_shows").insert(row("u-sara"))).rejects.toBeInstanceOf(UniqueError);
+  });
+
+  it("append-only för inloggade: ingen ändrar, raderar eller tömmer tabellen – service role ändrar aldrig men raderar (gallring), ingen truncate", async () => {
+    for (const key of ["u-erik", "u-sara", "u-robin", "k-omar", "u-lars"]) {
+      const got = await asPersona(findPersona(key), async (tx) => ({
+        upd: await attempt(tx, "update public.first_meeting_no_shows set kind = 'giltig', reason = 'x' where id = 'fmns-x-0043'"),
+        del: await attempt(tx, "delete from public.first_meeting_no_shows where id = 'fmns-x-0043'"),
+        trunc: await attempt(tx, "truncate public.first_meeting_no_shows"),
+      }));
+      expect([allowed(got.upd), allowed(got.del), allowed(got.trunc)], key).toEqual([false, false, false]);
+    }
+    const service = (sql: string) => asUser(db, null, (tx) => attempt(tx, sql), { role: "service_role" });
+    expect(await service("update public.first_meeting_no_shows set reason = 'x' where id = 'fmns-x-0043'")).toMatchObject({ ok: false, code: "42501" });
+    expect(await service("delete from public.first_meeting_no_shows where id = 'fmns-x-0043'")).toEqual({ ok: true, rows: 1 });
+    expect(await service("truncate public.first_meeting_no_shows")).toMatchObject({ ok: false, code: "42501" });
+    const grants = await db.query<{ grantee: string; p: string }>(
+      "select grantee, string_agg(privilege_type, ',' order by privilege_type) as p from information_schema.role_table_grants where table_schema = 'public' and table_name = 'first_meeting_no_shows' and grantee in ('authenticated', 'service_role', 'anon') group by grantee order by grantee",
+    );
+    expect(grants.rows).toEqual([{ grantee: "authenticated", p: "INSERT,SELECT" }, { grantee: "service_role", p: "DELETE,INSERT,SELECT" }]);
+    // Minnet: systemet ändrar inte (guard) men tar bort; den inloggade gör ingetdera.
+    const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    expect(await memOk(system(s).update("fmns-x-0043", { reason: "x" }))).toBe(false);
+    expect(await memOk(new MemoryRepo<Tables>(s, actorOf(findPersona("u-erik")), POLICIES).table("first_meeting_no_shows").remove("fmns-x-0043"))).toBe(false);
+    expect(await memOk(system(s).remove("fmns-x-0043"))).toBe(true);
+    expect(s.rows("first_meeting_no_shows")).toEqual([]);
+  });
+
+  it("felmeddelandena säger ingenting om ärendet till den som inte arbetar i det: ett och samma nekande (42501) oavsett ärende, möte och läge", async () => {
+    // Ärendet som det är (bekräftat, mötet har varit), fel möte, ett pågående ärende och ett ärende som inte finns: kommunen,
+    // ekonomen, chefen och admin får samma svar – annars kunde felkoden eller texten avslöja läget och mötets tid.
+    const targets: [string, Partial<Row>][] = [
+      ["rätt möte", {}], ["fel möte", { meetingAt: "2027-01-28T14:00" }], ["framtida möte", { meetingAt: "2027-03-01T10:00" }],
+      ["pågående ärende", { caseId: "case-270041" }], ["finns inte", { caseId: "case-finns-inte" }],
+    ];
+    for (const key of ["k-maria", "k-omar", "u-lars", "u-karin", "u-robin"]) {
+      const by = findPersona(key).actor.userId;
+      const got = await asWith(key, null, async (tx) => {
+        const out: Attempt[] = [];
+        for (const [label, patch] of targets) out.push(await attempt(tx, ins(row(by, { id: `fmns-o-${label.replace(/\s/g, "-")}`, ...patch }))));
+        return out;
+      });
+      for (const [i, [label]] of targets.entries()) {
+        expect(got[i], `${key} ${label}`).toEqual({ ok: false, code: "42501", message: "Du kan inte registrera det i det här ärendet" });
+        expect(memInsert(key, row(by, targets[i][1])), `${key} ${label} (minnet)`).toBe(false);
+      }
+    }
+    // Den som arbetar i ärendet får som förut veta vad som inte stämmer.
+    const erik = await asWith("u-erik", null, (tx) => attempt(tx, ins(row("u-erik", { meetingAt: "2027-01-28T14:00" }))));
+    expect(erik).toMatchObject({ ok: false, code: "23514", message: "Mötet ska vara ärendets första möte" });
+  });
+
+  it("startdatumet sätts inte så länge det nuvarande första mötet är registrerat – för inloggade, för servern och med Ändra startdatum", async () => {
+    // EXTRA:s registrering för fredag 29 januari kl. 14.00 finns (ingen truncate här) och är ärendets första möte.
+    const upd = (day: string) => `update public.cases set status = 'active', start_date = '${day}' where id = '${CASE}'`;
+    /** Det nya mötet samma dag kl. 16.00 (deltagaren kom), som postgres före satsen. */
+    const REBOOK = `update public.cases set first_meeting_at = '2027-01-29 16:00+01' where id = '${CASE}'`;
+    const erikRoles = new Set(data.memberships.filter((m) => m.userId === "u-erik").map((m) => m.role));
+    const asErik = <T,>(prep: readonly string[], fn: (tx: Tx) => Promise<T>) => asUser(db, authOf("u-erik"), fn, {
+      before: async (tx) => {
+        for (const sql of prep) await tx.exec(sql);
+        if (erikRoles.size > 1) await chooseRole("u-erik", "coach")(tx);
+      },
+    });
+    const asService = <T,>(prep: readonly string[], fn: (tx: Tx) => Promise<T>) =>
+      asUser(db, null, fn, { role: "service_role", before: async (tx) => { for (const sql of prep) await tx.exec(sql); } });
+    const memUpdate = async (key: string | null, day: string, firstMeetingAt = MEETING) => {
+      const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+      s.clock = () => at;
+      s.updateRow("cases", CASE, { firstMeetingAt });
+      const repo = key ? new MemoryRepo<Tables>(s, actorOf(findPersona(key)), POLICIES) : new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true });
+      return memOk(repo.table("cases").update(CASE, { status: "active", startDate: day }));
+    };
+    // Det registrerade mötet är ärendets första möte: inget startdatum, vilken dag det än är.
+    for (const day of ["2027-01-29", "2027-02-01"]) {
+      const pg = await asErik([], (tx) => attempt(tx, upd(day)));
+      const service = await asService([], (tx) => attempt(tx, upd(day)));
+      expect({ pg: allowed(pg), service: allowed(service), mem: await memUpdate("u-erik", day), sys: await memUpdate(null, day) }, day).toEqual({ pg: false, service: false, mem: false, sys: false });
+      expect([pg, service].map((x) => (x.ok ? null : x.code)), day).toEqual(["23514", "23514"]);
+    }
+    // Nytt första möte senare samma dag: insatsen kan starta samma dag – för coachen, servern och i minnet.
+    const pg = await asErik([REBOOK], (tx) => attempt(tx, upd("2027-01-29")));
+    const service = await asService([REBOOK], (tx) => attempt(tx, upd("2027-01-29")));
+    expect({ pg: allowed(pg), service: allowed(service), mem: await memUpdate("u-erik", "2027-01-29", "2027-01-29T16:00"), sys: await memUpdate(null, "2027-01-29", "2027-01-29T16:00") })
+      .toEqual({ pg: true, service: true, mem: true, sys: true });
+    // Andra ändringar i ärendet påverkas inte (startdatumet ändras inte).
+    expect(await asService([], (tx) => attempt(tx, `update public.cases set phase = 2 where id = '${CASE}'`))).toEqual({ ok: true, rows: 1 });
+    // Kommunen och ekonomen nekas av spärren från 0038 (cases_start_date_guard körs först) – aldrig med registreringens regel.
+    for (const key of ["k-omar", "u-lars"]) {
+      const got = await asPersona(findPersona(key), (tx) => attempt(tx, `update public.cases set start_date = '2027-01-29' where id = '${CASE}'`));
+      expect(got.ok ? null : got.message, key).not.toMatch(/deltagaren kom inte/i);
+    }
+    // Ändra startdatum (mm.apply_case_start_change ändrar startdatumet): insatsen startade 29 januari på mötet kl. 16.00. Är
+    // ärendets första möte mötet kl. 14.00 som deltagaren inte kom till nekas ändringen av triggern på ärendet – annars går den.
+    const STARTED = [`update public.cases set first_meeting_at = '2027-01-29 16:00+01', status = 'active', start_date = '2027-01-29' where id = '${CASE}'`];
+    const MISSED = [...STARTED, `update public.cases set first_meeting_at = '2027-01-29 14:00+01' where id = '${CASE}'`];
+    const change = (id: string): Tables["case_start_changes"] => ({
+      id, contractId: "c-bot", caseId: CASE, fromDate: "2027-01-29", toDate: "2027-02-02", changedBy: "u-erik", changedAt: at, noteId: `note-${id}`, seq: 1,
+    });
+    const note = (x: Tables["case_start_changes"]): Tables["case_notes"] => ({
+      id: x.noteId, contractId: "c-bot", caseId: CASE, authorId: "u-erik", occurredOn: "2027-02-01", kind: "other", audience: "team",
+      body: "Ändrat startdatum: motivering.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null,
+    });
+    const pgChange = (x: Tables["case_start_changes"], prep: readonly string[]) =>
+      asErik([...prep, insertSql("case_notes", note(x) as unknown as Record<string, unknown>)], (tx) => attempt(tx, insertSql("case_start_changes", x as unknown as Record<string, unknown>)));
+    const memChange = (x: Tables["case_start_changes"], firstMeetingAt: string) => {
+      const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+      s.clock = () => at;
+      s.updateRow("cases", CASE, { firstMeetingAt, status: "active", startDate: "2027-01-29" });
+      s.insertRow("case_notes", note(x));
+      return canWriteRow("case_start_changes", x, actorOf(findPersona("u-erik")), s.raw());
+    };
+    const bad = await pgChange(change("csc-fmns-1"), MISSED);
+    expect({ pg: bad.ok ? null : bad.code, mem: memChange(change("csc-fmns-1"), MEETING) }).toEqual({ pg: "23514", mem: false });
+    const good = await pgChange(change("csc-fmns-2"), STARTED);
+    expect({ pg: allowed(good), mem: memChange(change("csc-fmns-2"), "2027-01-29T16:00") }).toEqual({ pg: true, mem: true });
+  });
+
+  it("migrationen tål att köras igen och ändrar då ingenting", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0040_uteblivet_forsta_mote.sql`, "utf8");
+    let res: { before: number; after: number; policies: number; triggers: number; checks: number } | null = null;
+    await db.transaction(async (tx) => {
+      const count = async () => (await tx.query<{ n: number }>("select count(*)::int as n from public.first_meeting_no_shows")).rows[0].n;
+      const before = await count();
+      await tx.exec(sql);
+      await tx.exec(sql);
+      const after = await count();
+      const policies = (await tx.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename = 'first_meeting_no_shows'")).rows[0].n;
+      const triggers = (await tx.query<{ n: number }>(
+        "select count(*)::int as n from pg_trigger where tgname in ('first_meeting_no_shows_check', 'first_meeting_no_shows_append_only', 'cases_start_date_no_show_guard')",
+      )).rows[0].n;
+      const checks = (await tx.query<{ n: number }>(
+        "select count(*)::int as n from pg_constraint where conrelid = 'public.first_meeting_no_shows'::regclass and contype = 'c'",
+      )).rows[0].n;
+      res = { before, after, policies, triggers, checks };
+      await tx.rollback();
+    });
+    expect(res).toEqual({ before: 1, after: 1, policies: 2, triggers: 3, checks: 2 });
   });
 });

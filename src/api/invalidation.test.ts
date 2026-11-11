@@ -195,6 +195,8 @@ const WRITES: Record<string, string[]> = {
   "bonus.skicka": ["bonus_claims", "outbound_messages", AUDIT_CASE, AUDIT], "bonus.aterta": ["bonus_claims", AUDIT_CASE, AUDIT],
   "bonus.besluta": ["bonus_claim_decisions", "bonus_claims", "user_notifications", AUDIT_CASE, AUDIT],
   "bonus.registreraMejl": ["bonus_claim_decisions", "bonus_claims", "user_notifications", AUDIT_CASE, AUDIT], "bonus.underlag": [AUDIT_CASE, AUDIT],
+  // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): bara registreringen och loggen – inga utskick, inga tillfällen.
+  "arenden.caseFirstMeetingNoShow": ["first_meeting_no_shows", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */

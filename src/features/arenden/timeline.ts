@@ -13,6 +13,7 @@
 // rapporter, samtycken eller meddelanden). Funktionen kontrollerar dessutom själv åtkomsten per kategori.
 import type { Role } from "@/api/roles";
 import { progressionFlags, phaseLabel, type OperationalConfig } from "@/core/config";
+import { NO_SHOW_KIND_LABEL, noShowTitle } from "@/core/first-meeting";
 import { attendanceStats } from "@/core/attendance";
 import {
   CASE_NOTE_AUDIENCE_LABEL, CASE_NOTE_PROTECTED_AUDIENCE, CASE_STATUS_LABEL, caseNoteKindLabel, endReasonLabel, eventLabel, personName,
@@ -28,7 +29,8 @@ export type TimelineDb = Pick<
   | "case_status_history" | "deviations" | "consents" | "reports" | "messages" | "case_notes" | "profiles" | "organizations" | "case_area_changes"
 > &
   // Ändringarna av startdatum (0038): bara för att visa motiveringen som låst – saknas tabellen är ingen anteckning låst av den.
-  Partial<Pick<Db, "case_start_changes">>;
+  // Deltagaren kom inte till första mötet (0040): saknas tabellen visas inga sådana poster.
+  Partial<Pick<Db, "case_start_changes" | "first_meeting_no_shows">>;
 export type TimelineViewer = { access: "full" | "team"; role: Role; userId: string };
 export type TimelineOpts = {
   caseId: string;
@@ -211,6 +213,12 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
     }
     if (h.fromStatus === h.toStatus) continue;
     push({ id: `csh:${h.id}`, at: h.changedAt, cat: "ovrigt", icon: "flag", title: `Status: ${CASE_STATUS_LABEL[h.toStatus] ?? h.toStatus}` });
+  }
+
+  // ---- Deltagaren kom inte till första mötet (Karims beslut 2026-11-09 – internt, kommunen läser aldrig raderna): mötet och
+  //      slaget, aldrig orsaken (ingen fritext i grundvyn). Posten står kvar när ett nytt första möte bokas.
+  for (const x of (db.first_meeting_no_shows ?? []).filter((r) => r.caseId === c.id)) {
+    push({ id: `fmns:${x.id}`, at: x.meetingAt, cat: "insatser", icon: "x-circle", title: noShowTitle(x.meetingAt), sub: NO_SHOW_KIND_LABEL[x.kind] });
   }
 
   // ---- Anteckningar: alla med åtkomst – teamet bara audience team (RLS). Borttagna visas bara för författaren, när

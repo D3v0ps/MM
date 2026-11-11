@@ -39,7 +39,8 @@ export function TabHandelser({ card }: TabProps) {
                 actions={
                   <div className="flex flex-wrap items-center gap-1.5">
                     {can && (card.status === "active" || card.status === "closed") && <Button icon="plus" to={caseLink("/handelse", card.caseId)}>Registrera händelse</Button>}
-                    {can && card.status === "active" && <Button icon="check-square" to={caseLink("/handelse", card.caseId, { lage: "avslut" })}>Avsluta insatsen</Button>}
+                    {/* Också ett bekräftat ärende som inte har startat (deltagaren kom aldrig, Karims beslut 2026-11-09) – arenden.caseClose tar emot det. */}
+                    {can && (card.status === "active" || card.status === "confirmed") && <Button icon="check-square" to={caseLink("/handelse", card.caseId, { lage: "avslut" })}>Avsluta insatsen</Button>}
                   </div>
                 }
               >

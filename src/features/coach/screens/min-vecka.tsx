@@ -86,24 +86,60 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   }
   // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
   for (const c of v.toStart) {
+    const enc = encodeURIComponent(c.caseId);
+    const sr = <span className="sr-only">för {c.name} {c.caseNumber}</span>;
+    // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): raden blir "Boka nytt första möte" med Avsluta.
+    if (c.noShow) {
+      const close = (
+        <Button kind="ghost" icon="check-square" to={`/handelse/${enc}?lage=avslut`}>
+          Avsluta – deltagaren kom aldrig {sr}
+        </Button>
+      );
+      const rebook = (kind: "secondary" | "ghost") => (
+        <Button kind={kind} icon="calendar" to={`/arenden/${enc}?boka=1`}>
+          Boka nytt första möte {sr}
+        </Button>
+      );
+      parts.push({
+        key: `starta:${c.caseId}`, group: c.caseId, dueAt: c.firstMeetingAt, weight: W.starta,
+        rest: { notes: [`Boka nytt första möte – ${c.caseNumber}. ${c.noShow.text}`], action: <>{rebook("ghost")}{close}</> },
+        item: {
+          icon: "calendar", when: whenText(c.firstMeetingAt, now).replace(/^./, (x) => x.toUpperCase()), title: <CaseName big caseId={c.caseId} name={c.name} caseNumber={c.caseNumber} />,
+          notes: [`Boka nytt första möte – ${c.caseNumber}.`, c.noShow.text, "Kom deltagaren aldrig? Avsluta insatsen. Kommunen har inte fått något besked."],
+          action: rebook("secondary"),
+          children: <div className="flex flex-wrap gap-x-3">{close}</div>,
+        },
+      });
+      continue;
+    }
+    // Mötets tid har varit och inget är registrerat: "Deltagaren kom inte" som andra åtgärd (textknapp under raden).
+    const noShow = c.canRegisterNoShow ? (
+      <Button kind="ghost" icon="x-circle" to={`/arenden/${enc}?uteblev=1`}>
+        Deltagaren kom inte {sr}
+      </Button>
+    ) : null;
     parts.push({
       key: `starta:${c.caseId}`, group: c.caseId, dueAt: c.firstMeetingAt, weight: W.starta,
       rest: {
         notes: ["Insats att starta: första mötet har hållits."],
         action: (
-          <Button kind="ghost" icon="play" to={`/arenden/${encodeURIComponent(c.caseId)}?starta=1`}>
-            Starta insatsen <span className="sr-only">för {c.name} {c.caseNumber}</span>
-          </Button>
+          <>
+            <Button kind="ghost" icon="play" to={`/arenden/${enc}?starta=1`}>
+              Starta insatsen {sr}
+            </Button>
+            {noShow}
+          </>
         ),
       },
       item: {
         icon: "play", when: whenText(c.firstMeetingAt, now).replace(/^./, (x) => x.toUpperCase()), title: <CaseName big caseId={c.caseId} name={c.name} caseNumber={c.caseNumber} />,
         notes: ["Insats att starta: första mötet har hållits. Starta insatsen så att tillfällen, närvaro och rapporter kommer igång."],
         action: (
-          <Button kind="secondary" icon="play" to={`/arenden/${encodeURIComponent(c.caseId)}?starta=1`}>
-            Starta insatsen <span className="sr-only">för {c.name} {c.caseNumber}</span>
+          <Button kind="secondary" icon="play" to={`/arenden/${enc}?starta=1`}>
+            Starta insatsen {sr}
           </Button>
         ),
+        children: noShow ? <div className="flex flex-wrap gap-x-3">{noShow}</div> : null,
       },
     });
   }

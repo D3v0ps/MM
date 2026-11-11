@@ -9,6 +9,7 @@ import { requireOperational } from "@/core/config";
 import { dayOf } from "@/core/time";
 import { createSeed } from "@/data/seed";
 import { withoutAreaChanges } from "@/data/seed/decisions-2026-10-22";
+import { withoutFirstMeetingDemo } from "@/data/seed/decisions-2026-11-09";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import { emptyDb, type Db, type Report } from "@/data/schema";
 import { canonicalJson, driftedSinceDelivery, frozenModel, reportModel, summaryFromNumbers, type OrderModel, type ReportEnv, type SummaryModel } from "./model";
@@ -19,9 +20,10 @@ type FacitRow = { model: string; title: string; period: string; eff: string; sta
 type Facit = { meta: { now: string; count: number }; sample: Record<string, { id: string; model: unknown }>; reports: Record<string, FacitRow> };
 const facit = JSON.parse(readFileSync(new URL("./parity/facit.json", import.meta.url), "utf8")) as Facit;
 
-// Facit är från före bytet av yrkesområde i testdatat (Karims beslut 2026-10-22) – rapporterna visar ärendets nuvarande
-// yrkesområde, så jämförelsen görs på testdatat utan bytet (som src/core/parity.test.ts).
-const db = withoutAreaChanges({ ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db);
+// Facit är från före bytet av yrkesområde i testdatat (Karims beslut 2026-10-22) och före BOT-27-0043:s första möte i januari
+// (Karims beslut 2026-11-09) – rapporterna visar ärendets nuvarande yrkesområde, första möte och planerade slut, så jämförelsen
+// görs på testdatat utan dem (som src/core/parity.test.ts).
+const db = withoutFirstMeetingDemo(withoutAreaChanges({ ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db));
 const contract = db.contracts.find((c) => c.id === "c-bot")!;
 const supplier = db.organizations.find((o) => o.id === contract.supplierId)!;
 const env: ReportEnv = { cfg: requireOperational(contract.config), contract: { id: contract.id, startsOn: contract.startsOn, supplierName: supplier.name }, now: facit.meta.now, activityTypes: ACTIVITY_TYPES };
@@ -115,5 +117,24 @@ describe("beställarrapporten", () => {
     expect(text).toMatch(/^Under januari 2027 var 134 deltagare aktiva och 44 nya insatser startade\./);
     expect(text).not.toMatch(/35\s?%|internt? mål/i);
     expect(canonicalJson(m)).not.toMatch(/internalTarget|0\.35/);
+  });
+});
+
+describe("beställarrapporten: Första möte inom en vecka räknar det första bokade mötet (seesSlaStats, Karims beslut 2026-11-09)", () => {
+  it("en sen ombokning efter att deltagaren inte kom ändrar inte raden – bara ärendet och mötets tid läses", () => {
+    // Testdatat med BOT-27-0043:s första möte fredag 29 januari kl. 14.00 (beställt i januari).
+    const live = { ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db;
+    const senv: ReportEnv = { ...env, cfg: { ...env.cfg, customerVisibility: { ...env.cfg.customerVisibility, seesSlaStats: true } } };
+    const jan = live.reports.find((x) => x.kind === "customer_summary" && x.month === "2027-01");
+    expect(jan).toBeTruthy();
+    const draft: Report = { ...jan!, status: "draft", deliveredAt: null };
+    const sla = (d: Parameters<typeof reportModel>[0]) => (reportModel(d, draft, senv) as SummaryModel).sla;
+    const before = sla(live);
+    expect(before?.some(([label]) => /första möte/i.test(label))).toBe(true);
+    // Deltagaren kom inte och mötet bokades om till 15 februari – långt efter veckan.
+    const rebooked = { ...live, cases: live.cases.map((c) => (c.id === "case-270043" ? { ...c, firstMeetingAt: "2027-02-15T10:00" } : c)) };
+    expect(sla({ ...rebooked, first_meeting_no_shows: [{ caseId: "case-270043", meetingAt: "2027-01-29T14:00" }] })).toEqual(before);
+    // Utan registreringen räknas ombokningen som sent (så som det var före beslutet).
+    expect(sla({ ...rebooked, first_meeting_no_shows: [] })).not.toEqual(before);
   });
 });

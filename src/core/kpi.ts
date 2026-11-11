@@ -1,10 +1,11 @@
 // KPI:er (SPEC §7.12): resultatgrad med fönster och minsta antal, prognos, trend och månads-KPI:er.
 // Mål, fönster och minN läses från avtalskonfigurationen (kpis). Internt mål som är ATT_FASTSTÄLLA ger status "no_target".
-import type { Case, Db, ResultClass } from "@/data/schema";
+import type { Case, Db, FirstMeetingNoShow, ResultClass } from "@/data/schema";
 import { isUnset, kpiDef, slaWithin, type KpiWindow } from "./config";
 import { attendanceStats } from "./attendance";
 import { groupedBy } from "./db-index";
 import { windowStart, type DomainEnv } from "./env";
+import { firstBookedMeetingAt } from "./first-meeting";
 import { avropDue, firstMeetingDue } from "./sla";
 import { addMonths, dayOf, monthEnd, monthKey, type LocalDate, type MonthKey } from "./time";
 
@@ -140,7 +141,13 @@ export type KpiValue = {
   minN?: number;
 };
 
-export type KpiDb = Pick<Db, "cases" | "reports" | "activities" | "attendance" | "pulse_responses">;
+export type KpiDb = Pick<Db, "cases" | "reports" | "activities" | "attendance" | "pulse_responses"> & {
+  /**
+   * Mötena som deltagaren inte kom till (Karims beslut 2026-11-09): Första möte inom en vecka räknas på det första bokade mötet.
+   * Bara ärendet och mötets tid – aldrig slaget eller orsaken (samma uppgifter i beställarrapporten).
+   */
+  first_meeting_no_shows: readonly Pick<FirstMeetingNoShow, "caseId" | "meetingAt">[];
+};
 export type KpiOpts = { month?: MonthKey; coachId?: string | null };
 
 /** Värdet för en KPI i en månad (standard: förra månaden). null för KPI:er som inte räknas fram här. */
@@ -173,8 +180,12 @@ export function kpiValue(db: KpiDb, key: string, opts: KpiOpts, env: KpiEnv): Kp
     }
     case "forsta_mote_inom_en_vecka": {
       if (!slaWithin(env.cfg, "forsta_mote")) return wrap(0, 0);
-      const cs = monthCases().filter((c) => c.firstMeetingAt);
-      const isLate = (c: Case) => (c.firstMeetingAt as string) > (firstMeetingDue(c, env.cfg) as string);
+      // Det första bokade mötet (Karims beslut 2026-11-09): det tidigaste mötet som deltagaren inte kom till, annars ärendets
+      // första möte – en ombokning efter att deltagaren inte kom gör inte ärendet sent.
+      const noShows = groupedBy(db.first_meeting_no_shows, "caseId", (x) => x.caseId);
+      const booked = (c: Case) => firstBookedMeetingAt(c, noShows.get(c.id) ?? []);
+      const cs = monthCases().filter((c) => booked(c));
+      const isLate = (c: Case) => (booked(c) as string) > (firstMeetingDue(c, env.cfg) as string);
       return wrap(cs.filter((c) => !isLate(c)).length, cs.length, { late: cs.filter(isLate) });
     }
     case "veckorapporter_i_tid": {

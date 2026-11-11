@@ -3,7 +3,8 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { AKTIVITETER, BILLING, BONUS, CARD, CASE_FACTS, CASE_STATS, CASES, COACH, GRUPPER, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS } from "@/api/invalidation";
 import {
-  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, FIRST_MEETING_NO_SHOW_KINDS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES,
+  type FirstMeetingNoShowKind, type PreferredContact, type PriorAssessment, type TeamRole,
   type ParticipantFileCategory,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
@@ -90,7 +91,8 @@ export const caseCreate = command("arenden.caseCreate", z.object({
  * eller annan tidsperiod) är förifylld ur beställningen och kan ändras; "annan tidsperiod" behåller slutdatumet. Beställarreferensen
  * är valfri (MB fyller i den här eller före faktureringen, beslut 2026-10-07) – formatet kontrolleras om något skrivits.
  * Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till kommunen och kallelse till
- * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens.
+ * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens. Första mötet ska vara en arbetsdag som inte har passerat och
+ * inte före beställningens dag (past, before_order, not_working_day – firstMeetingBookingProblem, samma regel som bokningen).
  */
 // Omräkning brett med flit: skapar orderbekräftelsen (reports), ändrar inkorgen och deadlines, och ger coachen ärendet.
 export const caseAccept = command("arenden.caseAccept", z.object({
@@ -108,7 +110,10 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
 }), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   /** invitation: hur kallelsen går, i klarspråk (t.ex. "Kallelsen skickas med e-post.") – notifyParticipant. */
-  Result<{ reportId: string; caseNumber: string; invitation: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
+  Result<
+    { reportId: string; caseNumber: string; invitation: string },
+    "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period" | "past" | "before_order" | "not_working_day"
+  >
 >();
 
 /** Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. */
@@ -166,7 +171,9 @@ export const caseSetBuyerRef = command("arenden.caseSetBuyerRef", z.object({
  * räknas om från mötesdagen (beslut 7, 2026-10-08; "annan tidsperiod" behåller kommunens slutdatum). Bokas mötet om efter att
  * orderbekräftelsen levererats skapas en ny version av den (den gamla märks ersatt) och kommunen får ett mejl utan
  * personuppgifter. Kallelse med e-post, SMS och utringning (notifyParticipant, beslut 2026-10-09) – finns ingen kanal får
- * samordnaren en uppgift att ringa deltagaren. Aldrig vid skyddade personuppgifter.
+ * samordnaren en uppgift att ringa deltagaren. Aldrig vid skyddade personuppgifter. Tiden ska vara en arbetsdag som inte har
+ * passerat, inte före beställningens dag och inte samma som det bokade mötet (past, before_order, same_time, not_working_day –
+ * firstMeetingBookingProblem, alla roller).
  */
 // Omräkning som caseAccept: skriver ärendet, orderbekräftelsen (reports) och utskicken; slutdatumet påverkar deadlines, flaggor och fakturering.
 export const caseBookFirstMeeting = command("arenden.caseBookFirstMeeting", z.object({
@@ -174,7 +181,7 @@ export const caseBookFirstMeeting = command("arenden.caseBookFirstMeeting", z.ob
   at: LocalDateTimeSchema,
 }), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   /** invitation: hur kallelsen gick, i klarspråk – till bekräftelsen efter bokningen. */
-  Result<{ invitation: string }, "not_found" | "forbidden" | "order_period">
+  Result<{ invitation: string }, "not_found" | "forbidden" | "order_period" | "past" | "before_order" | "same_time" | "not_working_day">
 >();
 
 /** Byt huvudcoach med orsak (prototypens case.changeCoach). Nya coachen och kommunen får notis utan personuppgifter. */
@@ -200,7 +207,8 @@ export const WeekPlanSchema = z.array(WeekPlanRowSchema).min(1).max(10);
  * Starta insatsen: bekräftat ärende med bokat första möte. Startdatumet är första mötets dag om inget annat anges och
  * aldrig före mötet. Sätter status Pågår och startdatum, skapar tillfällena från startdatumet till planerat slut enligt
  * veckoplanen (helgdagar hoppas över, högst 60 veckor), statushistorik och loggen case.started. Huvudcoachen, samordnare
- * och avtalsansvarig.
+ * och avtalsansvarig. Kom deltagaren inte till det bokade första mötet (Karims beslut 2026-11-09) nekas starten (no_show) tills
+ * ett nytt första möte är bokat – sedan gäller den vanliga regeln (tidigast det nya mötets dag).
  */
 // Omräkning brett med flit: statusen och tillfällena syns i listor, Min vecka, närvaro, portal, rapporter, KPI:er och fakturering.
 export const caseStart = command("arenden.caseStart", z.object({
@@ -208,7 +216,7 @@ export const caseStart = command("arenden.caseStart", z.object({
   startDate: LocalDateSchema,
   plan: WeekPlanSchema,
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, BONUS, ...LOG] }).returns<
-  Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "start_date" | "no_end" | "plan">
+  Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "no_show" | "start_date" | "no_end" | "plan">
 >();
 
 /**
@@ -400,6 +408,27 @@ export const caseChangeStart = command("arenden.andraStartdatum", z.object({
     | "not_found" | "forbidden" | "wrong_status" | "same" | "before_meeting" | "after_end" | "invoiced" | "attendance" | "report" | "motivation" | "pnr" | "conflict"
     | "unknown"
   >
+>();
+
+/**
+ * Deltagaren kom inte till första mötet (Karims beslut 2026-11-09, migration 0040): ett bekräftat ärende utan startdatum vars
+ * första möte har varit. Uteblev utan att meddela eller giltig frånvaro (orsaken krävs – kort och saklig, inga personnummer). Bara
+ * coach, samordnare och avtalsansvarig med full åtkomst (samma som Starta insatsen). Kontrollen i src/core/first-meeting.ts
+ * (noShowProblem). Internt: kommunen får inget besked och ser det aldrig – inga mejl, inga notiser, inget till deltagaren. Det är
+ * ingen närvaro och faktureras aldrig: inga tillfällen och ingen närvaro skapas. Revisionsloggen får case.first_meeting_no_show
+ * med id:n och slaget – aldrig orsaken. meetingAt = mötet som dialogen visade; har mötet bokats om under tiden blir det conflict.
+ * Samma registrering igen (samma person, möte, slag och orsak – svaret kom inte fram) svarar som första gången.
+ */
+// Omräkning: kortet (rutan, knapparna, tidslinjen och Starta insatsen), startdatumets tidigaste dag, listan och flaggorna (som läser
+// mötesdatumen för nyckeltalet Första möte inom en vecka), Min vecka (coachens och samordnarens rad), förfallotiderna, menyns
+// räknare och revisionsloggen.
+export const caseFirstMeetingNoShow = command("arenden.caseFirstMeetingNoShow", z.object({
+  caseId: IdSchema,
+  meetingAt: LocalDateTimeSchema,
+  kind: z.enum(FIRST_MEETING_NO_SHOW_KINDS),
+  reason: z.string().max(2000).optional(),
+}), { invalidates: [CASES, "coach.minVecka", INBOX, NAV, ...LOG] }).returns<
+  Result<{ noShowId: string; kind: FirstMeetingNoShowKind }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "conflict" | "not_passed" | "already" | "reason" | "pnr">
 >();
 
 /**
@@ -725,6 +754,22 @@ export type CaseCard = {
    * arenden.startdatum).
    */
   startChange: { canChange: boolean; changes: number };
+  /**
+   * Deltagaren kom inte till första mötet (Karims beslut 2026-11-09, 0040 – internt, aldrig för kommunen). canRegister = knappen
+   * "Deltagaren kom inte" (coach, samordnare eller avtalsansvarig som får ändra i ärendet, i ett bekräftat ärende utan startdatum
+   * vars första möte har varit och inte redan är registrerat). current = registreringen för ärendets nuvarande första möte (rutan
+   * "Kom inte till första mötet …"; reason bara för den som får ändra i ärendet). canRebook = Boka nytt första möte (samordnare
+   * och avtalsansvarig, och coachen efter en registrering). canClose = Avsluta – deltagaren kom aldrig (rollen avslutar insatser).
+   * missedBefore = deltagaren har inte kommit till ett första möte i ärendet (vilket som helst): nyckeltalet räknas på det första
+   * bokade mötet (Karims beslut 2026-11-09), så bokningsdialogen varnar inte för en sen tid. null = ärendet är inte bekräftat.
+   */
+  noShow: {
+    canRegister: boolean;
+    missedBefore: boolean;
+    current: { id: string; meetingAt: LocalDateTime; kind: FirstMeetingNoShowKind; text: string; reason: string | null } | null;
+    canRebook: boolean;
+    canClose: boolean;
+  } | null;
 };
 export type CaseCardResult =
   | CaseCard

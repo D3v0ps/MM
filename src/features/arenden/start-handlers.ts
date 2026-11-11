@@ -24,6 +24,7 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { currentNoShow, noShowStartText } from "@/core/first-meeting";
 import { personName } from "@/core/labels";
 import {
   NO_BILLING, nextStartChangeSeq, planStartChange, START_CHANGERS, startChangeBlockedText, startChangeMonths, startChangeNoteBody, startChangesInOrder, startMotivationOf,
@@ -114,6 +115,10 @@ handleCommand(caseChangeStart, { roles: START_CHANGERS }, async (ctx, p) => {
   ]);
   const plan = planStartChange({ case: c, to: p.startDate, motivation: p.motivation, activities, attendance, checkIns, billing, reports });
   if (!plan.ok) return fail(plan.problem.code, plan.problem.text);
+  // Inte så länge ärendets nuvarande första möte är registrerat som ett möte som deltagaren inte kom till (Karims beslut
+  // 2026-11-09, triggern cases_start_date_no_show_guard i 0040). En pågående insats har normalt aldrig det – spegel av databasen.
+  const cur = currentNoShow(c, await ctx.repo.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { caseId: c.id }));
+  if (cur) return fail("wrong_status", noShowStartText(cur));
   const { from, to } = plan.plan;
   const now = ctx.now();
   const seq = nextStartChangeSeq(await ctx.repo.table("case_start_changes").list({ caseId: c.id }));

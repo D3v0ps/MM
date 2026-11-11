@@ -1,6 +1,6 @@
 // Starta insatsen, veckoplan, tillfällen, praktik och team (beslut 2026-10-08, skarp drift). Mot testdatat i minnet med
-// demoklockan (måndag 1 februari 2027 kl. 09.12): Maria Ekdahls avrop em-101 accepteras med första möte i dag 09.00 och
-// insatsen startas av huvudcoachen. Förväntade antal räknas ur veckoplanen och helgdagarna (src/core/schedule.ts).
+// demoklockan (måndag 1 februari 2027 kl. 09.12): Maria Ekdahls avrop em-101 accepteras med första möte i dag 10.00 (en tid
+// som inte har passerat – accept prövar tiden) och insatsen startas av huvudcoachen. Förväntade antal räknas ur veckoplanen och helgdagarna (src/core/schedule.ts).
 import { beforeEach, describe, expect, it } from "vitest";
 import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { Actor, Role } from "@/api/roles";
@@ -35,7 +35,7 @@ const leila = () => as("u-leila", "coach");
 const petra = () => as("u-petra", "coach");
 const lars = () => as("u-lars", "ekonom");
 
-const FIRST_MEETING = "2027-02-01T09:00";
+const FIRST_MEETING = "2027-02-01T10:00";
 const PLAN = defaultWeekPlan(BOTKYRKA_CONFIG, FIRST_MEETING);
 /** Marias avrop (em-101) – ärendet som accepteras och startas. */
 const mariaCase = () => rt.raw().get("inbound_emails", "em-101")!.caseId as string;
@@ -47,7 +47,7 @@ const groupRowsOf = (caseId: string) => rt.raw().all("activities").filter((a) =>
 const AREA_G_MEETING = "ga-traff-c-bot-g-2027-02";
 const auditActions = (caseId: string) => rt.raw().all("audit_log").filter((l) => l.entityId === caseId || (l.details as { caseId?: string })?.caseId === caseId).map((l) => l.action);
 
-/** Accepterar em-101 med Amira som huvudcoach, första möte i dag 09.00 och sex månaders omfattning (planerat slut 31 juli). */
+/** Accepterar em-101 med Amira som huvudcoach, första möte i dag 10.00 och sex månaders omfattning (planerat slut 31 juli). */
 async function acceptMaria(team: { userId: string; role: string }[] = []) {
   const caseId = mariaCase();
   const res = await cmd("arenden.caseAccept", { caseId, leadCoachId: "u-amira", firstMeetingAt: FIRST_MEETING, primaryArea: "G", vocationalTrack: "Lagerarbete", orderPeriodMonths: 6, team }, sara());
@@ -65,7 +65,7 @@ describe("arenden.caseStart – starta insatsen", () => {
   it("skapar tillfällena för sex månader enligt veckoplanen: inga helgdagar, inga dubbletter, status Pågår och startdatum", async () => {
     const { caseId, res } = await startMaria();
     const c = rt.raw().get("cases", caseId)!;
-    expect(c).toMatchObject({ status: "active", startDate: "2027-02-01", plannedEnd: "2027-07-31", meetingDay: 0, meetingTime: "09:00", phaseSince: "2027-02-01" });
+    expect(c).toMatchObject({ status: "active", startDate: "2027-02-01", plannedEnd: "2027-07-31", meetingDay: 0, meetingTime: "10:00", phaseSince: "2027-02-01" });
     const acts = activitiesOf(caseId);
     // 26 veckor × 3 tillfällen, minus annandag påsk (måndag 29 mars) och Kristi himmelsfärdsdag (torsdag 6 maj) 2027.
     expect(holidayName("2027-03-29")).toBe("Annandag påsk");
@@ -75,7 +75,7 @@ describe("arenden.caseStart – starta insatsen", () => {
     expect(new Set(acts.map((a) => a.startsAt)).size).toBe(76);
     expect(acts.every((a) => isWorkingDay(a.startsAt) && dayOf(a.startsAt) >= "2027-02-01" && dayOf(a.startsAt) <= "2027-07-31")).toBe(true);
     expect(acts.every((a) => [0, 1, 3].includes(weekday(a.startsAt)))).toBe(true);
-    // Första tillfället är första mötet – coachträff måndag 09.00 i 60 minuter.
+    // Första tillfället är första mötet – coachträff måndag 10.00 i 60 minuter.
     expect(acts[0]).toMatchObject({ kind: "möte", startsAt: FIRST_MEETING, durationMin: 60, location: "Miljonbemanning" });
     expect(acts.filter((a) => a.kind === "möte")).toHaveLength(25);
     expect(acts.filter((a) => a.kind === "yrkesmoment")).toHaveLength(51);
@@ -83,7 +83,7 @@ describe("arenden.caseStart – starta insatsen", () => {
     const hist = rt.raw().all("case_status_history").filter((h) => h.caseId === caseId);
     expect(hist.at(-1)).toMatchObject({ fromStatus: "confirmed", toStatus: "active", reason: "Insatsen startad", changedBy: "u-amira" });
     const log = rt.raw().all("audit_log").find((l) => l.action === "case.started" && l.entityId === caseId)!;
-    expect(log.details).toEqual({ startDate: "2027-02-01", plannedEnd: "2027-07-31", activities: 76, plan: ["måndag 09:00 möte", "tisdag 09:00 yrkesmoment", "torsdag 09:00 yrkesmoment"] });
+    expect(log.details).toEqual({ startDate: "2027-02-01", plannedEnd: "2027-07-31", activities: 76, plan: ["måndag 10:00 möte", "tisdag 09:00 yrkesmoment", "torsdag 09:00 yrkesmoment"] });
     // Yrkesområdet G: insatsen pågår nu, och månadens yrkesområdesträff bjuder in henne automatiskt (Karims beslut 2026-10-22).
     // Ingen nivå än (sätts i kartläggningen) – inga nivåaktiviteter.
     expect(groupRowsOf(caseId).map((a) => [a.groupActivityId, a.inviteSource, a.startsAt])).toEqual([[AREA_G_MEETING, "audience", "2027-02-17T14:00"]]);

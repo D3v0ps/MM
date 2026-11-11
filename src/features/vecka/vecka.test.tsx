@@ -120,9 +120,14 @@ describe("Min vecka per roll", () => {
     // Knapparna säger vad de gäller.
     expect(screen.getByRole("button", { name: "Acceptera BOT-27-0048" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Boka första mötet för BOT-27-0039" })).toBeTruthy();
-    // Sorterat på sista tid: den försenade slutrapporten först, sedan avropet som brådskar.
-    expect(rows[0].textContent).toContain("Försenad");
-    expect(rows[1].textContent).toContain("BOT-27-0048");
+    // Sorterat på sista tid: insatsen att starta (BOT-27-0043 – första mötet var i fredags, Karims beslut 2026-11-09) med "Deltagaren
+    // kom inte", sedan den försenade slutrapporten och avropet som brådskar.
+    expect(rows[0].textContent).toContain("BOT-27-0043");
+    expect(rows[0].textContent).toContain("Insats att starta");
+    expect(screen.getByRole("link", { name: "Deltagaren kom inte BOT-27-0043" }).getAttribute("href")).toContain("uteblev=1");
+    expect(rows[1].textContent).toContain("Försenad");
+    expect(rows[1].textContent).toContain("Slutrapport");
+    expect(rows[2].textContent).toContain("BOT-27-0048");
     for (const k of keys) expect(ALLOWED.samordnare, k).toContain(k);
   });
 
@@ -172,6 +177,31 @@ describe("Min vecka per roll", () => {
     // Ärendet står en gång – och båda åtgärderna finns i samma rad.
     expect(within(row).getByRole("link", { name: `Starta insatsen ${c.caseNumber}` })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: `Ringt – kallad ${c.caseNumber}` })).toHaveLength(1);
+  });
+
+  it("deltagaren kom inte till första mötet (Karims beslut 2026-11-09): raden blir Boka nytt första möte – samordnaren bokar i dialogen, coachen också med Avsluta", async () => {
+    // BOT-27-0043 (Erik): första mötet fredag 29 januari kl. 14.00, Erik registrerade att deltagaren uteblev.
+    rt.store.insertRow("first_meeting_no_shows", {
+      id: "fmns-t", caseId: "case-270043", contractId: "c-bot", meetingAt: "2027-01-29T14:00", kind: "uteblev", reason: null, registeredBy: "u-erik", registeredAt: "2027-01-29T15:10",
+    });
+    setup("samordnare");
+    const book = await screen.findByRole("button", { name: "Boka nytt första möte för BOT-27-0043" }, { timeout: 8000 });
+    const row = book.closest("li") as HTMLElement;
+    expect(row.textContent).toContain("Boka nytt första möte –");
+    expect(row.textContent).toContain("Kom inte till första mötet 29 jan kl. 14.00 – uteblev utan att meddela.");
+    expect(row.textContent).not.toContain("Insats att starta");
+    expect(screen.queryByRole("link", { name: "Deltagaren kom inte BOT-27-0043" })).toBeNull();
+    expect(within(row).queryByRole("link", { name: /Starta insatsen/ })).toBeNull();
+    cleanup();
+    // Erik (huvudcoach): samma rad med Boka nytt första möte (på deltagarkortet, ?boka=1) och Avsluta – deltagaren kom aldrig.
+    const erik = personas.find((x) => x.actor.userId === "u-erik" && x.actor.role === "coach")!.actor;
+    setup("coach", { actor: erik });
+    const rebook = await screen.findByRole("link", { name: /^Boka nytt första möte för .+ BOT-27-0043$/ }, { timeout: 8000 });
+    expect(rebook.getAttribute("href")).toBe("#/arenden/case-270043?boka=1");
+    const crow = rebook.closest("li") as HTMLElement;
+    expect(crow.textContent).toContain("Kom inte till första mötet 29 jan kl. 14.00 – uteblev utan att meddela.");
+    expect(within(crow).getByRole("link", { name: /^Avsluta – deltagaren kom aldrig för .+ BOT-27-0043$/ }).getAttribute("href")).toBe("#/handelse/case-270043?lage=avslut");
+    expect(within(crow).queryByRole("link", { name: /Deltagaren kom inte/ })).toBeNull();
   });
 
   it("avtalsansvarig: hans egna saker först – beställarrapporten, åtgärdsplanerna, varningarna och målen; inkorgen är en rad (S5)", async () => {

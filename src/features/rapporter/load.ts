@@ -154,10 +154,11 @@ export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" |
 const EMPTY: ReportDb = {
   cases: [], activities: [], attendance: [], check_ins: [], monthly_assessments: [], monthly_plans: [], outcome_events: [], deviations: [], tasks: [],
   audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: [], profiles: [], price_items: [], reports: [], case_area_changes: [],
+  first_meeting_no_shows: [],
 };
 
 /** Underlaget för ett ärendes rapporter (månad, slut, orderbekräftelse). ctx.system: se överst i filen. */
-async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "contract_areas" | "profiles" | "price_items" | "contract_deviations" | "pulse_responses" | "reports">> {
+async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "contract_areas" | "profiles" | "price_items" | "contract_deviations" | "pulse_responses" | "reports" | "first_meeting_no_shows">> {
   const s = ctx.system;
   const inCases = { caseId: { in: caseIds } };
   const [cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, case_area_changes] = await Promise.all([
@@ -219,7 +220,7 @@ export async function loadReportDb(ctx: Ctx, r: Report, info: ContractInfo): Pro
       const sla = !!info.cfg.customerVisibility.seesSlaStats;
       const activities = await s.table("activities").list({ ...inCases, startsAt: { gte: start, lte: `${end}T23:59` } });
       const actIds = activities.map((a) => a.id);
-      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes] = await Promise.all([
+      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes, first_meeting_no_shows] = await Promise.all([
         actIds.length ? s.table("attendance").list({ activityId: { in: actIds } }) : [],
         s.table("monthly_assessments").list({ ...inCases, month: mk }),
         s.table("pulse_responses").list(inCases),
@@ -228,8 +229,11 @@ export async function loadReportDb(ctx: Ctx, r: Report, info: ContractInfo): Pro
         sla ? s.table("reports").list({ contractId: r.contractId }) : [],
         // Bytena av yrkesområde: månadens yrkesområde och yrkesspår per deltagare (areaForMonth – samma regel som månadsrapporten).
         s.table("case_area_changes").list({ contractId: r.contractId }),
+        // Första möte inom en vecka räknas på det första bokade mötet (Karims beslut 2026-11-09): bara ärendet och mötets tid –
+        // aldrig slaget eller orsaken.
+        sla ? s.table("first_meeting_no_shows").pick(["caseId", "meetingAt"], { contractId: r.contractId }) : [],
       ]);
-      return { ...base, cases, activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes };
+      return { ...base, cases, activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes, first_meeting_no_shows };
     }
     default:
       return base;

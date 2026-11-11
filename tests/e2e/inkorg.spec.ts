@@ -243,10 +243,14 @@ test("startsidan: tiden och rubriken överlappar inte (1280, 1024 och 390 px), s
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${who.role} ${w}`).toBeLessThanOrEqual(1);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  // Status med text och ikon: den försenade slutrapporten står först.
+  // Status med text och ikon: insatsen att starta (BOT-27-0043 – första mötet var i fredags, Karims beslut 2026-11-09) står först,
+  // sedan den försenade slutrapporten.
   await goAs(page, info, SARA, "/min-vecka");
-  await expect(todo(page).first()).toContainText("Försenad 2 dagar");
+  await expect(todo(page).first()).toContainText("BOT-27-0043 · Insats att starta");
+  await expect(todo(page).first()).toContainText("Försenad 3 dagar");
   await expect(todo(page).first().locator("svg").first()).toBeVisible();
+  await expect(todo(page).nth(1)).toContainText("Försenad 2 dagar");
+  await expect(todo(page).nth(1).locator("svg").first()).toBeVisible();
   await expect(main(page)).not.toContainText(/deadline/i);
   expect(errors).toEqual([]);
 });
