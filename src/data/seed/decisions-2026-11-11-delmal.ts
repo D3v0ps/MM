@@ -6,10 +6,10 @@
 //   Tillfällen     den återkommande aktiviteten Jobbsök och CV (och dess tillfällen) tränar CV, personligt brev och att söka jobb
 //                  via datorn; Intervjuträning tränar att presentera sig för en arbetsgivare.
 //   BOT-26-0143    (Nadia, huvudcoach Amira) Tränar automatiskt på två passerade egna tillfällen med närvaro (yrkesmomentet och
-//                  coachträffen har delmålen), och två uppnådda delmål – ett uppdaterat CV (förbättrade ansökningshandlingar kräver
+//                  coachträffen har delmålen – i activity_progress_goals, inte på tillfället), och två uppnådda delmål – ett uppdaterat CV (förbättrade ansökningshandlingar kräver
 //                  två: inte uppfyllt än) och att logga in på en dator.
-//   BOT-26-0002    (huvudcoach Erik) har förslaget till steg 1 – delmålen som uppfyller de fyra punkterna är uppnådda, så att
-//                  förslaget kan granskas och skickas.
+//   BOT-26-0002    (huvudcoach Erik) har förslaget till steg 1 – delmålen som uppfyller de fyra punkterna är uppnådda under
+//                  insatsen (som är avslutad), så att förslaget kan granskas och skickas.
 // Revisionsloggen: en rad för startlistan och en per uppnått delmål – bara id:n och datum.
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { caseGoalId, defaultGoalId, defaultProgressGoals } from "@/core/progress-goals";
@@ -66,8 +66,8 @@ export function applyDecisions20261111Delmal(db: Db): void {
     for (const [kind, n] of [["yrkesmoment", 5], ["möte", 3]] as const) {
       const a = past.find((x) => x.kind === kind);
       if (!a) continue;
-      a.progressGoalIds = [goal(n)];
       const at = present.get(a.id)!;
+      db.activity_progress_goals.push({ id: a.id, caseId: nadia.id, goalIds: [goal(n)], updatedBy: nadia.leadCoachId ?? "u-amira", updatedAt: a.startsAt });
       const id = caseGoalId(nadia.id, goal(n));
       rows.push({ id, caseId: nadia.id, contractId: CONTRACT, goalId: goal(n), status: "training", source: "auto", achievedOn: null, evidenceKind: "activity", evidenceId: a.id, setBy: SYSTEM_ACTOR.userId, setAt: at.registeredAt });
       db.audit_log.push({
@@ -82,16 +82,18 @@ export function applyDecisions20261111Delmal(db: Db): void {
     achieved(nadia.id, 11, minDay(addDays(start, 15), addDays(TODAY, -20)), nadia.leadCoachId ?? "u-amira");
   }
 
-  // BOT-26-0002: delmålen som uppfyller de fyra punkterna i steg 1 (förslaget till steg 1 i testdatat).
+  // BOT-26-0002: delmålen som uppfyller de fyra punkterna i steg 1 (förslaget till steg 1 i testdatat) – alla under insatsen (bara
+  // delmål som uppnåtts mellan startdatumet och slutdatumet räknas).
   const two = db.cases.find((c) => c.id === "case-260002");
   if (two?.startDate) {
     const by = two.leadCoachId ?? "u-erik";
-    const day = (d: number) => minDay(addDays(two.startDate as string, d), addDays(TODAY, -3));
-    achieved(two.id, 4, day(14), by);
-    achieved(two.id, 3, day(28), by);
-    achieved(two.id, 13, day(35), by);
-    achieved(two.id, 20, day(42), by);
-    achieved(two.id, 17, day(56), by);
+    const last = minDay(two.endDate ?? TODAY, addDays(TODAY, -3));
+    const day = (d: number) => minDay(addDays(two.startDate as string, d), last);
+    achieved(two.id, 4, day(7), by);
+    achieved(two.id, 3, day(14), by);
+    achieved(two.id, 13, day(21), by);
+    achieved(two.id, 20, day(28), by);
+    achieved(two.id, 17, day(35), by);
   }
   db.case_progress_goals.push(...rows);
 }

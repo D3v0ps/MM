@@ -6,16 +6,20 @@
 //                        bara av servern). Idempotent: ett delmål som redan tränas eller är uppnått rörs aldrig, och raden har ett
 //                        fast id (ärendet och delmålet) och en unik nyckel – två samtidiga körningar skriver aldrig två. En loggrad
 //                        per avtal och körning med bara id:n. Bästa försök: närvaron är redan sparad när steget körs – ett fel här
-//                        stoppar aldrig coachen (bara felets kod loggas, som för månadsbedömningens förifyllnad).
+//                        stoppar aldrig coachen (bara felets kod loggas, som för månadsbedömningens förifyllnad). En rad som
+//                        databasen nekar (23505 eller 23514, till exempel ett delmål som inaktiverats under tiden) hoppas över –
+//                        resten skrivs ändå. Inte heller loggraden kastar.
 //   goalTagsCheck        prövar delmålen som ska stå på ett tillfälle (avtalet, aktiva, inga dubbletter) – samma regel som
 //                        triggrarna i 0043.
+//   ownGoalTags          delmålen på deltagarens egna tillfällen (activity_progress_goals – inte på activities, som kommunen och
+//   setOwnGoalTags       ekonomen läser): läsa per tillfälle och skriva via behörigheten (ctx.repo, i eget namn).
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { isOperational, progressionAreas } from "@/core/config";
 import { caseGoalId, goalTagsProblem, sortGoals, trainingRowsToAdd } from "@/core/progress-goals";
 import { uniq } from "@/core/util";
-import { UniqueError } from "@/data/repo";
-import { PROGRESS_GOAL_TAGS_MAX, type AppRepo, type ProgressGoal } from "@/data/schema";
+import { PolicyError, UniqueError } from "@/data/repo";
+import { PROGRESS_GOAL_TAGS_MAX, type Activity, type AppRepo, type ProgressGoal } from "@/data/schema";
 import type { GoalPickerArea } from "../delmal/api";
 
 /**
@@ -52,6 +56,42 @@ export async function goalTagsCheck(ctx: Ctx, contractId: string, next: readonly
   return goalTagsProblem(ids, before, goals, contractId, PROGRESS_GOAL_TAGS_MAX);
 }
 
+/**
+ * Delmålen på deltagarens egna tillfällen (activity_progress_goals): tillfällets id → delmålen. Ett tillfälle utan rad har inga.
+ * Läser via repot som anroparen ger – ctx.repo (full- eller teamåtkomst) eller ctx.system.
+ */
+export async function ownGoalTags(repo: AppRepo, activityIds: readonly string[]): Promise<Map<string, string[]>> {
+  const ids = uniq(activityIds);
+  if (!ids.length) return new Map();
+  const rows = await repo.table("activity_progress_goals").list({ id: { in: ids } });
+  return new Map(rows.map((r) => [r.id, r.goalIds]));
+}
+
+/**
+ * Skriv delmålen på deltagarens eget tillfälle (efter goalTagsCheck): via behörigheten (ctx.repo), i eget namn. En tom lista på ett
+ * tillfälle utan rad skriver ingenting. changed = något ändrades.
+ */
+export async function setOwnGoalTags(ctx: Ctx, a: Pick<Activity, "id" | "caseId">, goalIds: readonly string[]): Promise<boolean> {
+  const table = ctx.repo.table("activity_progress_goals");
+  const next = [...goalIds];
+  const patch = { goalIds: next, updatedBy: ctx.actor.userId, updatedAt: ctx.now() };
+  const cur = await table.get(a.id);
+  if (cur) {
+    if (JSON.stringify(cur.goalIds) === JSON.stringify(next)) return false;
+    await table.update(a.id, patch);
+    return true;
+  }
+  if (!next.length) return false;
+  try {
+    await table.insert({ id: a.id, caseId: a.caseId, ...patch });
+  } catch (e) {
+    // Någon hann skriva raden samtidigt: den skrivs över med det här valet.
+    if (!(e instanceof UniqueError) && (e as { code?: unknown } | null)?.code !== "23505") throw e;
+    await table.update(a.id, patch);
+  }
+  return true;
+}
+
 export type TrainingRun = { added: number; failed: boolean };
 
 /**
@@ -66,8 +106,11 @@ export async function trainFromAttendance(ctx: Ctx, activityIds: readonly string
   try {
     const acts = await s.table("activities").list({ id: { in: ids } });
     const groupIds = uniq(acts.map((a) => a.groupActivityId).filter((x): x is string => !!x));
-    const groups = groupIds.length ? await s.table("group_activities").list({ id: { in: groupIds } }) : [];
-    const tagIds = uniq([...acts.flatMap((a) => a.progressGoalIds ?? []), ...groups.flatMap((g) => g.progressGoalIds ?? [])]);
+    const [groups, ownTags] = await Promise.all([
+      groupIds.length ? s.table("group_activities").list({ id: { in: groupIds } }) : Promise.resolve([]),
+      ownGoalTags(s, acts.filter((a) => !a.groupActivityId).map((a) => a.id)),
+    ]);
+    const tagIds = uniq([...[...ownTags.values()].flat(), ...groups.filter((g) => !g.cancelledAt).flatMap((g) => g.progressGoalIds ?? [])]);
     if (!tagIds.length) return { added: 0, failed: false };
     const caseIds = uniq(acts.map((a) => a.caseId));
     const [attendance, goals, cases, existing] = await Promise.all([
@@ -76,7 +119,7 @@ export async function trainFromAttendance(ctx: Ctx, activityIds: readonly string
       s.table("cases").pick(["contractId"], { id: { in: caseIds } }),
       s.table("case_progress_goals").list({ caseId: { in: caseIds }, goalId: { in: tagIds } }),
     ]);
-    const rows = trainingRowsToAdd({ activities: acts, groupActivities: groups, attendance, goals, existing, contractOfCase: new Map(cases.map((c) => [c.id, c.contractId])) });
+    const rows = trainingRowsToAdd({ activities: acts, ownTags, groupActivities: groups, attendance, goals, existing, contractOfCase: new Map(cases.map((c) => [c.id, c.contractId])) });
     const now = ctx.now();
     for (const r of rows) {
       const id = caseGoalId(r.caseId, r.goalId);
@@ -86,31 +129,44 @@ export async function trainFromAttendance(ctx: Ctx, activityIds: readonly string
           setBy: SYSTEM_ACTOR.userId, setAt: now,
         });
       } catch (e) {
-        // En coach eller en samtidig körning hann sätta ett läge: det gäller – ingenting skrivs över.
-        if (e instanceof UniqueError || (e as { code?: unknown } | null)?.code === "23505") continue;
+        // En coach eller en samtidig körning hann sätta ett läge (23505), eller raden stämmer inte längre – till exempel ett delmål
+        // som inaktiverats under tiden (23514; minnet: PolicyError från kontrollen). Den raden hoppas över, resten skrivs.
+        if (e instanceof UniqueError || e instanceof PolicyError || isCode(e, "23505") || isCode(e, "23514")) {
+          if (!(e instanceof UniqueError) && !isCode(e, "23505")) console.error("delmålen: ett Tränar hoppades över", errorCode(e), id);
+          continue;
+        }
         throw e;
       }
       written.push({ id, ...r });
     }
   } catch (e) {
     console.error("delmålen: Tränar kunde inte registreras efter närvaron", errorCode(e));
-    await logTraining(ctx, written).catch(() => undefined);
+    await logTraining(ctx, written);
     return { added: written.length, failed: true };
   }
   await logTraining(ctx, written);
   return { added: written.length, failed: false };
 }
 
-/** En loggrad per avtal: id:n på raderna, ärendena, delmålen och tillfällena – aldrig namn eller delmålens text. */
+const isCode = (e: unknown, code: string): boolean => (e as { code?: unknown } | null)?.code === code;
+
+/**
+ * En loggrad per avtal: id:n på raderna, ärendena, delmålen och tillfällena – aldrig namn eller delmålens text. Kastar aldrig: raderna
+ * är redan sparade och närvaron likaså – går loggraden inte att skriva loggas felets kod och radernas id:n.
+ */
 async function logTraining(ctx: Ctx, written: readonly { id: string; caseId: string; contractId: string; goalId: string; activityId: string }[]): Promise<void> {
   for (const contractId of uniq(written.map((w) => w.contractId)).sort()) {
     const mine = written.filter((w) => w.contractId === contractId);
-    await ctx.audit({
-      action: "case_progress_goal.training_auto", entity: "case_progress_goal", entityId: mine.length === 1 ? mine[0].id : null, contractId,
-      details: {
-        count: mine.length, ids: mine.map((w) => w.id), caseIds: uniq(mine.map((w) => w.caseId)).sort(), goalIds: uniq(mine.map((w) => w.goalId)).sort(),
-        activityIds: uniq(mine.map((w) => w.activityId)).sort(), automatic: true,
-      },
-    });
+    try {
+      await ctx.audit({
+        action: "case_progress_goal.training_auto", entity: "case_progress_goal", entityId: mine.length === 1 ? mine[0].id : null, contractId,
+        details: {
+          count: mine.length, ids: mine.map((w) => w.id), caseIds: uniq(mine.map((w) => w.caseId)).sort(), goalIds: uniq(mine.map((w) => w.goalId)).sort(),
+          activityIds: uniq(mine.map((w) => w.activityId)).sort(), automatic: true,
+        },
+      });
+    } catch (e) {
+      console.error("delmålen: loggraden för Tränar kunde inte skrivas", errorCode(e), mine.map((w) => w.id).join(","));
+    }
   }
 }

@@ -14,9 +14,12 @@
 --     redan finns (samma avtal och kod) rörs inte.
 --   - Sätter avtalskonfigurationens avsnitt bonus till den fastställda modellen (samma värden som BOTKYRKA_CONFIG i
 --     src/core/config.ts). Taket står i konfigurationen och tas bort ur kommunens vy (mm.customer_safe_config, 0039).
---   - Skriver en rad i revisionsloggen per ny prisrad och en för konfigurationen – bara id:n, koder och steg, inga belopp och
---     inga personuppgifter.
--- Filen tål att köras igen: en andra körning ändrar ingenting och skriver inga nya rader i revisionsloggen.
+--     Trösklarna för punkterna i steg 1–2 (bonus.stepItemMin, lagda av supabase/manual/2026-11-delmal-botkyrka.sql, Karims
+--     beslut 2026-11-11) hör inte till modellen här: de jämförs inte och står kvar när avsnittet skrivs.
+--   - Skriver en rad i revisionsloggen per ny prisrad och en för konfigurationen när den ändras – bara id:n, koder och steg,
+--     inga belopp och inga personuppgifter. Loggradens id har körningens tid, så att varje verklig ändring loggas.
+-- Filen tål att köras igen, också efter delmålsfilen: en andra körning ändrar ingenting och skriver inga nya rader i
+-- revisionsloggen.
 --
 -- Kontroll efteråt:
 --   select code, unit, price_ore, vat_rate, valid_from, valid_to, fortnox_article_no, example_only
@@ -82,15 +85,17 @@ with model(bonus) as (
     )
   )
 ), upd as (
+  -- Jämförs och skrivs utan stepItemMin (delmålsfilens tröskel står kvar som den är).
   update public.contracts k
-     set config = jsonb_set(k.config, '{bonus}', model.bonus, true)
+     set config = jsonb_set(k.config, '{bonus}', model.bonus || jsonb_strip_nulls(jsonb_build_object('stepItemMin', k.config->'bonus'->'stepItemMin')), true)
     from model
    where k.contract_number = '332026110'
-     and k.config->'bonus' is distinct from model.bonus
+     and (k.config->'bonus') - 'stepItemMin' is distinct from model.bonus
   returning k.id
 )
 insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details)
-select 'log-bonus-2026-11-04-config-' || upd.id, now(), 'system', 'contract.config_updated', 'contract', upd.id, upd.id,
+select 'log-bonus-2026-11-04-config-' || upd.id || '-' || to_char(now() at time zone 'UTC', 'YYYYMMDD"T"HH24MISSUS'), now(), 'system',
+       'contract.config_updated', 'contract', upd.id, upd.id,
        jsonb_build_object('section', 'bonus', 'enabled', true, 'steps', 5, 'decision', '2026-11-04')
   from upd
 on conflict (id) do nothing;

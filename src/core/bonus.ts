@@ -122,9 +122,15 @@ export const approvedAssessments = (db: Pick<Db, "monthly_assessments">, caseId:
 
 // ---------------------------------------------------------------- Förslagen
 export type BonusRuleDb = Pick<Db, "cases" | "activities" | "attendance" | "monthly_assessments" | "outcome_events" | "bonus_claims" | "progress_goals" | "case_progress_goals">;
-/** Punkterna i steg 1 eller 2 för ärendet ur de uppnådda delmålen (Karims beslut 2026-11-11). */
-export const caseStepItems = (db: Pick<Db, "progress_goals" | "case_progress_goals">, caseId: string, step: number, m: Pick<BonusModel, "stepItemMin">): StepItemStatus[] =>
-  stepItemStatuses(step, db.progress_goals, db.case_progress_goals.filter((r) => r.caseId === caseId), m);
+/**
+ * Punkterna i steg 1 eller 2 för ärendet ur de uppnådda delmålen (Karims beslut 2026-11-11). Bara delmål som uppnåddes under
+ * insatsen och senast i dag räknas: flyttas startdatumet fram efter att ett delmål markerats uppnått räknas delmålet inte längre (det
+ * står kvar som uppnått på kortet Delmål), och dagen då en punkt blev uppfylld ligger alltid under insatsen.
+ */
+export const caseStepItems = (
+  db: Pick<Db, "progress_goals" | "case_progress_goals">, c: Pick<Case, "id" | "startDate" | "endDate">, step: number, m: Pick<BonusModel, "stepItemMin">, today: LocalDate,
+): StepItemStatus[] =>
+  stepItemStatuses(step, db.progress_goals, db.case_progress_goals.filter((r) => r.caseId === c.id), m, (d) => d <= today && duringInsats(c, d, today));
 /** Ett förslag som ska bli ett anspråk (status suggested, source auto). follows = steg 3-anspråket (id, eller "new" = förslaget till steg 3 i samma omgång). */
 export type BonusSuggestion = {
   caseId: string;
@@ -183,14 +189,14 @@ export function bonusSuggestions(db: BonusRuleDb, m: BonusModel, env: Pick<Domai
       const e = events.find((x) => (m.step2EventKinds as readonly string[]).includes(x.kind) && duringInsats(c, x.occurredOn, today) && !usedEvent(2, x.id));
       if (e) out.push({ ...base, step: 2, kind: stepKind(2), outcomeEventId: e.id, follows: null, reachedOn: e.occurredOn, verificationKind: e.verificationKind });
       else if (!claims.some((x) => x.step === 2 && x.source === "auto" && x.outcomeEventId == null)) {
-        const reached = step2ReachedOn(caseStepItems(db, c.id, 2, m));
+        const reached = step2ReachedOn(caseStepItems(db, c, 2, m, today));
         if (reached && duringInsats(c, reached, today)) out.push({ ...base, step: 2, kind: stepKind(2), outcomeEventId: null, follows: null, reachedOn: reached, verificationKind: null });
       }
     }
     // Steg 1: närvaron, minst två godkända bedömningar och de fyra punkterna (uppnådda delmål) – en gång per ärende.
     if (!claims.some((x) => x.step === 1)) {
       const att = bonusAttendance(db, c, m, env);
-      if (att.meets && approvedAssessments(db, c.id).length >= 2 && step1ItemsMet(caseStepItems(db, c.id, 1, m))) {
+      if (att.meets && approvedAssessments(db, c.id).length >= 2 && step1ItemsMet(caseStepItems(db, c, 1, m, today))) {
         out.push({ ...base, step: 1, kind: stepKind(1), outcomeEventId: null, follows: null, reachedOn: today, verificationKind: null });
       }
     }

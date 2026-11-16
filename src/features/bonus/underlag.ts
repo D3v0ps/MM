@@ -103,7 +103,7 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
   // Steg 4 och 5: resultatdatum är steg 3:s (det levande – aldrig en gammal kopia på anspråket).
   const resultDay = step3 ? step3.reachedOn : k.reachedOn;
   // Steg 1: alla fyra punkterna (uppfyllda eller inte); steg 2: de punkter som är uppfyllda. Bara punkterna – aldrig delmålen.
-  const stepItems = step === 1 || step === 2 ? caseStepItems(db, c.id, step, m) : [];
+  const stepItems = step === 1 || step === 2 ? caseStepItems(db, c, step, m, today) : [];
   const items = (step === 1 ? stepItems : stepItems.filter((x) => x.fulfilled)).map((x) => ({ label: x.label, fulfilled: x.fulfilled }));
   return {
     v: 1,

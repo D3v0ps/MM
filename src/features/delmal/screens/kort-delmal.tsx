@@ -46,6 +46,7 @@ function DelmalContent({ v }: { v: View }) {
                 <ListItem key={g.goalId} title={g.label} data-delmal={g.goalId}>
                   <span className="flex flex-wrap items-center gap-2">
                     <GoalStateBadge g={g} />
+                    {g.evidenceLabel && <span className="text-small" data-delmal-underlag>{g.evidenceLabel}</span>}
                     {v.canEdit && g.state !== "achieved" && !(g.inactive && g.state === "none") && (
                       <Button kind="secondary" icon="check" onClick={() => setAchieving(g)}>
                         Markera uppnått<span className="sr-only"> – {g.label}</span>

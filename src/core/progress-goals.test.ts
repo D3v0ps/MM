@@ -46,13 +46,15 @@ describe("startlistan (Karims godkännande 2026-11-11)", () => {
 });
 
 describe("Tränar automatiskt vid närvaro", () => {
-  const own = mkActivity({ id: "a1", caseId: "c1", startsAt: "2027-01-20T09:00", progressGoalIds: [G(5)] });
+  const own = mkActivity({ id: "a1", caseId: "c1", startsAt: "2027-01-20T09:00" });
+  // Delmålen på det egna tillfället står i activity_progress_goals (tillfällets id → delmålen).
+  const ownTags = new Map([["a1", [G(5)]]]);
   const grp = mkActivity({ id: "a2", caseId: "c1", startsAt: "2027-01-21T13:00", groupActivityId: "ga1" });
   const ga = { id: "ga1", progressGoalIds: [G(20), G(13)], cancelledAt: null } as Pick<GroupActivity, "id" | "progressGoalIds" | "cancelledAt">;
   const contractOfCase = new Map([["c1", "c-bot"]]);
-  const run = (status: "present" | "late" | "absent_invalid", existing: CaseProgressGoal[] = [], goals = GOALS) =>
+  const run = (status: "present" | "late" | "absent_invalid", existing: CaseProgressGoal[] = [], goals = GOALS, groups = [ga]) =>
     trainingRowsToAdd({
-      activities: [own, grp], groupActivities: [ga], attendance: [mkAttendance({ activityId: "a1", caseId: "c1", status }), mkAttendance({ activityId: "a2", caseId: "c1", status })],
+      activities: [own, grp], ownTags, groupActivities: groups, attendance: [mkAttendance({ activityId: "a1", caseId: "c1", status }), mkAttendance({ activityId: "a2", caseId: "c1", status })],
       goals, existing, contractOfCase,
     });
   it("närvarande och sen ger Tränar för tillfällets och gruppaktivitetens delmål – frånvaro aldrig", () => {
@@ -66,14 +68,17 @@ describe("Tränar automatiskt vid närvaro", () => {
     expect(again).toEqual([]);
     expect(run("present", [row("c1", 5, "achieved", "2027-01-15")]).map((r) => r.goalId)).toEqual([G(20), G(13)]);
   });
+  it("en inställd gruppaktivitet ger inget Tränar – deltagarens egna tillfällen som förut", () => {
+    expect(run("present", [], GOALS, [{ ...ga, cancelledAt: "2027-01-21T08:00" }]).map((r) => r.goalId)).toEqual([G(5)]);
+  });
   it("bara aktiva delmål i ärendets avtal", () => {
     const goals = GOALS.map((g) => (g.id === G(5) ? { ...g, active: false } : g.id === G(20) ? { ...g, contractId: "c-annat" } : g));
     expect(run("present", [], goals).map((r) => r.goalId)).toEqual([G(13)]);
   });
   it("ett delmål på två tillfällen ger en rad – det tidigaste tillfället blir underlaget", () => {
-    const later = mkActivity({ id: "a3", caseId: "c1", startsAt: "2027-01-27T09:00", progressGoalIds: [G(5)] });
+    const later = mkActivity({ id: "a3", caseId: "c1", startsAt: "2027-01-27T09:00" });
     const rows = trainingRowsToAdd({
-      activities: [later, own], groupActivities: [], attendance: [mkAttendance({ activityId: "a3", caseId: "c1", status: "present" }), mkAttendance({ activityId: "a1", caseId: "c1", status: "present" })],
+      activities: [later, own], ownTags: new Map([["a1", [G(5)]], ["a3", [G(5)]]]), groupActivities: [], attendance: [mkAttendance({ activityId: "a3", caseId: "c1", status: "present" }), mkAttendance({ activityId: "a1", caseId: "c1", status: "present" })],
       goals: GOALS, existing: [], contractOfCase,
     });
     expect(rows.map((r) => [r.goalId, r.activityId, r.day])).toEqual([[G(5), "a1", "2027-01-20"]]);
@@ -103,6 +108,17 @@ describe("punkterna i steg 1–2 ur de uppnådda delmålen", () => {
     expect(s2.filter((x) => x.fulfilled).map((x) => x.item)).toEqual(["validering", "branschintyg", "arbetsintervju"]);
     expect(step2ReachedOn(s2)).toBe("2027-01-11");
     expect(step2ReachedOn(stepItemStatuses(2, GOALS, [], M))).toBeNull();
+  });
+  it("bara dagar inom perioden räknas (insatsen till och med i dag): punktens dag är alltid en dag i perioden", () => {
+    const inPeriod = (d: string) => d >= "2027-01-10" && d <= "2027-02-01";
+    // Praktik före perioden, arbetsintervju i perioden: steg 2 har arbetsintervjuns dag – praktiken räknas inte.
+    const s2 = stepItemStatuses(2, GOALS, [row("c1", 22, "achieved", "2027-01-05"), row("c1", 19, "achieved", "2027-01-20")], M, inPeriod);
+    expect(s2.filter((x) => x.fulfilled).map((x) => [x.item, x.fulfilledOn])).toEqual([["arbetsintervju", "2027-01-20"]]);
+    expect(step2ReachedOn(s2)).toBe("2027-01-20");
+    // Utan perioden räknas båda (och praktikens dag är den tidigaste).
+    expect(step2ReachedOn(stepItemStatuses(2, GOALS, [row("c1", 22, "achieved", "2027-01-05"), row("c1", 19, "achieved", "2027-01-20")], M))).toBe("2027-01-05");
+    // Ett delmål efter perioden (framtiden) räknas inte heller.
+    expect(stepItemStatuses(1, GOALS, [row("c1", 4, "achieved", "2027-02-02")], M, inPeriod)[2].fulfilled).toBe(false);
   });
   it("ett uppnått delmål i ett annat avtal räknas inte; ett inaktiverat som uppnåddes räknas", () => {
     const goals = GOALS.map((g) => (g.id === G(3) ? { ...g, active: false } : g));

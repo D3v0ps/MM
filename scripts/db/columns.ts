@@ -59,7 +59,7 @@ export const COLUMNS = {
   },
   // Gruppmål (0033_gruppmal.sql)
   group_goal_results: { id: "text", contractId: "text", groupActivityId: "text", caseId: "text", activityId: "text", goalVersion: "integer", achieved: "boolean", setBy: "text", setAt: "timestamptz" },
-  activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null", inviteSource: "text", progressGoalIds: "text[]" },
+  activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null", inviteSource: "text" },
   attendance: { id: "text", activityId: "text", caseId: "text", status: "text", reason: "text", registeredBy: "text", registeredAt: "timestamptz", customerNotifiedAt: "timestamptz | null", source: "text" },
   check_ins: { id: "text", caseId: "text", heldAt: "timestamptz", durationMin: "integer | null", mode: "text | null", inputMethod: "text", goalStatus: "text | null", nextGoal: "text", phase: "integer | null", activitiesDone: "text[]", employerContacts: "jsonb", overallStatus: "text | null", obstacles: "text[]", note: "text", attendanceComment: "text | null", status: "text", approvedBy: "text | null", approvedAt: "timestamptz | null", aiRunId: "text | null", docMinutes: "integer | null", ai: "jsonb | null", version: "integer" },
   monthly_assessments: { id: "text", caseId: "text", month: "text", areas: "jsonb", status: "text", decidedBy: "text | null", decidedAt: "timestamptz | null", summary: "text", aiSummaryDraft: "text | null", overallStatus: "text | null", version: "integer", prefill: "jsonb" },
@@ -175,6 +175,7 @@ export const COLUMNS = {
     id: "text", caseId: "text", contractId: "text", goalId: "text", status: "text", source: "text", achievedOn: "date | null", evidenceKind: "text | null", evidenceId: "text | null",
     setBy: "text", setAt: "timestamptz",
   },
+  activity_progress_goals: { id: "text", caseId: "text", goalIds: "text[]", updatedBy: "text", updatedAt: "timestamptz" },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

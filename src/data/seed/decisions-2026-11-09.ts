@@ -39,8 +39,8 @@ const notificationBody = (when: string) => `Du är huvudcoach för BOT-27-0043 (
 /** Prototypens värden – återställs av withoutFirstMeetingDemo. */
 const PROTOTYPE = { firstMeetingAt: "2027-02-03T14:00", startDate: "2027-02-03", plannedEnd: "2027-04-09", aiConsentStatus: "given" as const, when: "3 feb kl. 14.00" };
 const PROTOTYPE_ACTIVITIES: readonly Activity[] = [
-  { id: "a-14418", caseId: SEED_NO_SHOW_CASE, kind: "möte", startsAt: "2027-02-03T14:00", durationMin: 60, location: "Miljonbemanning Alby", note: "", groupActivityId: null, inviteSource: "manual", progressGoalIds: [] },
-  { id: "a-14419", caseId: SEED_NO_SHOW_CASE, kind: "yrkesmoment", startsAt: "2027-02-04T09:00", durationMin: 180, location: "Miljonbemanning Alby", note: "", groupActivityId: null, inviteSource: "manual", progressGoalIds: [] },
+  { id: "a-14418", caseId: SEED_NO_SHOW_CASE, kind: "möte", startsAt: "2027-02-03T14:00", durationMin: 60, location: "Miljonbemanning Alby", note: "", groupActivityId: null, inviteSource: "manual" },
+  { id: "a-14419", caseId: SEED_NO_SHOW_CASE, kind: "yrkesmoment", startsAt: "2027-02-04T09:00", durationMin: 180, location: "Miljonbemanning Alby", note: "", groupActivityId: null, inviteSource: "manual" },
 ];
 const PROTOTYPE_CONSENT: Consent = {
   id: "cons-14811", personId: "p-5223", caseId: SEED_NO_SHOW_CASE, kind: "recording_and_ai", textVersion: "v1.0 (2026-10-01)", givenAt: "2027-02-03T14:00", informedBy: "u-erik",

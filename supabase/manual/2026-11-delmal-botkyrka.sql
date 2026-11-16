@@ -15,7 +15,9 @@
 --   - Sätter bonus.stepItemMin i avtalskonfigurationen till { "ansokningshandlingar": 2 } (samma som BOTKYRKA_CONFIG): förbättrade
 --     ansökningshandlingar kräver två uppnådda delmål, övriga punkter ett. Bara om bonusavsnittet finns och värdet skiljer sig.
 --   - Skriver en rad i revisionsloggen för startlistan och en för konfigurationen – bara id:n, antal och nycklar, inga namn.
--- Filen tål att köras igen: en andra körning ändrar ingenting och skriver inga nya rader i revisionsloggen.
+--     Loggradens id har körningens tid, så att varje verklig ändring loggas.
+-- Filen tål att köras igen: en andra körning ändrar ingenting och skriver inga nya rader i revisionsloggen. Bonusfilen
+-- (2026-11-bonus-botkyrka.sql) kan köras före eller efter den här – den rör inte tröskeln.
 --
 -- Kontroll efteråt:
 --   select area_key, sort_order, label, step_items from public.progress_goals
@@ -76,7 +78,8 @@ with c as (
   returning id, contract_id
 )
 insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details)
-select 'log-delmal-2026-11-11-' || ins.contract_id, now(), 'system', 'progress_goal.catalog_seeded', 'contract', ins.contract_id, ins.contract_id,
+select 'log-delmal-2026-11-11-' || ins.contract_id || '-' || to_char(now() at time zone 'UTC', 'YYYYMMDD"T"HH24MISSUS'), now(), 'system',
+       'progress_goal.catalog_seeded', 'contract', ins.contract_id, ins.contract_id,
        jsonb_build_object('count', count(*), 'decision', '2026-11-11')
   from ins
  group by ins.contract_id
@@ -92,7 +95,8 @@ with upd as (
   returning k.id
 )
 insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details)
-select 'log-delmal-2026-11-11-config-' || upd.id, now(), 'system', 'contract.config_updated', 'contract', upd.id, upd.id,
+select 'log-delmal-2026-11-11-config-' || upd.id || '-' || to_char(now() at time zone 'UTC', 'YYYYMMDD"T"HH24MISSUS'), now(), 'system',
+       'contract.config_updated', 'contract', upd.id, upd.id,
        jsonb_build_object('section', 'bonus.stepItemMin', 'items', 1, 'decision', '2026-11-11')
   from upd
 on conflict (id) do nothing;

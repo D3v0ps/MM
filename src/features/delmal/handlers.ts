@@ -8,12 +8,13 @@
 // Uppnått sätts bara här, av en människa – AI sätter aldrig något (CLAUDE.md punkt 5). Ett uppnått delmål är ingen nivå.
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionAreas, type OperationalConfig } from "@/core/config";
 import { caseGoalId, GOAL_STATE_ICON, goalLabelProblem, goalStateText, sameGoalLabel, sortGoals, STEP_ITEM_LABEL, stepOfItem, stepItemsOf } from "@/core/progress-goals";
 import { dayOf, fmtDate } from "@/core/time";
 import { uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
-import { STEP_ITEMS, type ActivityKind, type Case, type CaseProgressGoal, type Contract, type ProgressGoal, type StepItem } from "@/data/schema";
+import { STEP_ITEMS, type Activity, type ActivityKind, type Case, type CaseNote, type CaseProgressGoal, type CheckIn, type Contract, type ProgressGoal, type StepItem } from "@/data/schema";
 import { ensureBonusClaims } from "../bonus/ensure";
 import { canEditCase } from "../_shared/context";
 import { goalPickerAreas } from "../_shared/progress-goals";
@@ -77,6 +78,8 @@ const cleanItems = (items: readonly string[]): StepItem[] => STEP_ITEMS.filter((
 const duplicateIn = (goals: readonly ProgressGoal[], areaKey: string, label: string, except: string | null) =>
   goals.some((g) => g.areaKey === areaKey && g.id !== except && sameGoalLabel(g.label, label));
 const DUPLICATE = "Det finns redan ett delmål med det namnet i området.";
+/** Databasens unika namn i området (progress_goals_label_key, 0043): två som lägger till samma namn samtidigt – den andra får duplicate. */
+const isDuplicate = (e: unknown): boolean => e instanceof UniqueError || (e as { code?: unknown } | null)?.code === "23505";
 
 handleCommand(goalCreate, { roles: CATALOG_ROLES }, async (ctx, p) => {
   const x = await contractCfg(ctx, p.contractId);
@@ -92,7 +95,12 @@ handleCommand(goalCreate, { roles: CATALOG_ROLES }, async (ctx, p) => {
     id: ctx.newId("pg"), contractId: p.contractId, areaKey: p.areaKey, label, sortOrder: last + 10, active: true, stepItems: cleanItems(p.stepItems), createdBy: ctx.actor.userId,
     createdAt: ctx.now(), updatedBy: null, updatedAt: null,
   };
-  await ctx.repo.table("progress_goals").insert(row);
+  try {
+    await ctx.repo.table("progress_goals").insert(row);
+  } catch (e) {
+    if (isDuplicate(e)) return fail("duplicate", DUPLICATE);
+    throw e;
+  }
   await ctx.audit({ action: "progress_goal.created", entity: "progress_goal", entityId: row.id, contractId: row.contractId, details: { areaKey: row.areaKey, stepItems: row.stepItems } });
   return ok({ id: row.id });
 });
@@ -113,7 +121,12 @@ handleCommand(goalUpdate, { roles: CATALOG_ROLES }, async (ctx, p) => {
   const fields = [label !== g.label ? "label" : null, JSON.stringify(stepItems) !== JSON.stringify(g.stepItems) ? "stepItems" : null].filter((f): f is string => !!f);
   if (!fields.length) return ok({ changed: false });
   if (label !== g.label && duplicateIn(await ctx.repo.table("progress_goals").list({ contractId: g.contractId }), g.areaKey, label, g.id)) return fail("duplicate", DUPLICATE);
-  await ctx.repo.table("progress_goals").update(g.id, { label, stepItems, updatedAt: ctx.now(), updatedBy: ctx.actor.userId });
+  try {
+    await ctx.repo.table("progress_goals").update(g.id, { label, stepItems, updatedAt: ctx.now(), updatedBy: ctx.actor.userId });
+  } catch (e) {
+    if (isDuplicate(e)) return fail("duplicate", DUPLICATE);
+    throw e;
+  }
   await ctx.audit({ action: "progress_goal.updated", entity: "progress_goal", entityId: g.id, contractId: g.contractId, details: { fields, stepItems } });
   return ok({ changed: true });
 });
@@ -158,13 +171,43 @@ async function evidenceOptions(ctx: Ctx, c: Case): Promise<{ value: string; labe
     ctx.repo.table("check_ins").list({ caseId: c.id }, { orderBy: "heldAt", desc: true, limit: 15 }),
     ctx.repo.table("case_notes").list({ caseId: c.id }, { orderBy: "occurredOn", desc: true, limit: 30 }),
   ]);
-  const groupIds = uniq(acts.map((a) => a.groupActivityId).filter((x): x is string => !!x));
-  const groups = new Map((groupIds.length ? await ctx.repo.table("group_activities").pick(["name"], { id: { in: groupIds } }) : []).map((g) => [g.id, g.name]));
+  const groups = await groupNames(ctx, acts);
   return [
-    ...acts.map((a) => ({ value: `activity:${a.id}`, label: `${(a.groupActivityId && groups.get(a.groupActivityId)) || KIND_LABEL[a.kind]} ${fmtDate(dayOf(a.startsAt))}`, at: a.startsAt })),
-    ...checkIns.map((x) => ({ value: `check_in:${x.id}`, label: `Mötesrapport ${fmtDate(dayOf(x.heldAt))}`, at: x.heldAt })),
-    ...notes.filter((n) => !n.removedAt).slice(0, 15).map((n) => ({ value: `case_note:${n.id}`, label: `Anteckning ${fmtDate(n.occurredOn)}`, at: `${n.occurredOn}T23:59` })),
+    ...acts.map((a) => ({ value: `activity:${a.id}`, label: activityLabel(a, groups), at: a.startsAt })),
+    ...checkIns.map((x) => ({ value: `check_in:${x.id}`, label: checkInLabel(x), at: x.heldAt })),
+    ...notes.filter((n) => !n.removedAt).slice(0, 15).map((n) => ({ value: `case_note:${n.id}`, label: noteLabel(n), at: `${n.occurredOn}T23:59` })),
   ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.value < b.value ? -1 : 1)).map(({ value, label }) => ({ value, label }));
+}
+/** Underlagets namn: "Yrkesmoment 12 jan", "CV-verkstad 12 jan", "Mötesrapport 15 jan" eller "Anteckning 26 jan". */
+const activityLabel = (a: Pick<Activity, "kind" | "startsAt" | "groupActivityId">, groups: ReadonlyMap<string, string>) =>
+  `${(a.groupActivityId && groups.get(a.groupActivityId)) || KIND_LABEL[a.kind]} ${fmtDate(dayOf(a.startsAt))}`;
+const checkInLabel = (x: Pick<CheckIn, "heldAt">) => `Mötesrapport ${fmtDate(dayOf(x.heldAt))}`;
+const noteLabel = (n: Pick<CaseNote, "occurredOn">) => `Anteckning ${fmtDate(n.occurredOn)}`;
+async function groupNames(ctx: Ctx, acts: readonly Pick<Activity, "groupActivityId">[]): Promise<Map<string, string>> {
+  const ids = uniq(acts.map((a) => a.groupActivityId).filter((x): x is string => !!x));
+  return new Map((ids.length ? await ctx.repo.table("group_activities").pick(["name"], { id: { in: ids } }) : []).map((g) => [g.id, g.name]));
+}
+/** Underlaget som valdes vid Uppnått, med namn (via behörigheten): läget → "Mötesrapport 15 jan". Saknas underlaget visas inget. */
+async function evidenceLabels(ctx: Ctx, rows: readonly CaseProgressGoal[]): Promise<Map<string, string>> {
+  const ids = (kind: CaseProgressGoal["evidenceKind"]) => uniq(rows.filter((r) => r.status === "achieved" && r.evidenceKind === kind && r.evidenceId).map((r) => r.evidenceId as string));
+  const [actIds, checkInIds, noteIds] = [ids("activity"), ids("check_in"), ids("case_note")];
+  const [acts, checkIns, notes] = await Promise.all([
+    actIds.length ? ctx.repo.table("activities").list({ id: { in: actIds } }) : Promise.resolve([]),
+    checkInIds.length ? ctx.repo.table("check_ins").list({ id: { in: checkInIds } }) : Promise.resolve([]),
+    noteIds.length ? ctx.repo.table("case_notes").list({ id: { in: noteIds } }) : Promise.resolve([]),
+  ]);
+  const groups = await groupNames(ctx, acts);
+  const label = new Map<string, string>([
+    ...acts.map((a) => [`activity:${a.id}`, activityLabel(a, groups)] as const),
+    ...checkIns.map((x) => [`check_in:${x.id}`, checkInLabel(x)] as const),
+    ...notes.filter((n) => !n.removedAt).map((n) => [`case_note:${n.id}`, noteLabel(n)] as const),
+  ]);
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    const l = r.status === "achieved" && r.evidenceKind ? label.get(`${r.evidenceKind}:${r.evidenceId}`) : undefined;
+    if (l) out.set(r.goalId, l);
+  }
+  return out;
 }
 
 handleQuery(caseGoals, { roles: GOAL_READERS }, async (ctx, p): Promise<CaseGoalsView> => {
@@ -177,6 +220,7 @@ handleQuery(caseGoals, { roles: GOAL_READERS }, async (ctx, p): Promise<CaseGoal
   // Inaktiverade delmål visas bara när ärendet har ett läge för dem.
   const shown = goals.filter((g) => g.active || rowOf.has(g.id));
   const canEdit = GOAL_SETTERS.includes(ctx.actor.role) && STARTED.includes(c.status) && !!c.startDate && (await canEditCase(ctx, c));
+  const evidence = await evidenceLabels(ctx, rows);
   return {
     on: true, caseId: c.id, caseNumber: c.caseNumber, canEdit, today: dayOf(ctx.now()), minDate: c.startDate,
     areas: byArea(x.cfg, shown).filter((a) => a.goals.length).map((a) => ({
@@ -184,7 +228,10 @@ handleQuery(caseGoals, { roles: GOAL_READERS }, async (ctx, p): Promise<CaseGoal
       goals: a.goals.map((g) => {
         const r = rowOf.get(g.id) ?? null;
         const state = r?.status ?? "none";
-        return { goalId: g.id, label: g.label, state, stateText: goalStateText(r), icon: GOAL_STATE_ICON[state], source: r?.source ?? null, achievedOn: r?.achievedOn ?? null, inactive: !g.active };
+        return {
+          goalId: g.id, label: g.label, state, stateText: goalStateText(r), icon: GOAL_STATE_ICON[state], source: r?.source ?? null, achievedOn: r?.achievedOn ?? null,
+          evidenceLabel: evidence.get(g.id) ?? null, inactive: !g.active,
+        };
       }),
     })),
   };
@@ -259,7 +306,9 @@ handleCommand(goalAchieve, { roles: GOAL_SETTERS }, async (ctx, p) => {
   let suggested = 0;
   if (g.stepItems.some((it) => stepItemsOf(1).includes(it) || stepItemsOf(2).includes(it))) {
     try {
-      suggested = (await ensureBonusClaims(ctx, { floor: null, caseIds: [c.id] })).created.length;
+      const created = (await ensureBonusClaims(ctx, { floor: null, caseIds: [c.id] })).created.length;
+      // Progression och resultat är ett ekonomiskt villkor: en begränsad testare får inget besked om förslagen (samma som bonus.kort).
+      suggested = hidesCommercial(ctx.actor) ? 0 : created;
     } catch (e) {
       console.error("delmålen: förslaget om progression och resultat kunde inte prövas", (e as { code?: unknown; name?: unknown } | null)?.code ?? (e as { name?: unknown } | null)?.name ?? "error");
     }
@@ -276,8 +325,9 @@ handleCommand(goalUndo, { roles: GOAL_SETTERS }, async (ctx, p) => {
   if (p.to === "training") {
     const patch = { status: "training" as const, source: "manual" as const, achievedOn: null, evidenceKind: null, evidenceId: null, setBy: ctx.actor.userId, setAt: ctx.now() };
     if (!(await table.updateIf(row.id, { status: "achieved" }, patch))) return fail("not_achieved", "Delmålet är inte uppnått. Ladda om sidan.");
-  } else {
-    await table.remove(row.id);
+  } else if (!(await table.removeIf(row.id, { status: "achieved" }))) {
+    // Någon hann ändra läget under tiden (till exempel Ångra samtidigt): ingenting tas bort.
+    return fail("not_achieved", "Delmålet är inte uppnått. Ladda om sidan.");
   }
   await ctx.audit({
     action: "case_progress_goal.undone", entity: "case_progress_goal", entityId: row.id, contractId: c.contractId,

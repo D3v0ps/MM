@@ -405,10 +405,13 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   const ids = cases.map((c) => c.id);
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
   if (!main) throw new Error("Inget avtal med driftkonfiguration");
-  const db = await loadDb(ctx.repo, ["activities", "attendance", "persons", "reports", "profiles"], {
+  const db = await loadDb(ctx.repo, ["activities", "attendance", "persons", "reports", "profiles", "activity_progress_goals"], {
     activities: { caseId: { in: ids } }, attendance: { caseId: { in: ids } }, persons: { id: { in: uniq(cases.map((c) => c.personId)) } }, reports: { kind: "weekly_attendance" },
+    activity_progress_goals: { caseId: { in: ids } },
   });
   const caseById = new Map(cases.map((c) => [c.id, c]));
+  // Delmålen på de egna tillfällena (Ändra tid) – egen tabell, läst via behörigheten.
+  const ownTags = new Map(db.activity_progress_goals.map((r) => [r.id, r.goalIds]));
   const personById = new Map(db.persons.map((p) => [p.id, p]));
   // Mina deltagare (valet på Närvaro): huvudcoach eller i teamet – tilldelningen visar vems deltagare det är, inte vem som får arbeta.
   const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
@@ -432,7 +435,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
         location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
-        referrerId: c.referrerId, groupActivityId: a.groupActivityId, progressGoalIds: [...(a.progressGoalIds ?? [])], leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId),
+        referrerId: c.referrerId, groupActivityId: a.groupActivityId, progressGoalIds: [...(ownTags.get(a.id) ?? [])], leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId),
         mine: mineCase(c),
       });
     }

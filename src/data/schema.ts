@@ -74,8 +74,9 @@
 //                                       Testdatat: src/data/seed/decisions-2026-10-29.ts
 //   (finns inte i prototypen)        -> first_meeting_no_shows (deltagaren kom inte till första mötet, Karims beslut 2026-11-09,
 //                                       0040). Testdatat: src/data/seed/decisions-2026-11-09.ts (ett ärende vars första möte har varit)
-//   (finns inte i prototypen)        -> progress_goals, case_progress_goals och progressGoalIds på activities, group_activities och
-//                                       group_activity_series (delmål för progressionerna, Karims beslut 2026-11-11, 0043).
+//   (finns inte i prototypen)        -> progress_goals, case_progress_goals, activity_progress_goals (deltagarens egna tillfällen) och
+//                                       progressGoalIds på group_activities och group_activity_series (delmål för progressionerna,
+//                                       Karims beslut 2026-11-11, 0043).
 //                                       Testdatat: src/data/seed/decisions-2026-11-11-delmal.ts
 //
 // Fältbyten (prototyp -> här):
@@ -801,12 +802,6 @@ export type Activity = {
    * Användare skriver bara manual och ändrar aldrig källan (triggern activities_invite_source) – audience skrivs av servern.
    */
   inviteSource: InviteSource;
-  /**
-   * Delmålen som tillfället tränar (0043, Karims beslut 2026-11-11): id:n i progress_goals i ärendets avtal. Bara deltagarens egna
-   * tillfällen – i en gruppaktivitet står delmålen på aktiviteten (group_activities.progressGoalIds) och här är listan tom. Internt:
-   * visas aldrig för kommunen, i rapporter, export eller PDF.
-   */
-  progressGoalIds: string[];
 };
 
 /**
@@ -2181,6 +2176,21 @@ export type CaseProgressGoal = {
   setAt: LocalDateTime;
 };
 
+/**
+ * Delmålen som deltagarens eget tillfälle tränar (0043, Karims beslut 2026-11-11): en rad per tillfälle, id = tillfällets id
+ * (activities.id; tas tillfället bort försvinner raden med det i databasen). Ligger i en egen tabell och inte på activities, eftersom
+ * kommunen och ekonomen läser tillfällena – raden läses bara med full- eller teamåtkomst till ärendet. Bara tillfällen utanför
+ * gruppaktiviteter: i en gruppaktivitet står delmålen på aktiviteten (group_activities.progressGoalIds). Ingen rad = inga delmål.
+ */
+export type ActivityProgressGoal = {
+  id: string;
+  caseId: string;
+  /** Id:n i progress_goals i ärendets avtal, högst PROGRESS_GOAL_TAGS_MAX. */
+  goalIds: string[];
+  updatedBy: UserId;
+  updatedAt: LocalDateTime;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -2258,6 +2268,7 @@ export type Tables = {
   first_meeting_no_shows: FirstMeetingNoShow;
   progress_goals: ProgressGoal;
   case_progress_goals: CaseProgressGoal;
+  activity_progress_goals: ActivityProgressGoal;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -2272,7 +2283,7 @@ export const TABLE_NAMES = [
   "inbound_emails",
   // Grupperingarna före gruppaktiviteterna: group_activities.audience_level_id pekar på en nivå (0035).
   "groupings", "grouping_members",
-  // Delmålen före tillfällena: progress_goal_ids på activities, group_activities och group_activity_series prövas mot katalogen (0043).
+  // Delmålen före tillfällena: progress_goal_ids på group_activities och group_activity_series prövas mot katalogen (0043).
   "progress_goals",
   "intake_assessments", "group_activity_series", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
   "reports", "messages", "user_notifications", "notification_reads", "tasks", "outbound_messages", "case_seen",
@@ -2291,6 +2302,8 @@ export const TABLE_NAMES = [
   "bonus_claim_decisions",
   "first_meeting_no_shows",
   "case_progress_goals",
+  // Efter tillfällena (id = activities.id).
+  "activity_progress_goals",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;

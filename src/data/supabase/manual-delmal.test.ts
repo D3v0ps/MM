@@ -27,7 +27,7 @@ beforeAll(async () => {
   await loadSeed(db);
   // Före filen: inga delmål och ingen tröskel (det som 0043 ger ett befintligt avtal).
   await db.exec(`
-    update public.activities set progress_goal_ids = '{}';
+    delete from public.activity_progress_goals;
     update public.group_activities set progress_goal_ids = '{}';
     update public.group_activity_series set progress_goal_ids = '{}';
     delete from public.case_progress_goals;
@@ -63,6 +63,17 @@ describe("supabase/manual/2026-11-delmal-botkyrka.sql", () => {
     const renamed = await snapshot();
     await db.exec(readFileSync(FILE, "utf8"));
     expect(await snapshot()).toEqual(renamed);
+  });
+
+  it("startlistans namn krockar inte med det unika namnet i området (progress_goals_label_key) – en dubblett stoppas med 23505", async () => {
+    expect(new Set(DEFAULT_PROGRESS_GOALS.map((g) => `${g.areaKey}|${g.label.trim().toLowerCase()}`)).size).toBe(25);
+    const err = await db.exec(`insert into public.progress_goals (id, contract_id, area_key, label, sort_order, active, step_items, created_by, created_at)
+      values ('pg-t-dubblett', 'c-bot', 'narvaro_rutiner', '  meddelar frånvaro INNAN tillfället ', 99, true, '{}', 'system', now())`).then(() => null, (e: { code?: string }) => e.code);
+    expect(err).toBe("23505");
+    // Samma namn i ett annat område går bra.
+    await db.exec(`insert into public.progress_goals (id, contract_id, area_key, label, sort_order, active, step_items, created_by, created_at)
+      values ('pg-t-annat-omrade', 'c-bot', 'ovrigt', 'Meddelar frånvaro innan tillfället', 99, true, '{}', 'system', now())`);
+    await db.exec("delete from public.progress_goals where id = 'pg-t-annat-omrade'");
   });
 
   it("vägrar utan migration 0043", async () => {

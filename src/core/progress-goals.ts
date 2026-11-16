@@ -58,17 +58,20 @@ export type StepItemStatus = {
 
 /**
  * Läget för punkterna i steget (1 eller 2) i ett ärende: vilka uppnådda delmål som räknas mot varje punkt och om de räcker. goals =
- * avtalets katalog (också inaktiva – ett delmål som uppnåddes innan det inaktiverades räknas), rows = ärendets lägen.
+ * avtalets katalog (också inaktiva – ett delmål som uppnåddes innan det inaktiverades räknas), rows = ärendets lägen. inPeriod: bara
+ * delmål som uppnåddes den dagen räknas – insatsen till och med i dag (caseStepItems i bonus.ts). Ett delmål som uppnåddes före ett
+ * startdatum som flyttats fram räknas inte, och dagen då punkten blev uppfylld är alltid en dag under insatsen.
  */
 export function stepItemStatuses(
   step: number,
   goals: readonly Pick<ProgressGoal, "id" | "label" | "stepItems" | "contractId">[],
   rows: readonly Pick<CaseProgressGoal, "goalId" | "status" | "achievedOn" | "contractId">[],
   m: { stepItemMin?: Partial<Record<string, number>> } | null | undefined,
+  inPeriod?: (day: LocalDate) => boolean,
 ): StepItemStatus[] {
   const byId = new Map(goals.map((g) => [g.id, g]));
   const achieved = rows
-    .filter((r) => r.status === "achieved" && !!r.achievedOn && byId.get(r.goalId)?.contractId === r.contractId)
+    .filter((r) => r.status === "achieved" && !!r.achievedOn && byId.get(r.goalId)?.contractId === r.contractId && (!inPeriod || inPeriod(r.achievedOn)))
     .map((r) => ({ goal: byId.get(r.goalId)!, on: r.achievedOn as LocalDate }))
     .sort((a, b) => (a.on < b.on ? -1 : a.on > b.on ? 1 : a.goal.id < b.goal.id ? -1 : 1));
   return stepItemsOf(step).map((item) => {
@@ -108,12 +111,14 @@ export const TRAINING_ATTENDANCE: readonly Attendance["status"][] = ["present", 
 export type TrainingRow = { caseId: string; contractId: string; goalId: string; activityId: string; day: LocalDate };
 /**
  * Vilka delmål som ska få Tränar automatiskt (ren regel, idempotent): för varje tillfälle med närvaro (närvarande eller sen) och
- * delmål – deltagarens eget tillfälle (activities.progressGoalIds) eller gruppaktivitetens (group_activities.progressGoalIds) – en rad
- * per ärende och delmål som ännu inte har något läge. Ett delmål som redan tränas eller är uppnått rörs aldrig. Bara aktiva delmål
- * i ärendets avtal. Det tidigaste tillfället (sedan id) blir underlaget.
+ * delmål – deltagarens eget tillfälle (ownTags: activity_progress_goals, tillfällets id → delmålen) eller gruppaktivitetens
+ * (group_activities.progressGoalIds; aldrig en inställd aktivitet) – en rad per ärende och delmål som ännu inte har något läge. Ett
+ * delmål som redan tränas eller är uppnått rörs aldrig. Bara aktiva delmål i ärendets avtal. Det tidigaste tillfället (sedan id) blir
+ * underlaget.
  */
 export function trainingRowsToAdd(x: {
-  activities: readonly Pick<Activity, "id" | "caseId" | "startsAt" | "groupActivityId" | "progressGoalIds">[];
+  activities: readonly Pick<Activity, "id" | "caseId" | "startsAt" | "groupActivityId">[];
+  ownTags: ReadonlyMap<string, readonly string[]>;
   groupActivities: readonly Pick<GroupActivity, "id" | "progressGoalIds" | "cancelledAt">[];
   attendance: readonly Pick<Attendance, "activityId" | "status">[];
   goals: readonly Pick<ProgressGoal, "id" | "contractId" | "active">[];
@@ -121,7 +126,7 @@ export function trainingRowsToAdd(x: {
   contractOfCase: ReadonlyMap<string, string>;
 }): TrainingRow[] {
   const goalById = new Map(x.goals.map((g) => [g.id, g]));
-  const groupTags = new Map(x.groupActivities.map((g) => [g.id, g.progressGoalIds ?? []]));
+  const groupTags = new Map(x.groupActivities.filter((g) => !g.cancelledAt).map((g) => [g.id, g.progressGoalIds ?? []]));
   const trained = new Set(x.attendance.filter((a) => TRAINING_ATTENDANCE.includes(a.status)).map((a) => a.activityId));
   const taken = new Set(x.existing.map((r) => `${r.caseId}|${r.goalId}`));
   const out: TrainingRow[] = [];
@@ -130,7 +135,7 @@ export function trainingRowsToAdd(x: {
     if (!trained.has(a.id)) continue;
     const contractId = x.contractOfCase.get(a.caseId);
     if (!contractId) continue;
-    const tags = a.groupActivityId ? (groupTags.get(a.groupActivityId) ?? []) : (a.progressGoalIds ?? []);
+    const tags = a.groupActivityId ? (groupTags.get(a.groupActivityId) ?? []) : (x.ownTags.get(a.id) ?? []);
     for (const goalId of tags) {
       const g = goalById.get(goalId);
       if (!g || !g.active || g.contractId !== contractId) continue;

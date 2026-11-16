@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { BonusClaim, CaseProgressGoal, MonthlyAssessment } from "@/data/schema";
 import { caseGoalId, defaultProgressGoals, defaultGoalId, stepItemStatuses } from "./progress-goals";
 import {
-  BONUS_STATUS_TEXT, bonusAttendance, bonusSuggestions, capAmounts, duringInsats, inResultWindow, manualCreateProblem, resultWindowEnd, speedDeadline, stepKind,
+  BONUS_STATUS_TEXT, bonusAttendance, bonusSuggestions, capAmounts, caseStepItems, duringInsats, inResultWindow, manualCreateProblem, resultWindowEnd, speedDeadline, stepKind,
   submitProblems, sustainDate, type BonusRuleDb, type SubmitContext,
 } from "./bonus";
 import { BOTKYRKA_CONFIG, bonusBillingModel } from "./config";
@@ -166,6 +166,33 @@ describe("förslagen från regeln", () => {
       cases: [c], progress_goals: GOALS, case_progress_goals: [achieved(c.id, 22, "2026-12-15")], outcome_events: [mkEvent({ id: "e1", caseId: c.id, kind: "praktik_startad", occurredOn: "2026-12-01" })],
     }), M, env("2027-01-10"));
     expect(withEvent.map((x) => [x.step, x.outcomeEventId])).toEqual([[2, "e1"]]);
+  });
+  it("bara delmål som uppnåtts under insatsen räknas: startdatumet flyttat fram (25 → 27 jan) – punkterna i steg 1 räknas inte längre", () => {
+    const rows = (caseId: string) => [achieved(caseId, 3, "2027-01-25"), achieved(caseId, 13, "2027-01-26"), achieved(caseId, 20, "2027-01-26"), achieved(caseId, 4, "2027-01-26"), achieved(caseId, 17, "2027-01-28")];
+    const run = (startDate: string) => {
+      const c = mkCase({ id: "case-m", startDate });
+      const acts = [mkActivity({ id: "m1", caseId: c.id, startsAt: "2027-01-28T09:00" })];
+      const att = [mkAttendance({ activityId: "m1", caseId: c.id, status: "present" })];
+      const ma = [mkAssessment(c.id, "2027-01"), mkAssessment(c.id, "2027-02")];
+      const d = db({ cases: [c], activities: acts, attendance: att, monthly_assessments: ma, progress_goals: GOALS, case_progress_goals: rows(c.id) });
+      return { suggestions: bonusSuggestions(d, M, env("2027-03-10")).map((x) => x.step), items: caseStepItems(d, c, 1, M, "2027-03-10").map((x) => [x.item, x.fulfilled]) };
+    };
+    expect(run("2027-01-25")).toEqual({
+      suggestions: [1], items: [["individuell_plan", true], ["ansokningshandlingar", true], ["branschintroduktion", true], ["arbetsgivarnara", true]],
+    });
+    // Startdatumet flyttat till 27 jan: delmålen 25–26 jan är före insatsen – bara den arbetsgivarnära aktiviteten (28 jan) räknas.
+    expect(run("2027-01-27")).toEqual({
+      suggestions: [], items: [["individuell_plan", false], ["ansokningshandlingar", false], ["branschintroduktion", false], ["arbetsgivarnara", true]],
+    });
+  });
+  it("steg 2: praktik före start och en arbetsintervju under insatsen – förslaget har arbetsintervjuns dag; ett delmål efter i dag räknas inte", () => {
+    const c = mkCase({ id: "case-p", startDate: "2027-01-27" });
+    const run = (rows: CaseProgressGoal[], day = "2027-03-10") =>
+      bonusSuggestions(db({ cases: [c], progress_goals: GOALS, case_progress_goals: rows }), M, env(day)).filter((x) => x.step === 2).map((x) => [x.step, x.outcomeEventId, x.reachedOn]);
+    expect(run([achieved(c.id, 22, "2027-01-25"), achieved(c.id, 19, "2027-02-03")])).toEqual([[2, null, "2027-02-03"]]);
+    expect(run([achieved(c.id, 22, "2027-01-25")])).toEqual([]);
+    // Uppnått i morgon (en felaktig dag) räknas inte förrän dagen har kommit.
+    expect(run([achieved(c.id, 19, "2027-02-03")], "2027-02-02")).toEqual([]);
   });
 });
 

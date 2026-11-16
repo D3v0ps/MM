@@ -12,9 +12,9 @@
 --     säger bara vilka punkter i modellen som är uppfyllda. Ekonomen läser dem inte heller.
 --
 -- 1. public.progress_goals – katalogen: avtalet, progressionsområdet (en av avtalets progression.areas, prövas när raden skapas),
---    namnet (1–120 tecken), ordningen, aktiv och punkterna i steg 1–2 (step_items, bara kända nycklar). Ändras aldrig: id, avtal,
---    område, skapare och skapad-tid. Ingen delete-rättighet för någon – ett delmål inaktiveras (active false) och står kvar där det
---    redan använts.
+--    namnet (1–120 tecken, unikt i området utan skillnad på stora och små bokstäver), ordningen, aktiv och punkterna i steg 1–2
+--    (step_items, bara kända nycklar). Ändras aldrig: id, avtal, område, skapare och skapad-tid. Ingen delete-rättighet för någon –
+--    ett delmål inaktiveras (active false) och står kvar där det redan använts.
 --      läsa:   Miljonbemanning i avtalet utom ekonomen (samordnare, avtalsansvarig, coach, handledare – vilande –, chef, admin).
 --      skriva: avtalsansvarig och systemadministratören i avtalet, i eget namn (created_by, updated_by).
 -- 2. public.case_progress_goals – läget per ärende och delmål (en rad, unik): training eller achieved, källan (auto eller manual),
@@ -25,27 +25,41 @@
 --      skriva: den som arbetar i ärendet (mm.work_on), i eget namn och med källan manual. Tränar automatiskt skrivs bara av servern
 --              (service role, källan auto, set_by 'system'). Ta bort (Ångra till Inte påbörjat): den som arbetar i ärendet.
 --      för alla roller (triggern case_progress_goals_check): raden hör till ärendets avtal, delmålet till samma avtal, ett nytt läge
---              gäller ett aktivt delmål, och underlaget hör till ärendet.
--- 3. progress_goal_ids text[] not null default '{}' på public.activities (deltagarens egna tillfällen), public.group_activities och
---    public.group_activity_series (kopieras till tillfällena som jobbet skapar). För alla roller (triggrarna *_progress_goal_tags):
---    delmålen finns i avtalet (tillfällets ärendes avtal), inga dubbletter, och de som läggs till är aktiva – ett delmål som
---    inaktiverats får ligga kvar där det redan stod. Högst 20. Ett tillfälle i en gruppaktivitet har inga egna delmål (de står på
---    aktiviteten). Läs- och skrivreglerna för tabellerna är oförändrade (0005, 0030, 0035).
+--              gäller ett aktivt delmål, och underlaget hör till ärendet. För inloggade dessutom: id ändras aldrig, och dagen för
+--              Uppnått ligger mellan insatsens startdatum och i dag (Stockholms datum, mm.app_now()).
+-- 3. Delmålen på tillfällena.
+--    a. public.activity_progress_goals – deltagarens egna tillfällen: en rad per tillfälle (id = activities.id, tas bort med
+--       tillfället), ärendet och delmålen (goal_ids). En egen tabell, inte en kolumn på activities: kommunen och ekonomen läser
+--       tillfällena (0005), men delmålen är interna.
+--         läsa:   med åtkomst full eller team till ärendet (mm.case_ids('{full,team}')) – aldrig kommunen, ekonomen eller deltagaren.
+--         skriva: den som arbetar i ärendet (mm.work_on), i eget namn (updated_by). Ingen delete för inloggade – en tom lista är
+--                 inga delmål.
+--         för alla roller (triggern activity_progress_goals_check): tillfället finns, hör till ärendet och är inte en rad i en
+--                 gruppaktivitet; delmålen finns i ärendets avtal, inga dubbletter, de som läggs till är aktiva. Högst 20.
+--    b. progress_goal_ids text[] not null default '{}' på public.group_activities och public.group_activity_series (kopieras till
+--       tillfällena som jobbet skapar). Kommunen och ekonomen läser inga gruppaktiviteter (0030, 0035). För alla roller (triggrarna
+--       *_progress_goal_tags): delmålen finns i avtalet, inga dubbletter, de som läggs till är aktiva – ett delmål som inaktiverats
+--       får ligga kvar där det redan stod. Högst 20. Läs- och skrivreglerna för tabellerna är oförändrade.
 --
--- Speglas i src/data/policy.ts (progress_goals, case_progress_goals och guard på activities, group_activities och
+-- Triggrarnas kontroller körs före RLS-policyernas with check. Därför släpper de igenom en inloggad som inte får skriva raden
+-- (ingen åtkomst att arbeta i ärendet, eller fel roll för katalogen och gruppaktiviteterna) utan att pröva något – policyn nekar
+-- då med 42501, och felmeddelandena säger aldrig något om katalogen till den som inte får se den.
+--
+-- Speglas i src/data/policy.ts (progress_goals, case_progress_goals, activity_progress_goals och guard på group_activities och
 -- group_activity_series), src/data/schema.ts (TABLE_NAMES, UNIQUE_KEYS) och scripts/db/columns.ts. Reglerna för hanterarna i
 -- src/core/progress-goals.ts. Prövas i src/data/supabase/rls-parity.test.ts. Startlistan för Botkyrka läggs in för hand efter
 -- migrationen: supabase/manual/2026-11-delmal-botkyrka.sql.
 --
--- Inga destruktiva satser och inga befintliga rader, policyer eller rättigheter ändras – två nya tabeller med sina triggrar och
--- policyer, en ny kolumn på tre tabeller (standardvärdet '{}' – ingen omskrivning av tabellen) med kontroller och triggrar, och nya
--- funktioner i schemat mm. Idempotent (if not exists, or replace, drop … if exists) – tål att köras igen i SQL Editor.
+-- Inga destruktiva satser och inga befintliga rader, policyer eller rättigheter ändras – tre nya tabeller med sina triggrar och
+-- policyer, en ny kolumn på två tabeller (standardvärdet '{}' – ingen omskrivning av tabellen) med kontroller och triggrar, och nya
+-- funktioner i schemat mm. public.activities får inga nya kolumner. Idempotent (if not exists, or replace, drop … if exists) – tål
+-- att köras igen i SQL Editor.
 --
--- Lås: kolumnerna, kontrollerna och triggrarna tar ett starkt lås en kort stund på public.activities (het tabell),
--- public.group_activities och public.group_activity_series. Kontrollerna läggs till som not valid och valideras sedan (svagare lås,
--- alla befintliga rader har den tomma listan). Väntar en sats längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i
--- stället för att alla andra frågor köar bakom den – kör då filen igen, gärna utanför arbetstid. Inställningen gäller bara den här
--- körningen (återställs sist i filen).
+-- Lås: kolumnerna, kontrollerna och triggrarna tar ett starkt lås (AccessExclusiveLock) på public.group_activities och
+-- public.group_activity_series, och den nya tabellens främmande nyckel ett lås på public.activities (het tabell) – låsen hålls tills
+-- filen är klar (en transaktion i SQL Editor). Kontrollen av de befintliga raderna går fort (alla har den tomma listan). Väntar en
+-- sats längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i stället för att alla andra frågor köar bakom den – kör då
+-- filen igen, gärna utanför arbetstid. Inställningen gäller bara den här körningen (återställs sist i filen).
 set lock_timeout = '5s';
 set statement_timeout = '60s';
 
@@ -78,6 +92,9 @@ alter table public.progress_goals add constraint progress_goals_step_items_check
 alter table public.progress_goals drop constraint if exists progress_goals_updated_pair;
 alter table public.progress_goals add constraint progress_goals_updated_pair check ((updated_at is null) = (updated_by is null));
 create index if not exists progress_goals_contract_id_idx on public.progress_goals (contract_id, area_key, sort_order);
+-- Samma namn bara en gång i området (utan skillnad på stora och små bokstäver och blanksteg först och sist) – hanterarna jämför
+-- också blanksteg inuti (sameGoalLabel) och svarar "duplicate"; indexet stoppar två som lägger till samtidigt (23505).
+create unique index if not exists progress_goals_label_key on public.progress_goals (contract_id, area_key, lower(btrim(label)));
 
 alter table public.progress_goals enable row level security;
 -- Ingen delete för någon: ett delmål inaktiveras. "Läs in testdata på nytt" tömmer tabellen med mm.reset_test_data (security
@@ -130,6 +147,12 @@ as $$
 declare
   me text := mm.current_profile_id();
 begin
+  -- Den inloggade som inte får skriva katalogen: inget prövas här – policyn nekar (42501) utan att säga något om avtalet.
+  if current_user in ('authenticated', 'anon') and not (
+    (select mm.role_in(array['avtalsansvarig', 'admin'])) and mm.member_in(new.contract_id, (select mm.current_role()), (select mm.my_contract_ids()))
+  ) then
+    return new;
+  end if;
   if tg_op = 'INSERT' and not mm.contract_has_progress_area(new.contract_id, new.area_key) then
     raise exception 'Området finns inte bland avtalets progressionsområden' using errcode = '23514';
   end if;
@@ -214,55 +237,79 @@ create policy case_progress_goals_delete on public.case_progress_goals for delet
   mm.work_on(case_id)
 );
 
--- Raden stämmer (policy.ts caseGoalGuard): null när ärendet hör till avtalet, delmålet till samma avtal (och är aktivt vid en ny
--- rad) och underlaget hör till ärendet – annars vad som inte stämmer. Security definer: den inloggade läser bara id direkt i
--- public.cases (0013) och kanske inte underlaget. Svarar bara med en kod.
+-- Raden stämmer (policy.ts caseGoalGuard och caseGoalWrite): null när ärendet hör till avtalet, delmålet till samma avtal (och är
+-- aktivt vid en ny rad), underlaget hör till ärendet och – när p_achieved_on är satt (inloggade, en ny eller ändrad dag för Uppnått)
+-- – dagen ligger mellan ärendets startdatum och i dag (Stockholms datum enligt mm.app_now()). Annars vad som inte stämmer. Security
+-- definer: den inloggade läser bara id direkt i public.cases (0013) och kanske inte underlaget. Svarar bara med en kod.
 create or replace function mm.case_progress_goal_problem(
-  p_case_id text, p_contract_id text, p_goal_id text, p_evidence_kind text, p_evidence_id text, p_new boolean
+  p_case_id text, p_contract_id text, p_goal_id text, p_evidence_kind text, p_evidence_id text, p_new boolean, p_achieved_on date
 ) returns text
 language sql stable security definer set search_path = public, mm
 as $$
   select case
-    when (select c.contract_id from public.cases c where c.id = p_case_id) is distinct from p_contract_id then 'contract'
+    when c.contract_id is distinct from p_contract_id then 'contract'
     when g.id is null or g.contract_id is distinct from p_contract_id then 'goal'
     when p_new and not g.active then 'inactive'
     when p_evidence_kind = 'activity' and not exists (select 1 from public.activities a where a.id = p_evidence_id and a.case_id = p_case_id) then 'evidence'
     when p_evidence_kind = 'check_in' and not exists (select 1 from public.check_ins x where x.id = p_evidence_id and x.case_id = p_case_id) then 'evidence'
     when p_evidence_kind = 'case_note' and not exists (select 1 from public.case_notes n where n.id = p_evidence_id and n.case_id = p_case_id) then 'evidence'
+    when p_achieved_on is not null and (
+      c.start_date is null or p_achieved_on < c.start_date or p_achieved_on > (mm.app_now() at time zone 'Europe/Stockholm')::date
+    ) then 'date'
     else null
   end
   from (select 1) as one
+  left join public.cases c on c.id = p_case_id
   left join public.progress_goals g on g.id = p_goal_id
 $$;
-revoke all on function mm.case_progress_goal_problem(text, text, text, text, text, boolean) from public, anon;
-grant execute on function mm.case_progress_goal_problem(text, text, text, text, text, boolean) to authenticated, service_role;
+revoke all on function mm.case_progress_goal_problem(text, text, text, text, text, boolean, date) from public, anon;
+grant execute on function mm.case_progress_goal_problem(text, text, text, text, text, boolean, date) to authenticated, service_role;
 
 -- För alla roller: raden stämmer (ovan). För inloggade dessutom (policy.ts caseGoalWrite): en ny eller ändrad rad i eget namn och
--- med källan manual – Tränar automatiskt skrivs bara av servern; ärende, avtal och delmål ändras aldrig. En ändring som inte ändrar
--- något släpps igenom (som en borttagning prövas den bara av policyerna).
+-- med källan manual – Tränar automatiskt skrivs bara av servern; id, ärende, avtal och delmål ändras aldrig; en ny eller ändrad dag
+-- för Uppnått ligger mellan startdatumet och i dag. En ändring som inte ändrar något släpps igenom (som en borttagning prövas den
+-- bara av policyerna). Den inloggade som inte arbetar i ärendet prövas inte här – policyn nekar (42501).
 create or replace function mm.check_case_progress_goal() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 declare
   problem text;
+  logged_in boolean := current_user in ('authenticated', 'anon');
+  check_day boolean;
 begin
-  problem := mm.case_progress_goal_problem(new.case_id, new.contract_id, new.goal_id, new.evidence_kind, new.evidence_id, tg_op = 'INSERT');
+  if logged_in and not mm.work_on(new.case_id) then
+    return new;
+  end if;
+  check_day := false;
+  if logged_in and new.status = 'achieved' then
+    if tg_op = 'INSERT' then
+      check_day := true;
+    else
+      check_day := new.achieved_on is distinct from old.achieved_on or new.status is distinct from old.status;
+    end if;
+  end if;
+  problem := mm.case_progress_goal_problem(
+    new.case_id, new.contract_id, new.goal_id, new.evidence_kind, new.evidence_id, tg_op = 'INSERT', case when check_day then new.achieved_on end
+  );
   if problem = 'contract' or problem = 'goal' then
     raise exception 'Delmålet ska höra till ärendets avtal' using errcode = '23514';
   elsif problem = 'inactive' then
     raise exception 'Delmålet är inaktiverat' using errcode = '23514';
   elsif problem = 'evidence' then
     raise exception 'Underlaget ska höra till ärendet' using errcode = '23514';
+  elsif problem = 'date' then
+    raise exception 'Dagen för Uppnått ska ligga mellan startdatumet och i dag' using errcode = '23514';
   end if;
-  if current_user not in ('authenticated', 'anon') then
+  if not logged_in then
     return new;
   end if;
   if tg_op = 'UPDATE' then
     if to_jsonb(new) = to_jsonb(old) then
       return new;
     end if;
-    if new.case_id is distinct from old.case_id or new.contract_id is distinct from old.contract_id or new.goal_id is distinct from old.goal_id then
-      raise exception 'Ärende, avtal och delmål ändras inte' using errcode = '42501';
+    if new.id is distinct from old.id or new.case_id is distinct from old.case_id or new.contract_id is distinct from old.contract_id
+       or new.goal_id is distinct from old.goal_id then
+      raise exception 'Id, ärende, avtal och delmål ändras inte' using errcode = '42501';
     end if;
   end if;
   if new.set_by is distinct from mm.current_profile_id() or new.source is distinct from 'manual' then
@@ -276,29 +323,9 @@ create trigger case_progress_goals_check before insert or update on public.case_
 for each row execute function mm.check_case_progress_goal();
 
 -- ================================================================ 3. Delmålen på tillfällena
-alter table public.activities add column if not exists progress_goal_ids text[] not null default '{}';
-alter table public.group_activities add column if not exists progress_goal_ids text[] not null default '{}';
-alter table public.group_activity_series add column if not exists progress_goal_ids text[] not null default '{}';
-comment on column public.activities.progress_goal_ids is
-  'Delmålen (progress_goals.id) som deltagarens eget tillfälle tränar. Tom för ett tillfälle i en gruppaktivitet – delmålen står på aktiviteten. Internt.';
-comment on column public.group_activities.progress_goal_ids is 'Delmålen (progress_goals.id) som aktiviteten tränar. Internt.';
-comment on column public.group_activity_series.progress_goal_ids is 'Delmålen (progress_goals.id) som varje tillfälle tränar – kopieras till tillfällena. Internt.';
-
--- Högst 20, och ett tillfälle i en gruppaktivitet har inga egna delmål. Not valid + validate: svagare lås när raderna prövas.
-alter table public.activities drop constraint if exists activities_progress_goal_ids_check;
-alter table public.activities add constraint activities_progress_goal_ids_check check (
-  cardinality(progress_goal_ids) <= 20 and (group_activity_id is null or cardinality(progress_goal_ids) = 0)
-) not valid;
-alter table public.activities validate constraint activities_progress_goal_ids_check;
-alter table public.group_activities drop constraint if exists group_activities_progress_goal_ids_check;
-alter table public.group_activities add constraint group_activities_progress_goal_ids_check check (cardinality(progress_goal_ids) <= 20) not valid;
-alter table public.group_activities validate constraint group_activities_progress_goal_ids_check;
-alter table public.group_activity_series drop constraint if exists group_activity_series_progress_goal_ids_check;
-alter table public.group_activity_series add constraint group_activity_series_progress_goal_ids_check check (cardinality(progress_goal_ids) <= 20) not valid;
-alter table public.group_activity_series validate constraint group_activity_series_progress_goal_ids_check;
-
 -- Taggarna stämmer (policy.ts goalTagsOk): null när alla delmål finns i avtalet, ingen står två gånger och de som läggs till (inte
--- fanns i p_old) är aktiva – annars vad som inte stämmer. Security definer: katalogen läses oavsett vem som skriver.
+-- fanns i p_old) är aktiva – annars vad som inte stämmer. Security definer: katalogen läses oavsett vem som skriver. Anropas bara för
+-- den som får skriva raden (se triggrarna).
 create or replace function mm.progress_goal_tags_problem(p_contract_id text, p_new text[], p_old text[]) returns text
 language sql stable security definer set search_path = public, mm
 as $$
@@ -335,32 +362,102 @@ $$;
 revoke all on function mm.raise_progress_goal_tags(text) from public, anon;
 grant execute on function mm.raise_progress_goal_tags(text) to authenticated, service_role;
 
--- Deltagarens tillfällen: avtalet är ärendets (mm.case_contract_id, 0019). För alla roller.
-create or replace function mm.check_activity_progress_goal_tags() returns trigger
+-- ---------------------------------------------------------------- 3a. Deltagarens egna tillfällen
+create table if not exists public.activity_progress_goals (
+  -- Tillfällets id: en rad per tillfälle, och raden tas bort med tillfället.
+  id          text primary key references public.activities (id) on delete cascade,
+  case_id     text not null references public.cases (id),
+  goal_ids    text[] not null default '{}',
+  updated_by  text not null,
+  updated_at  timestamptz not null
+);
+alter table public.activity_progress_goals drop constraint if exists activity_progress_goals_goal_ids_check;
+alter table public.activity_progress_goals add constraint activity_progress_goals_goal_ids_check check (cardinality(goal_ids) <= 20);
+create index if not exists activity_progress_goals_case_id_idx on public.activity_progress_goals (case_id);
+
+alter table public.activity_progress_goals enable row level security;
+revoke all on public.activity_progress_goals from anon, authenticated, service_role;
+grant select, insert, update, delete on public.activity_progress_goals to service_role;
+-- Ingen delete för inloggade: en tom lista är inga delmål, och raden försvinner med tillfället.
+grant select, insert, update on public.activity_progress_goals to authenticated;
+
+-- policy.ts activity_progress_goals.read: åtkomst full eller team – aldrig kommunen, ekonomen eller deltagaren.
+drop policy if exists activity_progress_goals_select on public.activity_progress_goals;
+create policy activity_progress_goals_select on public.activity_progress_goals for select to authenticated using (
+  case_id in (select mm.case_ids('{full,team}'))
+);
+-- policy.ts activityGoalsWrite: den som arbetar i ärendet, i eget namn.
+drop policy if exists activity_progress_goals_insert on public.activity_progress_goals;
+create policy activity_progress_goals_insert on public.activity_progress_goals for insert to authenticated with check (
+  mm.work_on(case_id) and updated_by = (select mm.current_profile_id())
+);
+drop policy if exists activity_progress_goals_update on public.activity_progress_goals;
+create policy activity_progress_goals_update on public.activity_progress_goals for update to authenticated using (
+  mm.work_on(case_id)
+) with check (
+  mm.work_on(case_id) and updated_by = (select mm.current_profile_id())
+);
+
+-- För alla roller (policy.ts activityGoalsGuard): tillfället finns, hör till ärendet och är inte en rad i en gruppaktivitet, och
+-- delmålen stämmer (mm.progress_goal_tags_problem, ärendets avtal). För inloggade dessutom: id och ärende ändras aldrig. Den inloggade
+-- som inte arbetar i ärendet prövas inte här – policyn nekar (42501).
+create or replace function mm.check_activity_progress_goals() returns trigger
 language plpgsql set search_path = public, mm
 as $$
+declare
+  logged_in boolean := current_user in ('authenticated', 'anon');
+  act_case text;
+  act_group text;
 begin
-  if tg_op = 'UPDATE' and new.progress_goal_ids is not distinct from old.progress_goal_ids then
+  if logged_in and not mm.work_on(new.case_id) then
     return new;
   end if;
-  if cardinality(coalesce(new.progress_goal_ids, '{}'::text[])) = 0 then
+  if logged_in and tg_op = 'UPDATE' and (new.id is distinct from old.id or new.case_id is distinct from old.case_id) then
+    raise exception 'Tillfälle och ärende ändras inte' using errcode = '42501';
+  end if;
+  select a.case_id, a.group_activity_id into act_case, act_group from public.activities a where a.id = new.id;
+  if not found or act_case is distinct from new.case_id or act_group is not null then
+    raise exception 'Delmålen står på ett eget tillfälle i ärendet' using errcode = '23514';
+  end if;
+  if tg_op = 'UPDATE' and new.goal_ids is not distinct from old.goal_ids then
     return new;
   end if;
-  perform mm.raise_progress_goal_tags(mm.progress_goal_tags_problem(
-    mm.case_contract_id(new.case_id), new.progress_goal_ids, case when tg_op = 'UPDATE' then old.progress_goal_ids else '{}'::text[] end
-  ));
+  if cardinality(coalesce(new.goal_ids, '{}'::text[])) > 0 then
+    perform mm.raise_progress_goal_tags(mm.progress_goal_tags_problem(
+      mm.case_contract_id(new.case_id), new.goal_ids, case when tg_op = 'UPDATE' then old.goal_ids else '{}'::text[] end
+    ));
+  end if;
   return new;
 end
 $$;
-drop trigger if exists activities_progress_goal_tags on public.activities;
-create trigger activities_progress_goal_tags before insert or update of progress_goal_ids on public.activities
-for each row execute function mm.check_activity_progress_goal_tags();
+drop trigger if exists activity_progress_goals_check on public.activity_progress_goals;
+create trigger activity_progress_goals_check before insert or update on public.activity_progress_goals
+for each row execute function mm.check_activity_progress_goals();
 
--- Gruppaktiviteter och återkommande aktiviteter: avtalet står på raden. För alla roller.
+-- ---------------------------------------------------------------- 3b. Gruppaktiviteter och återkommande aktiviteter
+alter table public.group_activities add column if not exists progress_goal_ids text[] not null default '{}';
+alter table public.group_activity_series add column if not exists progress_goal_ids text[] not null default '{}';
+comment on column public.group_activities.progress_goal_ids is 'Delmålen (progress_goals.id) som aktiviteten tränar. Internt.';
+comment on column public.group_activity_series.progress_goal_ids is 'Delmålen (progress_goals.id) som varje tillfälle tränar – kopieras till tillfällena. Internt.';
+
+-- Högst 20. Låset på tabellen har redan tagits av add column och hålls tills filen är klar – kontrollen läggs till direkt.
+alter table public.group_activities drop constraint if exists group_activities_progress_goal_ids_check;
+alter table public.group_activities add constraint group_activities_progress_goal_ids_check check (cardinality(progress_goal_ids) <= 20);
+alter table public.group_activity_series drop constraint if exists group_activity_series_progress_goal_ids_check;
+alter table public.group_activity_series add constraint group_activity_series_progress_goal_ids_check check (cardinality(progress_goal_ids) <= 20);
+
+-- Avtalet står på raden. För alla roller – den inloggade som inte får skriva gruppaktiviteter i avtalet (samma roller som policyerna
+-- i 0030 och 0035) prövas inte här: policyn nekar (42501).
 create or replace function mm.check_group_progress_goal_tags() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 begin
+  if current_user in ('authenticated', 'anon') and not (
+    (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'handledare']))
+    and mm.member_in(new.contract_id, (select mm.current_role()), (select mm.my_contract_ids()))
+  ) then
+    return new;
+  end if;
   if tg_op = 'UPDATE' and new.progress_goal_ids is not distinct from old.progress_goal_ids then
     return new;
   end if;

@@ -81,6 +81,8 @@ export type CaseGoalRowView = {
   icon: "circle" | "activity" | "check-circle";
   source: ProgressGoalSource | null;
   achievedOn: LocalDate | null;
+  /** Underlaget som valdes vid Uppnått: "Mötesrapport 15 jan" (null = inget underlag). */
+  evidenceLabel: string | null;
   /** Inaktiverat i katalogen (visas bara när ärendet har ett läge för det). */
   inactive: boolean;
 };

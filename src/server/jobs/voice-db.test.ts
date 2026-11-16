@@ -100,6 +100,9 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
     async remove() {
       throw new Error("används inte");
     },
+    async removeIf() {
+      throw new Error("används inte");
+    },
   };
 }
 const sqlRepo = (tx: Tx): AppRepo => ({ table: (n: string) => sqlTable(tx, n) }) as unknown as AppRepo;

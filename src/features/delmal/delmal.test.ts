@@ -6,7 +6,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import "@/api/handlers";
 import type { Actor, Role } from "@/api/roles";
-import { ApiError } from "@/api/server";
+import { ApiError, type Ctx } from "@/api/server";
+import { SYSTEM_ACTOR } from "@/api/roles";
+import { trainFromAttendance } from "@/features/_shared/progress-goals";
 import { defaultGoalId, DEFAULT_PROGRESS_GOALS } from "@/core/progress-goals";
 import { listPersonas } from "@/data/actors";
 import { MemoryRepo, type MemoryData } from "@/data/memory";
@@ -61,7 +63,8 @@ async function groupWithGoals(startsAt = "2027-02-01T08:00", goals = [G(21), G(4
 describe("Tränar automatiskt vid närvaro", () => {
   it("närvaro på en gruppaktivitet med delmål ger Tränar (automatiskt) – loggat, deltagarens rad har inga egna delmål", async () => {
     const { groupActivityId, activityId } = await groupWithGoals();
-    expect(rows("activities").find((a) => a.id === activityId)?.progressGoalIds).toEqual([]);
+    // Deltagarens rad i gruppaktiviteten har inga egna delmål (de står på aktiviteten).
+    expect(rows("activity_progress_goals").find((r) => r.id === activityId)).toBeUndefined();
     expect(caseRow(NADIA, 21)).toBeNull();
     expect(await cmd(attendanceSet, { activityId, status: "present" }, amira())).toMatchObject({ ok: true });
     expect([caseRow(NADIA, 21), caseRow(NADIA, 4)].map((r) => r && [r.status, r.source, r.setBy, r.evidenceKind, r.evidenceId])).toEqual([
@@ -115,7 +118,10 @@ describe("Tränar automatiskt vid närvaro", () => {
     const own = rows("activities").find((a) => a.caseId === NADIA && !a.groupActivityId && a.startsAt > "2027-02-01T10:00")!;
     const res = await cmd({ key: "arenden.activityMove" }, { activityId: own.id, expectedStartsAt: own.startsAt, startsAt: own.startsAt, durationMin: own.durationMin, notify: true, progressGoalIds: [G(16)] }, amira());
     expect(res).toMatchObject({ ok: true, changed: true, notified: null });
-    expect(rows("activities").find((a) => a.id === own.id)).toMatchObject({ startsAt: own.startsAt, progressGoalIds: [G(16)] });
+    expect(rows("activities").find((a) => a.id === own.id)).toEqual(own);
+    // Delmålen står i activity_progress_goals – inte på tillfället (som kommunen och ekonomen läser).
+    expect(rows("activity_progress_goals").find((r) => r.id === own.id)).toMatchObject({ caseId: NADIA, goalIds: [G(16)], updatedBy: "u-amira" });
+    expect(Object.keys(own)).not.toContain("progressGoalIds");
     // Ett delmål från ett annat avtal eller som inte finns nekas.
     expect(await cmd({ key: "arenden.activityMove" }, { activityId: own.id, expectedStartsAt: own.startsAt, startsAt: own.startsAt, durationMin: own.durationMin, notify: false, progressGoalIds: ["pg-okand"] }, amira()))
       .toMatchObject({ ok: false, error: "goals" });
@@ -234,7 +240,7 @@ describe("kommunen ser aldrig delmålen eller taggarna", () => {
   it("portalens svar har inga delmål, inga namn på delmål och inga taggar – och kommunen når inga frågor om delmål", async () => {
     const { activityId } = await groupWithGoals();
     await cmd(attendanceSet, { activityId, status: "present" }, amira());
-    const own = rows("activities").find((a) => a.caseId === NADIA && !a.groupActivityId && a.progressGoalIds.length > 0);
+    const own = rows("activity_progress_goals").find((r) => r.caseId === NADIA && r.goalIds.length > 0);
     expect(own).toBeTruthy();
     const answers = [
       await q(kommunStart, {}, maria()), await q(kommunCaseList, {}, maria()), await q(kommunCase, { caseId: NADIA }, maria()), await q(kommunReports, {}, maria()),
@@ -326,5 +332,116 @@ describe("katalogen – avtalsansvarig och systemadministratören", () => {
     for (const a of [amira(), as("u-sara", "samordnare"), lars()]) {
       await expect(cmd(goalCreate, { contractId: "c-bot", areaKey: "ovrigt", label: "Y", stepItems: [] }, a)).rejects.toBeInstanceOf(ApiError);
     }
+  });
+});
+
+describe("granskningen 2026-11-16", () => {
+  it("startdatumet flyttas fram efter Uppnått (25 → 27 jan): punkten räknas inte längre – ändringen av startdatumet stoppas inte", async () => {
+    const base = rows("cases").find((c) => c.id === "case-260130")!;
+    const person = rows("persons").find((p) => p.id === base.personId)!;
+    rt.store.insertRow("persons", { ...person, id: "p-test-flytt" });
+    rt.store.insertRow("cases", { ...base, id: "case-test-flytt", personId: "p-test-flytt", caseNumber: "BOT-27-9998", startDate: "2027-01-25", firstMeetingAt: "2027-01-25T09:00" });
+    const praktik = async () => {
+      const card = await q(bonusCard, { caseId: "case-test-flytt" }, amira());
+      return card.on ? card.steps.find((s) => s.step === 2)!.items.find((x) => x.label === "Praktik eller arbetsträning")?.fulfilled ?? false : null;
+    };
+    expect(await cmd(goalAchieve, { caseId: "case-test-flytt", goalId: G(22), achievedOn: "2027-01-25", evidence: null }, amira())).toMatchObject({ ok: true });
+    expect(await praktik()).toBe(true);
+    // Förslaget från delmålet tas bort ur testet, så att bara startdatumet prövas.
+    for (const k of rows("bonus_claims").filter((x) => x.caseId === "case-test-flytt")) rt.store.removeRow("bonus_claims", k.id);
+    const res = await cmd({ key: "arenden.andraStartdatum" }, { caseId: "case-test-flytt", expectedStartDate: "2027-01-25", startDate: "2027-01-27", motivation: "Deltagaren började senare." }, amira());
+    expect(res).toMatchObject({ ok: true });
+    expect(rows("cases").find((c) => c.id === "case-test-flytt")!.startDate).toBe("2027-01-27");
+    expect(await praktik()).toBe(false);
+    // Delmålet står kvar som uppnått på kortet Delmål (det som hände ändras inte).
+    expect(caseRow("case-test-flytt", 22)).toMatchObject({ status: "achieved", achievedOn: "2027-01-25" });
+  });
+
+  it("ett skickat anspråk visar det som skickades – också efter Ångra; ett äldre anspråk visar checklistan", async () => {
+    const claimId = "bonus-case-260002-1-1";
+    const review = await q(bonusReview, { claimId }, erik());
+    expect(await cmd(bonusSubmit, { claimId, basis: "", reachedOn: review!.fields.reachedOn, verificationKind: null, verificationOn: null, checklist: {} }, erik())).toMatchObject({ ok: true });
+    expect(await cmd(goalUndo, { caseId: TWO, goalId: G(4), to: "none" }, erik())).toMatchObject({ ok: true });
+    const card = await q(bonusCard, { caseId: TWO }, erik());
+    const s1 = card.on ? card.steps.find((s) => s.step === 1)! : null;
+    expect(s1?.status).toBe("submitted");
+    expect(s1?.items.map((x) => [x.label, x.fulfilled])).toEqual([
+      ["Genomförd individuell plan", true], ["Förbättrade ansökningshandlingar", true], ["Genomförd branschintroduktion", true], ["Aktivt deltagande i arbetsgivarnära aktivitet", true],
+    ]);
+    expect((await q(bonusReview, { claimId }, erik()))?.facts.stepItems.every((x) => x.fulfilled)).toBe(true);
+    // Ett anspråk som skickades före delmålen (fryst checklista): punkterna ur checklistan.
+    const tpl = rows("bonus_claims").find((k) => k.id === claimId)!;
+    rt.store.insertRow("bonus_claims", {
+      ...tpl, id: "bonus-legacy", caseId: "case-260130", status: "submitted", submittedAt: "2027-01-20T10:00", submittedBy: "u-amira",
+      snapshot: { v: 1, checklist: [{ label: "Genomförd individuell plan", where: "Planen i pärmen" }] },
+    });
+    const legacy = await q(bonusCard, { caseId: "case-260130" }, amira());
+    expect(legacy.on && legacy.steps.find((s) => s.step === 1)!.items.map((x) => [x.label, x.fulfilled])).toEqual([
+      ["Genomförd individuell plan", true], ["Förbättrade ansökningshandlingar", false], ["Genomförd branschintroduktion", false], ["Aktivt deltagande i arbetsgivarnära aktivitet", false],
+    ]);
+  });
+
+  it("underlaget som valdes vid Uppnått visas på kortet Delmål", async () => {
+    const evidence = await q(goalEvidence, { caseId: NADIA }, amira());
+    const checkIn = evidence.find((x) => x.value.startsWith("check_in:"))!;
+    const [kind, id] = checkIn.value.split(":");
+    expect(await cmd(goalAchieve, { caseId: NADIA, goalId: G(9), achievedOn: "2027-01-29", evidence: { kind, id } }, amira())).toMatchObject({ ok: true });
+    const card = await q(caseGoals, { caseId: NADIA }, amira());
+    const goals = card.on ? card.areas.flatMap((a) => a.goals) : [];
+    expect(goals.find((g) => g.goalId === G(9))).toMatchObject({ state: "achieved", evidenceLabel: checkIn.label });
+    expect(checkIn.label).toMatch(/^Mötesrapport /);
+    // Utan underlag: inget.
+    expect(goals.find((g) => g.goalId === G(11))?.evidenceLabel).toBeNull();
+  });
+
+  it("Ångra två gånger samtidigt: bara den första går igenom – ingen tar bort en rad som redan ändrats", async () => {
+    const [a, b] = await Promise.all([
+      cmd(goalUndo, { caseId: NADIA, goalId: G(20), to: "none" }, amira()),
+      cmd(goalUndo, { caseId: NADIA, goalId: G(20), to: "training" }, as("u-sara", "samordnare")),
+    ]);
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+    expect(rows("audit_log").filter((l) => l.action === "case_progress_goal.undone" && l.details.goalId === G(20))).toHaveLength(1);
+  });
+
+  it("Ändra tid med bara nya delmål: inget meddelande; en begränsad testare får inget besked om förslag", async () => {
+    const own = rows("activities").find((a) => a.caseId === NADIA && !a.groupActivityId && a.startsAt > "2027-02-01T10:00")!;
+    const sent = rows("outbound_messages").length;
+    const res = await cmd({ key: "arenden.activityMove" }, { activityId: own.id, expectedStartsAt: own.startsAt, startsAt: own.startsAt, durationMin: own.durationMin, notify: true, progressGoalIds: [G(16)] }, amira());
+    expect(res).toMatchObject({ ok: true, changed: true, notified: null });
+    expect(rows("outbound_messages")).toHaveLength(sent);
+    // Begränsad testare (Progression och resultat är ett ekonomiskt villkor): förslaget skapas av regeln men beskedet är 0.
+    const tester: Actor = { ...amira(), testerId: "t-begransad" };
+    expect(await cmd(goalAchieve, { caseId: "case-260130", goalId: G(19), achievedOn: "2027-01-26", evidence: null }, tester)).toMatchObject({ ok: true, suggested: 0 });
+    expect(rows("bonus_claims").filter((k) => k.caseId === "case-260130" && k.step === 2)).toHaveLength(1);
+  });
+
+  it("Tränar är bästa möjliga: ett delmål som inaktiveras samtidigt hoppas över – resten tränas och närvaron sparas", async () => {
+    const { activityId } = await groupWithGoals("2027-02-01T08:00", [G(21), G(4)]);
+    rt.store.updateRow("progress_goals", G(4), { active: false });
+    expect(await cmd(attendanceSet, { activityId, status: "present" }, amira())).toMatchObject({ ok: true });
+    expect([caseRow(NADIA, 21)?.status, caseRow(NADIA, 4)]).toEqual(["training", null]);
+  });
+
+  it("Tränar är bästa möjliga: en rad som databasen nekar (23514) hoppas över, och en loggrad som inte går att skriva kastar inte", async () => {
+    const { activityId } = await groupWithGoals("2027-02-01T08:00", [G(21), G(4)]);
+    expect(await cmd(attendanceSet, { activityId, status: "present" }, amira())).toMatchObject({ ok: true });
+    for (const n of [21, 4]) rt.store.removeRow("case_progress_goals", caseRow(NADIA, n)!.id);
+    const system = new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true });
+    const repo = {
+      table: (name: TableName) => {
+        const t = system.table(name);
+        if (name !== "case_progress_goals") return t;
+        return {
+          ...t,
+          insert: async (row: Tables["case_progress_goals"]) => {
+            if (row.goalId === G(4)) throw Object.assign(new Error("check"), { code: "23514" });
+            return (t as typeof t & { insert: (r: Tables["case_progress_goals"]) => Promise<unknown> }).insert(row);
+          },
+        };
+      },
+    };
+    const ctx = { system: repo, now: () => "2027-02-01T09:30", audit: async () => { throw new Error("loggen kan inte skrivas"); } } as unknown as Ctx;
+    expect(await trainFromAttendance(ctx, [activityId])).toEqual({ added: 1, failed: false });
+    expect([caseRow(NADIA, 21)?.status, caseRow(NADIA, 4)]).toEqual(["training", null]);
   });
 });

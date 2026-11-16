@@ -276,6 +276,9 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
     loc: !loc.trim() ? "Skriv plats." : null,
   };
   const goalsChanged = !!move && JSON.stringify(goalIds) !== JSON.stringify(move.progressGoalIds);
+  // Ny tid eller plats: deltagaren kan få den nya tiden. Bara längden eller delmålen: inget meddelande (servern skickar inget).
+  const slotChanged = !!move && (at !== move.startsAt || loc.trim() !== move.location.trim());
+  const goalsOnly = !!move && goalsChanged && !slotChanged && duration === move.durationMin;
   const dirty = !!move && (at !== move.startsAt || duration !== move.durationMin || loc.trim() !== move.location.trim() || goalsChanged);
   const submit = async () => {
     setTried(true);
@@ -283,14 +286,18 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
     if (errs.sel || errs.at || errs.loc) return;
     if (move) {
       const res = await change.run({
-        activityId: move.activityId, expectedStartsAt: move.startsAt, startsAt: at, durationMin: duration, location: loc.trim(), notify, ...(goalsChanged ? { progressGoalIds: goalIds } : {}),
+        activityId: move.activityId, expectedStartsAt: move.startsAt, startsAt: at, durationMin: duration, location: loc.trim(), notify: notify && slotChanged, ...(goalsChanged ? { progressGoalIds: goalIds } : {}),
       }).catch(() => null);
       if (!res || !res.ok) {
         // Felet visas en gång – i dialogen, bredvid fälten (ingen toast samtidigt).
         setServerErr(res && !res.ok && res.message ? res.message : "Tiden kunde inte ändras.");
         return;
       }
-      toast(res.changed ? `${ALL_KIND_LABEL[move.kind]} för ${move.caseNumber} är flyttat till ${fmtDateTimeLong(at)}.${res.notified ? ` ${res.notified}` : ""}` : "Inget var ändrat.");
+      toast(
+        !res.changed ? "Inget var ändrat."
+          : goalsOnly ? `Delmålen för ${move.caseNumber} är sparade.`
+            : `${ALL_KIND_LABEL[move.kind]} för ${move.caseNumber} är flyttat till ${fmtDateTimeLong(at)}.${res.notified ? ` ${res.notified}` : ""}`,
+      );
       onClose();
       return;
     }
@@ -358,7 +365,7 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
           </div>
         )}
         {/* En praktikdag får aldrig något meddelande till deltagaren (granskningen 2026-11-11) – ingen ruta. */}
-        {move && move.kind !== "praktikdag" && (
+        {move && move.kind !== "praktikdag" && slotChanged && (
           <div className="col-span-full">
             <Check id="arn-act-meddela" checked={notify} onCheckedChange={setNotify}>
               <span className="font-bold">Skicka den nya tiden till deltagaren</span>

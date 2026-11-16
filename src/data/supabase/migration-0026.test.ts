@@ -36,7 +36,7 @@ beforeAll(async () => {
   // Seeden tömmer också tabeller från senare migrationer (role_choices, 0027) – bara de som finns här. Grupperna (0031), de
   // återkommande aktiviteterna (0035), bytena av yrkesområde (0036), ändringarna av startdatum (0038) och bonusanspråken med
   // kommunens beslut (0039) behövs inte i testet och läses inte in.
-  await loadSeedForExistingTables(db, undefined, { later: ["groupings", "grouping_members", "group_activity_series", "group_activities", "case_area_changes", "case_start_changes", "bonus_claims", "bonus_claim_decisions", "progress_goals", "case_progress_goals"] });
+  await loadSeedForExistingTables(db, undefined, { later: ["groupings", "grouping_members", "group_activity_series", "group_activities", "case_area_changes", "case_start_changes", "bonus_claims", "bonus_claim_decisions", "progress_goals", "case_progress_goals", "activity_progress_goals"] });
 
   // Raderna som fanns före beslutet.
   const maria = data.profiles.find((p) => p.id === "k-maria")!;

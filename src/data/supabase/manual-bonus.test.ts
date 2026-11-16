@@ -11,6 +11,7 @@ import { BOTKYRKA_CONFIG } from "@/core/config";
 import { createMigratedDatabase, loadSeed } from "./pglite";
 
 const FILE = `${process.cwd()}/supabase/manual/2026-11-bonus-botkyrka.sql`;
+const DELMAL_FILE = `${process.cwd()}/supabase/manual/2026-11-delmal-botkyrka.sql`;
 const OLD_BONUS = { enabled: false, model: "ATT_FASTSTÄLLA – Miljonbemannings incitamentsmodell", separateInvoice: true };
 
 let db: PGlite;
@@ -64,5 +65,21 @@ describe("supabase/manual/2026-11-bonus-botkyrka.sql", () => {
   it("en andra körning ändrar ingenting och skriver inget nytt i revisionsloggen", async () => {
     await db.exec(readFileSync(FILE, "utf8"));
     expect(await snapshot()).toEqual(first);
+  });
+
+  it("bonus → delmål → bonus (Karims beslut 2026-11-11): tröskeln stepItemMin står kvar och en ny körning ändrar ingenting – en verklig ändring loggas med en ny rad", async () => {
+    await db.exec(readFileSync(DELMAL_FILE, "utf8"));
+    const withGoals = await snapshot();
+    expect(withGoals.bonus).toEqual(JSON.parse(JSON.stringify(BOTKYRKA_CONFIG.bonus)));
+    expect((withGoals.bonus as { stepItemMin?: unknown }).stepItemMin).toEqual({ ansokningshandlingar: 2 });
+    await db.exec(readFileSync(FILE, "utf8"));
+    expect(await snapshot()).toEqual(withGoals);
+    // Någon har ändrat modellen för hand: bonusfilen återställer den, tröskeln står kvar och ändringen får en egen rad i loggen.
+    await db.exec("update public.contracts set config = jsonb_set(config, '{bonus,speedWeeks}', '12') where id = 'c-bot'");
+    await db.exec(readFileSync(FILE, "utf8"));
+    const fixed = await snapshot();
+    expect(fixed.bonus).toEqual(withGoals.bonus);
+    expect(fixed.logs).toHaveLength(withGoals.logs.length + 1);
+    expect(fixed.logs.filter((l) => (l as { action: string }).action === "contract.config_updated")).toHaveLength(2);
   });
 });

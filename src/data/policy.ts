@@ -111,9 +111,12 @@
 //                 progressionsområden; ingen tar bort – det inaktiveras) · läget per ärende läses med full- eller teamåtkomst
 //                 (aldrig kommunen eller ekonomen) och skrivs av den som arbetar i ärendet i eget namn med källan manual – Tränar
 //                 automatiskt (auto) bara av systemet · tas bort (Ångra) av den som arbetar i ärendet · för alla roller: ärendets
-//                 avtal, delmålet i samma avtal (aktivt vid en ny rad), underlaget i ärendet. Taggarna på tillfällena
-//                 (progressGoalIds på activities, group_activities, group_activity_series): för alla roller (guard) delmål i avtalet,
-//                 inga dubbletter, de som läggs till är aktiva, högst 20, inga på en deltagares rad i en gruppaktivitet
+//                 avtal, delmålet i samma avtal (aktivt vid en ny rad), underlaget i ärendet; för inloggade dagen för Uppnått mellan
+//                 startdatumet och i dag · delmålen på deltagarens egna tillfällen (activity_progress_goals, id = tillfällets id):
+//                 läses med full- eller teamåtkomst (aldrig kommunen eller ekonomen, som läser tillfällena), skrivs av den som
+//                 arbetar i ärendet i eget namn, tas aldrig bort (raden försvinner med tillfället i databasen) · taggarna
+//                 (goalIds där, progressGoalIds på group_activities och group_activity_series): för alla roller (guard) delmål i
+//                 avtalet, inga dubbletter, de som läggs till är aktiva, högst 20, aldrig på en deltagares rad i en gruppaktivitet
 //   Handledare   Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -1130,7 +1133,10 @@ type CaseGoalRow = Tables["case_progress_goals"];
 export const PROGRESS_GOAL_WRITERS: readonly Role[] = ["avtalsansvarig", "admin"];
 /** Fält som aldrig ändras i katalogen (triggern progress_goals_check, för inloggade). */
 const GOAL_CATALOG_FIXED = ["contractId", "areaKey", "createdBy", "createdAt"];
-/** Fält som aldrig ändras i läget per ärende (triggern case_progress_goals_check, för inloggade). */
+/**
+ * Fält som aldrig ändras i läget per ärende (triggern case_progress_goals_check, för inloggade). Också id (triggern) – men minnet och
+ * SupabaseRepo ändrar aldrig id (changedFields räknar inte id), så det prövas bara i databasen.
+ */
 const CASE_GOAL_FIXED = ["caseId", "contractId", "goalId"];
 /** Tabellens kontroller (check i 0043): namnets längd (btrim, kodpunkter), områdets form, ordningen, punkterna och paret. */
 function progressGoalShape(x: ProgressGoalRow): boolean {
@@ -1192,8 +1198,9 @@ function caseGoalGuard(next: CaseGoalRow | null, cur: CaseGoalRow | undefined, r
 }
 /**
  * Den som arbetar i ärendet (workOn), i avtalet. Ny rad och ändring: i eget namn och med källan manual (Tränar automatiskt skriver
- * bara systemet); ärende, avtal och delmål ändras aldrig. En rad som inte ändras (också borttagning – MemoryRepo.remove() anropar
- * regeln med den befintliga raden) prövas bara mot workOn, som policyerna case_progress_goals_update och _delete i 0043.
+ * bara systemet); ärende, avtal och delmål ändras aldrig; en ny eller ändrad dag för Uppnått ligger mellan ärendets startdatum och
+ * i dag (databasens klocka, raw.now – mm.app_now() i triggern). En rad som inte ändras (också borttagning – MemoryRepo.remove()
+ * anropar regeln med den befintliga raden) prövas bara mot workOn, som policyerna case_progress_goals_update och _delete i 0043.
  */
 function caseGoalWrite(x: CaseGoalRow, a: Actor, raw: Raw): boolean {
   if (!workOn(x.caseId, a, raw)) return false;
@@ -1203,6 +1210,11 @@ function caseGoalWrite(x: CaseGoalRow, a: Actor, raw: Raw): boolean {
     const changed = changedFields(cur, x);
     if (!changed.length) return true;
     if (changed.some((k) => CASE_GOAL_FIXED.includes(k))) return false;
+  }
+  if (x.status === "achieved" && (!cur || cur.achievedOn !== x.achievedOn || cur.status !== x.status)) {
+    const start = raw.get("cases", x.caseId)?.startDate;
+    const now = raw.now?.();
+    if (!x.achievedOn || !start || x.achievedOn < start || (now && x.achievedOn > dayOf(now))) return false;
   }
   return member(a, x.contractId) && self(a, x.setBy) && x.source === "manual";
 }
@@ -1220,11 +1232,23 @@ function goalTagsOk(raw: Raw, contractId: string | undefined, next: readonly str
     return !!g && g.contractId === contractId && (g.active || (before ?? []).includes(id));
   });
 }
-/** Deltagarens tillfälle: delmålen i ärendets avtal – och inga egna delmål på en rad i en gruppaktivitet (de står på aktiviteten). */
-function activityGoalGuard(next: Tables["activities"] | null, cur: Tables["activities"] | undefined, raw: Raw): boolean {
-  if (!next) return true;
-  if (next.groupActivityId != null && (next.progressGoalIds ?? []).length > 0) return false;
-  return goalTagsOk(raw, raw.get("cases", next.caseId)?.contractId, next.progressGoalIds, cur?.progressGoalIds);
+type ActivityGoalsRow = Tables["activity_progress_goals"];
+/**
+ * Delmålen på deltagarens eget tillfälle (triggern activity_progress_goals_check, för alla roller): tillfället finns, hör till
+ * ärendet och är inte en rad i en gruppaktivitet (där står delmålen på aktiviteten); delmålen i ärendets avtal. Raden tas aldrig bort
+ * här – i databasen försvinner den med tillfället (on delete cascade), och ingen inloggad har delete-rättigheten.
+ */
+function activityGoalsGuard(next: ActivityGoalsRow | null, cur: ActivityGoalsRow | undefined, raw: Raw): boolean {
+  if (!next) return false;
+  const act = raw.get("activities", next.id);
+  if (!act || act.caseId !== next.caseId || act.groupActivityId != null) return false;
+  return goalTagsOk(raw, raw.get("cases", next.caseId)?.contractId, next.goalIds, cur?.goalIds);
+}
+/** Den som arbetar i ärendet, i eget namn; ärendet ändras aldrig (policyerna activity_progress_goals_insert/update och triggern). */
+function activityGoalsWrite(x: ActivityGoalsRow, a: Actor, raw: Raw): boolean {
+  if (!workOn(x.caseId, a, raw) || !self(a, x.updatedBy)) return false;
+  const cur = raw.get("activity_progress_goals", x.id);
+  return !cur || (cur.caseId === x.caseId && workOn(cur.caseId, a, raw));
 }
 /** Gruppaktiviteten och den återkommande aktiviteten: delmålen i radens avtal. */
 function groupGoalTagsGuard<T extends { contractId: string; progressGoalIds: string[] }>(next: T | null, cur: T | undefined, raw: Raw): boolean {
@@ -1320,8 +1344,6 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
       const cur = raw.get("activities", x.id);
       return cur ? x.inviteSource === cur.inviteSource : x.inviteSource === "manual";
     },
-    // Delmålen (0043): för alla roller, också systemet.
-    guard: activityGoalGuard,
   },
   attendance: {
     read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
@@ -1573,6 +1595,15 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     },
     write: caseGoalWrite,
     guard: caseGoalGuard,
+  },
+  // Delmålen på deltagarens egna tillfällen: som läget – full- eller teamåtkomst, aldrig kommunen eller ekonomen (som läser tillfällena).
+  activity_progress_goals: {
+    read: (x, a, raw) => {
+      const acc = accessTo(raw, a, x.caseId);
+      return acc === "full" || acc === "team";
+    },
+    write: activityGoalsWrite,
+    guard: activityGoalsGuard,
   },
 };
 

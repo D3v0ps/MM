@@ -66,6 +66,19 @@ const goalsDb = (ctx: Ctx, c: Pick<Case, "id" | "contractId">) =>
   loadDb(ctx.repo, ["progress_goals", "case_progress_goals"], { progress_goals: { contractId: c.contractId }, case_progress_goals: { caseId: c.id } });
 /** Punkterna i steg 1 och 2 för vyn. */
 const itemsView = (items: readonly StepItemStatus[]): StepItemView[] => items.map((x) => ({ label: x.label, fulfilled: x.fulfilled, need: x.need, goals: x.goals.map((g) => g.label) }));
+/**
+ * Punkterna i ett anspråk som redan är skickat: det som frystes i redovisningsunderlaget när det skickades (items), eller – för ett
+ * anspråk som skickades före delmålen (Karims beslut 2026-11-11) – checklistan som coachen bockade av. null = inget fryst underlag
+ * (förslaget): punkterna räknas fram ur dagens uppnådda delmål. Ett delmål som ångras efteråt ändrar aldrig det som skickats.
+ */
+function frozenItems(k: Pick<BonusClaim, "step" | "status" | "snapshot"> | null): StepItemView[] | null {
+  if (!k || k.status === "suggested" || !k.snapshot || (k.step ?? 0) > 2) return null;
+  const u = k.snapshot as Partial<BonusUnderlag>;
+  if (Array.isArray(u.items)) return u.items.map((x) => ({ label: x.label, fulfilled: x.fulfilled, need: 1, goals: [] }));
+  if (k.step !== 1) return [];
+  const done = new Set((u.checklist ?? []).map((x) => x.label));
+  return BONUS_CHECKLIST_ITEMS.map((item) => ({ label: BONUS_CHECKLIST_LABEL[item], fulfilled: done.has(BONUS_CHECKLIST_LABEL[item]), need: 1, goals: [] }));
+}
 
 /**
  * Underlaget för anspråket: det frysta (skickat), eller en förhandsvisning av det som skulle frysas nu. sentBy = den som skickar
@@ -109,6 +122,7 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
   const canAct = await worksOn(ctx, c);
   const claims = (await ctx.repo.table("bonus_claims").list({ caseId: c.id })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : -1));
   const goals = await goalsDb(ctx, c);
+  const today = dayOf(ctx.now());
   const steps: BonusStepRow[] = m.steps
     .slice()
     .sort((a, b) => a.step - b.step)
@@ -121,7 +135,8 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
         // Steg 4 och 5: resultatdatum är bonussteg 3:s (det levande), aldrig kopian på anspråket.
         reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
         history: mine.filter((k) => k !== shown).map((k) => ({ claimId: k.id, status: k.status, statusText: BONUS_STATUS_TEXT[k.status].text, at: k.decidedAt ?? k.withdrawnAt ?? k.createdAt })),
-        items: s.step <= 2 ? itemsView(caseStepItems(goals, c.id, s.step, m)) : [],
+        // Ett skickat anspråk visar det som skickades; annars punkterna ur dagens uppnådda delmål.
+        items: s.step <= 2 ? frozenItems(shown) ?? itemsView(caseStepItems(goals, c, s.step, m, today)) : [],
       };
     });
   return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, steps, rules: m.steps.map((s) => `Steg ${s.step} · ${progressStepLabel(m, s.step)}: ${bonusRuleText(m, s.step)}`) };
@@ -142,7 +157,7 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
   const acts = await loadDb(ctx.repo, ["activities", "attendance"], { activities: { caseId: c.id }, attendance: { caseId: c.id } });
   const att = bonusAttendance(acts, c, m, { now: ctx.now() });
   const nApproved = approvedAssessments({ monthly_assessments: assessments }, c.id).length;
-  const items = k.step <= 2 ? caseStepItems(await goalsDb(ctx, c), c.id, k.step, m) : [];
+  const items = k.step <= 2 ? caseStepItems(await goalsDb(ctx, c), c, k.step, m, today) : [];
   const evId = step3 ? step3.outcomeEventId : k.outcomeEventId;
   const ev = evId ? events.find((e) => e.id === evId) ?? null : null;
   const checklist = BONUS_CHECKLIST_ITEMS.map((item) => ({ item, label: BONUS_CHECKLIST_LABEL[item], done: !!(k.checklist as BonusChecklist)[item]?.done, where: (k.checklist as BonusChecklist)[item]?.where ?? "" }));
@@ -164,7 +179,7 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
       sustainDue: k.step === 4 && resultDay ? sustainDate(resultDay, m) : null,
       speedDeadline: k.step === 5 && c.startDate ? speedDeadline(c.startDate, m) : null,
       windowEnd: k.step === 3 ? windowEndOf(c, m) : null,
-      stepItems: itemsView(items),
+      stepItems: frozenItems(k) ?? itemsView(items),
     },
     problems,
     underlag: await underlagOf(ctx, x, k, null),
@@ -282,7 +297,7 @@ async function problemsOf(ctx: Ctx, x: CaseCtx, k: BonusClaim): Promise<string[]
   const acts = await loadDb(ctx.repo, ["activities", "attendance", "monthly_assessments"], { activities: { caseId: x.c.id }, attendance: { caseId: x.c.id }, monthly_assessments: { caseId: x.c.id } });
   const step3 = await followsOf(ctx, k);
   const att = bonusAttendance(acts, x.c, x.m, { now: ctx.now() });
-  const stepItems = k.step === 1 ? caseStepItems(await goalsDb(ctx, x.c), x.c.id, 1, x.m) : [];
+  const stepItems = k.step === 1 ? caseStepItems(await goalsDb(ctx, x.c), x.c, 1, x.m, dayOf(ctx.now())) : [];
   return submitProblems({ claim: k, case: x.c, step3, attendance: att, approvedAssessments: approvedAssessments(acts, x.c.id).length, stepItems, today: dayOf(ctx.now()) }, x.m);
 }
 

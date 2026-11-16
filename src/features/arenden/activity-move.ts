@@ -20,7 +20,7 @@ import { activityMoveMonths, activityMoveProblem } from "@/core/activity-move";
 import { dayOf } from "@/core/time";
 import { hasValidPnr } from "@/core/validation";
 import { closeActivityTasks, notifyParticipant } from "../_shared/participant-notify";
-import { goalTagsCheck, trainFromAttendance } from "../_shared/progress-goals";
+import { goalTagsCheck, ownGoalTags, setOwnGoalTags, trainFromAttendance } from "../_shared/progress-goals";
 import { activityMove } from "./api";
 import { billingForMonths } from "./start-handlers";
 
@@ -47,17 +47,19 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   // (granskningen 2026-11-11) – med datum och kontrollsiffra, så att ett telefon- eller organisationsnummer inte stoppar.
   if (location !== a.location.trim() && hasValidPnr(location)) return fail("location", PLACE_PNR);
   const to = { startsAt: p.startsAt, durationMin: p.durationMin };
-  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat. Bara delmålen ändrade: inget flyttas och inget meddelande skickas.
-  const goalIds = p.progressGoalIds === undefined ? (a.progressGoalIds ?? []) : [...p.progressGoalIds];
-  const goalsChanged = JSON.stringify(goalIds) !== JSON.stringify(a.progressGoalIds ?? []);
+  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat. De står i activity_progress_goals (inte på tillfället – kommunen och
+  // ekonomen läser tillfällena). Bara delmålen ändrade: inget flyttas och inget meddelande skickas.
+  const before = (await ownGoalTags(ctx.repo, [a.id])).get(a.id) ?? [];
+  const goalIds = p.progressGoalIds === undefined ? before : [...p.progressGoalIds];
+  const goalsChanged = JSON.stringify(goalIds) !== JSON.stringify(before);
   if (goalsChanged) {
-    const problem = await goalTagsCheck(ctx, c.contractId, goalIds, a.progressGoalIds ?? []);
+    const problem = await goalTagsCheck(ctx, c.contractId, goalIds, before);
     if (problem) return fail("goals", problem);
   }
   const slotSame = to.startsAt === a.startsAt && to.durationMin === a.durationMin && location === a.location;
   if (slotSame && !goalsChanged) return ok({ changed: false, notified: null });
   if (slotSame) {
-    if (!(await acts.updateIf(a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { progressGoalIds: goalIds }))) return fail("conflict", CONFLICT);
+    await setOwnGoalTags(ctx, a, goalIds);
     await ctx.audit({ action: "activity.goals_changed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, progressGoalIds: goalIds } });
     // Närvaro redan registrerad (närvarande eller sen): deltagaren tränar de nya delmålen – Tränar automatiskt (bästa försök).
     await trainFromAttendance(ctx, [a.id]);
@@ -75,9 +77,10 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   if (problem) return fail(problem.code, problem.text);
   // Kontroll och skrivning i ett steg: bara om raden fortfarande har tiden, längden och platsen som lästes.
   const moved = await acts.updateIf(
-    a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { startsAt: to.startsAt, durationMin: to.durationMin, location, ...(goalsChanged ? { progressGoalIds: goalIds } : {}) },
+    a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { startsAt: to.startsAt, durationMin: to.durationMin, location },
   );
   if (!moved) return fail("conflict", CONFLICT);
+  if (goalsChanged) await setOwnGoalTags(ctx, a, goalIds);
   await ctx.audit({
     action: "activity.moved", entity: "activity", entityId: a.id, contractId: c.contractId,
     details: {

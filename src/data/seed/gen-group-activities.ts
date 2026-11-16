@@ -84,7 +84,7 @@ export function addGroupActivities(db: Db): void {
     });
     for (const caseId of plan.add) {
       const a: Activity = {
-        id: `a-${g.id}-${caseId}`, caseId, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "audience", progressGoalIds: [],
+        id: `a-${g.id}-${caseId}`, caseId, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "audience",
       };
       rows.push(a);
       slots.push({ caseId, startsAt: a.startsAt, durationMin: a.durationMin, groupActivityId: g.id });

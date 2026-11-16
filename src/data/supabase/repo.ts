@@ -300,4 +300,13 @@ class SupabaseTable<T extends Row> implements Table<T> {
     if (error) this.fail(error);
     if (!((data as unknown[] | null) ?? []).length) throw new PolicyError(this.name);
   }
+
+  async removeIf(id: string, where: Where<T>): Promise<boolean> {
+    // Villkoret kräver läsrätt på kolumnerna i tabellen – samma spärr som updateIf.
+    checkFilterColumns(this.name, where, this.filterColumns);
+    // delete … where id = ? and <where> returning id: noll rader = raden matchar inte längre (eller får inte tas bort).
+    const { data, error } = await applyWhere(this.db.from(this.name).delete().eq("id", id), where as Record<string, unknown>).select("id");
+    if (error) this.fail(error);
+    return ((data as unknown[] | null) ?? []).length > 0;
+  }
 }

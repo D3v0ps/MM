@@ -20,7 +20,7 @@ export function StepItemList({ items }: { items: readonly StepItemView[] }) {
           <span>
             <b className="font-bold">{it.label}</b>
             {`: ${it.fulfilled ? "Uppfyllt" : "Inte uppfyllt"}`}
-            {it.need > 1 ? ` (${it.goals.length} av ${it.need})` : ""}
+            {!it.fulfilled && it.need > 1 ? ` (${it.goals.length} av ${it.need})` : ""}
             {it.goals.length ? ` – ${it.goals.join(", ")}` : ""}
           </span>
         </li>
