@@ -27,6 +27,8 @@ const SKIP = new Set<TableName>([
   "case_area_changes",
   // Ändringarna av startdatum (0038) och kommunens bonusbeslut (0039) finns inte än.
   "case_start_changes", "bonus_claim_decisions",
+  // Delmålen (0043) finns inte än.
+  "progress_goals", "case_progress_goals",
 ]);
 
 let db: PGlite;

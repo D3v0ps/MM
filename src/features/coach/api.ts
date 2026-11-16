@@ -548,6 +548,8 @@ export type NarvaroRow = {
   referrerId: string | null;
   /** Tillfället hör till en gruppaktivitet: ändras och tas bort i aktivitetsvyn, inte här. */
   groupActivityId: string | null;
+  /** Delmålen som deltagarens eget tillfälle tränar (Karims beslut 2026-11-11) – Ändra tid visar dem. Internt. */
+  progressGoalIds: string[];
   /** Huvudcoachens förnamn – alla coacher ser alla deltagare (Karims beslut 2026-11-11). null utan huvudcoach. */
   leadCoach: string | null;
   /** Coachens egen deltagare (huvudcoach eller i teamet) – valet Mina deltagare. */
@@ -714,6 +716,11 @@ export type AssessmentArea = {
   /** Belägget för förslaget: citatet, källan ("Mötesrapport 15 jan", "Anteckning 26 jan") och dagen. */
   aiLevelEvidence: { quote: string; source: string; date: LocalDate } | null;
   aiObservationDraft: { text: string; sources: string[]; noEvidence: boolean } | null;
+  /**
+   * Delmål i området som uppnåddes under månaden (Karims beslut 2026-11-11) – belägg för coachen, bara Miljonbemanning. Ett uppnått
+   * delmål är ingen nivå: coachen väljer nivån själv, och förifyllnaden ändras inte. Skickas aldrig till AI.
+   */
+  achievedGoals: { label: string; achievedOn: LocalDate }[];
 };
 export type AssessmentPage = Gated<{
   now: LocalDateTime;

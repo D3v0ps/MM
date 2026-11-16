@@ -5,6 +5,7 @@
 // Körs med riktig tid (realClock i memory-runtime.ts). Används av utvecklingsläget och e2e (tests/e2e/tom.spec.ts) för att
 // visa att appen fungerar utan ett enda ärende.
 import { defaultGroupings } from "@/core/groupings";
+import { defaultProgressGoals } from "@/core/progress-goals";
 import { holidaysOf } from "@/core/holidays";
 import type { MemoryData } from "../memory";
 import { emptyDb, type Tables } from "../schema";
@@ -15,6 +16,8 @@ import { contractTables } from "./map";
 export const EMPTY_SEED_HOLIDAY_YEARS = [2026, 2027, 2028, 2029] as const;
 /** När migrationen 0031 lade in standardvärdena (coachmötet 2026-10-09). */
 const GROUPING_DEFAULTS_AT = "2026-10-09T18:00";
+/** När startlistan med delmål lades in (Karims godkännande 2026-11-11). */
+const DELMAL_DEFAULTS_AT = "2026-11-11T18:00";
 
 export function createEmptySeed(): MemoryData<Tables> {
   const db = emptyDb();
@@ -32,5 +35,7 @@ export function createEmptySeed(): MemoryData<Tables> {
   db.memberships.push(...colleagueMemberships());
   // Som produktionen efter 0031: avtalet har de fem nivåerna och Vill arbeta (grupperna skapar MB själva).
   for (const c of db.contracts) db.groupings.push(...defaultGroupings(c.id, GROUPING_DEFAULTS_AT));
+  // Som produktionen efter supabase/manual/2026-11-delmal-botkyrka.sql (Karims beslut 2026-11-11): startlistan med delmål.
+  for (const c of db.contracts) db.progress_goals.push(...defaultProgressGoals(c.id, DELMAL_DEFAULTS_AT));
   return db;
 }

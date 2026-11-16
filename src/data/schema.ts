@@ -74,6 +74,9 @@
 //                                       Testdatat: src/data/seed/decisions-2026-10-29.ts
 //   (finns inte i prototypen)        -> first_meeting_no_shows (deltagaren kom inte till första mötet, Karims beslut 2026-11-09,
 //                                       0040). Testdatat: src/data/seed/decisions-2026-11-09.ts (ett ärende vars första möte har varit)
+//   (finns inte i prototypen)        -> progress_goals, case_progress_goals och progressGoalIds på activities, group_activities och
+//                                       group_activity_series (delmål för progressionerna, Karims beslut 2026-11-11, 0043).
+//                                       Testdatat: src/data/seed/decisions-2026-11-11-delmal.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -402,6 +405,28 @@ export type BonusDecisionVia = (typeof BONUS_DECISION_VIAS)[number];
 /** Punkterna som coachen bockar av för bonussteg 1 (med var underlaget finns). Närvaron och bedömningarna räknas fram. */
 export const BONUS_CHECKLIST_ITEMS = ["individuell_plan", "ansokningshandlingar", "branschintroduktion", "arbetsgivarnara_aktivitet"] as const;
 export type BonusChecklistItem = (typeof BONUS_CHECKLIST_ITEMS)[number];
+/**
+ * Punkterna i incitamentsmodellens steg 1 och 2 som ett delmål kan räknas mot (Karims beslut 2026-11-11, 0043 –
+ * progress_goals.step_items). Steg 1: alla fyra ska vara uppfyllda (och närvaron och bedömningarna). Steg 2: en räcker. En punkt
+ * är uppfylld när minst N av delmålen som räknas mot den är uppnådda (N ur avtalets bonus.stepItemMin, annars 1).
+ */
+export const STEP1_ITEMS = ["individuell_plan", "ansokningshandlingar", "branschintroduktion", "arbetsgivarnara"] as const;
+export const STEP2_ITEMS = ["praktik", "validering", "branschintyg", "arbetsintervju", "jobbspar", "utbildning"] as const;
+export const STEP_ITEMS = [...STEP1_ITEMS, ...STEP2_ITEMS] as const;
+export type StepItem = (typeof STEP_ITEMS)[number];
+/** Delmålets läge i ärendet (case_progress_goals.status, 0043): training = Tränar, achieved = Uppnått. Ingen rad = Inte påbörjat. */
+export const PROGRESS_GOAL_STATUSES = ["training", "achieved"] as const;
+export type ProgressGoalStatus = (typeof PROGRESS_GOAL_STATUSES)[number];
+/** auto = Tränar satt av systemet när närvaro registrerades på ett tillfälle som tränar delmålet; manual = en människa. */
+export const PROGRESS_GOAL_SOURCES = ["auto", "manual"] as const;
+export type ProgressGoalSource = (typeof PROGRESS_GOAL_SOURCES)[number];
+/** Underlaget för ett delmål (case_progress_goals.evidence_kind): ett tillfälle, en mötesrapport eller en anteckning i ärendet. */
+export const PROGRESS_EVIDENCE_KINDS = ["activity", "check_in", "case_note"] as const;
+export type ProgressEvidenceKind = (typeof PROGRESS_EVIDENCE_KINDS)[number];
+/** Längsta namn på ett delmål (0043, progress_goals_label_length). */
+export const PROGRESS_GOAL_LABEL_MAX = 120;
+/** Högst så många delmål på ett tillfälle (0043). */
+export const PROGRESS_GOAL_TAGS_MAX = 20;
 
 // ================================================================ Organisationer, avtal, användare
 export type Organization = {
@@ -776,6 +801,12 @@ export type Activity = {
    * Användare skriver bara manual och ändrar aldrig källan (triggern activities_invite_source) – audience skrivs av servern.
    */
   inviteSource: InviteSource;
+  /**
+   * Delmålen som tillfället tränar (0043, Karims beslut 2026-11-11): id:n i progress_goals i ärendets avtal. Bara deltagarens egna
+   * tillfällen – i en gruppaktivitet står delmålen på aktiviteten (group_activities.progressGoalIds) och här är listan tom. Internt:
+   * visas aldrig för kommunen, i rapporter, export eller PDF.
+   */
+  progressGoalIds: string[];
 };
 
 /**
@@ -828,6 +859,11 @@ export type GroupActivity = {
    * aktivitet_installd). Enstaka aktiviteter: kryssrutan när aktiviteten skapades; återkommande: seriens val (standard av).
    */
   notify: boolean;
+  /**
+   * Delmålen som aktiviteten tränar (0043): id:n i progress_goals i avtalet. Närvaro (närvarande eller sen) på en deltagares tillfälle
+   * ger deltagaren Tränar automatiskt. Tillfällen i en återkommande aktivitet får seriens delmål när jobbet skapar dem. Internt.
+   */
+  progressGoalIds: string[];
 };
 
 /**
@@ -867,6 +903,8 @@ export type GroupActivitySeries = {
   /** Avslutad: inga nya tillfällen, kommande tillfällen utan närvaro är inställda. */
   endedAt: LocalDateTime | null;
   endedBy: UserId | null;
+  /** Delmålen som varje tillfälle tränar (0043) – kopieras till tillfällena som jobbet skapar. Internt. */
+  progressGoalIds: string[];
 };
 /** Längsta längd för en serie (samma som en gruppaktivitet). */
 export const SERIES_NAME_MAX = 120;
@@ -2095,6 +2133,54 @@ export type FirstMeetingNoShow = {
   registeredAt: LocalDateTime;
 };
 
+// ================================================================ Delmål för progressionerna (0043, Karims beslut 2026-11-11)
+/**
+ * Ett delmål i avtalets katalog: ett konkret steg inom ett progressionsområde ("Har ett uppdaterat CV"), med de punkter i
+ * incitamentsmodellens steg 1–2 som det räknas mot. Avtalsansvarig och systemadministratören ändrar listan i appen (därför en
+ * tabell, inte avtalskonfigurationen). Ett delmål tas aldrig bort – det inaktiveras (active false) och kan inte väljas igen, men
+ * det som redan står på tillfällen och i ärenden ligger kvar. Läses av Miljonbemanning i avtalet utom ekonomen – aldrig kommunen.
+ */
+export type ProgressGoal = {
+  id: string;
+  contractId: string;
+  /** Progressionsområdet (avtalets progression.areas, t.ex. digital_sjalvstandighet). */
+  areaKey: string;
+  /** 1–120 tecken. */
+  label: string;
+  /** Ordningen inom området (lägst först). */
+  sortOrder: number;
+  active: boolean;
+  /** Punkterna i steg 1–2 som delmålet räknas mot (STEP_ITEMS). Tom = räknas inte mot något steg. */
+  stepItems: StepItem[];
+  createdBy: UserId;
+  createdAt: LocalDateTime;
+  updatedBy: UserId | null;
+  updatedAt: LocalDateTime | null;
+};
+
+/**
+ * Ett delmåls läge i ett ärende (0043): en rad per ärende och delmål. Ingen rad = Inte påbörjat. Tränar sätts automatiskt
+ * (source auto, setBy "system") när närvaro registreras på ett tillfälle som tränar delmålet – aldrig över Uppnått. Uppnått sätts
+ * bara av en människa (coach, samordnare, avtalsansvarig), aldrig av AI, med datum och frivilligt underlag (ett tillfälle, en
+ * mötesrapport eller en anteckning i ärendet). Ångra: tillbaka till Tränar eller bort (raden tas bort). Alla ändringar loggas.
+ * Läses av Miljonbemanning med full- eller teamåtkomst – aldrig kommunen eller ekonomen. Ett uppnått delmål är ingen nivå i
+ * månadsbedömningen – coachen väljer nivån själv.
+ */
+export type CaseProgressGoal = {
+  id: string;
+  caseId: string;
+  contractId: string;
+  goalId: string;
+  status: ProgressGoalStatus;
+  source: ProgressGoalSource;
+  /** Dagen delmålet uppnåddes (bara Uppnått). */
+  achievedOn: LocalDate | null;
+  evidenceKind: ProgressEvidenceKind | null;
+  evidenceId: string | null;
+  setBy: UserId;
+  setAt: LocalDateTime;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -2170,6 +2256,8 @@ export type Tables = {
   case_area_changes: CaseAreaChange;
   case_start_changes: CaseStartChange;
   first_meeting_no_shows: FirstMeetingNoShow;
+  progress_goals: ProgressGoal;
+  case_progress_goals: CaseProgressGoal;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -2184,6 +2272,8 @@ export const TABLE_NAMES = [
   "inbound_emails",
   // Grupperingarna före gruppaktiviteterna: group_activities.audience_level_id pekar på en nivå (0035).
   "groupings", "grouping_members",
+  // Delmålen före tillfällena: progress_goal_ids på activities, group_activities och group_activity_series prövas mot katalogen (0043).
+  "progress_goals",
   "intake_assessments", "group_activity_series", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
   "reports", "messages", "user_notifications", "notification_reads", "tasks", "outbound_messages", "case_seen",
   "contract_deviations", "alerts", "alert_acks", "deadlines", "kpi_snapshots", "pulse_invites", "pulse_responses", "bonus_claims",
@@ -2200,6 +2290,7 @@ export const TABLE_NAMES = [
   "case_start_changes",
   "bonus_claim_decisions",
   "first_meeting_no_shows",
+  "case_progress_goals",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -2264,4 +2355,6 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   invoice_lines: [{ fields: ["invoiceDraftId", "bonusClaimId"] }],
   // Ett första möte en gång per ärende (0040, first_meeting_no_shows_case_meeting_key).
   first_meeting_no_shows: [{ fields: ["caseId", "meetingAt"] }],
+  // Ett läge per ärende och delmål (0043, case_progress_goals_case_goal_key).
+  case_progress_goals: [{ fields: ["caseId", "goalId"] }],
 };

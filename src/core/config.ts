@@ -6,7 +6,7 @@
 // "ATT_FASTSTÄLLA" = värdet ska bekräftas med kunden (SPEC §13). Värdet får ha en förklaring efter, t.ex.
 // "ATT_FASTSTÄLLA (förslag: 5 arbetsdagar)". En regel med det värdet ska inte aktiveras – visa "Ej fastställt".
 import { z } from "zod";
-import { OUTCOME_EVENT_KINDS } from "@/data/schema";
+import { OUTCOME_EVENT_KINDS, STEP_ITEMS } from "@/data/schema";
 
 // ---------------------------------------------------------------- ATT_FASTSTÄLLA
 export const UNSET = "ATT_FASTSTÄLLA" as const;
@@ -302,6 +302,12 @@ const BonusSchema = z
     step3EventKinds: z.array(z.enum(OUTCOME_EVENT_KINDS)).min(1).optional(),
     /** Stegen 1–5, exakt en gång var. */
     steps: z.array(BonusStepSchema).optional(),
+    /**
+     * Delmål (Karims beslut 2026-11-11): hur många uppnådda delmål som krävs för att en punkt i steg 1–2 ska vara uppfylld, per
+     * punkt (STEP_ITEMS i src/data/schema.ts). En punkt som inte står här kräver ett. Botkyrka: förbättrade ansökningshandlingar
+     * kräver två.
+     */
+    stepItemMin: z.partialRecord(z.enum(STEP_ITEMS), z.int().min(1).max(20)).optional(),
   })
   .superRefine((b, ctx) => {
     if (!b.enabled) return;
@@ -567,7 +573,7 @@ export type BonusSection = OperationalConfig["bonus"];
  * kommunens version av avtalet saknar det (mm.customer_safe_config, customerSafeConfig nedan) – bara faktureringen behöver det
  * (BonusBillingModel).
  */
-export type BonusModel = Required<Omit<BonusSection, "capOre">> & { enabled: true; capOre?: number };
+export type BonusModel = Required<Omit<BonusSection, "capOre" | "stepItemMin">> & { enabled: true; capOre?: number; stepItemMin?: NonNullable<BonusSection>["stepItemMin"] };
 /** Bonusmodellen med taket – för faktureringen och prislistan (bara ekonomen, som läser hela avtalet). */
 export type BonusBillingModel = BonusModel & { capOre: number };
 const BONUS_RULE_KEYS = ["offset", "attendanceMinPercent", "speedWeeks", "sustainMonths", "resultWindowMonthsAfterEnd", "step2EventKinds", "step3EventKinds", "steps"] as const;
@@ -942,6 +948,9 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
         { step: 4, label: "Hållbart resultat", priceItemCode: "BOT-BONUS-4" },
         { step: 5, label: "Snabbhetspremie", priceItemCode: "BOT-BONUS-5" },
       ],
+      // Delmålen (Karims beslut 2026-11-11): förbättrade ansökningshandlingar kräver två uppnådda delmål, övriga punkter ett.
+      // Produktionen: supabase/manual/2026-11-delmal-botkyrka.sql.
+      stepItemMin: { ansokningshandlingar: 2 },
     },
     pulse: { occasions: ["week2", "exit"], periodicEveryDays: 30, languages: ["sv", "en", "ar", "so"], minNForAggregate: 5 },
     statistics: { onRequestMaxPerYear: 2, free: true },

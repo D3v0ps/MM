@@ -432,7 +432,8 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
         location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
-        referrerId: c.referrerId, groupActivityId: a.groupActivityId, leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId), mine: mineCase(c),
+        referrerId: c.referrerId, groupActivityId: a.groupActivityId, progressGoalIds: [...(a.progressGoalIds ?? [])], leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId),
+        mine: mineCase(c),
       });
     }
     const open = rows.filter((r) => r.startsAt < now && !r.attendance);
@@ -671,6 +672,13 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
   const events = eventsOf(db, c.id).filter((e) => e.occurredOn >= mStart && e.occurredOn <= mEnd);
   const rep = db.reports[0] ?? null;
   const due = rep?.dueAt ?? monthDueFor(env.cfg, month) ?? `${mEnd}T23:59`;
+  // Delmål som uppnåddes under månaden (Karims beslut 2026-11-11), per område – bara som belägg; nivån väljer coachen.
+  const goalRows = await ctx.repo.table("case_progress_goals").list({ caseId: c.id, status: "achieved", achievedOn: { gte: mStart, lte: mEnd } });
+  const goalOf = new Map((goalRows.length ? await ctx.repo.table("progress_goals").list({ id: { in: goalRows.map((r) => r.goalId) } }) : []).map((g) => [g.id, g]));
+  const achievedIn = (key: string) => goalRows
+    .filter((r) => goalOf.get(r.goalId)?.areaKey === key && !!r.achievedOn)
+    .sort((a, b) => ((a.achievedOn ?? "") < (b.achievedOn ?? "") ? -1 : 1))
+    .map((r) => ({ label: goalOf.get(r.goalId)?.label ?? "", achievedOn: r.achievedOn as LocalDate }));
   return {
     kind: "ok" as const,
     now: env.now,
@@ -693,6 +701,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
         aiLevelSuggestion: ev ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null,
         aiLevelEvidence: ev ? { quote: ev.quote, source: ev.source, date: ev.date } : null,
         aiObservationDraft: obs,
+        achievedGoals: achievedIn(key),
       };
     }),
     assessment: ma

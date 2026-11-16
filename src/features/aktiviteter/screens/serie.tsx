@@ -10,8 +10,11 @@ import { useCommand } from "@/shell/backend";
 import { Button, Check, ErrorNotice, Field, FormGrid, Input, Loading, Modal, Notice, Select, Stack, toast, useConfirm } from "@/ui";
 import { groupActivitySeriesEnd, groupActivitySeriesUpdate } from "../api";
 import { notifiedText, SERIES_NOTIFY_HELP, useActivityFormData } from "./form";
+import { GoalPicker } from "@/features/delmal/screens/goal-picker";
 
-export type SeriesEditable = { id: string; name: string; location: string; responsibleId: string | null; goal: string | null; notify: boolean; schedule: string };
+export type SeriesEditable = {
+  id: string; name: string; location: string; responsibleId: string | null; goal: string | null; notify: boolean; schedule: string; progressGoalIds: string[];
+};
 
 /** Avsluta serien: frågar först och säger vad som händer. Returnerar true när serien avslutades. */
 export function useEndSeries() {
@@ -50,7 +53,7 @@ export function useEndSeries() {
 export function SeriesEditModal({ s, onClose }: { s: SeriesEditable; onClose: () => void }) {
   const { data, error, retry } = useActivityFormData();
   const update = useCommand(groupActivitySeriesUpdate);
-  const initial = { name: s.name, location: s.location, responsibleId: s.responsibleId ?? "", goal: s.goal ?? "", notify: s.notify };
+  const initial = { name: s.name, location: s.location, responsibleId: s.responsibleId ?? "", goal: s.goal ?? "", notify: s.notify, progressGoalIds: [...s.progressGoalIds] };
   const [value, setValue] = useState(initial);
   const [problem, setProblem] = useState<string | null>(null);
   const set = <K extends keyof typeof value>(k: K) => (v: (typeof value)[K]) => setValue((x) => ({ ...x, [k]: v }));
@@ -62,6 +65,7 @@ export function SeriesEditModal({ s, onClose }: { s: SeriesEditable; onClose: ()
     }
     const res = await update.run({
       id: s.id, name: value.name.trim(), location: value.location.trim(), responsibleId: value.responsibleId || null, goal: value.goal.trim() || null, notify: value.notify,
+      progressGoalIds: value.progressGoalIds,
     }).catch(() => null);
     if (!res || !res.ok) {
       setProblem(res && !res.ok && res.message ? res.message : "Ändringen kunde inte sparas.");
@@ -108,6 +112,7 @@ export function SeriesEditModal({ s, onClose }: { s: SeriesEditable; onClose: ()
             <Field id="serie-mal" label="Gruppmål" help="Valfritt. Gäller varje tillfälle. Syns bara för Miljonbemanning." full>
               <Input value={value.goal} onValueChange={set("goal")} maxLength={GROUP_GOAL_MAX} />
             </Field>
+            <GoalPicker areas={data.goals} value={value.progressGoalIds} onChange={set("progressGoalIds")} idPrefix="serie" />
           </FormGrid>
           <Check id="serie-meddela" checked={value.notify} onCheckedChange={set("notify")} aria-describedby="serie-meddela-hjalp">
             <span className="font-bold">Meddela deltagarna inför varje tillfälle</span>

@@ -83,7 +83,12 @@ export function underlagSections(u: BonusUnderlag, participantName: string): Und
   }
   out.push({
     title: u.step === 1 ? "Underlaget för steget" : "Resultat och verifiering",
-    rows: [...result, ...u.checklist.map((c) => [c.label, c.where ? `Klar – underlaget finns: ${c.where}` : "Klar"] as const)],
+    rows: [
+      ...result,
+      ...u.checklist.map((c) => [c.label, c.where ? `Klar – underlaget finns: ${c.where}` : "Klar"] as const),
+      // Punkterna i incitamentsmodellen (Karims beslut 2026-11-11) – aldrig delmålen.
+      ...(u.items ?? []).map((x) => [x.label, x.fulfilled ? "Uppfyllt" : "Inte uppfyllt"] as const),
+    ],
     text: ["Intyg och andra dokument finns inte i Miljonmatch – de skickas till kommunen på annat sätt."],
   });
   out.push({ title: "Coachens kommentar", rows: [], text: [u.comment || "Ingen kommentar."] });

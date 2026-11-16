@@ -483,8 +483,9 @@ describe("revisionslogg och loggkontroll", () => {
     // 19: utskicket av den generiska mottagningsbekräftelsen till em-104 finns inte längre (beslut 2026-10-07).
     // Plus testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20.
     // Plus testdatats bonusanspråk (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts): förslag, skickat, beslut och
-    // december månads bonusfaktura = 41.
-    expect(d.rows).toHaveLength(41);
+    // december månads bonusfaktura = 41. Plus startlistan med delmål och testdatats lägen (Karims beslut 2026-11-11,
+    // seed/decisions-2026-11-11-delmal.ts) = 51.
+    expect(d.rows).toHaveLength(51);
     expect([d.views, d.exports, d.byTester]).toEqual([2, 0, 0]);
     const details = d.rows.map((r) => r.detailText).join("\n");
     for (const s of ["Tolkning: Word-mall", "Tolkning: AI", "Period: rullande 6 månader", "Typ: tolka mejl", "Typ: transkribering och utkast"]) {
@@ -525,12 +526,13 @@ describe("revisionslogg och loggkontroll", () => {
     expect(d.logCheck.canSign).toBe(true);
     // Testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) och testdatats bonusanspråk
     // (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts) är januaris poster som inte finns i den gamla prototypen – de
-    // kommer med i stickprovet (var n:e post efter visningarna) i stället för prototypens poster.
+    // kommer med i stickprovet (var n:e post efter visningarna) i stället för prototypens poster. Delmålens poster i januari (Karims
+    // beslut 2026-11-11, seed/decisions-2026-11-11-delmal.ts) flyttar vilka poster som blir var n:e.
     expect(d.logCheck.sample.map((s) => [s.actionLabel, s.at, s.actorName, s.entityLabel, s.caseNumber])).toEqual([
       ["Visade rapport", "2027-01-29T16:10", "Karin Wallin", "Rapport", ""],
       ["Föreslog progressionssteg automatiskt", "2027-01-02T06:00", "Miljonmatch (automatiskt)", "Underlag om progression och resultat", "BOT-26-0043"],
-      ["Skickade underlag om progression och resultat till kommunen", "2027-01-11T09:40", "Amira Haddad", "Underlag om progression och resultat", "BOT-26-0008"],
-      ["Föreslog progressionssteg automatiskt", "2027-01-17T06:00", "Miljonmatch (automatiskt)", "Underlag om progression och resultat", "BOT-26-0008"],
+      ["Skickade underlag om progression och resultat till kommunen", "2027-01-11T09:42", "Amira Haddad", "Underlag om progression och resultat", "BOT-26-0008"],
+      ["Skickade underlag om progression och resultat till kommunen", "2027-01-18T11:00", "Erik Sjöberg", "Underlag om progression och resultat", "BOT-26-0064"],
       ["Skickade underlag om progression och resultat till kommunen", "2027-01-28T13:40", "Erik Sjöberg", "Underlag om progression och resultat", "BOT-26-0027"],
     ]);
     const items = d.logCheck.sample.map((s, i) => ({ logId: s.id, verdict: i === 0 ? "avvikelse" : "ok" }));

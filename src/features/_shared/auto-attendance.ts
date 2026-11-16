@@ -22,6 +22,7 @@ import { UniqueError } from "@/data/repo";
 import type { WeekKey } from "@/data/schema";
 import { orgSettingsFor } from "./context";
 import { refreshPrefillAfterAttendance } from "./monthly-prefill";
+import { trainFromAttendance } from "./progress-goals";
 import { publishWeeklyIfComplete } from "./weekly";
 
 /** Felets kod eller namn till loggen – aldrig meddelandet (det kan innehålla värden). */
@@ -124,6 +125,9 @@ export async function runAutoAttendance(ctx: Ctx, opts: { floor?: LocalDateTime 
     // försök – ett fel här stoppar inte körningen (refreshPrefillAfterAttendance loggar bara felets kod).
     const startsOf = new Map(acts.map((a) => [a.id, a.startsAt]));
     await refreshPrefillAfterAttendance(ctx, written.map((d) => ({ caseId: d.caseId, contractId: contract.id, startsAt: startsOf.get(d.activityId) ?? `${d.day}T00:00` })));
+    // Delmålen (Karims beslut 2026-11-11): den automatiska närvaron ger Tränar automatiskt för tillfällen som tränar delmål – bästa
+    // försök, som förifyllningen. En omkörning hittar inga nya närvarorader; ett läge som inte skrevs nu sätts vid nästa närvaro.
+    await trainFromAttendance(ctx, written.map((d) => d.activityId));
   }
   return run;
 }

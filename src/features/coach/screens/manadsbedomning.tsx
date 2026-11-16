@@ -587,6 +587,17 @@ function ManadForm({ v }: { v: Ok }) {
                         <span className="font-normal" data-testid="omrade-lage">
                           <SourceChip source={a.levelSource} suggestion={aiLvl != null} />
                         </span>
+                        {/* Delmål som uppnåddes i månaden (Karims beslut 2026-11-11) – belägg för coachen, aldrig en nivå. */}
+                        {src.achievedGoals.length > 0 && (
+                          <ul data-testid="omrade-delmal" className="m-0 flex list-none flex-col gap-1 p-0 text-[0.875rem] leading-normal font-normal">
+                            {src.achievedGoals.map((g, i) => (
+                              <li key={`${g.achievedOn}-${i}`} className="flex items-start gap-1.5">
+                                <Icon name="check-circle" size="sm" className="mt-0.5" />
+                                <span>{`Uppnått ${fmtDateShort(g.achievedOn)}: ${g.label}`}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </Stack>
                     </td>
                     <td data-label="Progressionsnivå 0–3" className={cn(td, label)}>

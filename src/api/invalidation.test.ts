@@ -95,6 +95,9 @@ const SAMPLES: Record<string, Sample[]> = {
   "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "omrade", id: "G" }), ...one("u-amira", { urval: "niva", id: "grp-c-bot-niva-2" })],
   // Yrkesområden, nivåer och återkommande aktiviteter (Karims beslut 2026-10-22).
   "grupper.oversikt": [...one("u-amira"), ...one("u-karin")],
+  // Delmålen (Karims beslut 2026-11-11): Nadia har lägen i testdatat (Tränar automatiskt och Uppnått).
+  "delmal.val": [...one("u-amira"), ...one("u-amira", { caseId: NADIA })], "delmal.katalog": [...one("u-johan"), ...one("u-robin")],
+  "delmal.arende": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })], "delmal.underlag": one("u-amira", { caseId: NADIA }),
 };
 
 /**
@@ -134,15 +137,16 @@ const WRITES: Record<string, string[]> = {
   "arenden.caseStart": ["cases", "activities", "case_status_history", "reports", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
   // Ändra tid (Karims beslut 2026-11-11): tillfället, meddelandet till deltagaren och samordnarens uppgift att ringa (stängd eller ny).
-  "arenden.activityMove": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "arenden.activityMove": ["activities", "outbound_messages", "tasks", "case_progress_goals", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
-  "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
+  // Närvaro på ett tillfälle som tränar delmål ger Tränar automatiskt (Karims beslut 2026-11-11).
+  "coach.attendanceSet": ["attendance", "reports", "outbound_messages", "case_progress_goals", AUDIT_CASE, AUDIT],
   // SMS att skicka (Karims beslut 2026-11-11): raden i utskicksloggen och samordnarens uppgift att ringa deltagaren.
   "coach.smsMarkSent": ["outbound_messages", "tasks", AUDIT_CASE, AUDIT],
-  "coach.attendanceSetAll": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
+  "coach.attendanceSetAll": ["attendance", "reports", "outbound_messages", "case_progress_goals", AUDIT_CASE, AUDIT],
   "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", "monthly_assessments", "monthly_plans", AUDIT_CASE, AUDIT],
   "coach.deviationSave": ["deviations", "tasks", AUDIT_CASE, AUDIT], "coach.deviationCallCustomer": ["deviations", "messages", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.assessmentSave": ["monthly_assessments", "monthly_plans", "reports", AUDIT_CASE, AUDIT], "coach.intakeSave": ["intake_assessments", "cases", AUDIT_CASE, AUDIT],
@@ -179,7 +183,8 @@ const WRITES: Record<string, string[]> = {
   // Gruppaktiviteter (coachmötet 2026-10-09): loggraderna har deltagarnas ärenden (caseIds) och syns i kortets Historik.
   // Spår G: meddelandet till deltagarna (utskick, och uppgiften till samordnaren när ingen kanal finns) och gruppmålet.
   "aktiviteter.skapa": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
-  "aktiviteter.andra": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  // Nya delmål på en aktivitet med registrerad närvaro ger Tränar automatiskt (Karims beslut 2026-11-11).
+  "aktiviteter.andra": ["group_activities", "activities", "outbound_messages", "tasks", "case_progress_goals", AUDIT_CASE, AUDIT],
   "aktiviteter.bjudIn": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "aktiviteter.stallIn": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
   "aktiviteter.malResultat": ["group_goal_results", AUDIT_CASE, AUDIT],
@@ -210,6 +215,10 @@ const WRITES: Record<string, string[]> = {
   "bonus.registreraMejl": ["bonus_claim_decisions", "bonus_claims", "user_notifications", AUDIT_CASE, AUDIT], "bonus.underlag": [AUDIT_CASE, AUDIT],
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): bara registreringen och loggen – inga utskick, inga tillfällen.
   "arenden.caseFirstMeetingNoShow": ["first_meeting_no_shows", AUDIT_CASE, AUDIT],
+  // Delmålen (Karims beslut 2026-11-11): katalogen (loggen utan ärende) och lägena i ärendet – Uppnått kan ge ett förslag om
+  // Progression och resultat (bonus_claims, prövat direkt för ärendet).
+  "delmal.ny": ["progress_goals", AUDIT], "delmal.andra": ["progress_goals", AUDIT], "delmal.flytta": ["progress_goals", AUDIT], "delmal.aktiv": ["progress_goals", AUDIT],
+  "delmal.uppnatt": ["case_progress_goals", "bonus_claims", AUDIT_CASE, AUDIT], "delmal.angra": ["case_progress_goals", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -299,6 +308,9 @@ const KNOWN: Known[] = [
   // Startdatumets rad på kortet läser bara anteckningarna som är motivering till en ändring (Karims beslut 2026-10-29) – de är låsta
   // (0038) och skrivs bara av arenden.andraStartdatum, som räknar om arenden.
   { command: "*", query: "arenden.startdatum", table: "case_notes", reason: "bara den låsta motiveringen läses – den skrivs bara av arenden.andraStartdatum" },
+  // Underlaget vid Markera uppnått (Karims beslut 2026-11-11) hämtas utan cache när dialogen öppnas (useQueryRunner) och servern
+  // prövar att underlaget hör till ärendet – inget kommando behöver räkna om det.
+  { command: "*", query: "delmal.underlag", reason: "dialogen hämtar underlaget utan cache när den öppnas; servern prövar underlaget" },
   // Nivåerna, yrkesområdena och Grupper-sidan räknas om av alla kommandon som ändrar ett ärende (GRUPPER i CASE_FACTS, Karims
   // beslut 2026-10-22) – de tidigare undantagen för grupper.* och formulärets nivåer behövs inte längre.
 ];

@@ -48,16 +48,18 @@ export const COLUMNS = {
     id: "text", contractId: "text", name: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", responsibleId: "text | null", createdBy: "text",
     createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", cancelledAt: "timestamptz | null", cancelledBy: "text | null", goal: "text | null",
     goalVersion: "integer", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", seriesId: "text | null", seriesSlot: "timestamptz | null", notify: "boolean",
+    progressGoalIds: "text[]",
   },
   // Återkommande nivå- och yrkesområdesaktiviteter (0035_yrkesomraden_nivaer.sql)
   group_activity_series: {
     id: "text", contractId: "text", name: "text", kind: "text", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", weekdays: "integer[]",
     startTime: "text", durationMin: "integer", location: "text", responsibleId: "text | null", goal: "text | null", startsOn: "date", endsOn: "date | null", notify: "boolean",
     createdBy: "text", createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", endedAt: "timestamptz | null", endedBy: "text | null",
+    progressGoalIds: "text[]",
   },
   // Gruppmål (0033_gruppmal.sql)
   group_goal_results: { id: "text", contractId: "text", groupActivityId: "text", caseId: "text", activityId: "text", goalVersion: "integer", achieved: "boolean", setBy: "text", setAt: "timestamptz" },
-  activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null", inviteSource: "text" },
+  activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null", inviteSource: "text", progressGoalIds: "text[]" },
   attendance: { id: "text", activityId: "text", caseId: "text", status: "text", reason: "text", registeredBy: "text", registeredAt: "timestamptz", customerNotifiedAt: "timestamptz | null", source: "text" },
   check_ins: { id: "text", caseId: "text", heldAt: "timestamptz", durationMin: "integer | null", mode: "text | null", inputMethod: "text", goalStatus: "text | null", nextGoal: "text", phase: "integer | null", activitiesDone: "text[]", employerContacts: "jsonb", overallStatus: "text | null", obstacles: "text[]", note: "text", attendanceComment: "text | null", status: "text", approvedBy: "text | null", approvedAt: "timestamptz | null", aiRunId: "text | null", docMinutes: "integer | null", ai: "jsonb | null", version: "integer" },
   monthly_assessments: { id: "text", caseId: "text", month: "text", areas: "jsonb", status: "text", decidedBy: "text | null", decidedAt: "timestamptz | null", summary: "text", aiSummaryDraft: "text | null", overallStatus: "text | null", version: "integer", prefill: "jsonb" },
@@ -163,6 +165,15 @@ export const COLUMNS = {
   // Deltagaren kom inte till första mötet (0040_uteblivet_forsta_mote.sql)
   first_meeting_no_shows: {
     id: "text", caseId: "text", contractId: "text", meetingAt: "timestamptz", kind: "text", reason: "text | null", registeredBy: "text", registeredAt: "timestamptz",
+  },
+  // Delmål för progressionerna (0043_delmal.sql)
+  progress_goals: {
+    id: "text", contractId: "text", areaKey: "text", label: "text", sortOrder: "integer", active: "boolean", stepItems: "text[]", createdBy: "text", createdAt: "timestamptz",
+    updatedBy: "text | null", updatedAt: "timestamptz | null",
+  },
+  case_progress_goals: {
+    id: "text", caseId: "text", contractId: "text", goalId: "text", status: "text", source: "text", achievedOn: "date | null", evidenceKind: "text | null", evidenceId: "text | null",
+    setBy: "text", setAt: "timestamptz",
   },
 } as const satisfies ColumnManifest;
 

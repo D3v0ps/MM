@@ -6,8 +6,28 @@ import { useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { fmtDate } from "@/core/time";
-import { Badge, Button, Card, Disclosure, ErrorNotice, List, ListItem, Loading, Modal, ModalCancelButton, Notice, Select, Field, toast, type BadgeTone } from "@/ui";
-import { bonusCard, bonusCreate, type BonusCardView, type BonusStepRow } from "../api";
+import { Badge, Button, Card, Disclosure, ErrorNotice, Icon, List, ListItem, Loading, Modal, ModalCancelButton, Notice, Select, Field, toast, type BadgeTone } from "@/ui";
+import { bonusCard, bonusCreate, type BonusCardView, type BonusStepRow, type StepItemView } from "../api";
+
+/** Punkterna i steg 1–2 ur de uppnådda delmålen (Karims beslut 2026-11-11): uppfylld eller inte, och delmålen som uppfyller den. */
+export function StepItemList({ items }: { items: readonly StepItemView[] }) {
+  if (!items.length) return null;
+  return (
+    <ul className="m-0 flex list-none flex-col gap-1 p-0 text-small" data-testid="steg-punkter">
+      {items.map((it) => (
+        <li key={it.label} className="flex items-start gap-1.5">
+          <Icon name={it.fulfilled ? "check-circle" : "circle"} size="sm" className="mt-0.5" />
+          <span>
+            <b className="font-bold">{it.label}</b>
+            {`: ${it.fulfilled ? "Uppfyllt" : "Inte uppfyllt"}`}
+            {it.need > 1 ? ` (${it.goals.length} av ${it.need})` : ""}
+            {it.goals.length ? ` – ${it.goals.join(", ")}` : ""}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** Märkets ton per läge – texten och ikonen bär informationen (blå som yta med antracit text, aldrig grönt). */
 export const BONUS_BADGE_TONE: Record<BonusStepRow["status"], BadgeTone> = {
@@ -81,6 +101,7 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
                 </Button>
               )}
             </span>
+            <StepItemList items={s.items} />
             {s.history.length > 0 && (
               <span className="text-small text-text-muted">
                 Tidigare: {s.history.map((h) => `${h.statusText.toLowerCase()}${h.at ? ` ${fmtDate(h.at)}` : ""}`).join(", ")}

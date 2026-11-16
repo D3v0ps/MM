@@ -59,10 +59,18 @@ export type BonusUnderlag = {
   verification: { kind: string; on: LocalDate | null } | null;
   /** Arbetsgivaren eller skolan och kontaktpersonen där. */
   actor: { name: string; contactName: string | null; phone: string | null; email: string | null } | null;
-  /** Steg 1: coachens avbockning med var underlaget finns. */
+  /** Steg 1: coachens avbockning med var underlaget finns – bara i underlag som frystes före delmålen (Karims beslut 2026-11-11). */
   checklist: { label: string; where: string }[];
+  /**
+   * Steg 1–2: punkterna i incitamentsmodellen och om de är uppfyllda ("Genomförd individuell plan: uppfyllt") – räknade ur de
+   * uppnådda delmålen. Aldrig delmålen själva (kommunen ser inga delmål). Saknas i underlag som frystes före 2026-11-11.
+   */
+  items?: { label: string; fulfilled: boolean }[];
   comment: string;
 };
+
+/** En punkt i steg 1–2 på deltagarkortet och i granskningen: uppfylld eller inte, och delmålen som uppfyller den (bara Miljonbemanning). */
+export type StepItemView = { label: string; fulfilled: boolean; need: number; goals: string[] };
 
 // ---------------------------------------------------------------- Deltagarkortet: kortet Bonus
 export type BonusStepRow = {
@@ -82,6 +90,8 @@ export type BonusStepRow = {
   createProblem: string | null;
   /** Tidigare avslagna och återtagna anspråk för steget, nyast först. */
   history: { claimId: string; status: BonusClaimStatus; statusText: string; at: LocalDateTime | null }[];
+  /** Steg 1–2: punkterna ur de uppnådda delmålen (Karims beslut 2026-11-11). Tom för steg 3–5. */
+  items: StepItemView[];
 };
 /**
  * Kortet Bonus på deltagarkortet (Händelser och utfall). on false = bonus är avstängd i avtalet, eller aktören får inte se bonus
@@ -128,6 +138,8 @@ export type BonusReviewView = {
     sustainDue: LocalDate | null;
     speedDeadline: LocalDate | null;
     windowEnd: LocalDate | null;
+    /** Steg 1–2: punkterna ur de uppnådda delmålen (Karims beslut 2026-11-11). Tom för steg 3–5. */
+    stepItems: StepItemView[];
   };
   /** Det som saknas innan anspråket kan skickas (med de sparade fälten). */
   problems: string[];

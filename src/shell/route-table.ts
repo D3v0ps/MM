@@ -18,6 +18,7 @@ import { routes as session } from "@/features/session/routes";
 import { routes as hjalp } from "@/features/hjalp/routes";
 import { routes as grupper } from "@/features/grupper/routes";
 import { routes as bonus } from "@/features/bonus/routes";
+import { routes as delmal } from "@/features/delmal/routes";
 
 export const APP_ROUTES: readonly RouteDef[] = [
   ...session,
@@ -39,4 +40,5 @@ export const APP_ROUTES: readonly RouteDef[] = [
   ...notiser,
   ...hjalp,
   ...grupper,
+  ...delmal,
 ];

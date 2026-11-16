@@ -111,6 +111,7 @@ function NyAktivitet({ form, query }: { form: NonNullable<ReturnType<typeof useA
     const p = payloadOf(value);
     const res = await createSeries.run({
       name: p.name, kind: p.kind, weekdays, startTime: value.time, durationMin: p.durationMin, location: p.location, responsibleId: p.responsibleId, goal: p.goal,
+      progressGoalIds: p.progressGoalIds,
       startsOn: value.date, endsOn: endsOn || null, audience: resolved.audience, notify: seriesNotify,
     }).catch(() => null);
     if (!res || !res.ok) {

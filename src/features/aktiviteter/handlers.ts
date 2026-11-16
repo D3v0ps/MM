@@ -39,6 +39,16 @@ import { logActivityRemoved } from "../_shared/activity-log";
 import { closeActivityTasks } from "../_shared/participant-notify";
 import { audienceBusyOf, mergeProblems, overlapsFor } from "./busy";
 import { notifyAll, supersedeTasks, upcoming } from "./notify-all";
+import { goalPickerAreas, goalTagsCheck, trainFromAttendance } from "../_shared/progress-goals";
+
+/** Samma delmål i samma ordning (taggarna på ett tillfälle). */
+const sameIds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+/** Namnen på delmålen (aktivitetsvyn – internt) i taggarnas ordning. */
+async function goalLabelsOf(ctx: Ctx, ids: readonly string[]): Promise<string[]> {
+  if (!ids.length) return [];
+  const goals = new Map((await ctx.repo.table("progress_goals").list({ id: { in: [...ids] } })).map((g) => [g.id, g.label]));
+  return ids.map((id) => goals.get(id)).filter((x): x is string => !!x);
+}
 
 /**
  * De som arbetar i ärendena skapar, ändrar, bjuder in, tar närvaro och skriver anteckningar (policyns CASE_WORKERS). Rollen
@@ -194,6 +204,8 @@ async function addParticipants(ctx: Ctx, g: GroupActivity, cases: readonly Case[
     try {
       await ctx.repo.table("activities").insert({
         id, caseId: c.id, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "manual",
+        // Delmålen står på aktiviteten – deltagarens rad har inga egna (0043).
+        progressGoalIds: [],
       });
     } catch (e) {
       if ((e as { code?: unknown } | null)?.code !== "23505") throw e;
@@ -299,6 +311,7 @@ handleQuery(groupActivityList, { roles: GROUP_READERS }, async (ctx) => {
       id: x.id, name: x.name, kind: x.kind, schedule: seriesScheduleText(x.weekdays, x.startTime), durationMin: x.durationMin, location: x.location,
       audienceLabel: labelOf(x) ?? "", responsibleId: x.responsibleId, responsibleName: x.responsibleId ? names.get(x.responsibleId) ?? null : null, goal: x.goal,
       startsOn: x.startsOn, endsOn: x.endsOn, notify: x.notify, next: next[0] ? { id: next[0].id, startsAt: next[0].startsAt } : null, upcoming: next.length,
+      progressGoalIds: [...(x.progressGoalIds ?? [])],
     };
   });
   return { now, canCreate: GROUP_WRITERS.includes(ctx.actor.role), series, upcoming: upcoming.map(row), earlier: earlier.map(row) };
@@ -353,11 +366,13 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
       goal: g.goal,
       audience: audience ? { kind: audience.kind, label: labelOf(g) ?? "" } : null,
       notify: g.notify,
+      progressGoalIds: [...(g.progressGoalIds ?? [])],
+      goalLabels: await goalLabelsOf(ctx, g.progressGoalIds ?? []),
       series: series
         ? {
           id: series.id, name: series.name, schedule: seriesScheduleText(series.weekdays, series.startTime), startsOn: series.startsOn, endsOn: series.endsOn, ended: !!series.endedAt,
           notify: series.notify,
-          location: series.location, responsibleId: series.responsibleId, goal: series.goal,
+          location: series.location, responsibleId: series.responsibleId, goal: series.goal, progressGoalIds: [...(series.progressGoalIds ?? [])],
         }
         : null,
     },
@@ -427,6 +442,7 @@ handleQuery(groupActivityForm, { roles: GROUP_WRITERS }, async (ctx) => {
     me: coachIds.includes(ctx.actor.userId) ? ctx.actor.userId : null,
     groupings,
     others,
+    goals: await goalPickerAreas(ctx.repo, contractId),
   };
 });
 
@@ -453,6 +469,10 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
     const problem = await audienceProblem(ctx, contractId, p.audience);
     if (problem) return fail("audience", problem);
   }
+  // Delmålen (Karims beslut 2026-11-11): aktiva delmål i avtalet.
+  const progressGoalIds = [...(p.progressGoalIds ?? [])];
+  const goalsProblem = await goalTagsCheck(ctx, contractId, progressGoalIds);
+  if (goalsProblem) return fail("goals", goalsProblem);
   const holiday = await holidayOn(ctx, day);
   if (holiday && !p.acceptHoliday) return fail("holiday", holidayText(day, holiday));
   const check = await participantCheck(ctx, cases, p, null, p.replaceOverlapping, "", false);
@@ -463,7 +483,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const g: GroupActivity = {
     id: ctx.newId("ga"), contractId, name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId,
     createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: goal.goal, goalVersion: 0,
-    ...audienceColumns(audience), seriesId: null, notify: !!p.notify,
+    ...audienceColumns(audience), seriesId: null, notify: !!p.notify, progressGoalIds,
   };
   await ctx.repo.table("group_activities").insert(g);
   const replacedActivityIds = await removeReplaced(ctx, g, check.replaceable);
@@ -478,7 +498,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
     details: {
       kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, count: invitedIds.length, caseIds: [...invitedIds].sort(), activityIds: added.activityIds,
       ...(replacedActivityIds.length ? { replacedActivityIds } : {}), ...(holiday ? { holiday: true } : {}), ...(g.goal ? { goal: true } : {}),
-      ...(skipped.length ? { skippedCaseIds: skipped.map((x) => x.caseId) } : {}), ...selectionLog(p, audience),
+      ...(skipped.length ? { skippedCaseIds: skipped.map((x) => x.caseId) } : {}), ...selectionLog(p, audience), ...(progressGoalIds.length ? { progressGoalIds } : {}),
     },
   });
   const notified = audience
@@ -499,7 +519,14 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const goal = p.goal === undefined ? { goal: g.goal } : goalText(p.goal);
   if ("error" in goal) return fail("goal", goal.error);
   const next = { name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal };
-  const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== g[k]);
+  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat. De som läggs till ska vara aktiva i avtalet.
+  const progressGoalIds = p.progressGoalIds === undefined ? [...(g.progressGoalIds ?? [])] : [...p.progressGoalIds];
+  const goalsChanged = !sameIds(progressGoalIds, g.progressGoalIds);
+  if (goalsChanged) {
+    const goalsProblem = await goalTagsCheck(ctx, g.contractId, progressGoalIds, g.progressGoalIds ?? []);
+    if (goalsProblem) return fail("goals", goalsProblem);
+  }
+  const fields: string[] = [...(Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== g[k]), ...(goalsChanged ? ["progressGoalIds"] : [])];
   if (!fields.length) return ok({ changed: 0, replaced: 0, dropped: 0, notified: null });
   // Ett enskilt tillfälle i en återkommande aktivitet får ny dag, tid och längd (Karims beslut 2026-11-11) när det inte har börjat
   // och ingen närvaro är registrerad. Det hör fortfarande till serien: seriens tid för tillfället (seriesSlot) loggas, så att jobbet
@@ -553,7 +580,7 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   // (före 0042, där migrationen inte hunnit fylla i den) räknar tillfällets tid nu.
   const seriesSlot = seriesSchedule && moved && g.seriesId ? (g.seriesSlot ?? g.startsAt) : null;
   try {
-    await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
+    await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, ...(goalsChanged ? { progressGoalIds } : {}), updatedAt: now, updatedBy: ctx.actor.userId });
   } catch (e) {
     // Ett annat tillfälle i serien fick samma tid under tiden (unikt series_id + starts_at).
     if (g.seriesId && (e instanceof UniqueError || isCode(e, "23505"))) return fail("series", `Den återkommande aktiviteten har redan ett tillfälle ${fmtDateTime(next.startsAt)}. Välj en annan tid.`);
@@ -583,6 +610,8 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
       ...(replacedActivityIds.length ? { replacedActivityIds } : {}), ...(droppedNow.length ? { droppedCaseIds: [...droppedNow].sort() } : {}),
     },
   });
+  // Nya delmål: deltagare med registrerad närvaro (närvarande eller sen) tränar dem – Tränar automatiskt (systemsteg, bästa försök).
+  if (goalsChanged) await trainFromAttendance(ctx, stay.map((a) => a.id));
   // Ny tid eller plats (spår G): uppgifterna att ringa om den gamla tiden gäller inte längre, och deltagarna får den nya. De som
   // togs bort får beskedet att aktiviteten är inställd för dem.
   let notified: NotifyOutcome = null;
@@ -824,6 +853,9 @@ handleCommand(groupActivitySeriesCreate, { roles: GROUP_WRITERS }, async (ctx, p
   if ("error" in goal) return fail("goal", goal.error);
   const problem = await audienceProblem(ctx, contractId, p.audience);
   if (problem) return fail("audience", problem);
+  const progressGoalIds = [...(p.progressGoalIds ?? [])];
+  const goalsProblem = await goalTagsCheck(ctx, contractId, progressGoalIds);
+  if (goalsProblem) return fail("goals", goalsProblem);
   const responsibleId = p.responsibleId ?? null;
   if (!(await responsibleOk(ctx, contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const audience = audienceFrom(p.audience);
@@ -831,7 +863,7 @@ handleCommand(groupActivitySeriesCreate, { roles: GROUP_WRITERS }, async (ctx, p
   const series: GroupActivitySeries = {
     id: ctx.newId("ser"), contractId, name: p.name.trim(), kind: p.kind, audience: cols.audience as GroupActivitySeries["audience"], audienceLevelId: cols.audienceLevelId,
     audienceAreaCode: cols.audienceAreaCode, ...plan, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal, notify: !!p.notify,
-    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, endedAt: null, endedBy: null,
+    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, endedAt: null, endedBy: null, progressGoalIds,
   };
   await ctx.repo.table("group_activity_series").insert(series);
   // Bara koder, tider och id:n – aldrig namnet, platsen eller gruppmålet.
@@ -856,7 +888,14 @@ handleCommand(groupActivitySeriesUpdate, { roles: GROUP_WRITERS }, async (ctx, p
   const responsibleId = p.responsibleId ?? null;
   if (responsibleId !== x.responsibleId && !(await responsibleOk(ctx, x.contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const next = { name: p.name.trim(), location: p.location.trim(), responsibleId, goal: goal.goal, notify: p.notify };
-  const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== x[k]);
+  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat; gäller också de kommande tillfällena som inte har börjat.
+  const progressGoalIds = p.progressGoalIds === undefined ? [...(x.progressGoalIds ?? [])] : [...p.progressGoalIds];
+  const goalsChanged = !sameIds(progressGoalIds, x.progressGoalIds);
+  if (goalsChanged) {
+    const goalsProblem = await goalTagsCheck(ctx, x.contractId, progressGoalIds, x.progressGoalIds ?? []);
+    if (goalsProblem) return fail("goals", goalsProblem);
+  }
+  const fields: string[] = [...(Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== x[k]), ...(goalsChanged ? ["progressGoalIds"] : [])];
   if (!fields.length) return ok({ changed: 0, occurrences: 0, notified: null });
   const future = await futureOccurrences(ctx, x.id);
   const acts = future.length ? await ctx.repo.table("activities").list({ groupActivityId: { in: future.map((g) => g.id) } }) : [];
@@ -866,13 +905,17 @@ handleCommand(groupActivitySeriesUpdate, { roles: GROUP_WRITERS }, async (ctx, p
     for (const g of future) if (await hiddenParticipants(ctx, g.id, acts.filter((a) => a.groupActivityId === g.id).length)) return fail("restricted", RESTRICTED);
   }
   const now = ctx.now();
-  await ctx.repo.table("group_activity_series").update(x.id, { ...next, updatedAt: now, updatedBy: ctx.actor.userId });
+  await ctx.repo.table("group_activity_series").update(x.id, { ...next, ...(goalsChanged ? { progressGoalIds } : {}), updatedAt: now, updatedBy: ctx.actor.userId });
+  // Ett inaktiverat delmål som står kvar på serien läggs aldrig till på ett tillfälle som saknar det (bara aktiva läggs till).
+  const activeGoals = goalsChanged && progressGoalIds.length ? new Set((await ctx.repo.table("progress_goals").list({ id: { in: progressGoalIds } })).filter((y) => y.active).map((y) => y.id)) : new Set<string>();
   for (const g of future) {
     const patch = { name: next.name, location: next.location, responsibleId: next.responsibleId, goal: next.goal, notify: next.notify };
     const changed = (Object.keys(patch) as (keyof typeof patch)[]).filter((k) => patch[k] !== g[k]);
-    if (!changed.length) continue;
+    const tags = goalsChanged ? progressGoalIds.filter((id) => activeGoals.has(id) || (g.progressGoalIds ?? []).includes(id)) : (g.progressGoalIds ?? []);
+    const tagsChanged = !sameIds(tags, g.progressGoalIds);
+    if (!changed.length && !tagsChanged) continue;
     const goalVersion = patch.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
-    await ctx.repo.table("group_activities").update(g.id, { ...patch, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
+    await ctx.repo.table("group_activities").update(g.id, { ...patch, goalVersion, ...(tagsChanged ? { progressGoalIds: tags } : {}), updatedAt: now, updatedBy: ctx.actor.userId });
     if (moved) for (const a of acts.filter((r) => r.groupActivityId === g.id)) await ctx.repo.table("activities").update(a.id, { location: next.location });
   }
   await ctx.audit({

@@ -2,6 +2,7 @@
 // Isomorf och utan I/O – hanteraren skickar in uppslagen (namn på användare, ärendenummer, rapporter).
 // Texterna är exakt den gamla prototypens (prototyp/src/views/admin.js, ACTION_LABEL m.fl.).
 import { fileSizeText } from "@/core/attachments";
+import { STEP_ITEM_LABEL } from "@/core/progress-goals";
 import { NO_SHOW_KIND_LABEL } from "@/core/first-meeting";
 import type { FirstMeetingNoShowKind } from "@/data/schema";
 import { attLabel, endReasonLabel, eventLabel, reportKindLabel } from "@/core/labels";
@@ -88,6 +89,11 @@ export const ACTION_LABEL: Record<string, string> = {
   "bonus_claim.submitted": "Skickade underlag om progression och resultat till kommunen", "bonus_claim.withdrawn": "Återtog underlag om progression och resultat", "bonus_claim.decided": "Registrerade kommunens beslut om progression och resultat",
   "bonus_claim.underlag_viewed": "Visade redovisningsunderlag för progression och resultat", "bonus_claim.underlag_downloaded": "Laddade ner redovisningsunderlag för progression och resultat",
   "price_item.created": "Lade till prisrad", "contract.config_updated": "Ändrade avtalets konfiguration",
+  // Delmål för progressionerna (Karims beslut 2026-11-11). Loggen har id:n, områdets nyckel, punkterna och datum – aldrig delmålets namn.
+  "progress_goal.catalog_seeded": "Lade in startlistan med delmål", "progress_goal.created": "Lade till delmål", "progress_goal.updated": "Ändrade delmål",
+  "progress_goal.reordered": "Ändrade ordningen på delmålen", "progress_goal.deactivated": "Inaktiverade delmål", "progress_goal.activated": "Aktiverade delmål",
+  "case_progress_goal.training_auto": "Delmål tränas – registrerat automatiskt vid närvaro", "case_progress_goal.achieved": "Markerade delmål som uppnått",
+  "case_progress_goal.undone": "Ångrade uppnått delmål", "activity.goals_changed": "Ändrade delmålen för ett tillfälle",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -100,6 +106,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
   grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg", group_activity_series: "Återkommande aktivitet",
   bonus_claim: "Underlag om progression och resultat", price_item: "Prisrad", outbound_message: "Utskick",
+  progress_goal: "Delmål", case_progress_goal: "Delmål i ärendet",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -149,6 +156,9 @@ const DETAIL_KEY: Record<string, string> = {
   decision: "Beslut", decisionId: "Beslutets id", wasSubmitted: "Var skickat till kommunen", section: "Avsnitt", steps: "Antal progressionssteg", code: "Kod", frozen: "Skickat underlag",
   // Deltagaren kom inte till första mötet (Karims beslut 2026-11-09): id och slaget – aldrig orsaken.
   noShowId: "Registrering",
+  // Delmålen (Karims beslut 2026-11-11): id:n, områdets nyckel, punkterna och datum – aldrig delmålets namn.
+  goalId: "Delmål", goalIds: "Delmål", ids: "Rader", achievedOn: "Uppnått", evidenceKind: "Underlag", evidenceId: "Underlagets id", areaKey: "Område", stepItems: "Räknas mot",
+  progressGoalIds: "Delmål", direction: "Riktning", order: "Ny ordning",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -182,6 +192,10 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   },
   weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
   fileKind: { order: "bilaga till beställningen", participant: "fil på deltagarkortet" },
+  // Delmålen (Karims beslut 2026-11-11).
+  evidenceKind: { activity: "tillfälle", check_in: "mötesrapport", case_note: "anteckning" },
+  direction: { up: "upp", down: "ned" },
+  stepItems: STEP_ITEM_LABEL,
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
@@ -220,6 +234,8 @@ const AI_KIND: Record<string, string> = {
   parse_email: "tolka mejl", transcribe_extract: "transkribering och utkast", extract_notes: "utkast från anteckningar", extract_teams: "utkast från Teams-transkript",
   report_summary: "sammanfattning till rapport", monthly_draft: "utkast till månadsbedömning",
 };
+/** Delmålets läge i loggen (case_progress_goal.achieved och .undone – från och till). */
+const GOAL_STATE_WORD: Record<string, string> = { none: "inte påbörjat", training: "tränar", achieved: "uppnått" };
 const STATUS_WORD: Record<string, string> = {
   open: "öppen", closed: "stängd", action_plan: "åtgärdsplan", handled: "hanterat", accepted: "accepterat", declined: "avböjt", protected: "skyddade personuppgifter", other: "övrigt",
   linked: "kopplat", received: "mottaget", acknowledged: "ordererkänt", draft: "utkast", approved: "godkänd", delivered: "levererad", succeeded: "klar", failed: "fel", given: "givet",
@@ -270,6 +286,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (k === "endReason") return endReasonLabel(s);
   if (k === "status" && (a.action === "attendance.registered" || a.action === "attendance.registered_all")) return attLabel(s);
   if (k === "status") return STATUS_WORD[s] ?? s;
+  if ((k === "from" || k === "to") && a.entity === "case_progress_goal") return GOAL_STATE_WORD[s] ?? s;
   if (k === "audience" && GROUP_ENTITIES.has(a.entity)) return AUDIENCE_WORD[s] ?? s;
   if (VALUE_BY_KEY[k]?.[s]) return VALUE_BY_KEY[k][s];
   if (/^(u|k)-[a-z]+$/.test(s)) return l.userName(s) ?? "–";
@@ -289,6 +306,7 @@ const COUNTED: Record<string, [string, string]> = {
   addedCaseIds: ["ärende", "ärenden"], removedCaseIds: ["ärende", "ärenden"], groupActivityIds: ["tillfälle", "tillfällen"],
   removedActivityIds: ["tillfälle", "tillfällen"], removedAutoAttendanceIds: ["närvaropost", "närvaroposter"], keptActivityIds: ["tillfälle", "tillfällen"],
   removedReportIds: ["rapport", "rapporter"], removedAssessmentIds: ["bedömning", "bedömningar"], removedPlanIds: ["plan", "planer"], correctionReportIds: ["rapport", "rapporter"],
+  ids: ["rad", "rader"], goalIds: ["delmål", "delmål"], order: ["delmål", "delmål"],
 };
 /** Gruppaktiviteternas målgrupp (audience) – samma nyckel som rapportbyggarens visning, så ordet beror på objektet. */
 const GROUP_ENTITIES = new Set(["group_activity", "group_activity_series"]);

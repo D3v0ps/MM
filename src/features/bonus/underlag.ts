@@ -5,19 +5,22 @@
 // Med i underlaget: insatsens period och mål (den senaste godkända planen), närvarograden och deltagarens egna tillfällen per typ,
 // progressionen före och efter (första och senaste godkända månadsbedömningen: nivå 0–3 per område och samlad status som text),
 // bonussteget med namn, resultatdatum och startdatum, verifieringens typ och datum (aldrig dokumentet), arbetsgivaren eller
-// skolan med kontaktperson och coachens korta kommentar (och för steg 1 checklistan).
-// Aldrig med: belopp, nivå (grupperingen), taggar, gruppaktiviteter, gruppmål, coachens anteckningar, avstämningarnas text,
-// personnummer och deltagarens namn (namnet visas för kommunen när underlaget öppnas, se bonus.underlag).
-import { approvedAssessments, bonusAttendance, BONUS_CHECKLIST_LABEL, FOLLOWS_STEP3, progressStepLabel, resultWindowEnd, speedDeadline, sustainDate } from "@/core/bonus";
+// skolan med kontaktperson och coachens korta kommentar, och för steg 1–2 vilka punkter i modellen som är uppfyllda (räknade ur de
+// uppnådda delmålen, Karims beslut 2026-11-11 – "Genomförd individuell plan: uppfyllt").
+// Aldrig med: belopp, nivå (grupperingen), taggar, gruppaktiviteter, gruppmål, delmålen själva (kommunen ser inga delmål), coachens
+// anteckningar, avstämningarnas text, personnummer och deltagarens namn (namnet visas för kommunen när underlaget öppnas, se
+// bonus.underlag). Coachens äldre checklista (steg 1) finns bara i underlag som frystes före 2026-11-11.
+import { approvedAssessments, bonusAttendance, caseStepItems, FOLLOWS_STEP3, progressStepLabel, resultWindowEnd, speedDeadline, sustainDate } from "@/core/bonus";
 import { progressionAreas, type BonusModel, type OperationalConfig } from "@/core/config";
 import { areaName, eventLabel, personName, TRAFFIC_LIGHT_LABEL } from "@/core/labels";
 import { dayOf, type LocalDateTime } from "@/core/time";
-import { BONUS_CHECKLIST_ITEMS, type BonusChecklist, type BonusClaim, type Case, type Db } from "@/data/schema";
+import type { BonusClaim, Case, Db } from "@/data/schema";
 import type { BonusUnderlag } from "./api";
 
 export type UnderlagDb = Pick<
   Db,
   "activities" | "attendance" | "monthly_assessments" | "monthly_plans" | "outcome_events" | "employers" | "placements" | "bonus_claims" | "contract_areas" | "profiles"
+  | "progress_goals" | "case_progress_goals"
 >;
 
 /** Tillfällenas typer i underlaget (deltagarens egna tillfällen – gruppaktiviteterna räknas inte). */
@@ -99,9 +102,9 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
   const ev = eventId ? db.outcome_events.find((e) => e.id === eventId && e.caseId === c.id) ?? null : null;
   // Steg 4 och 5: resultatdatum är steg 3:s (det levande – aldrig en gammal kopia på anspråket).
   const resultDay = step3 ? step3.reachedOn : k.reachedOn;
-  const checklist = step === 1
-    ? BONUS_CHECKLIST_ITEMS.map((item) => ({ label: BONUS_CHECKLIST_LABEL[item], where: ((k.checklist as BonusChecklist)[item]?.where ?? "").trim() })).filter((r, i) => !!(k.checklist as BonusChecklist)[BONUS_CHECKLIST_ITEMS[i]]?.done)
-    : [];
+  // Steg 1: alla fyra punkterna (uppfyllda eller inte); steg 2: de punkter som är uppfyllda. Bara punkterna – aldrig delmålen.
+  const stepItems = step === 1 || step === 2 ? caseStepItems(db, c.id, step, m) : [];
+  const items = (step === 1 ? stepItems : stepItems.filter((x) => x.fulfilled)).map((x) => ({ label: x.label, fulfilled: x.fulfilled }));
   return {
     v: 1,
     claimId: k.id,
@@ -128,7 +131,8 @@ export function buildUnderlag(x: UnderlagInput): BonusUnderlag {
     sustain: step === 4 && resultDay ? { since: resultDay, until: sustainDate(resultDay, m), months: m.sustainMonths } : null,
     verification: k.verificationKind ? { kind: k.verificationKind, on: k.verificationOn } : null,
     actor: ev && step >= 2 ? actorOf(db, c.id, ev.actor, ev.occurredOn) : null,
-    checklist,
+    checklist: [],
+    ...(step === 1 || step === 2 ? { items } : {}),
     comment: k.basis.trim(),
   };
 }

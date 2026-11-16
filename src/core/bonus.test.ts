@@ -2,7 +2,8 @@
 // snabbhetspremien och hållbart resultat, kontrollerna innan coachen skickar och taket per deltagare. Ren logik – påhittade
 // ärenden, alla värden ur Botkyrkas konfiguration.
 import { describe, expect, it } from "vitest";
-import type { BonusClaim, MonthlyAssessment } from "@/data/schema";
+import type { BonusClaim, CaseProgressGoal, MonthlyAssessment } from "@/data/schema";
+import { caseGoalId, defaultProgressGoals, defaultGoalId, stepItemStatuses } from "./progress-goals";
 import {
   BONUS_STATUS_TEXT, bonusAttendance, bonusSuggestions, capAmounts, duringInsats, inResultWindow, manualCreateProblem, resultWindowEnd, speedDeadline, stepKind,
   submitProblems, sustainDate, type BonusRuleDb, type SubmitContext,
@@ -24,6 +25,14 @@ const mkAssessment = (caseId: string, month: string, status: MonthlyAssessment["
 });
 const db = (p: Partial<BonusRuleDb>): BonusRuleDb => ({ ...testDb(), ...p });
 const steps = (s: { step: number }[]) => s.map((x) => x.step);
+// Delmålen (Karims beslut 2026-11-11): startlistan i avtalet och uppnådda delmål i ett ärende (nummer i startlistan).
+const GOALS = defaultProgressGoals("c-bot", "2026-11-11T18:00");
+const achieved = (caseId: string, n: number, on: string): CaseProgressGoal => ({
+  id: caseGoalId(caseId, defaultGoalId("c-bot", n)), caseId, contractId: "c-bot", goalId: defaultGoalId("c-bot", n), status: "achieved", source: "manual", achievedOn: on,
+  evidenceKind: null, evidenceId: null, setBy: "u-amira", setAt: `${on}T15:00`,
+});
+/** De fyra punkterna i steg 1: individuell plan (3), ansökningshandlingar två gånger (13, 20), branschintroduktion (4), arbetsgivarnära (17). */
+const step1Goals = (caseId: string) => [3, 13, 20, 4, 17].map((n) => achieved(caseId, n, "2026-12-01"));
 
 describe("modellen ur konfigurationen", () => {
   it("steg 1–2 är progression, 3–5 arbete eller studier; läget alltid som text och ikon", () => {
@@ -102,8 +111,13 @@ describe("förslagen från regeln", () => {
     const acts = [1, 2, 3, 4, 5].map((i) => mkActivity({ id: `a${i}`, caseId: c.id, startsAt: `2026-11-0${i + 2}T09:00` }));
     const att = (absent: number) => acts.map((a, i) => mkAttendance({ activityId: a.id, caseId: c.id, status: i < absent ? "absent_invalid" : "present" }));
     const two = [mkAssessment(c.id, "2026-11"), mkAssessment(c.id, "2026-12")];
-    const run = (absent: number, ma: MonthlyAssessment[]) => bonusSuggestions(db({ cases: [c], activities: acts, attendance: att(absent), monthly_assessments: ma }), M, env("2027-01-10"));
+    const run = (absent: number, ma: MonthlyAssessment[], goals = step1Goals(c.id)) =>
+      bonusSuggestions(db({ cases: [c], activities: acts, attendance: att(absent), monthly_assessments: ma, progress_goals: GOALS, case_progress_goals: goals }), M, env("2027-01-10"));
     expect(run(1, two).map((x) => [x.step, x.reachedOn])).toEqual([[1, "2027-01-10"]]); // 4 av 5 = 80 %
+    // De fyra punkterna räknas fram ur de uppnådda delmålen (Karims beslut 2026-11-11): utan dem inget förslag – och
+    // ansökningshandlingarna kräver två delmål i Botkyrka.
+    expect(run(1, two, [])).toEqual([]);
+    expect(run(1, two, step1Goals(c.id).filter((g) => g.goalId !== defaultGoalId("c-bot", 20)))).toEqual([]);
     expect(run(2, two)).toEqual([]); // 3 av 5 = 60 %
     expect(run(1, [two[0], mkAssessment(c.id, "2026-12", "draft")])).toEqual([]); // bara en godkänd
     expect(bonusAttendance(db({ activities: acts, attendance: att(1) }), c, M, env("2027-01-10"))).toEqual({ planned: 5, registered: 5, attended: 4, percent: 80, meets: true });
@@ -131,7 +145,27 @@ describe("förslagen från regeln", () => {
     const att = [mkAttendance({ activityId: "a1", caseId: c.id, status: "present" })];
     const ma = [mkAssessment(c.id, "2026-11"), mkAssessment(c.id, "2026-12")];
     const withdrawn = mkClaim({ id: "k1", caseId: c.id, step: 1, status: "withdrawn", withdrawnAt: "2027-01-05T10:00", withdrawnBy: "u-amira" });
-    expect(bonusSuggestions(db({ cases: [c], activities: acts, attendance: att, monthly_assessments: ma, bonus_claims: [withdrawn] }), M, env("2027-01-10"))).toEqual([]);
+    const goals = { progress_goals: GOALS, case_progress_goals: step1Goals(c.id) };
+    expect(bonusSuggestions(db({ cases: [c], activities: acts, attendance: att, monthly_assessments: ma, ...goals }), M, env("2027-01-10")).map((x) => x.step)).toEqual([1]);
+    expect(bonusSuggestions(db({ cases: [c], activities: acts, attendance: att, monthly_assessments: ma, bonus_claims: [withdrawn], ...goals }), M, env("2027-01-10"))).toEqual([]);
+  });
+  it("steg 2 från ett uppnått delmål som räknas mot steg 2 – dagen punkten blev uppfylld, under insatsen, en gång per ärende", () => {
+    const c = mkCase({ id: "case-d", startDate: "2026-11-02" });
+    // Delmål 22: Påbörjat praktik eller arbetsträning → steg 2 praktik.
+    const run = (rows: CaseProgressGoal[], claims: BonusClaim[] = [], day = "2027-01-10") =>
+      bonusSuggestions(db({ cases: [c], progress_goals: GOALS, case_progress_goals: rows, bonus_claims: claims }), M, env(day));
+    expect(run([])).toEqual([]);
+    expect(run([achieved(c.id, 22, "2026-12-15")]).map((x) => [x.step, x.outcomeEventId, x.reachedOn])).toEqual([[2, null, "2026-12-15"]]);
+    // Ett delmål som inte räknas mot steg 2 ger inget förslag.
+    expect(run([achieved(c.id, 1, "2026-12-15")])).toEqual([]);
+    // Ett förslag från reglerna utan händelse fanns redan (också avslaget): inget nytt.
+    const earlier = mkClaim({ id: "k2", caseId: c.id, step: 2, status: "rejected", reachedOn: "2026-12-15" });
+    expect(run([achieved(c.id, 22, "2026-12-15")], [earlier])).toEqual([]);
+    // En händelse går före delmålen.
+    const withEvent = bonusSuggestions(db({
+      cases: [c], progress_goals: GOALS, case_progress_goals: [achieved(c.id, 22, "2026-12-15")], outcome_events: [mkEvent({ id: "e1", caseId: c.id, kind: "praktik_startad", occurredOn: "2026-12-01" })],
+    }), M, env("2027-01-10"));
+    expect(withEvent.map((x) => [x.step, x.outcomeEventId])).toEqual([[2, "e1"]]);
   });
 });
 
@@ -152,8 +186,8 @@ describe("coachen skapar ett anspråk själv", () => {
 
 describe("innan anspråket skickas till kommunen", () => {
   const ctx = (p: Partial<SubmitContext["claim"]> & { step: number }, extra: Partial<SubmitContext> = {}): SubmitContext => ({
-    claim: { status: "suggested", reachedOn: "2027-01-20", verificationKind: "anställningsavtal", verificationOn: "2027-01-18", checklist: {}, basis: "", ...p },
-    case: { startDate: "2027-01-04", endDate: null }, step3: null, attendance: { meets: true, percent: 90 }, approvedAssessments: 2, today: "2027-02-01", ...extra,
+    claim: { status: "suggested", reachedOn: "2027-01-20", verificationKind: "anställningsavtal", verificationOn: "2027-01-18", basis: "", ...p },
+    case: { startDate: "2027-01-04", endDate: null }, step3: null, attendance: { meets: true, percent: 90 }, approvedAssessments: 2, stepItems: [], today: "2027-02-01", ...extra,
   });
   it("steg 3 med verifiering och resultatdatum under insatsen är klart", () => {
     expect(submitProblems(ctx({ step: 3 }), M)).toEqual([]);
@@ -171,13 +205,15 @@ describe("innan anspråket skickas till kommunen", () => {
     expect(submitProblems(ctx({ step: 3, reachedOn: "2027-01-31" }, { case: closed }), M)).toEqual([]);
     expect(submitProblems(ctx({ step: 3, reachedOn: "2027-02-01" }, { case: closed }), M)).toEqual(["Resultatdatum ska ligga under insatsen eller högst 3 månader efter slutdatum."]);
   });
-  it("steg 1: närvaron, två godkända bedömningar och checklistan med var underlaget finns", () => {
-    const all = Object.fromEntries(["individuell_plan", "ansokningshandlingar", "branschintroduktion", "arbetsgivarnara_aktivitet"].map((k) => [k, { done: true, where: "Anteckning 12 januari" }]));
-    expect(submitProblems(ctx({ step: 1, verificationKind: null, verificationOn: null, checklist: all }), M)).toEqual([]);
-    const p = submitProblems(ctx({ step: 1, checklist: { ...all, branschintroduktion: { done: true, where: " " }, individuell_plan: { done: false, where: "" } } }, { attendance: { meets: false, percent: 70 }, approvedAssessments: 1 }), M);
+  it("steg 1: närvaron, två godkända bedömningar och de fyra punkterna ur de uppnådda delmålen (inte längre checklistan)", () => {
+    const items = (rows: CaseProgressGoal[]) => stepItemStatuses(1, GOALS, rows, M);
+    expect(submitProblems(ctx({ step: 1, verificationKind: null, verificationOn: null }, { stepItems: items(step1Goals("c1")) }), M)).toEqual([]);
+    // Bara ett av två delmål för ansökningshandlingarna, och ingen individuell plan.
+    const some = step1Goals("c1").filter((g) => g.goalId !== defaultGoalId("c-bot", 20) && g.goalId !== defaultGoalId("c-bot", 3));
+    const p = submitProblems(ctx({ step: 1 }, { attendance: { meets: false, percent: 70 }, approvedAssessments: 1, stepItems: items(some) }), M);
     expect(p).toEqual([
-      "Närvaron är under 80 procent.", "Det behövs minst två godkända månadsbedömningar (före och efter).", "Bocka av: Genomförd individuell plan.",
-      "Skriv var underlaget finns: Genomförd branschintroduktion.",
+      "Närvaron är under 80 procent.", "Det behövs minst två godkända månadsbedömningar (före och efter).",
+      "Genomförd individuell plan: inte uppfyllt (0 av 1 delmål uppnådda).", "Förbättrade ansökningshandlingar: inte uppfyllt (1 av 2 delmål uppnådda).",
     ]);
   });
   it("steg 5: steg 3 skickat och nått inom tio veckor; steg 4: tidigast efter tre månader med en ny verifiering", () => {

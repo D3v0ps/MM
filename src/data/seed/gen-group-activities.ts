@@ -48,8 +48,8 @@ export function addGroupActivities(db: Db): void {
   const series: GroupActivitySeries[] = [];
   const occurrences: GroupActivity[] = [];
 
-  const base = (createdBy: string): Pick<GroupActivity, "contractId" | "createdBy" | "createdAt" | "updatedAt" | "updatedBy" | "cancelledAt" | "cancelledBy" | "goalVersion"> => ({
-    contractId: CONTRACT, createdBy, createdAt: CREATED_AT, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goalVersion: 0,
+  const base = (createdBy: string): Pick<GroupActivity, "contractId" | "createdBy" | "createdAt" | "updatedAt" | "updatedBy" | "cancelledAt" | "cancelledBy" | "goalVersion" | "progressGoalIds"> => ({
+    contractId: CONTRACT, createdBy, createdAt: CREATED_AT, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goalVersion: 0, progressGoalIds: [],
   });
 
   for (const s of SERIES) {
@@ -57,7 +57,7 @@ export function addGroupActivities(db: Db): void {
     const row: GroupActivitySeries = {
       id: seedSeriesId(s.n), contractId: CONTRACT, name: s.name, kind: s.kind, audience: "level", audienceLevelId: audience.levelId, audienceAreaCode: null,
       weekdays: s.weekdays, startTime: s.startTime, durationMin: s.durationMin, location: LOCATION, responsibleId: s.responsibleId, goal: s.goal,
-      startsOn: "2027-02-08", endsOn: null, notify: false, createdBy: s.responsibleId, createdAt: CREATED_AT, updatedAt: null, updatedBy: null, endedAt: null, endedBy: null,
+      startsOn: "2027-02-08", endsOn: null, notify: false, createdBy: s.responsibleId, createdAt: CREATED_AT, updatedAt: null, updatedBy: null, endedAt: null, endedBy: null, progressGoalIds: [],
     };
     series.push(row);
     for (const startsAt of seriesOccurrenceStarts(row, { now: NOW, holidays, existing: new Set() })) {
@@ -84,7 +84,7 @@ export function addGroupActivities(db: Db): void {
     });
     for (const caseId of plan.add) {
       const a: Activity = {
-        id: `a-${g.id}-${caseId}`, caseId, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "audience",
+        id: `a-${g.id}-${caseId}`, caseId, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "audience", progressGoalIds: [],
       };
       rows.push(a);
       slots.push({ caseId, startsAt: a.startsAt, durationMin: a.durationMin, groupActivityId: g.id });

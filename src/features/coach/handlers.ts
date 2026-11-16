@@ -22,6 +22,7 @@ import {
   aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, NOT_REVIEWED_TEXT, resultVerify,
 } from "./api";
 import { publishWeeklyIfComplete, type WeeklyPublished } from "../_shared/weekly";
+import { trainFromAttendance } from "../_shared/progress-goals";
 // Frågorna för coachens skärmar (vy-modellerna).
 import "./query-handlers";
 // Röstinspelning: inspelad avstämning och AI-utkast till månadsbedömningen.
@@ -129,6 +130,8 @@ handleCommand(attendanceSet, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   // Månadsbedömningens förifyllda sammanfattning (närvarosiffrorna) följer en rättad närvaro i en avslutad månad – bästa försök,
   // efter veckorapporten: närvaron är sparad och ett fel här ger aldrig coachen ett fel.
   await refreshPrefillAfterAttendance(ctx, [{ caseId: c.id, contractId: c.contractId, startsAt: act.startsAt }]);
+  // Delmålen (Karims beslut 2026-11-11): närvaro på ett tillfälle som tränar delmål ger Tränar automatiskt – bästa försök, systemsteg.
+  if (p.status === "present" || p.status === "late") await trainFromAttendance(ctx, [act.id]);
   return ok({ attendanceId, published });
 });
 
@@ -190,6 +193,8 @@ handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   }
   // Månadsbedömningens förifyllda sammanfattning följer närvaron i en avslutad månad – bästa försök, efter veckorapporterna.
   await refreshPrefillAfterAttendance(ctx, acts.filter((a) => marked.includes(a.id)).map((a) => ({ caseId: a.caseId, contractId: contractOfAct(a), startsAt: a.startsAt })));
+  // Delmålen: de markerade tillfällena som tränar delmål ger Tränar automatiskt (bästa försök, systemsteg).
+  await trainFromAttendance(ctx, marked);
   return ok({ marked, skipped, published, registeredAt: now });
 });
 

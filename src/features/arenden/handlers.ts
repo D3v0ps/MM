@@ -74,6 +74,7 @@ import "./attachment-handlers";
 import "./contact-handlers";
 import { participantFilesFor } from "./participant-file-handlers";
 import { caseBackground } from "./background";
+import { goalTagsCheck } from "../_shared/progress-goals";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
   activityAdd, activityRemove, caseAccept, caseAcceptForm, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseScheduleChange, caseSetBuyerRef, caseSetTeam, caseStart,
@@ -505,7 +506,7 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
 // mötet: startdatum, status, tillfällen enligt veckoplanen, statushistorik och logg.
 const START_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
 const NO_START = "Insatsen kan startas när avropet är accepterat.";
-const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null, inviteSource: "manual" });
+const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null, inviteSource: "manual", progressGoalIds: [] });
 /** Planen i loggen: bara dag, tid och typ – inga personuppgifter. */
 const planKeys = (plan: readonly WeekPlanRow[]) => plan.map((r) => `${WEEKDAYS[r.weekday]} ${r.time} ${r.kind}`);
 const isPlanKind = (k: string) => (WEEK_PLAN_KINDS as readonly string[]).includes(k);
@@ -665,8 +666,17 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
-  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null, inviteSource: "manual" });
-  await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
+  // Delmålen som tillfället tränar (Karims beslut 2026-11-11): aktiva delmål i ärendets avtal.
+  const progressGoalIds = [...(p.progressGoalIds ?? [])];
+  const goalsProblem = await goalTagsCheck(ctx, c.contractId, progressGoalIds);
+  if (goalsProblem) return fail("goals", goalsProblem);
+  await ctx.repo.table("activities").insert({
+    id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null, inviteSource: "manual", progressGoalIds,
+  });
+  await ctx.audit({
+    action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId,
+    details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt, ...(progressGoalIds.length ? { progressGoalIds } : {}) },
+  });
   return ok({ activityId: id });
 });
 
@@ -1466,7 +1476,9 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
       const at = attendanceFor(db, a.id);
       return { ...activityView(a), attendance: at ? { status: at.status, reason: at.reason } : null };
     }),
-    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({ ...activityView(a), durationMin: a.durationMin, groupActivityId: a.groupActivityId })),
+    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({
+      ...activityView(a), durationMin: a.durationMin, groupActivityId: a.groupActivityId, progressGoalIds: [...(a.progressGoalIds ?? [])],
+    })),
     registerBy,
   };
 });

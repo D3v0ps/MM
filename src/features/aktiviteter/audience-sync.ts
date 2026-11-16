@@ -191,6 +191,7 @@ export async function syncAudienceInvites(
     for (const caseId of plan.add) {
       const a: Activity = {
         id: ctx.newId("a"), caseId, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "audience",
+        progressGoalIds: [],
       };
       try {
         await s.table("activities").insert(a);
@@ -252,6 +253,9 @@ export async function ensureSeriesOccurrences(ctx: Ctx, opts: { contractId?: str
   const out: EnsureSeriesResult = { created: [], synced: null };
   if (!series.length) return out;
   const holidays = new Set((await s.table("holidays").list({ date: { gte: today, lte: addDays(today, SERIES_HORIZON_DAYS) } })).map((h) => h.date));
+  // Delmålen (Karims beslut 2026-11-11): tillfällena får seriens delmål – bara de som är aktiva (ett inaktiverat delmål läggs inte till).
+  const tagIds = [...new Set(series.flatMap((x) => x.progressGoalIds ?? []))];
+  const activeGoals = new Set(tagIds.length ? (await s.table("progress_goals").list({ id: { in: tagIds } })).filter((g) => g.active).map((g) => g.id) : []);
   const byContract = new Map<string, string[]>();
   for (const x of series) {
     // Befintliga tider: seriens tillfällen (också inställda) – deras tid nu och seriens tid för dem (seriesSlot, 0042). Ett tillfälle
@@ -264,6 +268,7 @@ export async function ensureSeriesOccurrences(ctx: Ctx, opts: { contractId?: str
         id: ctx.newId("ga"), contractId: x.contractId, name: x.name, kind: x.kind, startsAt, durationMin: x.durationMin, location: x.location, responsibleId: x.responsibleId,
         createdBy: x.createdBy, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: x.goal, goalVersion: 0,
         audience: x.audience, audienceLevelId: x.audienceLevelId, audienceAreaCode: x.audienceAreaCode, seriesId: x.id, seriesSlot: startsAt, notify: x.notify,
+        progressGoalIds: (x.progressGoalIds ?? []).filter((id) => activeGoals.has(id)),
       };
       try {
         await s.table("group_activities").insert(g);

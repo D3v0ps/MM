@@ -15,7 +15,7 @@ const CASE: StartChangeCase = {
   pausedWeeks: [], phaseSince: "2027-01-26", referrerId: "k-maria",
 };
 const act = (id: string, startsAt: string, patch: Partial<Activity> = {}): Activity => ({
-  id, caseId: "case-1", kind: "yrkesmoment", startsAt, durationMin: 180, location: "Miljonbemanning", note: "", groupActivityId: null, inviteSource: "manual", ...patch,
+  id, caseId: "case-1", kind: "yrkesmoment", startsAt, durationMin: 180, location: "Miljonbemanning", note: "", groupActivityId: null, inviteSource: "manual", progressGoalIds: [], ...patch,
 });
 const att = (id: string, activityId: string, source: Attendance["source"] = "manual"): Attendance => ({
   id, activityId, caseId: "case-1", status: "present", reason: "", registeredBy: source === "auto" ? "system" : "u-amira", registeredAt: "2027-01-28T18:00", customerNotifiedAt: null, source,

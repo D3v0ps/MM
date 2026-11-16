@@ -44,7 +44,10 @@ describe("supabase/manual/2026-11-bonus-botkyrka.sql", () => {
   });
 
   it("sätter avsnittet bonus till samma modell som BOTKYRKA_CONFIG", () => {
-    expect(first.bonus).toEqual(JSON.parse(JSON.stringify(BOTKYRKA_CONFIG.bonus)));
+    // Trösklarna för punkterna i steg 1–2 (stepItemMin) läggs in av supabase/manual/2026-11-delmal-botkyrka.sql (Karims beslut 2026-11-11).
+    const { stepItemMin: _later, ...bonus } = JSON.parse(JSON.stringify(BOTKYRKA_CONFIG.bonus)) as Record<string, unknown>;
+    void _later;
+    expect(first.bonus).toEqual(bonus);
   });
 
   it("revisionsloggen får en rad per prisrad och en för avtalet – utan belopp", () => {

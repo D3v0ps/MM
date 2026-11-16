@@ -4,11 +4,14 @@
 // står i prislistan (price_items, unit bonus_step) och räknas bara på bonusfakturan (./bonus-billing.ts).
 //
 // Regler (förslag – regelstyrt, ingen AI; en människa skickar alltid):
-//   Steg 1  närvaron från start till i dag (eller slutdatum) är minst attendanceMinPercent och ärendet har minst två godkända
-//           månadsbedömningar (före och efter). Coachen bockar av de fyra punkterna (individuell plan, förbättrade
-//           ansökningshandlingar, branschintroduktion, arbetsgivarnära aktivitet) med var underlaget finns innan anspråket skickas.
-//   Steg 2  en händelse av typerna step2EventKinds under insatsen. Coachen fyller i verifieringens typ och datum. Jobbspår och
-//           antagning till utbildningsförberedande aktivitet har ingen händelsetyp – coachen skapar steg 2 själv.
+//   Steg 1  närvaron från start till i dag (eller slutdatum) är minst attendanceMinPercent, ärendet har minst två godkända
+//           månadsbedömningar (före och efter) och de fyra punkterna (individuell plan, förbättrade ansökningshandlingar,
+//           branschintroduktion, arbetsgivarnära aktivitet) är uppfyllda av uppnådda delmål (Karims beslut 2026-11-11 –
+//           stepItemStatuses i ./progress-goals.ts; minst bonus.stepItemMin delmål per punkt, annars ett). Coachens äldre checklista
+//           läses bara i anspråk som redan är skickade (det frysta underlaget).
+//   Steg 2  en händelse av typerna step2EventKinds under insatsen, eller (Karims beslut 2026-11-11) en punkt i steg 2 som blir
+//           uppfylld av uppnådda delmål under insatsen – dagen då punkten blev uppfylld. Coachen fyller i verifieringens typ och
+//           datum. Ett förslag från delmålen skapas en gång per ärende.
 //   Steg 3  en händelse av typerna step3EventKinds med registrerad verifiering, från start till och med resultWindowMonthsAfterEnd
 //           månader efter slutdatum (pågående insats: allt från start). Resultatdatum = händelsens dag.
 //   Steg 5  tillsammans med steg 3 när resultatdatum är senast speedWeeks veckor från start.
@@ -23,8 +26,9 @@
 // ordning efter kommunens beslut (decidedAt, sedan id) får beloppet min(pris, max(0, tak − summan av de tidigare)). Ett anspråk
 // som redan står på en skapad faktura räknas med det fakturerade beloppet; ett anspråk utan ett riktigt pris stoppar de senare
 // anspråken i ärendet (taket går inte att räkna).
-import type { BonusClaim, BonusClaimStatus, BonusChecklist, BonusKind, Case, Db, MonthlyAssessment, OutcomeEvent } from "@/data/schema";
+import type { BonusClaim, BonusClaimStatus, BonusKind, Case, Db, MonthlyAssessment, OutcomeEvent } from "@/data/schema";
 import { BONUS_ACTIVE_STATUSES, BONUS_CHECKLIST_ITEMS } from "@/data/schema";
+import { step1ItemsMet, step2ReachedOn, stepItemStatuses, type StepItemStatus } from "./progress-goals";
 import { attendanceStats } from "./attendance";
 import { bonusStepLabel, type BonusModel } from "./config";
 import type { DomainEnv } from "./env";
@@ -117,7 +121,10 @@ export const approvedAssessments = (db: Pick<Db, "monthly_assessments">, caseId:
   db.monthly_assessments.filter((a) => a.caseId === caseId && a.status === "approved").sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : 0));
 
 // ---------------------------------------------------------------- Förslagen
-export type BonusRuleDb = Pick<Db, "cases" | "activities" | "attendance" | "monthly_assessments" | "outcome_events" | "bonus_claims">;
+export type BonusRuleDb = Pick<Db, "cases" | "activities" | "attendance" | "monthly_assessments" | "outcome_events" | "bonus_claims" | "progress_goals" | "case_progress_goals">;
+/** Punkterna i steg 1 eller 2 för ärendet ur de uppnådda delmålen (Karims beslut 2026-11-11). */
+export const caseStepItems = (db: Pick<Db, "progress_goals" | "case_progress_goals">, caseId: string, step: number, m: Pick<BonusModel, "stepItemMin">): StepItemStatus[] =>
+  stepItemStatuses(step, db.progress_goals, db.case_progress_goals.filter((r) => r.caseId === caseId), m);
 /** Ett förslag som ska bli ett anspråk (status suggested, source auto). follows = steg 3-anspråket (id, eller "new" = förslaget till steg 3 i samma omgång). */
 export type BonusSuggestion = {
   caseId: string;
@@ -170,15 +177,20 @@ export function bonusSuggestions(db: BonusRuleDb, m: BonusModel, env: Pick<Domai
     if (step3 && step3.id !== "new" && !active(4) && (step3.status === "submitted" || step3.status === "approved") && today >= sustainDate(step3.reachedOn, m) && !usedFollows(4, step3.id)) {
       out.push({ ...base, step: 4, kind: stepKind(4), outcomeEventId: null, follows: step3.id, reachedOn: sustainDate(step3.reachedOn, m), verificationKind: null });
     }
-    // Steg 2: en händelse under insatsen.
+    // Steg 2: en händelse under insatsen – annars en punkt i steg 2 som uppnådda delmål uppfyller under insatsen (en gång per ärende:
+    // inte om ärendet redan haft ett förslag från reglerna utan händelse).
     if (!active(2)) {
       const e = events.find((x) => (m.step2EventKinds as readonly string[]).includes(x.kind) && duringInsats(c, x.occurredOn, today) && !usedEvent(2, x.id));
       if (e) out.push({ ...base, step: 2, kind: stepKind(2), outcomeEventId: e.id, follows: null, reachedOn: e.occurredOn, verificationKind: e.verificationKind });
+      else if (!claims.some((x) => x.step === 2 && x.source === "auto" && x.outcomeEventId == null)) {
+        const reached = step2ReachedOn(caseStepItems(db, c.id, 2, m));
+        if (reached && duringInsats(c, reached, today)) out.push({ ...base, step: 2, kind: stepKind(2), outcomeEventId: null, follows: null, reachedOn: reached, verificationKind: null });
+      }
     }
-    // Steg 1: närvaron och minst två godkända bedömningar – en gång per ärende.
+    // Steg 1: närvaron, minst två godkända bedömningar och de fyra punkterna (uppnådda delmål) – en gång per ärende.
     if (!claims.some((x) => x.step === 1)) {
       const att = bonusAttendance(db, c, m, env);
-      if (att.meets && approvedAssessments(db, c.id).length >= 2) {
+      if (att.meets && approvedAssessments(db, c.id).length >= 2 && step1ItemsMet(caseStepItems(db, c.id, 1, m))) {
         out.push({ ...base, step: 1, kind: stepKind(1), outcomeEventId: null, follows: null, reachedOn: today, verificationKind: null });
       }
     }
@@ -203,12 +215,14 @@ export const step3For = <T extends Pick<BonusClaim, "step" | "status">>(claims: 
 
 // ---------------------------------------------------------------- Innan anspråket skickas
 export type SubmitContext = {
-  claim: Pick<BonusClaim, "step" | "status" | "reachedOn" | "verificationKind" | "verificationOn" | "checklist" | "basis">;
+  claim: Pick<BonusClaim, "step" | "status" | "reachedOn" | "verificationKind" | "verificationOn" | "basis">;
   case: Pick<Case, "startDate" | "endDate">;
   /** Anspråket för steg 3 (steg 4 och 5). */
   step3: Pick<BonusClaim, "status" | "reachedOn"> | null;
   attendance: Pick<BonusAttendance, "meets" | "percent">;
   approvedAssessments: number;
+  /** Steg 1: punkterna ur de uppnådda delmålen (caseStepItems). */
+  stepItems: readonly Pick<StepItemStatus, "label" | "fulfilled" | "need" | "goals">[];
   today: LocalDate;
 };
 /** Längsta kommentar i underlaget. */
@@ -236,11 +250,9 @@ export function submitProblems(x: SubmitContext, m: BonusModel): string[] {
   if (step === 1) {
     if (!x.attendance.meets) out.push(`Närvaron är under ${m.attendanceMinPercent} procent.`);
     if (x.approvedAssessments < 2) out.push("Det behövs minst två godkända månadsbedömningar (före och efter).");
-    for (const item of BONUS_CHECKLIST_ITEMS) {
-      const c = (k.checklist as BonusChecklist)[item];
-      if (!c?.done) out.push(`Bocka av: ${BONUS_CHECKLIST_LABEL[item]}.`);
-      else if (!c.where.trim()) out.push(`Skriv var underlaget finns: ${BONUS_CHECKLIST_LABEL[item]}.`);
-      else if (looksLikePnr(c.where)) out.push("Texten om var underlaget finns får inte innehålla personnummer.");
+    // Punkterna räknas fram ur de uppnådda delmålen (Karims beslut 2026-11-11) – coachen markerar delmålen på deltagarkortet.
+    for (const it of x.stepItems) {
+      if (!it.fulfilled) out.push(`${it.label}: inte uppfyllt (${it.goals.length} av ${it.need} delmål uppnådda).`);
     }
   }
   if (step === 2 && (!k.reachedOn || !duringInsats(x.case, k.reachedOn, x.today))) out.push("Datumet när steget nåddes ska ligga under insatsen.");
