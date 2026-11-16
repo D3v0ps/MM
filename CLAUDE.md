@@ -100,6 +100,10 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 | Progression och resultat, steg 1–5 (coacher och kommunen ser detta; bara ekonomen ser "bonus" och belopp, beslut 2026-11-11) | bonus_claim / bonus step |
 | SMS att skicka (coachen kopierar och skickar själv) | `coach.smsAttSkicka`, `coach.smsMarkSent`, `outbound_messages.status = 'sent_manually'` |
 | veckans tider (SMS varje fredag för nästa vecka) | weekly schedule (`weeklyScheduleMessage`) |
+| delmål (konkreta mål under ett progressionsområde; katalog per avtal, ändras av avtalsansvarig och systemadministratör; kommunen ser dem aldrig) | progress_goal (`progress_goals`; deltagarens läge `case_progress_goals`) |
+| tränar (sätts automatiskt vid närvaro på en märkt aktivitet) / uppnått (sätts bara av en människa) | `case_progress_goals.status` 'training' (source 'auto') / 'achieved' (source 'manual') |
+| tränar delmål (märkning på ett tillfälle eller en gruppaktivitet) | `progress_goal_ids` |
+| punkt i steg 1–2 (uppfylls av delmål) | step item (`progress_goals.step_items`, `bonus.stepItemMin`) |
 | bonusbeslut (kommunens godkännande eller avslag) | bonus_claim_decisions |
 | redovisningsunderlag (bonus) | bonus claim snapshot (`bonus_claims.snapshot`) |
 | fakturaunderlag | billing_basis |
