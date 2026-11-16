@@ -56,8 +56,8 @@
 -- att köras igen i SQL Editor.
 --
 -- Lås: kolumnerna, kontrollerna och triggrarna tar ett starkt lås (AccessExclusiveLock) på public.group_activities och
--- public.group_activity_series, och den nya tabellens främmande nyckel ett lås på public.activities (het tabell) – låsen hålls tills
--- filen är klar (en transaktion i SQL Editor). Kontrollen av de befintliga raderna går fort (alla har den tomma listan). Väntar en
+-- public.group_activity_series, och den nya tabellens främmande nycklar ett lås på public.activities (het tabell) och public.cases –
+-- låsen hålls tills filen är klar (en transaktion i SQL Editor). Kontrollen av de befintliga raderna går fort (alla har den tomma listan). Väntar en
 -- sats längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i stället för att alla andra frågor köar bakom den – kör då
 -- filen igen, gärna utanför arbetstid. Inställningen gäller bara den här körningen (återställs sist i filen).
 set lock_timeout = '5s';

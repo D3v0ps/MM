@@ -673,12 +673,22 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   await ctx.repo.table("activities").insert({
     id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null, inviteSource: "manual",
   });
-  // Delmålen står i en egen tabell (activity_progress_goals) – kommunen och ekonomen läser tillfällena, aldrig delmålen.
-  if (progressGoalIds.length) await setOwnGoalTags(ctx, { id, caseId: c.id }, progressGoalIds);
+  // Delmålen står i en egen tabell (activity_progress_goals) – kommunen och ekonomen läser tillfällena, aldrig delmålen. En andra
+  // skrivning: nekas den (ett delmål inaktiverades under tiden, 23514) är tillfället ändå tillagt och loggas – utan delmålen.
+  let goalsSaved = true;
+  if (progressGoalIds.length) {
+    try {
+      await setOwnGoalTags(ctx, { id, caseId: c.id }, progressGoalIds);
+    } catch (e) {
+      goalsSaved = false;
+      console.error("lägg till tillfälle: delmålen kunde inte sparas", (e as { code?: unknown; name?: unknown } | null)?.code ?? (e as { name?: unknown } | null)?.name ?? "error", id);
+    }
+  }
   await ctx.audit({
     action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId,
-    details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt, ...(progressGoalIds.length ? { progressGoalIds } : {}) },
+    details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt, ...(progressGoalIds.length && goalsSaved ? { progressGoalIds } : {}) },
   });
+  if (!goalsSaved) return fail("goals", "Tillfället är tillagt, men utan delmål: ett av dem kan inte väljas längre. Välj delmålen med Ändra tid.");
   return ok({ activityId: id });
 });
 

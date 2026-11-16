@@ -11,7 +11,8 @@
 -- Vad filen gör, i en transaktion:
 --   - Lägger in startlistan (25 delmål, godkänd av Karim 2026-11-11) i avtalet med avtalsnummer 332026110. Samma lista, nummer och
 --     id (pg-<avtalets id>-01 … 25) som DEFAULT_PROGRESS_GOALS i src/core/progress-goals.ts. Ett delmål som redan finns (samma id)
---     rörs inte – inte heller om avtalsansvarig har bytt namn på det eller inaktiverat det i appen.
+--     rörs inte – inte heller om avtalsansvarig har bytt namn på det eller inaktiverat det i appen. Finns redan ett delmål med samma
+--     namn i området (lagt till i appen före filen) läggs startlistans delmål inte in – antalet i revisionsloggen är de som lades in.
 --   - Sätter bonus.stepItemMin i avtalskonfigurationen till { "ansokningshandlingar": 2 } (samma som BOTKYRKA_CONFIG): förbättrade
 --     ansökningshandlingar kräver två uppnådda delmål, övriga punkter ett. Bara om bonusavsnittet finns och värdet skiljer sig.
 --   - Skriver en rad i revisionsloggen för startlistan och en för konfigurationen – bara id:n, antal och nycklar, inga namn.
@@ -75,6 +76,12 @@ with c as (
   select 'pg-' || c.id || '-' || lpad(g.n::text, 2, '0'), c.id, g.area_key, g.label, g.sort_order, true, g.step_items, 'system', now(), null, null
     from c cross join goals g
    where not exists (select 1 from public.progress_goals p where p.id = 'pg-' || c.id || '-' || lpad(g.n::text, 2, '0'))
+     -- Samma namn i området finns redan (avtalsansvarig lade till det i appen före filen): det delmålet gäller, inget nytt läggs in
+     -- (det unika namnet i området, progress_goals_label_key i 0043, hade annars stoppat hela filen).
+     and not exists (
+       select 1 from public.progress_goals p
+        where p.contract_id = c.id and p.area_key = g.area_key and lower(btrim(p.label)) = lower(btrim(g.label))
+     )
   returning id, contract_id
 )
 insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details)

@@ -76,6 +76,33 @@ describe("supabase/manual/2026-11-delmal-botkyrka.sql", () => {
     await db.exec("delete from public.progress_goals where id = 'pg-t-annat-omrade'");
   });
 
+  it("ett delmål med samma namn i området som lagts till i appen före filen: startlistans hoppas över – filen stoppar inte, och en andra körning ändrar ingenting", async () => {
+    const other = await createMigratedDatabase();
+    await loadSeed(other);
+    await other.exec(`
+      delete from public.activity_progress_goals;
+      update public.group_activities set progress_goal_ids = '{}';
+      update public.group_activity_series set progress_goal_ids = '{}';
+      delete from public.case_progress_goals;
+      delete from public.progress_goals;
+      insert into public.progress_goals (id, contract_id, area_key, label, sort_order, active, step_items, created_by, created_at)
+        values ('pg-app-1', 'c-bot', 'narvaro_rutiner', 'kommer i tid tre veckor i rad ', 10, true, '{}', 'u-johan', now());
+    `);
+    const state = async () => ({
+      goals: (await other.query<{ id: string }>("select id from public.progress_goals where contract_id = 'c-bot' order by id")).rows.map((r) => r.id),
+      logs: (await other.query<{ action: string; details: unknown }>("select action, details from public.audit_log where id like 'log-delmal-2026-11-11-%' order by action")).rows,
+    });
+    await other.exec(readFileSync(FILE, "utf8"));
+    const once = await state();
+    expect(once.goals).toHaveLength(25);
+    expect(once.goals).toContain("pg-app-1");
+    expect(once.goals).not.toContain("pg-c-bot-01");
+    expect(once.logs.find((l) => l.action === "progress_goal.catalog_seeded")?.details).toMatchObject({ count: 24 });
+    await other.exec(readFileSync(FILE, "utf8"));
+    expect(await state()).toEqual(once);
+    await other.close();
+  }, 120_000);
+
   it("vägrar utan migration 0043", async () => {
     const fresh = new PGlite();
     await fresh.waitReady;

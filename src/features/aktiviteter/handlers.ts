@@ -204,8 +204,6 @@ async function addParticipants(ctx: Ctx, g: GroupActivity, cases: readonly Case[
     try {
       await ctx.repo.table("activities").insert({
         id, caseId: c.id, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "manual",
-        // Delmålen står på aktiviteten – deltagarens rad har inga egna (0043).
-        
       });
     } catch (e) {
       if ((e as { code?: unknown } | null)?.code !== "23505") throw e;

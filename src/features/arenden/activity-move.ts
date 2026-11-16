@@ -28,6 +28,8 @@ import { billingForMonths } from "./start-handlers";
 const MOVERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 const NOT_FOUND = "Tillfället finns inte, eller så har du inte behörighet att se det.";
 const CONFLICT = "Tillfället har ändrats under tiden, kanske av en kollega. Ladda om sidan – inget har sparats.";
+/** Delmålen gick inte att spara (ett delmål inaktiverades under tiden – databasen nekar, 23514): ingenting är ändrat. */
+export const GOALS_NOT_SAVED = "Ett av delmålen kan inte väljas längre. Ladda om sidan – inget har sparats.";
 /** Platsen står i meddelandet till deltagaren – samma kontroll i Lägg till tillfälle och veckoplanen. */
 export const PLACE_PNR = "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen.";
 
@@ -59,7 +61,7 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   const slotSame = to.startsAt === a.startsAt && to.durationMin === a.durationMin && location === a.location;
   if (slotSame && !goalsChanged) return ok({ changed: false, notified: null });
   if (slotSame) {
-    await setOwnGoalTags(ctx, a, goalIds);
+    if (!(await saveGoals(ctx, a, goalIds))) return fail("goals", GOALS_NOT_SAVED);
     await ctx.audit({ action: "activity.goals_changed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, progressGoalIds: goalIds } });
     // Närvaro redan registrerad (närvarande eller sen): deltagaren tränar de nya delmålen – Tränar automatiskt (bästa försök).
     await trainFromAttendance(ctx, [a.id]);
@@ -75,12 +77,18 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   ]);
   const problem = activityMoveProblem({ c, a, to, now, registered: !!registered, others, billing });
   if (problem) return fail(problem.code, problem.text);
+  // Delmålen först: nekas de (ett delmål inaktiverades under tiden) är ingenting flyttat – inga halva ändringar, och uppgifterna och
+  // meddelandet nedan hoppas aldrig över efter en flytt.
+  if (goalsChanged && !(await saveGoals(ctx, a, goalIds))) return fail("goals", GOALS_NOT_SAVED);
   // Kontroll och skrivning i ett steg: bara om raden fortfarande har tiden, längden och platsen som lästes.
   const moved = await acts.updateIf(
     a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { startsAt: to.startsAt, durationMin: to.durationMin, location },
   );
-  if (!moved) return fail("conflict", CONFLICT);
-  if (goalsChanged) await setOwnGoalTags(ctx, a, goalIds);
+  if (!moved) {
+    // Ingen flytt: delmålen återställs (bästa försök) – "inget har sparats".
+    if (goalsChanged) await saveGoals(ctx, a, before);
+    return fail("conflict", CONFLICT);
+  }
   await ctx.audit({
     action: "activity.moved", entity: "activity", entityId: a.id, contractId: c.contractId,
     details: {
@@ -98,3 +106,14 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   const r = await notifyParticipant(ctx, { caseId: c.id, template: "aktivitet_andrad", when: to.startsAt, place: location, previous: a.startsAt });
   return ok({ changed: true, notified: r.summary });
 });
+
+/** Skriv delmålen på tillfället; false = databasen nekade (bara felets kod loggas). */
+async function saveGoals(ctx: Parameters<typeof setOwnGoalTags>[0], a: Parameters<typeof setOwnGoalTags>[1], goalIds: readonly string[]): Promise<boolean> {
+  try {
+    await setOwnGoalTags(ctx, a, goalIds);
+    return true;
+  } catch (e) {
+    console.error("ändra tid: delmålen kunde inte sparas", (e as { code?: unknown; name?: unknown } | null)?.code ?? (e as { name?: unknown } | null)?.name ?? "error", a.id);
+    return false;
+  }
+}

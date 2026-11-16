@@ -135,8 +135,9 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
         // Steg 4 och 5: resultatdatum är bonussteg 3:s (det levande), aldrig kopian på anspråket.
         reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
         history: mine.filter((k) => k !== shown).map((k) => ({ claimId: k.id, status: k.status, statusText: BONUS_STATUS_TEXT[k.status].text, at: k.decidedAt ?? k.withdrawnAt ?? k.createdAt })),
-        // Ett skickat anspråk visar det som skickades; annars punkterna ur dagens uppnådda delmål.
-        items: s.step <= 2 ? frozenItems(shown) ?? itemsView(caseStepItems(goals, c, s.step, m, today)) : [],
+        // Ett skickat anspråk som räknas (skickat eller godkänt) visar det som skickades; ett avslaget eller återtaget anspråk är inte
+        // stegets läge – då punkterna ur dagens uppnådda delmål (granskningen av anspråket visar fortfarande det frysta).
+        items: s.step <= 2 ? frozenItems(shown && isActiveClaim(shown) ? shown : null) ?? itemsView(caseStepItems(goals, c, s.step, m, today)) : [],
       };
     });
   return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, steps, rules: m.steps.map((s) => `Steg ${s.step} · ${progressStepLabel(m, s.step)}: ${bonusRuleText(m, s.step)}`) };

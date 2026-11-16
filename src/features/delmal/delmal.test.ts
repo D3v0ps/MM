@@ -17,11 +17,11 @@ import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
 import { groupActivityCreate, groupActivityUpdate, groupActivityView } from "@/features/aktiviteter/api";
-import { bonusCard, bonusPortal, bonusReview, bonusSubmit, bonusUnderlag, type BonusUnderlag } from "@/features/bonus/api";
+import { bonusCard, bonusDecide, bonusPortal, bonusReview, bonusSubmit, bonusUnderlag, type BonusUnderlag } from "@/features/bonus/api";
 import { underlagSections } from "@/features/bonus/underlag-text";
 import { assessmentPage, attendanceSet } from "@/features/coach/api";
 import { kommunCase, kommunCaseList, kommunReports, kommunStart } from "@/features/kommun/api";
-import { caseAttendance } from "@/features/arenden/api";
+import { activityAdd, caseAttendance } from "@/features/arenden/api";
 import { caseGoals, goalAchieve, goalCatalog, goalCreate, goalEvidence, goalMove, goalPicker, goalSetActive, goalUndo, goalUpdate } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -443,5 +443,65 @@ describe("granskningen 2026-11-16", () => {
     const ctx = { system: repo, now: () => "2027-02-01T09:30", audit: async () => { throw new Error("loggen kan inte skrivas"); } } as unknown as Ctx;
     expect(await trainFromAttendance(ctx, [activityId])).toEqual({ added: 1, failed: false });
     expect([caseRow(NADIA, 21)?.status, caseRow(NADIA, 4)]).toEqual(["training", null]);
+  });
+});
+
+describe("granskningen 2026-11-16, andra omgången", () => {
+  it("ett avslaget anspråk är inte stegets läge: kortet visar dagens punkter – granskningen av anspråket visar det som skickades", async () => {
+    const claimId = "bonus-case-260002-1-1";
+    const review = await q(bonusReview, { claimId }, erik());
+    expect(await cmd(bonusSubmit, { claimId, basis: "", reachedOn: review!.fields.reachedOn, verificationKind: null, verificationOn: null, checklist: {} }, erik())).toMatchObject({ ok: true });
+    const handlaggare = as(rows("cases").find((c) => c.id === TWO)!.referrerId!, "kommun_handlaggare");
+    expect(await cmd(bonusDecide, { claimId, decision: "rejected", note: "Underlaget räcker inte." }, handlaggare)).toMatchObject({ ok: true });
+    expect(await cmd(goalUndo, { caseId: TWO, goalId: G(4), to: "none" }, erik())).toMatchObject({ ok: true });
+    const card = await q(bonusCard, { caseId: TWO }, erik());
+    const s1 = card.on ? card.steps.find((s) => s.step === 1)! : null;
+    expect(s1?.status).toBe("rejected");
+    expect(s1?.items.find((x) => x.label === "Genomförd branschintroduktion")?.fulfilled).toBe(false);
+    expect((await q(bonusReview, { claimId }, erik()))?.facts.stepItems.find((x) => x.label === "Genomförd branschintroduktion")?.fulfilled).toBe(true);
+  });
+
+  /** Databasen nekar delmålen (ett delmål inaktiverades mellan kontrollen och skrivningen – 23514; minnet: kontrollen nekar). */
+  async function withRefusedGoals<T>(fn: () => Promise<T>): Promise<T> {
+    const policy = POLICIES.activity_progress_goals!;
+    const guard = policy.guard;
+    policy.guard = () => false;
+    try {
+      return await fn();
+    } finally {
+      policy.guard = guard;
+    }
+  }
+
+  it("Lägg till tillfälle: nekas delmålen är tillfället ändå tillagt och loggat – svaret säger att delmålen inte sparades", async () => {
+    const at = "2027-02-04T13:00";
+    const res = await withRefusedGoals(() => cmd(activityAdd, { caseId: NADIA, kind: "yrkesmoment", startsAt: at, durationMin: 60, location: "Alby", progressGoalIds: [G(16)] }, amira()));
+    expect(res).toMatchObject({ ok: false, error: "goals" });
+    const act = rows("activities").find((a) => a.caseId === NADIA && a.startsAt === at && a.kind === "yrkesmoment")!;
+    expect(act).toBeTruthy();
+    expect(rows("activity_progress_goals").find((r) => r.id === act.id)).toBeUndefined();
+    const log = rows("audit_log").find((l) => l.action === "activity.added" && l.entityId === act.id);
+    expect(log?.details).toMatchObject({ caseId: NADIA, kind: "yrkesmoment", startsAt: at });
+    expect(log?.details).not.toHaveProperty("progressGoalIds");
+  });
+
+  it("Ändra tid med nya delmål: nekas delmålen flyttas ingenting – inget meddelande, ingen loggrad om flytten", async () => {
+    const own = rows("activities").find((a) => a.caseId === NADIA && !a.groupActivityId && a.kind !== "praktikdag" && a.startsAt > "2027-02-01T10:00")!;
+    const sent = rows("outbound_messages").length;
+    const res = await withRefusedGoals(() => cmd({ key: "arenden.activityMove" }, {
+      activityId: own.id, expectedStartsAt: own.startsAt, startsAt: "2027-02-05T13:30", durationMin: own.durationMin, notify: true, progressGoalIds: [G(16)],
+    }, amira()));
+    expect(res).toMatchObject({ ok: false, error: "goals" });
+    expect(rows("activities").find((a) => a.id === own.id)?.startsAt).toBe(own.startsAt);
+    expect(rows("activity_progress_goals").find((r) => r.id === own.id)).toBeUndefined();
+    expect(rows("outbound_messages")).toHaveLength(sent);
+    expect(rows("audit_log").some((l) => l.action === "activity.moved" && l.entityId === own.id)).toBe(false);
+    // Utan nekandet går samma ändring igenom: flyttad, delmålen sparade, meddelandet skickat.
+    const ok = await cmd({ key: "arenden.activityMove" }, {
+      activityId: own.id, expectedStartsAt: own.startsAt, startsAt: "2027-02-05T13:30", durationMin: own.durationMin, notify: true, progressGoalIds: [G(16)],
+    }, amira());
+    expect(ok).toMatchObject({ ok: true, changed: true });
+    expect(rows("activities").find((a) => a.id === own.id)?.startsAt).toBe("2027-02-05T13:30");
+    expect(rows("activity_progress_goals").find((r) => r.id === own.id)?.goalIds).toEqual([G(16)]);
   });
 });

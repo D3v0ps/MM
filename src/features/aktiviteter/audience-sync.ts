@@ -191,7 +191,6 @@ export async function syncAudienceInvites(
     for (const caseId of plan.add) {
       const a: Activity = {
         id: ctx.newId("a"), caseId, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, note: "", groupActivityId: g.id, inviteSource: "audience",
-        
       };
       try {
         await s.table("activities").insert(a);
