@@ -422,14 +422,16 @@ test("revisionslogg: läsbara värden, filter, export och markering", async ({ p
   await page.locator("#log-actor").selectOption("__null");
   await expect(main(page)).toContainText("Poster (1)");
   await page.locator("#log-actor").selectOption("");
-  // Nadias ärende: visat deltagarkort, meddelande från Maria och pulssvaret
+  // Nadias ärende: visat deltagarkort, meddelande från Maria och pulssvaret – och två delmål som coachen markerat uppnått
+  // (testdatats delmål, Karims beslut 2026-11-11)
   await page.locator("#log-case").fill("BOT-26-0143");
-  await expect(main(page)).toContainText("Poster (3)");
+  await expect(main(page)).toContainText("Poster (5)");
   await page.locator("#log-case").fill("");
   // 23 poster: utskicket av den generiska bekräftelsen till em-104 finns inte sedan 2026-10-07, och testdatats ändring av
   // startdatum (Karims beslut 2026-10-29) har sin loggrad. Plus testdatats bonusanspråk och december månads bonusfaktura
-  // (Karims beslut 2026-11-04): 21 rader – 44 poster.
-  await expect(main(page)).toContainText("Poster (44)");
+  // (Karims beslut 2026-11-04): 21 rader – 44 poster. Plus testdatats delmål (Karims beslut 2026-11-11): startlistan, två
+  // automatiska Tränar och sju uppnådda – 54 poster.
+  await expect(main(page)).toContainText("Poster (54)");
 
   // Exporten loggas och innehåller åtgärdskoden
   let csv = "";

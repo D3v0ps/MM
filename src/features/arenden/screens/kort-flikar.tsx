@@ -588,7 +588,10 @@ function UpcomingList({ rows, canEdit, card }: { rows: CaseAttendance["upcoming"
         cases={[]}
         now={card.now}
         onClose={() => setMoving(null)}
-        move={{ activityId: moving.id, caseNumber: card.caseNumber, name: card.displayName, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin, location: moving.location }}
+        move={{
+          activityId: moving.id, caseId: card.caseId, caseNumber: card.caseNumber, name: card.displayName, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin,
+          location: moving.location, progressGoalIds: moving.progressGoalIds,
+        }}
       />
     )}
     <Card flush title="Kommande tillfällen" icon="calendar">

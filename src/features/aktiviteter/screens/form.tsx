@@ -10,11 +10,14 @@ import { Check, Field, FormGrid, Input, Notice, Select, useConfirm, DateInput, T
 import { durationLabel } from "@/features/arenden/screens/kort-start";
 import { GROUP_GOAL_MAX, type GroupActivityKind } from "@/data/schema";
 import { groupActivityForm, type GroupActivityForm, type InviteProblem, type NotifyOutcome } from "../api";
+import { GoalPicker } from "@/features/delmal/screens/goal-picker";
 
 export type ActivityFormState = {
   name: string; kind: GroupActivityKind; date: string; time: string; durationMin: number; location: string; responsibleId: string;
   /** Gruppmålet (internt). Tomt = inget mål. */
   goal: string;
+  /** Delmålen som aktiviteten tränar (Karims beslut 2026-11-11). Internt. */
+  progressGoalIds: string[];
 };
 
 const DURATIONS = [30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 420, 480];
@@ -48,13 +51,15 @@ export function useActivityFormData(): { data: GroupActivityForm | null; error: 
 
 /** Startvärden: i morgon kl. 13.00, 90 minuter, avtalets plats och den inloggade som ansvarig om hen är coach. */
 export function blankForm(f: GroupActivityForm, tomorrow: LocalDate): ActivityFormState {
-  return { name: "", kind: "yrkesmoment", date: tomorrow, time: "13:00", durationMin: 90, location: f.defaultLocation, responsibleId: f.me ?? "", goal: "" };
+  return { name: "", kind: "yrkesmoment", date: tomorrow, time: "13:00", durationMin: 90, location: f.defaultLocation, responsibleId: f.me ?? "", goal: "", progressGoalIds: [] };
 }
 /** Formulärets värden ur en befintlig aktivitet. */
-export function formOf(a: { name: string; kind: GroupActivityKind; startsAt: string; durationMin: number; location: string; responsibleId: string | null; goal: string | null }): ActivityFormState {
+export function formOf(a: {
+  name: string; kind: GroupActivityKind; startsAt: string; durationMin: number; location: string; responsibleId: string | null; goal: string | null; progressGoalIds: string[];
+}): ActivityFormState {
   return {
     name: a.name, kind: a.kind, date: dayOf(a.startsAt), time: timeOf(a.startsAt), durationMin: a.durationMin, location: a.location, responsibleId: a.responsibleId ?? "",
-    goal: a.goal ?? "",
+    goal: a.goal ?? "", progressGoalIds: [...a.progressGoalIds],
   };
 }
 
@@ -72,6 +77,7 @@ export function formErrors(s: ActivityFormState): Partial<Record<"name" | "date"
 export const payloadOf = (s: ActivityFormState) => ({
   name: s.name.trim(), kind: s.kind, startsAt: `${s.date}T${s.time}`, durationMin: s.durationMin, location: s.location.trim(), responsibleId: s.responsibleId || null,
   goal: s.goal.trim() || null,
+  progressGoalIds: [...s.progressGoalIds],
 });
 
 /** Helgdagens namn för datumet (formulärets lista), eller null. */
@@ -130,6 +136,7 @@ export function ActivityFields({
       >
         <Input value={value.goal} onValueChange={set("goal")} maxLength={GROUP_GOAL_MAX} />
       </Field>
+      <GoalPicker areas={form.goals} value={value.progressGoalIds} onChange={set("progressGoalIds")} idPrefix={idPrefix} />
       {holiday && (
         <div className="col-span-full">
           <Notice tone="warn" icon="calendar" title="Helgdag">

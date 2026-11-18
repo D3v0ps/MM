@@ -345,9 +345,10 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
   it("revisionsloggen: admin och chef", async () => {
     // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07); plus
     // testdatats ändring av startdatum (Karims beslut 2026-10-29, seed/decisions-2026-10-29.ts) = 20; plus testdatats
-    // bonusanspråk och december månads bonusfaktura (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts) = 41.
-    expect(await count(ROBIN, "audit_log")).toBe(41);
-    expect(await count(KARIN, "audit_log")).toBe(41);
+    // bonusanspråk och december månads bonusfaktura (Karims beslut 2026-11-04, seed/decisions-2026-11-04.ts) = 41; plus startlistan
+    // med delmål och testdatats lägen (Karims beslut 2026-11-11, seed/decisions-2026-11-11-delmal.ts) = 51.
+    expect(await count(ROBIN, "audit_log")).toBe(51);
+    expect(await count(KARIN, "audit_log")).toBe(51);
     for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.role, await count(a, "audit_log")]).toEqual([a.role, 0]);
   });
   it("utskick: admin och samordnare", async () => {

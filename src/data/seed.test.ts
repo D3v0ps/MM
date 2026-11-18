@@ -106,7 +106,8 @@ describe("antal rader per tabell", () => {
       // mottagningsbekräftelsen, dess loggrad och uppgiften till avtalsansvarig finns inte (prototypen: 20, 8 och 2).
       // Karims beslut 2026-10-29 (seed/decisions-2026-10-29.ts): revisionsloggens rad för testdatats ändring av startdatum (prototypen: 19).
       // Karims beslut 2026-11-04 (seed/decisions-2026-11-04.ts): 21 rader för testdatats bonusanspråk och december månads bonusfaktura.
-      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 156], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 41],
+      // Karims beslut 2026-11-11 (seed/decisions-2026-11-11-delmal.ts): 10 rader för startlistan med delmål och testdatats lägen.
+      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 156], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 51],
       // Granskningen 2026-11-11 (seed/decisions-2026-11-11.ts): mejlet om veckorapporten finns inte (prototypen: 7).
       ["outbound_messages", "notifications", 6], ["tasks", "tasks", 1],
     ];

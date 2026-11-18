@@ -149,7 +149,8 @@ function UnsetWarnings({ config }: { config: ContractConfig }) {
 
 function FactsCard({ k, yearShort }: { k: ContractFacts; yearShort: string }) {
   return (
-    <Card title="Avtalsfakta" icon="file">
+    // Delmålen (Karims beslut 2026-11-11): systemadministratören ändrar avtalets katalog på sidan Delmål.
+    <Card title="Avtalsfakta" icon="file" actions={<Button kind="secondary" icon="target" to={`/avtal/delmal?avtal=${encodeURIComponent(k.id)}`}>Delmål</Button>}>
       <div className="grid grid-cols-2 gap-x-8 gap-y-3 max-[620px]:grid-cols-1">
         <KV
           items={[

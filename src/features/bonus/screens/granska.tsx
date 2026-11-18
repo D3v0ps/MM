@@ -18,7 +18,7 @@ import {
   Button, Card, Check, DateInput, ErrorNotice, Field, FormGrid, Input, Kv, Loading, Notice, Page, Row, Seg, Stack, TextArea, toast, useAuditView, useConfirm,
 } from "@/ui";
 import { bonusRecordMail, bonusReview, bonusSave, bonusSubmit, bonusUnderlag, bonusWithdraw, type BonusReviewView } from "../api";
-import { BonusStatusBadge } from "./kort-bonus";
+import { BonusStatusBadge, StepItemList } from "./kort-bonus";
 import { UnderlagPaper, UnderlagPdfButton } from "./underlag";
 
 export function BonusGranskaScreen({ params }: ScreenProps) {
@@ -92,6 +92,7 @@ function Facts({ v }: { v: BonusReviewView }) {
           v.source ? ["Anspråket", v.source === "auto" ? "Förslag från reglerna" : "Skapat av Miljonbemanning"] : null,
         ]}
       />
+      {f.stepItems.length > 0 && <div className="mt-3"><StepItemList items={f.stepItems} /></div>}
     </Card>
   );
 }
@@ -106,7 +107,7 @@ function Fields({ v, form, setForm, dirty }: { v: BonusReviewView; form: Form; s
     toast("Sparat.");
   };
   return (
-    <Card title={v.needsChecklist ? "Checklista" : "Verifiering"} icon="check-square">
+    <Card title={v.needsChecklist ? "Checklista" : v.needsVerification ? "Verifiering" : "Kommentar"} icon="check-square">
       <Stack gap="sm">
         {v.needsChecklist ? (
           <>
@@ -122,7 +123,7 @@ function Fields({ v, form, setForm, dirty }: { v: BonusReviewView; form: Form; s
               </div>
             ))}
           </>
-        ) : (
+        ) : v.needsVerification ? (
           <FormGrid>
             <Field label="Vilken verifiering finns" help="Till exempel anställningsavtal, arbetsgivarintyg, antagningsbesked eller praktikintyg. Dokumentet skickas till kommunen på annat sätt." id="bonus-ver-kind">
               <Input value={form.verificationKind ?? ""} maxLength={200} onValueChange={(t) => set({ verificationKind: t })} />
@@ -131,7 +132,7 @@ function Fields({ v, form, setForm, dirty }: { v: BonusReviewView; form: Form; s
               <DateInput value={form.verificationOn ?? ""} onValueChange={(d) => set({ verificationOn: d || null })} />
             </Field>
           </FormGrid>
-        )}
+        ) : null}
         {v.step <= 3 && (
           <Field label={v.step === 3 ? "Resultatdatum" : "Datum när steget nåddes"} help={v.step === 3 ? "Dagen arbetet eller studierna började." : "Dagen steget nåddes under insatsen."} id="bonus-reached">
             <DateInput value={form.reachedOn ?? ""} onValueChange={(d) => set({ reachedOn: d || null })} />

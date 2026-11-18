@@ -228,6 +228,14 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         if (!cur || !guarded(null, cur) || !canWrite(cur)) throw new PolicyError(name);
         store.removeRow(name, id);
       },
+      // Kontroll och borttagning i samma synkrona steg – två kommandon som körs samtidigt kan inte båda ta bort raden.
+      removeIf: async (id, where) => {
+        if (!this.opts.bypass) checkFilterColumns(name, where, this.opts.filterColumns);
+        const cur = store.getRow(name, id);
+        if (!cur || !canRead(cur) || !matches(cur, where) || !guarded(null, cur) || !canWrite(cur)) return false;
+        store.removeRow(name, id);
+        return true;
+      },
     };
   }
 }

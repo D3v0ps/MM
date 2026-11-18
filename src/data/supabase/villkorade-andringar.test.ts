@@ -194,6 +194,21 @@ describe("ändra tid för ett tillfälle: den villkorade ändringen som arenden.
   });
 });
 
+describe("villkorad borttagning (Table.removeIf): Ångra till Inte påbörjat (delmal.angra, Karims beslut 2026-11-11)", () => {
+  it("den som arbetar i ärendet: raden tas bort bara med villkoret status = achieved – ett andra försök träffar ingen rad; kommunen tar aldrig bort", async () => {
+    const got = await asRepo("u-amira", async (repo) => {
+      const t = repo.table("case_progress_goals");
+      const r = (await t.list({ caseId: "case-260143", status: "achieved" }))[0];
+      return { wrong: await t.removeIf(r.id, { status: "training" }), first: await t.removeIf(r.id, { status: "achieved" }), second: await t.removeIf(r.id, { status: "achieved" }), left: await t.get(r.id) };
+    });
+    expect(got).toEqual({ wrong: false, first: true, second: false, left: null });
+    const ids = (await db.query<{ id: string }>("select id from public.case_progress_goals where case_id = 'case-260143' and status = 'achieved' order by id")).rows.map((r) => r.id);
+    expect(ids.length).toBeGreaterThan(0);
+    const kommun = await asRepo("k-maria", (repo) => repo.table("case_progress_goals").removeIf(ids[0], { status: "achieved" }));
+    expect(kommun).toBe(false);
+  });
+});
+
 describe("kolumnerna som en villkorad ändring får villkoras på", () => {
   it("USER_FILTER_COLUMNS är exakt databasens kolumnrättigheter: tabellerna där inloggade inte läser alla kolumner, och kolumnerna de får läsa", async () => {
     const tableLevel = new Set((await db.query<{ t: string }>(

@@ -75,6 +75,12 @@ export interface Table<T extends Row> {
    */
   updateIf(id: string, where: Where<T>, patch: Partial<T>): Promise<T | null>;
   remove(id: string): Promise<void>;
+  /**
+   * Villkorad borttagning: raden tas bort bara om den fortfarande matchar where (t.ex. { status: "achieved" }) – kontroll och
+   * borttagning i ett steg (Postgres: delete … where id = ? and …; minnet: synkront). false = raden matchade inte längre, finns inte
+   * eller får inte tas bort. Samma gräns för villkorets kolumner som updateIf (USER_FILTER_COLUMNS).
+   */
+  removeIf(id: string, where: Where<T>): Promise<boolean>;
 }
 
 export interface Repo<TT extends Record<string, Row>> {

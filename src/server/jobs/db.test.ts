@@ -49,6 +49,7 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
       return (await get(id))!;
     },
     remove: unsupported,
+    removeIf: unsupported,
   };
 }
 

@@ -141,7 +141,7 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const group = (id: string, contractId: string, createdBy: string, cancelledBy: string | null = null): Tables["group_activities"] => ({
     id, contractId, name: "CV-verkstad", kind: "yrkesmoment", startsAt: "2027-02-02T13:00", durationMin: 90, location: "Miljonbemanning Alby", responsibleId: createdBy,
     createdBy, createdAt: at, updatedAt: null, updatedBy: null, cancelledAt: cancelledBy ? at : null, cancelledBy, goal: null, goalVersion: 0,
-    audience: "manual", audienceLevelId: null, audienceAreaCode: null, seriesId: null, notify: false,
+    audience: "manual", audienceLevelId: null, audienceAreaCode: null, seriesId: null, notify: false, progressGoalIds: [],
   });
   // Gruppmål (0033): Amiras aktivitet har ett mål. Amira (Amiras ärende) och deltagaren i det skyddade ärendet (vilande spärr)
   // är markerade som Klarade inte; Maria (Marias ärende) har inget val – Klarade automatiskt. Valen gäller målets version 0 och
@@ -870,6 +870,12 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
   // Deltagaren kom inte till första mötet (0040): ett möte en gång per ärende – kopian gäller ett annat möte än ärendets första,
   // som både triggern och policy.ts nekar (skrivreglerna prövas i blocket för 0040).
   if (t === "first_meeting_no_shows") c.meetingAt = "2027-01-28T14:00";
+  // Delmålen på ett eget tillfälle (0043): id = tillfällets id – kopian gäller ett annat eget tillfälle i samma ärende som saknar rad
+  // (raden i övrigt prövas av triggern och policyns guard, i blocket för 0043).
+  if (t === "activity_progress_goals") {
+    const taken = new Set(data.activity_progress_goals.map((r) => r.id));
+    c.id = data.activities.find((a) => a.caseId === row.caseId && !a.groupActivityId && !taken.has(a.id))?.id;
+  }
   // Gruppmål (0033): ett val per deltagare och aktivitet – kopian får en inbjuden deltagare i samma aktivitet som saknar val, och
   // deltagarens tillfälle.
   if (t === "group_goal_results") {
@@ -2099,7 +2105,7 @@ describe("gruppaktiviteter och automatisk närvaro (0030): samma regler i RLS, t
   const newGroup = (id: string, contractId: string, createdBy: string, patch: Partial<Tables["group_activities"]> = {}): Tables["group_activities"] => ({
     id, contractId, name: "Intervjuträning", kind: "annat", startsAt: "2027-02-03T10:00", durationMin: 60, location: "Miljonbemanning Alby", responsibleId: null, createdBy,
     createdAt: at, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: null, goalVersion: 0, audience: "manual", audienceLevelId: null,
-    audienceAreaCode: null, seriesId: null, notify: false, ...patch,
+    audienceAreaCode: null, seriesId: null, notify: false, progressGoalIds: [], ...patch,
   });
 
   it("läsning per testperson: Miljonbemanning i avtalet utom ekonomen – aldrig kommunen", async () => {
@@ -2468,7 +2474,7 @@ describe("återkommande aktiviteter (0035): läsning och skrivning – samma reg
   const series = (id: string, createdBy: string, patch: Partial<Tables["group_activity_series"]> = {}): Tables["group_activity_series"] => ({
     id, contractId: "c-bot", name: "Jobbsök", kind: "annat", audience: "level", audienceLevelId: LEVEL_2, audienceAreaCode: null, weekdays: [2, 4], startTime: "10:00",
     durationMin: 90, location: "Miljonbemanning Alby", responsibleId: null, goal: null, startsOn: "2027-02-08", endsOn: null, notify: false, createdBy, createdAt: at,
-    updatedAt: null, updatedBy: null, endedAt: null, endedBy: null, ...patch,
+    updatedAt: null, updatedBy: null, endedAt: null, endedBy: null, progressGoalIds: [], ...patch,
   });
   const insertSeries = (r: Tables["group_activity_series"]) => insertSql("group_activity_series", r as unknown as Record<string, unknown>);
 
@@ -2570,7 +2576,7 @@ describe("målgrupp, serie och inbjudningens källa på gruppaktiviteterna (0035
   const newGroup = (id: string, createdBy: string, patch: Partial<Tables["group_activities"]> = {}): Tables["group_activities"] => ({
     id, contractId: "c-bot", name: "Yrkesområdesträff", kind: "annat", startsAt: "2027-02-18T14:00", durationMin: 90, location: "Miljonbemanning Alby", responsibleId: null, createdBy,
     createdAt: at, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: null, goalVersion: 0, audience: "manual", audienceLevelId: null,
-    audienceAreaCode: null, seriesId: null, notify: false, ...patch,
+    audienceAreaCode: null, seriesId: null, notify: false, progressGoalIds: [], ...patch,
   });
   const ins = (r: Tables["group_activities"]) => insertSql("group_activities", r as unknown as Record<string, unknown>);
 
@@ -4716,6 +4722,301 @@ describe("intagsansvarig tar emot nya beställningar (0041): samma regler i RLS,
         guard: "CREATE TRIGGER cases_accept_guard BEFORE UPDATE OF status, confirmed_at, contract_id ON public.cases FOR EACH ROW EXECUTE FUNCTION mm.guard_case_accept()",
       },
       same: true, lock: "0", statement: "0",
+    });
+  });
+});
+
+// ================================================================ Delmål för progressionerna (0043)
+describe("delmål (0043): katalogen, läget per ärende och delmålen på tillfällena – samma regler i RLS, triggrarna och policy.ts", () => {
+  // Testdatat: startlistan i Botkyrkaavtalet (pg-c-bot-01 … 25), Nadias lägen (Tränar automatiskt och Uppnått) och BOT-26-0002:s
+  // uppnådda delmål. Före varje sats (som postgres i samma transaktion, och likadant i minnet): c-ny får Botkyrkas
+  // progressionsområden och ett delmål (pg-x-ny), och delmål 02 är inaktiverat.
+  const NADIA = "case-260143";
+  const at = "2027-02-01T09:12";
+  const G = (n: number) => `pg-c-bot-${String(n).padStart(2, "0")}`;
+  const progression = requireOperational(data.contracts.find((c) => c.id === "c-bot")!.config).progression;
+  const otherGoal: Tables["progress_goals"] = {
+    id: "pg-x-ny", contractId: "c-ny", areaKey: "beredskap", label: "Har ett uppdaterat CV", sortOrder: 10, active: true, stepItems: [], createdBy: "system", createdAt: at,
+    updatedBy: null, updatedAt: null,
+  };
+  /** Delmål som är inaktiverade före satsen (02, och de som testet lägger till). */
+  const pgPrep = (inactive: readonly string[]) => async (tx: Tx) => {
+    await tx.query("update public.contracts set config = jsonb_set(config, '{progression}', $1::jsonb, true) where id = 'c-ny'", [JSON.stringify(progression)]);
+    await tx.exec(insertSql("progress_goals", otherGoal as unknown as Record<string, unknown>));
+    await tx.query("update public.progress_goals set active = false where id = any ($1::text[])", [[G(2), ...inactive]]);
+  };
+  const memPrep = (d: typeof data, inactive: readonly string[]) => {
+    (d.contracts.find((c) => c.id === "c-ny")!.config as unknown as Record<string, unknown>).progression = structuredClone(progression);
+    d.progress_goals.push({ ...otherGoal });
+    for (const g of d.progress_goals) if ([G(2), ...inactive].includes(g.id)) g.active = false;
+  };
+  const asKey = <T,>(key: string | null, inactive: readonly string[], fn: (tx: Tx) => Promise<T>): Promise<T> => {
+    if (key === null) return asUser(db, null, fn, { role: "service_role", before: pgPrep(inactive) });
+    const p = findPersona(key);
+    const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+    return asUser(db, authOf(p.actor.userId), fn, {
+      before: async (tx) => {
+        await pgPrep(inactive)(tx);
+        if (roles.size > 1) await chooseRole(p.actor.userId, p.actor.role)(tx);
+      },
+    });
+  };
+  /** Samma skrivning i minnet: repot för personen (eller systemet, bypass) – guard, skrivregeln och de unika nycklarna. */
+  const mem = async (key: string | null, inactive: readonly string[], fn: (repo: MemoryRepo<Tables>) => Promise<unknown>) => {
+    const d = structuredClone(data);
+    memPrep(d, inactive);
+    const s = new MemoryStore<Tables>(d, UNIQUE_KEYS);
+    s.clock = () => at;
+    const repo = key === null ? new MemoryRepo<Tables>(s, SYSTEM_ACTOR, POLICIES, { bypass: true }) : new MemoryRepo<Tables>(s, actorOf(findPersona(key)), POLICIES);
+    return fn(repo).then(() => true, () => false);
+  };
+  const both = async (key: string | null, sql: string, fn: (repo: MemoryRepo<Tables>) => Promise<unknown>, inactive: readonly string[] = []) => ({
+    pg: allowed(await asKey(key, inactive, (tx) => attempt(tx, sql))),
+    mem: await mem(key, inactive, fn),
+  });
+  const yes = { pg: true, mem: true };
+  const no = { pg: false, mem: false };
+
+  it("testdatat: startlistan (25 delmål), Nadias lägen och BOT-26-0002:s uppnådda delmål", () => {
+    expect(data.progress_goals.filter((g) => g.contractId === "c-bot")).toHaveLength(25);
+    expect(data.case_progress_goals.filter((r) => r.caseId === NADIA).map((r) => [r.goalId, r.status, r.source]).sort()).toEqual([
+      [G(3), "training", "auto"], [G(5), "training", "auto"], [G(11), "achieved", "manual"], [G(20), "achieved", "manual"],
+    ]);
+    expect(data.case_progress_goals.filter((r) => r.caseId === "case-260002" && r.status === "achieved")).toHaveLength(5);
+  });
+
+  it("läsning: katalogen – Miljonbemanning i avtalet utom ekonomen; läget och de egna tillfällenas delmål – full- eller teamåtkomst; kommunen, ekonomen och deltagaren inget", async () => {
+    type T = "progress_goals" | "case_progress_goals" | "activity_progress_goals" | "group_activities" | "group_activity_series";
+    const read = (key: string, t: T) =>
+      asPersona(findPersona(key), async (tx) => (await tx.query<{ id: string }>(`select id from public.${t} order by id`)).rows.map((r) => r.id));
+    const memRead = (key: string, t: T) =>
+      (data[t] as { id: string }[]).filter((x) => canReadRow(t, x as never, actorOf(findPersona(key)), raw)).map((x) => x.id).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    // Testdatat har delmål på Nadias två egna tillfällen (activity_progress_goals) – inte på tillfällena, som kommunen och ekonomen läser.
+    expect(data.activity_progress_goals.filter((r) => r.caseId === NADIA)).toHaveLength(2);
+    expect(await asPersona(findPersona("k-maria"), async (tx) => (await tx.query("select 1 from information_schema.columns where table_schema = 'public' and table_name = 'activities' and column_name like '%goal%'")).rows.length)).toBe(0);
+    // Gruppaktiviteterna (med sina delmål): kommunen och ekonomen läser inga.
+    for (const t of ["group_activities", "group_activity_series"] as const) {
+      expect(data[t].filter((g) => g.progressGoalIds.length > 0).length, t).toBeGreaterThan(0);
+      for (const key of ["u-lars", "k-maria", "k-omar", "deltagare"]) expect({ pg: await read(key, t), mem: memRead(key, t) }, `${key} ${t}`).toEqual({ pg: [], mem: [] });
+    }
+    for (const t of ["progress_goals", "case_progress_goals", "activity_progress_goals"] as const) {
+      for (const key of ["u-amira", "u-erik", "u-sara", "u-johan", "u-karin", "u-robin", SUPERVISOR]) {
+        const got = { pg: await read(key, t), mem: memRead(key, t) };
+        expect(got.pg, `${key} ${t}`).toEqual(got.mem);
+        expect(got.pg.length, `${key} ${t}`).toBeGreaterThan(0);
+      }
+      for (const key of ["u-lars", "k-maria", "k-omar", "deltagare"]) expect({ pg: await read(key, t), mem: memRead(key, t) }, `${key} ${t}`).toEqual({ pg: [], mem: [] });
+    }
+  });
+
+  it("katalogen: bara avtalsansvarig och systemadministratören skriver – i eget namn, i avtalets progressionsområden, ingen tar bort", async () => {
+    const goal = (by: string, patch: Partial<Tables["progress_goals"]> = {}): Tables["progress_goals"] => ({
+      id: `pg-t-${by}`, contractId: "c-bot", areaKey: "digital_sjalvstandighet", label: "Använder BankID", sortOrder: 50, active: true, stepItems: ["ansokningshandlingar"],
+      createdBy: by, createdAt: at, updatedBy: null, updatedAt: null, ...patch,
+    });
+    const ins = (key: string, g: Tables["progress_goals"]) => both(key, insertSql("progress_goals", g as unknown as Record<string, unknown>), (r) => r.table("progress_goals").insert(g));
+    for (const [key, ok] of [["u-johan", true], ["u-robin", true], ["u-amira", false], ["u-sara", false], ["u-karin", false], ["u-lars", false], ["k-maria", false]] as const) {
+      expect(await ins(key, goal(key)), key).toEqual(ok ? yes : no);
+    }
+    // I någon annans namn, ett område som inte finns bland avtalets progressionsområden (ett valfritt område räknas inte) och en okänd punkt.
+    expect(await ins("u-johan", goal("u-johan", { createdBy: "u-sara" }))).toEqual(no);
+    expect(await ins("u-johan", goal("u-johan", { areaKey: "halsa_funktionellt" }))).toEqual(no);
+    expect(await ins("u-johan", goal("u-johan", { stepItems: ["okand" as never] }))).toEqual(no);
+    // Ändra: namn, punkter och aktiv i eget namn – område och skapare ändras aldrig.
+    const upd = (key: string, set: string, patch: Partial<Tables["progress_goals"]>) =>
+      both(key, `update public.progress_goals set ${set} where id = '${G(1)}'`, (r) => r.table("progress_goals").update(G(1), patch));
+    const mine = (by: string) => ({ sql: `, updated_by = '${by}', updated_at = '${at}'`, patch: { updatedBy: by, updatedAt: at } });
+    expect(await upd("u-johan", `label = 'Kommer i tid fyra veckor i rad'${mine("u-johan").sql}`, { label: "Kommer i tid fyra veckor i rad", ...mine("u-johan").patch })).toEqual(yes);
+    expect(await upd("u-robin", `active = false${mine("u-robin").sql}`, { active: false, ...mine("u-robin").patch })).toEqual(yes);
+    expect(await upd("u-johan", "area_key = 'beredskap'", { areaKey: "beredskap" })).toEqual(no);
+    expect(await upd("u-johan", "created_by = 'u-johan'", { createdBy: "u-johan" })).toEqual(no);
+    expect(await upd("u-johan", `label = 'X'${mine("u-sara").sql}`, { label: "X", ...mine("u-sara").patch })).toEqual(no);
+    expect(await upd("u-amira", `label = 'X'${mine("u-amira").sql}`, { label: "X", ...mine("u-amira").patch })).toEqual(no);
+    for (const key of ["u-johan", "u-robin", null]) {
+      expect(await both(key, `delete from public.progress_goals where id = '${G(1)}'`, (r) => r.table("progress_goals").remove(G(1))), String(key)).toEqual(no);
+    }
+  });
+
+  it("läget per ärende: den som arbetar i ärendet i eget namn och med källan manual – Tränar automatiskt bara systemet", async () => {
+    const row = (by: string, patch: Partial<Tables["case_progress_goals"]> = {}): Tables["case_progress_goals"] => ({
+      id: `cpg-t-${by}`, caseId: NADIA, contractId: "c-bot", goalId: G(24), status: "achieved", source: "manual", achievedOn: "2027-01-28", evidenceKind: null, evidenceId: null,
+      setBy: by, setAt: at, ...patch,
+    });
+    const ins = (key: string | null, r: Tables["case_progress_goals"]) =>
+      both(key, insertSql("case_progress_goals", r as unknown as Record<string, unknown>), (x) => x.table("case_progress_goals").insert(r));
+    for (const [key, ok] of [["u-amira", true], ["u-erik", true], ["u-sara", true], ["u-johan", true], [SUPERVISOR, true], ["u-karin", false], ["u-robin", false], ["u-lars", false], ["k-maria", false]] as const) {
+      expect(await ins(key, row(key.split("|")[0])), key).toEqual(ok ? yes : no);
+    }
+    // I någon annans namn, källan auto av en inloggad – och systemet (Tränar automatiskt).
+    expect(await ins("u-amira", row("u-amira", { setBy: "u-erik" }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { source: "auto", status: "training", achievedOn: null }))).toEqual(no);
+    expect(await ins(null, row("system", { source: "auto", status: "training", achievedOn: null }))).toEqual(yes);
+    // Ett delmål från ett annat avtal, ett inaktiverat delmål, fel avtal på raden och underlag från ett annat ärende – för alla, också systemet.
+    expect(await ins("u-amira", row("u-amira", { goalId: "pg-x-ny" }))).toEqual(no);
+    expect(await ins(null, row("system", { goalId: "pg-x-ny" }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { goalId: G(2) }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { contractId: "c-ny" }))).toEqual(no);
+    const foreign = data.activities.find((a) => a.caseId !== NADIA)!;
+    const own = data.activities.find((a) => a.caseId === NADIA)!;
+    expect(await ins("u-amira", row("u-amira", { evidenceKind: "activity", evidenceId: foreign.id }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { evidenceKind: "activity", evidenceId: own.id }))).toEqual(yes);
+    // Formen: Uppnått kräver dagen. Dagen ligger mellan startdatumet och i dag (för inloggade – systemet läser in testdata).
+    expect(await ins("u-amira", row("u-amira", { achievedOn: null }))).toEqual(no);
+    const nadiaStart = data.cases.find((c) => c.id === NADIA)!.startDate!;
+    expect(await ins("u-amira", row("u-amira", { achievedOn: "2099-01-01" }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { achievedOn: "2027-02-02" }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { achievedOn: "1990-01-01" }))).toEqual(no);
+    expect(await ins("u-amira", row("u-amira", { achievedOn: nadiaStart }))).toEqual(yes);
+    // Kommunen och ekonomen: policyns nej (42501) – aldrig triggerns besked om delmålet (inaktiverat, ett annat avtal, underlaget).
+    for (const key of ["k-maria", "u-lars"]) {
+      for (const patch of [{ goalId: G(2) }, { goalId: "pg-x-ny" }, { contractId: "c-ny" }, { evidenceKind: "activity" as const, evidenceId: foreign.id }, {}]) {
+        const r = row(key, patch);
+        const res = await asKey(key, [], (tx) => attempt(tx, insertSql("case_progress_goals", r as unknown as Record<string, unknown>)));
+        expect(res.ok ? null : { code: res.code, rls: /row-level security/.test(res.message) }, `${key} ${JSON.stringify(patch)}`).toEqual({ code: "42501", rls: true });
+      }
+    }
+    // Den vilande spärren: i ett skyddat ärende sätter bara namngiven huvudcoach (Erik) ett läge – en coach utanför åtkomsten nekas.
+    const prot = (by: string) => row(by, { id: `cpg-t-skyddad-${by}`, caseId: SKYDDAD_CASE.id, contractId: SKYDDAD_CASE.contractId, goalId: G(1) });
+    expect(SKYDDAD_CASE.leadCoachId).toBe("u-erik");
+    expect(await ins("u-erik", prot("u-erik"))).toEqual(yes);
+    expect(await ins("u-amira", prot("u-amira"))).toEqual(no);
+  });
+
+  it("ändra och ta bort läget: i eget namn med källan manual – ärende, avtal och delmål ändras aldrig; kommunen och ekonomen inget", async () => {
+    const auto = data.case_progress_goals.find((r) => r.caseId === NADIA && r.source === "auto")!;
+    const upd = (key: string, set: string, patch: Partial<Tables["case_progress_goals"]>) =>
+      both(key, `update public.case_progress_goals set ${set} where id = '${auto.id}'`, (r) => r.table("case_progress_goals").update(auto.id, patch));
+    const achieve = (by: string) => ({
+      sql: `status = 'achieved', source = 'manual', achieved_on = '2027-01-29', set_by = '${by}', set_at = '${at}'`,
+      patch: { status: "achieved" as const, source: "manual" as const, achievedOn: "2027-01-29", setBy: by, setAt: at },
+    });
+    expect(await upd("u-amira", achieve("u-amira").sql, achieve("u-amira").patch)).toEqual(yes);
+    expect(await upd("u-sara", achieve("u-sara").sql, achieve("u-sara").patch)).toEqual(yes);
+    expect(await upd("u-amira", achieve("u-erik").sql, achieve("u-erik").patch)).toEqual(no);
+    expect(await upd("u-amira", `goal_id = '${G(1)}', set_by = 'u-amira', source = 'manual'`, { goalId: G(1), setBy: "u-amira", source: "manual" })).toEqual(no);
+    // Id:t ändras aldrig (bara i databasen – minnet och SupabaseRepo ändrar aldrig id).
+    const idChange = await asKey("u-amira", [], (tx) => attempt(tx, `update public.case_progress_goals set id = 'cpg-t-nytt', ${achieve("u-amira").sql} where id = '${auto.id}'`));
+    expect(idChange.ok ? null : idChange.code).toBe("42501");
+    // Dagen för Uppnått: inte i framtiden och inte före startdatumet.
+    expect(await upd("u-amira", achieve("u-amira").sql.replace("2027-01-29", "2027-03-01"), { ...achieve("u-amira").patch, achievedOn: "2027-03-01" })).toEqual(no);
+    expect(await upd("u-amira", achieve("u-amira").sql.replace("2027-01-29", "2020-01-01"), { ...achieve("u-amira").patch, achievedOn: "2020-01-01" })).toEqual(no);
+    for (const key of ["u-lars", "k-maria", "u-karin"]) expect(await upd(key, achieve(key).sql, achieve(key).patch), key).toEqual(no);
+    // Ångra till Inte påbörjat: raden tas bort av den som arbetar i ärendet.
+    const del = (key: string) => both(key, `delete from public.case_progress_goals where id = '${auto.id}'`, (r) => r.table("case_progress_goals").remove(auto.id));
+    for (const [key, ok] of [["u-amira", true], ["u-sara", true], ["u-lars", false], ["k-maria", false], ["u-robin", false]] as const) expect(await del(key), key).toEqual(ok ? yes : no);
+    // Ett läge per ärende och delmål – också för systemet.
+    const dup: Tables["case_progress_goals"] = { ...auto, id: "cpg-t-dubblett" };
+    expect(await both(null, insertSql("case_progress_goals", dup as unknown as Record<string, unknown>), (r) => r.table("case_progress_goals").insert(dup))).toEqual(no);
+  });
+
+  it("delmålen på tillfällena: i avtalet, aktiva när de läggs till, aldrig på en deltagares rad i en gruppaktivitet – för alla roller", async () => {
+    const tagged = data.activity_progress_goals.find((r) => r.caseId === NADIA)!;
+    const own = data.activities.find((a) => a.caseId === NADIA && !a.groupActivityId && !data.activity_progress_goals.some((r) => r.id === a.id))!;
+    const grpRow = data.activities.find((a) => a.groupActivityId && data.cases.find((c) => c.id === a.caseId)?.contractId === "c-bot")!;
+    const series = data.group_activity_series.find((s) => s.progressGoalIds.length > 0)!;
+    const group = data.group_activities.find((g) => g.contractId === "c-bot" && !g.cancelledAt && !g.seriesId)!;
+    const arr = (ids: readonly string[]) => `'{${ids.join(",")}}'`;
+    // Ny rad (ett eget tillfälle utan delmål) och ändring av en rad som finns.
+    const insOwn = (key: string | null, a: { id: string; caseId: string }, ids: string[], by = key ?? "system") => {
+      const r: Tables["activity_progress_goals"] = { id: a.id, caseId: a.caseId, goalIds: ids, updatedBy: by, updatedAt: at };
+      return both(key, insertSql("activity_progress_goals", r as unknown as Record<string, unknown>), (x) => x.table("activity_progress_goals").insert(r));
+    };
+    const updOwn = (key: string | null, ids: string[], inactive: string[] = [], by = key ?? "system") =>
+      both(key, `update public.activity_progress_goals set goal_ids = ${arr(ids)}, updated_by = '${by}', updated_at = '${at}' where id = '${tagged.id}'`,
+        (r) => r.table("activity_progress_goals").update(tagged.id, { goalIds: ids, updatedBy: by, updatedAt: at }), inactive);
+    expect(await insOwn("u-amira", own, [G(5), G(15)])).toEqual(yes);
+    expect(await insOwn("u-sara", own, [G(5)])).toEqual(yes);
+    expect(await insOwn(null, own, [G(5)])).toEqual(yes);
+    expect(await insOwn("u-amira", own, [G(5)], "u-erik")).toEqual(no);
+    expect(await insOwn("u-amira", own, ["pg-x-ny"])).toEqual(no);
+    expect(await insOwn(null, own, ["pg-x-ny"])).toEqual(no);
+    expect(await insOwn("u-amira", own, [G(5), G(5)])).toEqual(no);
+    expect(await insOwn("u-amira", own, [G(2)])).toEqual(no);
+    expect(await insOwn("u-amira", own, Array.from({ length: 21 }, (_, i) => G(i + 1 === 2 ? 25 : i + 1)).slice(0, 21))).toEqual(no);
+    // Fel ärende på raden, och en rad i en gruppaktivitet – för alla, också systemet.
+    expect(await insOwn("u-amira", { id: own.id, caseId: "case-260002" }, [G(5)])).toEqual(no);
+    expect(await insOwn("u-amira", grpRow, [G(1)])).toEqual(no);
+    expect(await insOwn(null, grpRow, [G(1)])).toEqual(no);
+    expect(await updOwn("u-amira", [G(5), G(15)])).toEqual(yes);
+    // Ett inaktiverat delmål som redan stod får ligga kvar när ett nytt läggs till.
+    expect(await updOwn("u-amira", [...tagged.goalIds, G(15)], [tagged.goalIds[0]])).toEqual(yes);
+    expect(await updOwn("u-amira", [G(2)])).toEqual(no);
+    expect(await updOwn("u-amira", [G(5)], [], "u-erik")).toEqual(no);
+    // Kommunen, ekonomen och chefen skriver inte – och får bara policyns nej (42501), inget om katalogen (triggern prövar inte dem).
+    for (const key of ["k-maria", "u-lars", "u-karin"]) {
+      expect(await insOwn(key, own, [G(1)]), key).toEqual(no);
+      expect(await updOwn(key, [G(1)]), key).toEqual(no);
+      for (const ids of [[G(1)], [G(2)], ["pg-x-ny"], [G(1), G(1)]]) {
+        const r: Tables["activity_progress_goals"] = { id: own.id, caseId: own.caseId, goalIds: ids, updatedBy: key, updatedAt: at };
+        const res = await asKey(key, [], (tx) => attempt(tx, insertSql("activity_progress_goals", r as unknown as Record<string, unknown>)));
+        expect(res.ok ? null : { code: res.code, rls: /row-level security/.test(res.message) }, `${key} ${ids.join(",")}`).toEqual({ code: "42501", rls: true });
+      }
+    }
+    // Ingen inloggad tar bort raden – den försvinner med tillfället.
+    for (const key of ["u-amira", "k-maria"]) expect(await both(key, `delete from public.activity_progress_goals where id = '${tagged.id}'`, (r) => r.table("activity_progress_goals").remove(tagged.id)), key).toEqual(no);
+    const cascade = await asKey(null, [], async (tx) => {
+      await tx.query("delete from public.case_progress_goals where evidence_id = $1", [tagged.id]);
+      await tx.query("delete from public.attendance where activity_id = $1", [tagged.id]);
+      const del = await attempt(tx, `delete from public.activities where id = '${tagged.id}'`, [], { keep: true });
+      return { del: del.ok, left: (await tx.query("select 1 from public.activity_progress_goals where id = $1", [tagged.id])).rows.length };
+    });
+    expect(cascade).toEqual({ del: true, left: 0 });
+    const updGroup = (key: string, ids: string[]) =>
+      both(key, `update public.group_activities set progress_goal_ids = ${arr(ids)}, updated_at = '${at}', updated_by = '${key}' where id = '${group.id}'`,
+        (r) => r.table("group_activities").update(group.id, { progressGoalIds: ids, updatedAt: at, updatedBy: key }));
+    expect(await updGroup("u-amira", [G(20)])).toEqual(yes);
+    expect(await updGroup("u-amira", ["pg-x-ny"])).toEqual(no);
+    expect(await updGroup("u-lars", [G(20)])).toEqual(no);
+    // En ny gruppaktivitet av den som inte får skapa dem (kommunen, ekonomen): policyns nej, inget om katalogen.
+    for (const key of ["k-maria", "u-lars"]) {
+      for (const ids of [[G(2)], ["pg-x-ny"]]) {
+        const g = { ...group, id: `ga-t-${key}`, createdBy: key, createdAt: at, updatedAt: null, updatedBy: null, progressGoalIds: ids };
+        const res = await asKey(key, [], (tx) => attempt(tx, insertSql("group_activities", g as unknown as Record<string, unknown>)));
+        expect(res.ok ? null : { code: res.code, rls: /row-level security/.test(res.message) }, `${key} ${ids.join(",")}`).toEqual({ code: "42501", rls: true });
+      }
+    }
+    const updSeries = (key: string, ids: string[]) =>
+      both(key, `update public.group_activity_series set progress_goal_ids = ${arr(ids)}, updated_at = '${at}', updated_by = '${key}' where id = '${series.id}'`,
+        (r) => r.table("group_activity_series").update(series.id, { progressGoalIds: ids, updatedAt: at, updatedBy: key }));
+    expect(await updSeries("u-sara", [...series.progressGoalIds, G(19)])).toEqual(yes);
+    expect(await updSeries("u-sara", [G(2)])).toEqual(no);
+  });
+
+  it("migrationen tål att köras igen (SQL Editor) och ändrar då ingenting", async () => {
+    const file = readFileSync(`${MIGRATIONS_DIR}/0043_delmal.sql`, "utf8");
+    let res: Record<string, unknown> | null = null;
+    await db.transaction(async (tx) => {
+      const one = async <T,>(q: string) => (await tx.query<{ v: T }>(q)).rows[0].v;
+      const state = async () => ({
+        goals: await one<number>("select count(*)::int as v from public.progress_goals"),
+        rows: await one<number>("select count(*)::int as v from public.case_progress_goals"),
+        tagged: await one<number>("select count(*)::int as v from public.group_activities where cardinality(progress_goal_ids) > 0"),
+        policies: await one<number>("select count(*)::int as v from pg_policies where tablename in ('progress_goals', 'case_progress_goals', 'activity_progress_goals')"),
+        triggers: await one<number>("select count(*)::int as v from pg_trigger where tgname like '%progress_goal%'"),
+        ownTags: await one<number>("select count(*)::int as v from public.activity_progress_goals"),
+        activityColumns: await one<number>("select count(*)::int as v from information_schema.columns where table_schema = 'public' and table_name = 'activities' and column_name = 'progress_goal_ids'"),
+        labelIndex: await one<number>("select count(*)::int as v from pg_indexes where indexname = 'progress_goals_label_key'"),
+        ownGrants: await one<string>(
+          "select string_agg(grantee || ':' || privilege_type, ',' order by grantee, privilege_type) as v from information_schema.role_table_grants where table_schema = 'public' and table_name = 'activity_progress_goals' and grantee in ('anon', 'authenticated', 'service_role')",
+        ),
+        grants: await one<string>(
+          "select string_agg(grantee || ':' || privilege_type, ',' order by grantee, privilege_type) as v from information_schema.role_table_grants where table_schema = 'public' and table_name = 'case_progress_goals' and grantee in ('anon', 'authenticated', 'service_role')",
+        ),
+      });
+      const before = await state();
+      await tx.exec(file);
+      await tx.exec(file);
+      const after = await state();
+      res = { before, same: JSON.stringify(after) === JSON.stringify(before), lock: await one<string>("select current_setting('lock_timeout') as v") };
+      await tx.rollback();
+    });
+    expect(res).toMatchObject({
+      before: {
+        goals: 25, policies: 10, triggers: 5, ownTags: 2, activityColumns: 0, labelIndex: 1,
+        ownGrants: "authenticated:INSERT,authenticated:SELECT,authenticated:UPDATE,service_role:DELETE,service_role:INSERT,service_role:SELECT,service_role:UPDATE",
+        grants: "authenticated:DELETE,authenticated:INSERT,authenticated:SELECT,authenticated:UPDATE,service_role:DELETE,service_role:INSERT,service_role:SELECT,service_role:UPDATE",
+      },
+      same: true, lock: "0",
     });
   });
 });

@@ -14,10 +14,11 @@ import { hidesCommercial } from "@/api/tester-access";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { loadDb } from "@/api/load";
 import {
-  approvedAssessments, bonusAttendance, BONUS_CHECKLIST_LABEL, BONUS_STATUS_TEXT, FOLLOWS_STEP3, isActiveClaim, manualCreateProblem, speedDeadline, step3For, stepKind, submitProblems,
-  sustainDate,
+  approvedAssessments, bonusAttendance, BONUS_CHECKLIST_LABEL, BONUS_STATUS_TEXT, caseStepItems, FOLLOWS_STEP3, isActiveClaim, manualCreateProblem, speedDeadline, step3For, stepKind,
+  submitProblems, sustainDate,
   progressStepLabel, SPEED_STEP,
 } from "@/core/bonus";
+import type { StepItemStatus } from "@/core/progress-goals";
 import { bonusModel, isOperational, type BonusModel, type OperationalConfig } from "@/core/config";
 import { eventLabel, personName } from "@/core/labels";
 import { dayOf } from "@/core/time";
@@ -27,7 +28,7 @@ import { BONUS_CHECKLIST_ITEMS, type BonusChecklist, type BonusClaim, type Bonus
 import { notifyReferrer } from "../_shared/context";
 import {
   bonusCard, bonusCreate, bonusDecide, bonusPortal, bonusRecordMail, bonusReview, bonusSave, bonusSubmit, bonusUnderlag, bonusWithdraw, type BonusCardView, type BonusDecisionView,
-  type BonusPortalView, type BonusReviewView, type BonusStepRow, type BonusUnderlag,
+  type BonusPortalView, type BonusReviewView, type BonusStepRow, type BonusUnderlag, type StepItemView,
 } from "./api";
 import { buildUnderlag, bonusRuleText, underlagFilename, windowEndOf } from "./underlag";
 
@@ -60,6 +61,24 @@ async function worksOn(ctx: Ctx, c: Pick<Case, "personId">): Promise<boolean> {
 }
 const nameOf = (p: { firstName: string; lastName: string } | null): string => (p ? `${p.firstName} ${p.lastName}` : "–");
 const statusOf = (s: BonusClaim["status"] | "none") => ({ statusText: BONUS_STATUS_TEXT[s].text, icon: BONUS_STATUS_TEXT[s].icon });
+/** Delmålen i ärendet och avtalets katalog (Karims beslut 2026-11-11) – via behörigheten (bara Miljonbemanning läser dem). */
+const goalsDb = (ctx: Ctx, c: Pick<Case, "id" | "contractId">) =>
+  loadDb(ctx.repo, ["progress_goals", "case_progress_goals"], { progress_goals: { contractId: c.contractId }, case_progress_goals: { caseId: c.id } });
+/** Punkterna i steg 1 och 2 för vyn. */
+const itemsView = (items: readonly StepItemStatus[]): StepItemView[] => items.map((x) => ({ label: x.label, fulfilled: x.fulfilled, need: x.need, goals: x.goals.map((g) => g.label) }));
+/**
+ * Punkterna i ett anspråk som redan är skickat: det som frystes i redovisningsunderlaget när det skickades (items), eller – för ett
+ * anspråk som skickades före delmålen (Karims beslut 2026-11-11) – checklistan som coachen bockade av. null = inget fryst underlag
+ * (förslaget): punkterna räknas fram ur dagens uppnådda delmål. Ett delmål som ångras efteråt ändrar aldrig det som skickats.
+ */
+function frozenItems(k: Pick<BonusClaim, "step" | "status" | "snapshot"> | null): StepItemView[] | null {
+  if (!k || k.status === "suggested" || !k.snapshot || (k.step ?? 0) > 2) return null;
+  const u = k.snapshot as Partial<BonusUnderlag>;
+  if (Array.isArray(u.items)) return u.items.map((x) => ({ label: x.label, fulfilled: x.fulfilled, need: 1, goals: [] }));
+  if (k.step !== 1) return [];
+  const done = new Set((u.checklist ?? []).map((x) => x.label));
+  return BONUS_CHECKLIST_ITEMS.map((item) => ({ label: BONUS_CHECKLIST_LABEL[item], fulfilled: done.has(BONUS_CHECKLIST_LABEL[item]), need: 1, goals: [] }));
+}
 
 /**
  * Underlaget för anspråket: det frysta (skickat), eller en förhandsvisning av det som skulle frysas nu. sentBy = den som skickar
@@ -68,10 +87,14 @@ const statusOf = (s: BonusClaim["status"] | "none") => ({ statusText: BONUS_STAT
 async function underlagOf(ctx: Ctx, x: CaseCtx, k: BonusClaim, sentBy: string | null): Promise<BonusUnderlag> {
   if (k.snapshot) return k.snapshot as unknown as BonusUnderlag;
   const byCase = { caseId: x.c.id };
-  const db = await loadDb(ctx.repo, ["activities", "attendance", "monthly_assessments", "monthly_plans", "outcome_events", "placements", "bonus_claims", "contract_areas", "profiles", "employers"], {
-    activities: byCase, attendance: byCase, monthly_assessments: byCase, monthly_plans: byCase, outcome_events: byCase, placements: byCase, bonus_claims: byCase,
-    contract_areas: { contractId: x.c.contractId },
-  });
+  const db = await loadDb(
+    ctx.repo,
+    ["activities", "attendance", "monthly_assessments", "monthly_plans", "outcome_events", "placements", "bonus_claims", "contract_areas", "profiles", "employers", "progress_goals", "case_progress_goals"],
+    {
+      activities: byCase, attendance: byCase, monthly_assessments: byCase, monthly_plans: byCase, outcome_events: byCase, placements: byCase, bonus_claims: byCase,
+      contract_areas: { contractId: x.c.contractId }, progress_goals: { contractId: x.c.contractId }, case_progress_goals: byCase,
+    },
+  );
   const customer = await ctx.repo.table("organizations").get(x.contract.customerId);
   return buildUnderlag({ db, cfg: x.cfg, model: x.m, claim: k, case: x.c, contract: x.contract, customerName: customer?.name ?? "", now: ctx.now(), sentBy });
 }
@@ -98,6 +121,8 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
   const { c, m } = x;
   const canAct = await worksOn(ctx, c);
   const claims = (await ctx.repo.table("bonus_claims").list({ caseId: c.id })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : -1));
+  const goals = await goalsDb(ctx, c);
+  const today = dayOf(ctx.now());
   const steps: BonusStepRow[] = m.steps
     .slice()
     .sort((a, b) => a.step - b.step)
@@ -110,6 +135,9 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
         // Steg 4 och 5: resultatdatum är bonussteg 3:s (det levande), aldrig kopian på anspråket.
         reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
         history: mine.filter((k) => k !== shown).map((k) => ({ claimId: k.id, status: k.status, statusText: BONUS_STATUS_TEXT[k.status].text, at: k.decidedAt ?? k.withdrawnAt ?? k.createdAt })),
+        // Ett skickat anspråk som räknas (skickat eller godkänt) visar det som skickades; ett avslaget eller återtaget anspråk är inte
+        // stegets läge – då punkterna ur dagens uppnådda delmål (granskningen av anspråket visar fortfarande det frysta).
+        items: s.step <= 2 ? frozenItems(shown && isActiveClaim(shown) ? shown : null) ?? itemsView(caseStepItems(goals, c, s.step, m, today)) : [],
       };
     });
   return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, steps, rules: m.steps.map((s) => `Steg ${s.step} · ${progressStepLabel(m, s.step)}: ${bonusRuleText(m, s.step)}`) };
@@ -130,10 +158,11 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
   const acts = await loadDb(ctx.repo, ["activities", "attendance"], { activities: { caseId: c.id }, attendance: { caseId: c.id } });
   const att = bonusAttendance(acts, c, m, { now: ctx.now() });
   const nApproved = approvedAssessments({ monthly_assessments: assessments }, c.id).length;
+  const items = k.step <= 2 ? caseStepItems(await goalsDb(ctx, c), c, k.step, m, today) : [];
   const evId = step3 ? step3.outcomeEventId : k.outcomeEventId;
   const ev = evId ? events.find((e) => e.id === evId) ?? null : null;
   const checklist = BONUS_CHECKLIST_ITEMS.map((item) => ({ item, label: BONUS_CHECKLIST_LABEL[item], done: !!(k.checklist as BonusChecklist)[item]?.done, where: (k.checklist as BonusChecklist)[item]?.where ?? "" }));
-  const problems = k.status === "suggested" ? submitProblems({ claim: k, case: c, step3, attendance: att, approvedAssessments: nApproved, today }, m) : [];
+  const problems = k.status === "suggested" ? submitProblems({ claim: k, case: c, step3, attendance: att, approvedAssessments: nApproved, stepItems: k.step === 1 ? items : [], today }, m) : [];
   const resultDay = step3?.reachedOn ?? null;
   return {
     claimId: k.id, caseId: c.id, caseNumber: c.caseNumber, participantName: nameOf(person), step: k.step, label: progressStepLabel(m, k.step), status: k.status, ...statusOf(k.status), source: k.source,
@@ -141,7 +170,9 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
     canRecordMail: MAIL_RECORDERS.includes(ctx.actor.role) && canWork && k.status === "submitted" && !waitsForStep3(k, step3),
     rule: bonusRuleText(m, k.step),
     fields: { basis: k.basis, reachedOn: k.reachedOn, verificationKind: k.verificationKind, verificationOn: k.verificationOn, checklist },
-    needsChecklist: k.step === 1, needsVerification: k.step >= 2,
+    // Steg 1: punkterna räknas fram ur de uppnådda delmålen (Karims beslut 2026-11-11) – coachen bockar inte av något längre. Ett
+    // anspråk som skickades före beslutet har sin checklista i det frysta underlaget.
+    needsChecklist: false, needsVerification: k.step >= 2,
     facts: {
       start: c.startDate, end: c.endDate, attendancePercent: att.percent, attendanceMeets: att.meets, minPercent: m.attendanceMinPercent, approvedAssessments: nApproved,
       event: ev ? { label: eventLabel(ev.kind), date: ev.occurredOn, actor: ev.actor, verificationKind: ev.verificationKind } : null,
@@ -149,6 +180,7 @@ handleQuery(bonusReview, { roles: READERS, commercial: true }, async (ctx, p): P
       sustainDue: k.step === 4 && resultDay ? sustainDate(resultDay, m) : null,
       speedDeadline: k.step === 5 && c.startDate ? speedDeadline(c.startDate, m) : null,
       windowEnd: k.step === 3 ? windowEndOf(c, m) : null,
+      stepItems: frozenItems(k) ?? itemsView(items),
     },
     problems,
     underlag: await underlagOf(ctx, x, k, null),
@@ -266,7 +298,8 @@ async function problemsOf(ctx: Ctx, x: CaseCtx, k: BonusClaim): Promise<string[]
   const acts = await loadDb(ctx.repo, ["activities", "attendance", "monthly_assessments"], { activities: { caseId: x.c.id }, attendance: { caseId: x.c.id }, monthly_assessments: { caseId: x.c.id } });
   const step3 = await followsOf(ctx, k);
   const att = bonusAttendance(acts, x.c, x.m, { now: ctx.now() });
-  return submitProblems({ claim: k, case: x.c, step3, attendance: att, approvedAssessments: approvedAssessments(acts, x.c.id).length, today: dayOf(ctx.now()) }, x.m);
+  const stepItems = k.step === 1 ? caseStepItems(await goalsDb(ctx, x.c), x.c, 1, x.m, dayOf(ctx.now())) : [];
+  return submitProblems({ claim: k, case: x.c, step3, attendance: att, approvedAssessments: approvedAssessments(acts, x.c.id).length, stepItems, today: dayOf(ctx.now()) }, x.m);
 }
 
 // ---------------------------------------------------------------- bonus.skicka

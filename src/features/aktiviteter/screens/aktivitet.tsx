@@ -362,6 +362,7 @@ function Aktivitet({ v }: { v: Ok }) {
             ["Plats", a.location],
             ["Ansvarig", a.responsibleName ?? "Ingen ansvarig"],
             ["Gruppmål", a.goal ?? "Inget gruppmål"],
+            ["Tränar delmål", a.goalLabels.length ? a.goalLabels.join(", ") : "Inga delmål"],
             [
               "Målgrupp",
               a.audience ? (a.cancelledAt ? a.audience.label : `${a.audience.label} – de som tillkommer bjuds in automatiskt fram till aktiviteten`) : "Inbjudna en och en",

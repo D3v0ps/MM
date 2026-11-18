@@ -39,13 +39,18 @@ export const GRUPPER = "grupper.";
  * redovisningsunderlaget läser närvaron, bedömningarna, planerna och händelserna – därför i CASE_FACTS.
  */
 export const BONUS = "bonus.";
+/**
+ * Delmål för progressionerna (Karims beslut 2026-11-11): katalogen, valet i formulären och delmålen på deltagarkortet. Närvaron
+ * ger Tränar automatiskt – därför i CASE_FACTS.
+ */
+export const DELMAL = "delmal.";
 /** Adminsidor som räknar ärenden, avstämningar och körningar. */
 export const CASE_STATS = ["admin.contract", "admin.integrations", "admin.orgRules"] as const;
 /**
  * Ärendets fakta ändras (närvaro, avstämning, status, rapporter): allt som räknar KPI:er, flaggor, deadlines och
  * fakturering. Brett med flit – närvaron styr veckorapporter, fakturaunderlag, sidopanelens räknare och ledningens nyckeltal.
  */
-export const CASE_FACTS = [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, BILLING, ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] as const;
+export const CASE_FACTS = [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, BILLING, ...CASE_STATS, NAV, AKTIVITETER, BONUS, DELMAL, ...LOG] as const;
 
 // ---- Automatisk utkastsparning (D2 punkt 2): skärmen väljer en smalare mängd (useCommand(def, { invalidate })) än kontraktets.
 // Ett utkast påverkar bara utkastlistor och kortet – aldrig sidan själv (formuläret ligger kvar), inte räknarna i sidopanelen.

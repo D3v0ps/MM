@@ -296,6 +296,7 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 
 1. Tryck på **Ny aktivitet** under **Aktiviteter** eller på Min vecka. Fyll i namn, typ, datum, tid, längd och plats.
 2. Vill du ha ett mål för hela gruppen? Skriv det i **Gruppmål**, till exempel ”Alla skriver ett CV”. Gruppmålet syns bara för Miljonbemanning.
+   Vilka delmål tränar aktiviteten? Tryck på **Välj delmål** under **Tränar delmål** och kryssa i dem. Delmålen syns bara för Miljonbemanning.
 3. Välj deltagare under **Bjud in deltagare**: fliken **Yrkesområde** (ett yrkesområde), **Nivå** (en nivå) eller **Enskilda** (sök och välj en och en). Du ser hur många och vilka som bjuds in. De som redan är inbjudna eller vars insats inte pågår hoppas över – det står varför. Med Yrkesområde eller Nivå bjuds de som tillkommer in automatiskt fram till aktiviteten, och de som byter nivå eller avslutas tas bort.
 4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren. En praktikdag får inget meddelande – kom överens med deltagaren och arbetsplatsen.
 5. Tryck på **Skapa aktiviteten**.
@@ -368,6 +369,23 @@ Har tiderna ändrats efter att du kopierade texten? Då står den nya texten på
 5. Välj **Fas**, kontrollera **Veckomål** och välj **Samlad status** själv. Samlad status föreslås aldrig av AI.
 6. Tryck på **Godkänn mötesrapporten**. Ljudet raderas direkt efter transkriberingen, och råtranskriptet när mötesrapporten är godkänd.
 
+### Delmål
+
+Delmålen är konkreta steg i varje progressionsområde, till exempel ”Har ett uppdaterat CV”. De står i kortet **Delmål** under deltagarkortets flik **Händelser och utfall**. Kommunen ser dem aldrig.
+
+- **Inte påbörjat** – inget har hänt ännu.
+- **Tränar (automatiskt)** – deltagaren har varit närvarande eller kommit sent på ett tillfälle som tränar delmålet. Appen sätter det själv. Frånvaro räknas inte.
+- **Uppnått** med datum – det sätter du. Appen och AI sätter aldrig Uppnått.
+
+1. Tryck på **Markera uppnått** vid delmålet.
+2. **Datum** är i dag. Ändra om deltagaren klarade det tidigare.
+3. Välj **Underlag** om du vill: ett tillfälle, en mötesrapport eller en anteckning i ärendet.
+4. Tryck på **Markera uppnått**.
+
+Blev det fel? Tryck på **Ångra** och välj **Tränar** eller **Inte påbörjat**.
+
+Delmålen sätts på tillfällena med **Tränar delmål**: i Ny aktivitet, i en återkommande aktivitet och i deltagarens egna tillfällen (**Lägg till aktivitet** och **Ändra tid**). Coachen, samordnaren och avtalsansvarig markerar uppnått. Avtalsansvarig bestämmer vilka delmål som finns.
+
 ### Månadsbedömning
 
 Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och rättar det som inte stämmer.
@@ -375,6 +393,7 @@ Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och
 1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden (till exempel startmånaden när insatsen startade sent i månaden). Då behövs ingen månadsbedömning – dagarna kommer med i veckorapporterna och i slutrapporten.
 2. Varje progressionsområde står på progressionsnivå 0 med märket **Automatiskt – inget belägg**, tills du väljer något annat. **Samlad status** kommer från din senaste godkända mötesrapport. Sammanfattningen och planen är ifyllda och märkta **Ifyllt automatiskt – kontrollera** tills du ändrar dem.
 3. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
+   Under varje område står de delmål som deltagaren har uppnått i månaden. De är underlag för dig – progressionsnivån väljer du.
 4. AI kan föreslå progressionsnivå 1–3, men bara med ett citat ur underlaget. Tryck på **Godta** vid ett förslag, eller **Godta alla AI-förslag**. Ett förslag gäller först när du godtar det.
 5. Kontrollera varje område. Välj en annan progressionsnivå där det behövs och skriv en **Konkret observation**.
 6. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**. Båda ligger längst ned på skärmen och följer med när du skrollar. Har du glömt kryssrutan står det vid rutan. Månadsrapporten till kommunen byggs av den.
@@ -388,9 +407,11 @@ Progression och resultat redovisas till kommunen i steg (1–5). Reglerna står 
 
 1. Miljonmatch föreslår ett underlag när reglerna är uppfyllda, till exempel när arbete med verifiering är registrerat. Förslaget står på Min vecka som **Progression att granska**. Du kan också trycka på **Skapa underlag** i kortet **Progression och resultat**.
 2. Tryck på **Öppna förslaget** eller **Granska och skicka**.
-3. Fyll i vilken verifiering som finns och verifieringens datum. För steg 1 bockar du av checklistan och skriver var underlaget finns. Skriv aldrig personnummer.
+3. Fyll i vilken verifiering som finns och verifieringens datum. Skriv aldrig personnummer.
 4. Läs förhandsvisningen av redovisningsunderlaget. Tryck på **Spara**.
 5. Tryck på **Skicka till kommunen**. Underlaget låses och handläggaren får ett mejl med bara ärendenumret.
+
+Punkterna i steg 1 och 2 – till exempel **Förbättrade ansökningshandlingar** – fylls av uppnådda delmål. I kortet och i granskningen står det vid varje punkt om den är **Uppfyllt** eller **Inte uppfyllt** och vilka delmål som fyller den. Steg 1 föreslås när närvaron räcker, två månadsbedömningar är godkända och alla fyra punkter är uppfyllda. Förbättrade ansökningshandlingar kräver två delmål. Kommunen ser bara om punkten är uppfylld – aldrig delmålen.
 
 Ett skickat anspråk kan du återta med **Återta anspråket** tills kommunen beslutat. När kommunen beslutat får huvudcoachen en notis. Har kommunen svarat med mejl registrerar samordnaren eller avtalsansvarig beslutet med **Registrera beslutet**.
 
@@ -436,7 +457,18 @@ Fliken **Ledning** har **Ledningsvy**, **Avtalsavvikelser**, **Förfaller**, **B
 
 ## Avtalsansvarig
 
-Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, **Kommunanvändare** och **Bygg rapport**. Min vecka börjar med det som är ditt: beställarrapporten att godkänna, åtgärdsplanerna, varningarna och målen. Inkorgen är samordnarens och står som en rad. Flaggorna står under dina egna saker. Avtalsansvarig godkänner sammanfattningen i rapporter till kommunen (**Sammanfattning – avtalsansvarig godkänner**) och bjuder in kommunens handläggare under **Bjud in kommunens handläggare**.
+Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, **Kommunanvändare**, **Delmål** och **Bygg rapport**. Min vecka börjar med det som är ditt: beställarrapporten att godkänna, åtgärdsplanerna, varningarna och målen. Inkorgen är samordnarens och står som en rad. Flaggorna står under dina egna saker. Avtalsansvarig godkänner sammanfattningen i rapporter till kommunen (**Sammanfattning – avtalsansvarig godkänner**) och bjuder in kommunens handläggare under **Bjud in kommunens handläggare**.
+
+### Delmål i avtalet
+
+Under **Avtalet → Delmål** står avtalets delmål per progressionsområde. Där bestämmer du vilka som finns. Systemadministratören kan också göra det.
+
+1. Tryck på **Lägg till delmål** i området.
+2. Skriv delmålet, till exempel ”Har ett personligt brev”.
+3. Kryssa i under **Räknas mot** om delmålet fyller en punkt i steg 1 eller 2 under Progression och resultat.
+4. Tryck på **Lägg till**.
+
+Med **Ändra**, **Upp** och **Ned** byter du namn, punkter och ordning. Ett delmål tas aldrig bort. Tryck på **Inaktivera** så kan det inte väljas längre. Det som deltagarna redan har uppnått finns kvar.
 
 ## Systemadministratör
 

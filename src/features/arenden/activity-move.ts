@@ -20,6 +20,7 @@ import { activityMoveMonths, activityMoveProblem } from "@/core/activity-move";
 import { dayOf } from "@/core/time";
 import { hasValidPnr } from "@/core/validation";
 import { closeActivityTasks, notifyParticipant } from "../_shared/participant-notify";
+import { goalTagsCheck, ownGoalTags, setOwnGoalTags, trainFromAttendance } from "../_shared/progress-goals";
 import { activityMove } from "./api";
 import { billingForMonths } from "./start-handlers";
 
@@ -27,6 +28,8 @@ import { billingForMonths } from "./start-handlers";
 const MOVERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 const NOT_FOUND = "Tillfället finns inte, eller så har du inte behörighet att se det.";
 const CONFLICT = "Tillfället har ändrats under tiden, kanske av en kollega. Ladda om sidan – inget har sparats.";
+/** Delmålen gick inte att spara (ett delmål inaktiverades under tiden – databasen nekar, 23514): ingenting är ändrat. */
+export const GOALS_NOT_SAVED = "Ett av delmålen kan inte väljas längre. Ladda om sidan – inget har sparats.";
 /** Platsen står i meddelandet till deltagaren – samma kontroll i Lägg till tillfälle och veckoplanen. */
 export const PLACE_PNR = "Platsen ser ut att innehålla ett personnummer. Skriv bara platsen.";
 
@@ -46,7 +49,24 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   // (granskningen 2026-11-11) – med datum och kontrollsiffra, så att ett telefon- eller organisationsnummer inte stoppar.
   if (location !== a.location.trim() && hasValidPnr(location)) return fail("location", PLACE_PNR);
   const to = { startsAt: p.startsAt, durationMin: p.durationMin };
-  if (to.startsAt === a.startsAt && to.durationMin === a.durationMin && location === a.location) return ok({ changed: false, notified: null });
+  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat. De står i activity_progress_goals (inte på tillfället – kommunen och
+  // ekonomen läser tillfällena). Bara delmålen ändrade: inget flyttas och inget meddelande skickas.
+  const before = (await ownGoalTags(ctx.repo, [a.id])).get(a.id) ?? [];
+  const goalIds = p.progressGoalIds === undefined ? before : [...p.progressGoalIds];
+  const goalsChanged = JSON.stringify(goalIds) !== JSON.stringify(before);
+  if (goalsChanged) {
+    const problem = await goalTagsCheck(ctx, c.contractId, goalIds, before);
+    if (problem) return fail("goals", problem);
+  }
+  const slotSame = to.startsAt === a.startsAt && to.durationMin === a.durationMin && location === a.location;
+  if (slotSame && !goalsChanged) return ok({ changed: false, notified: null });
+  if (slotSame) {
+    if (!(await saveGoals(ctx, a, goalIds))) return fail("goals", GOALS_NOT_SAVED);
+    await ctx.audit({ action: "activity.goals_changed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, progressGoalIds: goalIds } });
+    // Närvaro redan registrerad (närvarande eller sen): deltagaren tränar de nya delmålen – Tränar automatiskt (bästa försök).
+    await trainFromAttendance(ctx, [a.id]);
+    return ok({ changed: true, notified: null });
+  }
   const now = ctx.now();
   const day = dayOf(to.startsAt);
   const [registered, others, billing] = await Promise.all([
@@ -57,12 +77,24 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   ]);
   const problem = activityMoveProblem({ c, a, to, now, registered: !!registered, others, billing });
   if (problem) return fail(problem.code, problem.text);
+  // Delmålen först: nekas de (ett delmål inaktiverades under tiden) är ingenting flyttat – inga halva ändringar, och uppgifterna och
+  // meddelandet nedan hoppas aldrig över efter en flytt.
+  if (goalsChanged && !(await saveGoals(ctx, a, goalIds))) return fail("goals", GOALS_NOT_SAVED);
   // Kontroll och skrivning i ett steg: bara om raden fortfarande har tiden, längden och platsen som lästes.
-  const moved = await acts.updateIf(a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { startsAt: to.startsAt, durationMin: to.durationMin, location });
-  if (!moved) return fail("conflict", CONFLICT);
+  const moved = await acts.updateIf(
+    a.id, { startsAt: a.startsAt, durationMin: a.durationMin, location: a.location }, { startsAt: to.startsAt, durationMin: to.durationMin, location },
+  );
+  if (!moved) {
+    // Ingen flytt: delmålen återställs (bästa försök) – "inget har sparats".
+    if (goalsChanged) await saveGoals(ctx, a, before);
+    return fail("conflict", CONFLICT);
+  }
   await ctx.audit({
     action: "activity.moved", entity: "activity", entityId: a.id, contractId: c.contractId,
-    details: { caseId: c.id, from: a.startsAt, to: to.startsAt, fromDurationMin: a.durationMin, toDurationMin: to.durationMin, ...(location !== a.location ? { locationChanged: true } : {}) },
+    details: {
+      caseId: c.id, from: a.startsAt, to: to.startsAt, fromDurationMin: a.durationMin, toDurationMin: to.durationMin, ...(location !== a.location ? { locationChanged: true } : {}),
+      ...(goalsChanged ? { progressGoalIds: goalIds } : {}),
+    },
   });
   // Bara längden ändrad: deltagaren får inget meddelande (tid och plats är desamma) och uppgifterna gäller som förut.
   const slotChanged = to.startsAt !== a.startsAt || location !== a.location;
@@ -74,3 +106,14 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   const r = await notifyParticipant(ctx, { caseId: c.id, template: "aktivitet_andrad", when: to.startsAt, place: location, previous: a.startsAt });
   return ok({ changed: true, notified: r.summary });
 });
+
+/** Skriv delmålen på tillfället; false = databasen nekade (bara felets kod loggas). */
+async function saveGoals(ctx: Parameters<typeof setOwnGoalTags>[0], a: Parameters<typeof setOwnGoalTags>[1], goalIds: readonly string[]): Promise<boolean> {
+  try {
+    await setOwnGoalTags(ctx, a, goalIds);
+    return true;
+  } catch (e) {
+    console.error("ändra tid: delmålen kunde inte sparas", (e as { code?: unknown; name?: unknown } | null)?.code ?? (e as { name?: unknown } | null)?.name ?? "error", a.id);
+    return false;
+  }
+}

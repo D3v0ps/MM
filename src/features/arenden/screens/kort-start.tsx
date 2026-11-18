@@ -8,7 +8,9 @@ import { EARLY_START_HELP, earlyStartDateProblem, movedMeetingAt, plannedEndFrom
 import { fmtDuration, plural } from "@/core/format";
 import { defaultWeekPlan, type WeekPlanRow } from "@/core/schedule";
 import { addWorkingDays, dayOf, fmtDate, fmtDateTimeLong, isWorkingDay, holidayName, timeOf, WEEKDAYS } from "@/core/time";
-import { useCommand } from "@/shell/backend";
+import { useCommand, useQuery } from "@/shell/backend";
+import { goalPicker } from "@/features/delmal/api";
+import { GoalPicker } from "@/features/delmal/screens/goal-picker";
 import { Button, Check, DateInput, DateTimeInput, Field, FormGrid, Input, Kv, Modal, Notice, Select, Stack, TimeInput, toast } from "@/ui";
 import type { ActivityKind, TeamRole } from "@/data/schema";
 import { activityAdd, activityMove, caseScheduleChange, caseSetTeam, caseStart, type CaseCard } from "../api";
@@ -241,7 +243,11 @@ export type ActivityCaseOption = { caseId: string; caseNumber: string; name: str
  * Tillfället som ska få ny tid (Ändra tid – Karims beslut 2026-11-11). Typen och deltagaren ändras inte; dag, tid, längd och plats
  * gör det, och deltagaren får den nya tiden (aktivitet_andrad) när rutan är ikryssad.
  */
-export type ActivityMoveTarget = { activityId: string; caseNumber: string; name?: string | null; kind: ActivityKind; startsAt: string; durationMin: number; location: string };
+export type ActivityMoveTarget = {
+  activityId: string; caseId: string; caseNumber: string; name?: string | null; kind: ActivityKind; startsAt: string; durationMin: number; location: string;
+  /** Delmålen som tillfället tränar (Karims beslut 2026-11-11). */
+  progressGoalIds: string[];
+};
 
 /**
  * Lägg till tillfälle, eller med move: Ändra tid för ett befintligt tillfälle (samma fält och samma regler för dag och längd).
@@ -257,6 +263,10 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
   const [duration, setDuration] = useState(move?.durationMin ?? 180);
   const [location, setLocation] = useState(move?.location ?? "");
   const [notify, setNotify] = useState(true);
+  // Delmålen som tillfället tränar (Karims beslut 2026-11-11): avtalets delmål för ärendet.
+  const [goalIds, setGoalIds] = useState<string[]>(move?.progressGoalIds ?? []);
+  const goalCase = move?.caseId ?? sel;
+  const goals = useQuery(goalPicker, goalCase ? { caseId: goalCase } : null);
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<string | null>(null);
   const loc = location || (move ? "" : chosen?.location ? `Miljonbemanning ${chosen.location}` : "Miljonbemanning");
@@ -265,23 +275,33 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
     at: !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at) ? "Välj datum och tid." : move && at <= now ? "Tiden har redan passerat. Välj en senare tid." : null,
     loc: !loc.trim() ? "Skriv plats." : null,
   };
-  const dirty = !!move && (at !== move.startsAt || duration !== move.durationMin || loc.trim() !== move.location.trim());
+  const goalsChanged = !!move && JSON.stringify(goalIds) !== JSON.stringify(move.progressGoalIds);
+  // Ny tid eller plats: deltagaren kan få den nya tiden. Bara längden eller delmålen: inget meddelande (servern skickar inget).
+  const slotChanged = !!move && (at !== move.startsAt || loc.trim() !== move.location.trim());
+  const goalsOnly = !!move && goalsChanged && !slotChanged && duration === move.durationMin;
+  const dirty = !!move && (at !== move.startsAt || duration !== move.durationMin || loc.trim() !== move.location.trim() || goalsChanged);
   const submit = async () => {
     setTried(true);
     setServerErr(null);
     if (errs.sel || errs.at || errs.loc) return;
     if (move) {
-      const res = await change.run({ activityId: move.activityId, expectedStartsAt: move.startsAt, startsAt: at, durationMin: duration, location: loc.trim(), notify }).catch(() => null);
+      const res = await change.run({
+        activityId: move.activityId, expectedStartsAt: move.startsAt, startsAt: at, durationMin: duration, location: loc.trim(), notify: notify && slotChanged, ...(goalsChanged ? { progressGoalIds: goalIds } : {}),
+      }).catch(() => null);
       if (!res || !res.ok) {
         // Felet visas en gång – i dialogen, bredvid fälten (ingen toast samtidigt).
         setServerErr(res && !res.ok && res.message ? res.message : "Tiden kunde inte ändras.");
         return;
       }
-      toast(res.changed ? `${ALL_KIND_LABEL[move.kind]} för ${move.caseNumber} är flyttat till ${fmtDateTimeLong(at)}.${res.notified ? ` ${res.notified}` : ""}` : "Inget var ändrat.");
+      toast(
+        !res.changed ? "Inget var ändrat."
+          : goalsOnly ? `Delmålen för ${move.caseNumber} är sparade.`
+            : `${ALL_KIND_LABEL[move.kind]} för ${move.caseNumber} är flyttat till ${fmtDateTimeLong(at)}.${res.notified ? ` ${res.notified}` : ""}`,
+      );
       onClose();
       return;
     }
-    const res = await add.run({ caseId: sel, kind, startsAt: at, durationMin: duration, location: loc.trim() }).catch(() => null);
+    const res = await add.run({ caseId: sel, kind, startsAt: at, durationMin: duration, location: loc.trim(), ...(goalIds.length ? { progressGoalIds: goalIds } : {}) }).catch(() => null);
     if (!res || !res.ok) {
       toast(res && !res.ok && res.message ? res.message : "Tillfället kunde inte läggas till.", "error");
       return;
@@ -336,6 +356,7 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
         <Field id="arn-act-loc" label="Plats" required error={tried ? errs.loc : null}>
           <Input value={loc} onValueChange={setLocation} maxLength={200} />
         </Field>
+        {goals.data && <GoalPicker areas={goals.data} value={goalIds} onChange={setGoalIds} idPrefix="arn-act" />}
         {at && !isWorkingDay(at) && (
           <div className="col-span-full">
             <Notice tone="warn" title="Inte en arbetsdag">
@@ -344,7 +365,7 @@ export function ActivityModal({ cases, caseId, now, onClose, move }: { cases: Ac
           </div>
         )}
         {/* En praktikdag får aldrig något meddelande till deltagaren (granskningen 2026-11-11) – ingen ruta. */}
-        {move && move.kind !== "praktikdag" && (
+        {move && move.kind !== "praktikdag" && slotChanged && (
           <div className="col-span-full">
             <Check id="arn-act-meddela" checked={notify} onCheckedChange={setNotify}>
               <span className="font-bold">Skicka den nya tiden till deltagaren</span>

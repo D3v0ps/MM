@@ -1,7 +1,8 @@
 // Kontrakt för området ärenden (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { AKTIVITETER, BILLING, BONUS, CARD, CASE_FACTS, CASE_STATS, CASES, COACH, GRUPPER, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS } from "@/api/invalidation";
+import { AKTIVITETER, BILLING, BONUS, CARD, CASE_FACTS, CASE_STATS, CASES, COACH, DELMAL, GRUPPER, INBOX, LOG, MGMT, NAV, PORTAL, REPORTS } from "@/api/invalidation";
+import { GoalIdsSchema } from "../delmal/api";
 import {
   ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, FIRST_MEETING_NO_SHOW_KINDS, PARTICIPANT_FILE_CATEGORIES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES,
   type FirstMeetingNoShowKind, type PreferredContact, type PriorAssessment, type TeamRole,
@@ -280,8 +281,10 @@ export const activityAdd = command("arenden.activityAdd", z.object({
   startsAt: LocalDateTimeSchema,
   durationMin: z.number().int().min(15).max(600),
   location: ShortText,
+  /** Delmålen som tillfället tränar (Karims beslut 2026-11-11): aktiva delmål i ärendets avtal. Internt. */
+  progressGoalIds: GoalIdsSchema.optional(),
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG] }).returns<
-  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate" | "location">
+  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate" | "location" | "goals">
 >();
 
 /**
@@ -307,12 +310,19 @@ export const activityMove = command("arenden.activityMove", z.object({
   durationMin: z.number().int().min(15).max(600),
   location: ShortText.optional(),
   notify: z.boolean(),
+  /**
+   * Delmålen som tillfället tränar (Karims beslut 2026-11-11). Utelämnat = oförändrat. Ändras bara delmålen flyttas inget och inget
+   * meddelande skickas.
+   */
+  progressGoalIds: GoalIdsSchema.optional(),
 }), {
-  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, ...LOG],
+  // Nya delmål på ett tillfälle med närvaro ger Tränar automatiskt (delmålen på deltagarkortet).
+  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, BONUS, DELMAL, ...LOG],
 }).returns<
   Result<
     { changed: boolean; notified: string | null },
     "not_found" | "group_activity" | "wrong_status" | "conflict" | "has_attendance" | "started" | "past" | "date" | "not_working_day" | "paused_week" | "invoiced" | "overlap" | "location"
+    | "goals"
   >
 >();
 
@@ -981,7 +991,7 @@ export type CaseAttendance = {
    * Kommande tillfällen (högst tio) – kan tas bort tills närvaro registrerats (beslut 2026-10-08). groupActivityId: tillfället hör
    * till en gruppaktivitet och tas bort i aktivitetsvyn.
    */
-  upcoming: (CaseActivity & { durationMin: number; groupActivityId: string | null })[];
+  upcoming: (CaseActivity & { durationMin: number; groupActivityId: string | null; progressGoalIds: string[] })[];
   /** "måndag 10.00" – när närvaron ska vara registrerad (avtalet), eller null. */
   registerBy: string | null;
 };

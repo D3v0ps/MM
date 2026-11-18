@@ -23,6 +23,7 @@ import { INVITE_MODES, type InviteGrouping, type UninvitableMember } from "@/cor
 import { START_TIME_RE } from "@/core/group-series";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema } from "../_shared/schemas";
 import type { AttMark } from "../coach/api";
+import { GoalIdsSchema, type GoalPickerArea } from "../delmal/api";
 
 // ================================================================ Frågor
 /** En gruppaktivitet i listan. */
@@ -64,6 +65,8 @@ export type SeriesListRow = {
   next: { id: string; startsAt: LocalDateTime } | null;
   /** Kommande tillfällen (inte inställda). */
   upcoming: number;
+  /** Delmålen som varje tillfälle tränar (Karims beslut 2026-11-11). Internt. */
+  progressGoalIds: string[];
 };
 export type GroupActivityList = {
   now: LocalDateTime;
@@ -135,10 +138,13 @@ export type GroupActivityView =
         audience: { kind: "level" | "area"; label: string } | null;
         /** Deltagarna får meddelanden om aktiviteten (inbjudan, ändring) – förvalet när fler bjuds in härifrån. */
         notify: boolean;
+        /** Delmålen som aktiviteten tränar (Karims beslut 2026-11-11): id:n och namnen. Internt – aldrig kommunen. */
+        progressGoalIds: string[];
+        goalLabels: string[];
         /** Den återkommande aktiviteten tillfället hör till, eller null. */
         series: {
           id: string; name: string; schedule: string; startsOn: LocalDate; endsOn: LocalDate | null; ended: boolean; notify: boolean; location: string; responsibleId: string | null;
-          goal: string | null;
+          goal: string | null; progressGoalIds: string[];
         } | null;
       };
       participants: GroupParticipant[];
@@ -186,6 +192,8 @@ export type GroupActivityForm = {
   groupings: InviteGrouping[];
   /** Deltagare i nivåerna vars insats inte pågår (avslutad, avböjd, inte startad) – hoppas över med orsaken. */
   others: UninvitableMember[];
+  /** Avtalets delmål för valet Tränar delmål (Karims beslut 2026-11-11), per progressionsområde. */
+  goals: GoalPickerArea[];
 };
 export const groupActivityForm = query("aktiviteter.form", z.object({})).returns<GroupActivityForm>();
 
@@ -209,6 +217,11 @@ const Fields = {
   replaceOverlapping: z.boolean().optional(),
   /** Gruppmålet (internt, valfritt). Tom text = inget mål. Utelämnat vid ändring = oförändrat. */
   goal: z.string().trim().max(GROUP_GOAL_MAX, `Gruppmålet får vara högst ${GROUP_GOAL_MAX} tecken.`).nullable().optional(),
+  /**
+   * Delmålen som aktiviteten tränar (Karims beslut 2026-11-11): aktiva delmål i avtalet. Närvaro ger deltagarna Tränar automatiskt.
+   * Utelämnat vid ändring = oförändrat. Internt.
+   */
+  progressGoalIds: GoalIdsSchema.optional(),
 };
 /**
  * Meddelandet till deltagarna (spår G): kryssrutan i dialogen ("Skicka inbjudan till deltagarna", förvald). Bara för en aktivitet
@@ -255,7 +268,7 @@ export const groupActivityCreate = command("aktiviteter.skapa", z.object({
 }), { invalidates: ACTIVITY_WRITES }).returns<
   | Result<
     { groupActivityId: string; invited: number; replaced: number; skipped: InviteProblem[]; notified: NotifyOutcome },
-    "holiday" | "not_invitable" | "overlap" | "not_found" | "contract" | "responsible" | "goal" | "audience"
+    "holiday" | "not_invitable" | "overlap" | "not_found" | "contract" | "responsible" | "goal" | "audience" | "goals"
   >
   | Problems<"not_invitable" | "overlap">
 >();
@@ -272,7 +285,7 @@ export const groupActivityUpdate = command("aktiviteter.andra", z.object({ id: I
   | Result<
     /** dropped: inbjudna av målgruppen som inte kan vara med vid den nya tiden och togs bort. */
     { changed: number; replaced: number; dropped: number; notified: NotifyOutcome },
-    "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "overlap" | "responsible" | "restricted" | "goal" | "series"
+    "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "overlap" | "responsible" | "restricted" | "goal" | "series" | "goals"
   >
   | Problems<"not_invitable" | "overlap">
 >();
@@ -352,6 +365,7 @@ export const groupActivitySeriesCreate = command("aktiviteter.serieSkapa", z.obj
   endsOn: LocalDateSchema.nullable().optional(),
   audience: AudienceSchema,
   notify: z.boolean().optional(),
+  progressGoalIds: Fields.progressGoalIds,
 }), { invalidates: ACTIVITY_WRITES }).returns<
   Result<
     {
@@ -359,7 +373,7 @@ export const groupActivitySeriesCreate = command("aktiviteter.serieSkapa", z.obj
       /** Deltagare i målgruppen som inte bjöds in till något tillfälle för att de redan har ett annat tillfälle vid samma tid. */
       skipped: number;
     },
-    "invalid" | "contract" | "responsible" | "goal" | "audience"
+    "invalid" | "contract" | "responsible" | "goal" | "audience" | "goals"
   >
 >();
 
@@ -369,9 +383,9 @@ export const groupActivitySeriesCreate = command("aktiviteter.serieSkapa", z.obj
  * meddelandet påslaget: deltagarna i de kommande tillfällena får aktivitet_andrad.
  */
 export const groupActivitySeriesUpdate = command("aktiviteter.serieAndra", z.object({
-  id: IdSchema, name: Fields.name, location: Fields.location, responsibleId: Fields.responsibleId, goal: Fields.goal, notify: z.boolean(),
+  id: IdSchema, name: Fields.name, location: Fields.location, responsibleId: Fields.responsibleId, goal: Fields.goal, notify: z.boolean(), progressGoalIds: Fields.progressGoalIds,
 }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ changed: number; occurrences: number; notified: NotifyOutcome }, "not_found" | "ended" | "responsible" | "goal" | "restricted">
+  Result<{ changed: number; occurrences: number; notified: NotifyOutcome }, "not_found" | "ended" | "responsible" | "goal" | "restricted" | "goals">
 >();
 
 /**

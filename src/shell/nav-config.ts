@@ -77,7 +77,8 @@ export const COMMON_GROUP_LABEL = "Min vardag";
 /** En rollflik per roll (beslut 2026-10-06). Coachen har ingen. */
 const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
   samordnare: { label: "Samordning", items: [INKORG, FORFALLER, BYGG] },
-  avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG] },
+  // Delmålen (Karims beslut 2026-11-11): avtalets katalog – avtalsansvarig ändrar listan.
+  avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG, { to: "/avtal/delmal", label: "Delmål", icon: "target" }] },
   chef: { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER, BYGG, LOGG] },
   // Ekonomi bara för ekonomen (beslut 5, 2026-10-07: belopp syns bara för rollen ekonom). Prislistan har flyttat hit från avtalssidan.
   // Bonusfakturorna (Karims beslut 2026-11-04) – egna fakturor, skilda från månadens faktura.

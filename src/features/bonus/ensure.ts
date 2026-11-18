@@ -29,7 +29,11 @@ export type EnsureBonusResult = { created: { id: string; caseId: string; step: n
 /** Förslagets id: ärendet, steget och antalet tidigare anspråk för steget i ärendet. */
 export const suggestionIdOf = (caseId: string, step: number, n: number): string => `bonus-${caseId}-${step}-${n}`;
 
-export async function ensureBonusClaims(ctx: Ctx, opts: { floor: LocalDateTime | null }): Promise<EnsureBonusResult> {
+/**
+ * caseIds: bara dessa ärenden – när ett delmål som räknas mot steg 1–2 har markerats uppnått (delmal.uppnatt, Karims beslut
+ * 2026-11-11) prövas ärendet direkt, utan golv, i stället för vid nästa körning av jobbet.
+ */
+export async function ensureBonusClaims(ctx: Ctx, opts: { floor: LocalDateTime | null; caseIds?: readonly string[] }): Promise<EnsureBonusResult> {
   const res: EnsureBonusResult = { created: [], duplicates: 0 };
   const now = ctx.now();
   if (opts.floor && dayOf(now) <= dayOf(opts.floor)) return res;
@@ -38,14 +42,19 @@ export async function ensureBonusClaims(ctx: Ctx, opts: { floor: LocalDateTime |
   for (const contract of contracts) {
     const m = bonusModel(contract.config);
     if (!m) continue;
-    const cases = (await s.table("cases").list({ contractId: contract.id })).filter((c) => !!c.startDate && ["active", "paused", "closed"].includes(c.status));
+    const only = opts.caseIds ? new Set(opts.caseIds) : null;
+    const cases = (await s.table("cases").list({ contractId: contract.id, ...(only ? { id: { in: [...only] } } : {}) })).filter((c) => !!c.startDate && ["active", "paused", "closed"].includes(c.status));
     if (!cases.length) continue;
     const ids = { in: cases.map((c) => c.id) };
-    const [activities, attendance, assessments, events, claims] = await Promise.all([
+    const [activities, attendance, assessments, events, claims, goals, caseGoals] = await Promise.all([
       s.table("activities").list({ caseId: ids }), s.table("attendance").list({ caseId: ids }), s.table("monthly_assessments").list({ caseId: ids, status: "approved" }),
       s.table("outcome_events").list({ caseId: ids }), s.table("bonus_claims").list({ contractId: contract.id }),
+      // Delmålen (Karims beslut 2026-11-11): punkterna i steg 1–2 räknas fram ur de uppnådda delmålen.
+      s.table("progress_goals").list({ contractId: contract.id }), s.table("case_progress_goals").list({ caseId: ids, status: "achieved" }),
     ]);
-    const suggestions = bonusSuggestions({ cases, activities, attendance, monthly_assessments: assessments, outcome_events: events, bonus_claims: claims }, m, { now });
+    const suggestions = bonusSuggestions(
+      { cases, activities, attendance, monthly_assessments: assessments, outcome_events: events, bonus_claims: claims, progress_goals: goals, case_progress_goals: caseGoals }, m, { now },
+    );
     // Steg 3 som skapas i samma omgång (steg 5 bygger på det).
     const newStep3 = new Map<string, string | null>();
     for (const x of suggestions) {

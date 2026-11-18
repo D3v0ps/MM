@@ -16,7 +16,8 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
       ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
       [
         "Avtalet",
-        ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare", "Bygg rapport /rapportbyggare"],
+        // Delmålen (Karims beslut 2026-11-11): avtalets katalog.
+        ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare", "Bygg rapport /rapportbyggare", "Delmål /avtal/delmal"],
       ],
     ]);
   });

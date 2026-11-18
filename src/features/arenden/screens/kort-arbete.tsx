@@ -15,6 +15,7 @@ import { caseDeviations, caseEvents, casePlacements, type CaseDeviationRow, type
 import { canOpen, caseLink, clip, fd, FOUR, Label, MiniList, PLACEMENT, PNR_ERROR, PNR_RE, TabQuery, withDot } from "./common";
 import { CustSwitch, type TabProps } from "./kort";
 import { BonusCard } from "@/features/bonus/screens/kort-bonus";
+import { DelmalCard } from "@/features/delmal/screens/kort-delmal";
 
 // ---------------------------------------------------------------- Händelser och utfall
 const eventIcon = (kind: string): IconName =>
@@ -119,6 +120,8 @@ export function TabHandelser({ card }: TabProps) {
             {/* Bonusstegen (beslut 2026-11-04): inte för teamet – bonus är ett ekonomiskt villkor. Kortet döljer sig självt när bonus är
                 avstängd eller aktören inte får se bonus (begränsade testare). */}
             {!team && <BonusCard caseId={card.caseId} />}
+            {/* Delmålen (Karims beslut 2026-11-11): Miljonbemanning med full- eller teamåtkomst – aldrig kommunen. */}
+            <DelmalCard caseId={card.caseId} />
           </Stack>
         );
       }}

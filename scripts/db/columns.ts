@@ -48,12 +48,14 @@ export const COLUMNS = {
     id: "text", contractId: "text", name: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", responsibleId: "text | null", createdBy: "text",
     createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", cancelledAt: "timestamptz | null", cancelledBy: "text | null", goal: "text | null",
     goalVersion: "integer", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", seriesId: "text | null", seriesSlot: "timestamptz | null", notify: "boolean",
+    progressGoalIds: "text[]",
   },
   // Återkommande nivå- och yrkesområdesaktiviteter (0035_yrkesomraden_nivaer.sql)
   group_activity_series: {
     id: "text", contractId: "text", name: "text", kind: "text", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", weekdays: "integer[]",
     startTime: "text", durationMin: "integer", location: "text", responsibleId: "text | null", goal: "text | null", startsOn: "date", endsOn: "date | null", notify: "boolean",
     createdBy: "text", createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", endedAt: "timestamptz | null", endedBy: "text | null",
+    progressGoalIds: "text[]",
   },
   // Gruppmål (0033_gruppmal.sql)
   group_goal_results: { id: "text", contractId: "text", groupActivityId: "text", caseId: "text", activityId: "text", goalVersion: "integer", achieved: "boolean", setBy: "text", setAt: "timestamptz" },
@@ -164,6 +166,16 @@ export const COLUMNS = {
   first_meeting_no_shows: {
     id: "text", caseId: "text", contractId: "text", meetingAt: "timestamptz", kind: "text", reason: "text | null", registeredBy: "text", registeredAt: "timestamptz",
   },
+  // Delmål för progressionerna (0043_delmal.sql)
+  progress_goals: {
+    id: "text", contractId: "text", areaKey: "text", label: "text", sortOrder: "integer", active: "boolean", stepItems: "text[]", createdBy: "text", createdAt: "timestamptz",
+    updatedBy: "text | null", updatedAt: "timestamptz | null",
+  },
+  case_progress_goals: {
+    id: "text", caseId: "text", contractId: "text", goalId: "text", status: "text", source: "text", achievedOn: "date | null", evidenceKind: "text | null", evidenceId: "text | null",
+    setBy: "text", setAt: "timestamptz",
+  },
+  activity_progress_goals: { id: "text", caseId: "text", goalIds: "text[]", updatedBy: "text", updatedAt: "timestamptz" },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

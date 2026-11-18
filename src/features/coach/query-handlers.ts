@@ -405,10 +405,13 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   const ids = cases.map((c) => c.id);
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
   if (!main) throw new Error("Inget avtal med driftkonfiguration");
-  const db = await loadDb(ctx.repo, ["activities", "attendance", "persons", "reports", "profiles"], {
+  const db = await loadDb(ctx.repo, ["activities", "attendance", "persons", "reports", "profiles", "activity_progress_goals"], {
     activities: { caseId: { in: ids } }, attendance: { caseId: { in: ids } }, persons: { id: { in: uniq(cases.map((c) => c.personId)) } }, reports: { kind: "weekly_attendance" },
+    activity_progress_goals: { caseId: { in: ids } },
   });
   const caseById = new Map(cases.map((c) => [c.id, c]));
+  // Delmålen på de egna tillfällena (Ändra tid) – egen tabell, läst via behörigheten.
+  const ownTags = new Map(db.activity_progress_goals.map((r) => [r.id, r.goalIds]));
   const personById = new Map(db.persons.map((p) => [p.id, p]));
   // Mina deltagare (valet på Närvaro): huvudcoach eller i teamet – tilldelningen visar vems deltagare det är, inte vem som får arbeta.
   const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
@@ -432,7 +435,8 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
         location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
-        referrerId: c.referrerId, groupActivityId: a.groupActivityId, leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId), mine: mineCase(c),
+        referrerId: c.referrerId, groupActivityId: a.groupActivityId, progressGoalIds: [...(ownTags.get(a.id) ?? [])], leadCoach: leadCoachFirstName(db.profiles, c.leadCoachId),
+        mine: mineCase(c),
       });
     }
     const open = rows.filter((r) => r.startsAt < now && !r.attendance);
@@ -671,6 +675,13 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
   const events = eventsOf(db, c.id).filter((e) => e.occurredOn >= mStart && e.occurredOn <= mEnd);
   const rep = db.reports[0] ?? null;
   const due = rep?.dueAt ?? monthDueFor(env.cfg, month) ?? `${mEnd}T23:59`;
+  // Delmål som uppnåddes under månaden (Karims beslut 2026-11-11), per område – bara som belägg; nivån väljer coachen.
+  const goalRows = await ctx.repo.table("case_progress_goals").list({ caseId: c.id, status: "achieved", achievedOn: { gte: mStart, lte: mEnd } });
+  const goalOf = new Map((goalRows.length ? await ctx.repo.table("progress_goals").list({ id: { in: goalRows.map((r) => r.goalId) } }) : []).map((g) => [g.id, g]));
+  const achievedIn = (key: string) => goalRows
+    .filter((r) => goalOf.get(r.goalId)?.areaKey === key && !!r.achievedOn)
+    .sort((a, b) => ((a.achievedOn ?? "") < (b.achievedOn ?? "") ? -1 : 1))
+    .map((r) => ({ label: goalOf.get(r.goalId)?.label ?? "", achievedOn: r.achievedOn as LocalDate }));
   return {
     kind: "ok" as const,
     now: env.now,
@@ -693,6 +704,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
         aiLevelSuggestion: ev ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null,
         aiLevelEvidence: ev ? { quote: ev.quote, source: ev.source, date: ev.date } : null,
         aiObservationDraft: obs,
+        achievedGoals: achievedIn(key),
       };
     }),
     assessment: ma

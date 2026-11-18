@@ -52,6 +52,27 @@ describe("unika nycklar i minnet", () => {
     expect(await repo.table("cases").updateIf(hidden.id, { status: hidden.status }, { location: "x" })).toBeNull();
   });
 
+  it("removeIf: tar bort bara när raden matchar villkoret, annars false och ingenting tas bort – också för en rad som aktören inte får läsa", async () => {
+    const s = store();
+    const repo = new MemoryRepo<Tables>(s, amira(s), POLICIES, { filterColumns: USER_FILTER_COLUMNS });
+    const t = repo.table("case_progress_goals");
+    const achieved = s.rows("case_progress_goals").find((r) => r.caseId === "case-260143" && r.status === "achieved")!;
+    expect(await t.removeIf(achieved.id, { status: "training" })).toBe(false);
+    expect(await t.get(achieved.id)).not.toBeNull();
+    expect(await t.removeIf(achieved.id, { status: "achieved" })).toBe(true);
+    expect(await t.get(achieved.id)).toBeNull();
+    // Andra gången finns raden inte längre: false – så att två samtidiga Ångra inte båda tar bort.
+    expect(await t.removeIf(achieved.id, { status: "achieved" })).toBe(false);
+    expect(await t.removeIf("finns-inte", { status: "achieved" })).toBe(false);
+    // Kommunen: läser inte raden – false och ingenting händer.
+    const other = s.rows("case_progress_goals").find((r) => r.caseId === "case-260143" && r.status === "achieved")!;
+    expect(await new MemoryRepo<Tables>(s, maria(s), POLICIES).table("case_progress_goals").removeIf(other.id, { status: "achieved" })).toBe(false);
+    expect(s.rows("case_progress_goals").some((r) => r.id === other.id)).toBe(true);
+    // Samma gräns för villkorets kolumner som updateIf.
+    const c = s.rows("cases").find((x) => x.status === "confirmed")!;
+    await expect(repo.table("cases").removeIf(c.id, { leadCoachId: c.leadCoachId })).rejects.toBeInstanceOf(FilterColumnError);
+  });
+
   it("updateIf med listan över läsbara kolumner (USER_FILTER_COLUMNS): ett villkor på en annan kolumn stoppas – som databasen hade nekat det (42501)", async () => {
     // Databasen kräver läsrätt på varje kolumn i villkoret; inloggade läser bara cases.id och status direkt i tabellen (0013, 0041).
     const s = store();

@@ -583,7 +583,10 @@ function Narvaro({ v, initial, caseId, whose, filters, filterLabels = [] }: { v:
           cases={[]}
           now={now}
           onClose={() => setMoving(null)}
-          move={{ activityId: moving.activityId, caseNumber: moving.caseNumber, name: moving.name, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin, location: moving.location }}
+          move={{
+            activityId: moving.activityId, caseId: moving.caseId, caseNumber: moving.caseNumber, name: moving.name, kind: moving.kind, startsAt: moving.startsAt, durationMin: moving.durationMin,
+            location: moving.location, progressGoalIds: moving.progressGoalIds,
+          }}
         />
       )}
     </Page>
