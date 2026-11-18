@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import type { Role } from "@/api/roles";
-import { AKTIVITETER, BILLING, BONUS, CARD, DELMAL, LOG, NAV, PORTAL } from "@/api/invalidation";
+import { AKTIVITETER, BILLING, BONUS, CARD, DELMAL, LOG, MANADSRAPPORT, NAV, PORTAL } from "@/api/invalidation";
 import type { LocalDate } from "@/core/time";
 import { PROGRESS_EVIDENCE_KINDS, PROGRESS_GOAL_LABEL_MAX, STEP_ITEMS, type ProgressEvidenceKind, type ProgressGoalSource, type StepItem } from "@/data/schema";
 import { IdSchema, LocalDateSchema } from "../_shared/schemas";
@@ -55,7 +55,7 @@ export const goalCatalog = query("delmal.katalog", z.object({ contractId: IdSche
 const Label = z.string().trim().min(1, "Skriv delmålet.").max(PROGRESS_GOAL_LABEL_MAX);
 const StepItemsSchema = z.array(z.enum(STEP_ITEMS)).max(STEP_ITEMS.length);
 /** Katalogen visas i valen för tillfällena, på deltagarkortet, i månadsbedömningen och i Progression och resultat. */
-const CATALOG_WRITES = [DELMAL, AKTIVITETER, BONUS, "coach.assessmentPage", ...LOG] as const;
+const CATALOG_WRITES = [DELMAL, AKTIVITETER, BONUS, "coach.assessmentPage", MANADSRAPPORT, ...LOG] as const;
 
 /** Nytt delmål sist i området. duplicate: ett delmål med samma namn finns redan i området. */
 export const goalCreate = command("delmal.ny", z.object({ contractId: IdSchema, areaKey: z.string().min(1).max(60), label: Label, stepItems: StepItemsSchema }), {
@@ -107,7 +107,7 @@ export const caseGoals = query("delmal.arende", z.object({ caseId: IdSchema })).
 export const goalEvidence = query("delmal.underlag", z.object({ caseId: IdSchema })).returns<{ value: string; label: string }[]>();
 
 /** Omräkning efter Uppnått och Ångra: delmålen, Progression och resultat (punkterna och ett nytt förslag), månadsbedömningen och loggen. */
-const CASE_GOAL_WRITES = [DELMAL, BONUS, CARD, "coach.minVecka", "coach.assessmentPage", PORTAL, BILLING, "inkorg.start", NAV, ...LOG] as const;
+const CASE_GOAL_WRITES = [DELMAL, BONUS, CARD, "coach.minVecka", "coach.assessmentPage", PORTAL, BILLING, "inkorg.start", NAV, MANADSRAPPORT, ...LOG] as const;
 export const EvidenceSchema = z.object({ kind: z.enum(PROGRESS_EVIDENCE_KINDS), id: IdSchema });
 export type EvidenceInput = { kind: ProgressEvidenceKind; id: string };
 

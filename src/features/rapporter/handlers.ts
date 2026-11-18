@@ -13,6 +13,8 @@ import { freezeReport } from "./freeze";
 import "./view-handlers";
 // Rapportbyggaren (rapporter steg 4): sparade och delade rapporter och resultatfilen för hela avtalet.
 import "./builder-handlers";
+// Den interna månadsrapporten (Karims beslut 2026-11-18): bara Miljonbemanning, levande underlag via ctx.repo.
+import "./manad/handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

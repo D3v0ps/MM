@@ -33,7 +33,7 @@ Coachen har under listan **Veckans tider att skicka** och **SMS att skicka** (se
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
-- Gruppen **Min vardag** med **Min vecka** och de sidor din roll har, alltid i samma ordning: **Närvaro** (coachen), **Aktiviteter** (alla utom ekonomen), **Ärenden** (coachen ser **Mina ärenden**), **Anteckningar** (samordnaren, avtalsansvarig och coachen), **Grupper och nivåer** (alla utom ekonomen), **Rapporter** och **Arbetsgivare och praktik**.
+- Gruppen **Min vardag** med **Min vecka** och de sidor din roll har, alltid i samma ordning: **Närvaro** (coachen), **Aktiviteter** (alla utom ekonomen), **Ärenden** (coachen ser **Mina ärenden**), **Anteckningar** (samordnaren, avtalsansvarig och coachen), **Grupper och nivåer** (alla utom ekonomen), **Rapporter**, **Intern månadsrapport** (samordnaren, avtalsansvarig, coachen och chefen) och **Arbetsgivare och praktik**.
 - Högst en rollflik, till exempel **Samordning**, **Ekonomi** eller **Ledning**.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
@@ -48,6 +48,18 @@ Sidopanelen har alltid:
 - Rapporter byggs bara av godkända uppgifter, aldrig direkt från råtranskript.
 - Belopp i kronor syns bara för rollen ekonom.
 - Nivå, taggar och gruppmål är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå.
+
+## Intern månadsrapport
+
+**Intern månadsrapport** i menyn visar allt som hände i avtalet under en månad. Rapporten är bara för Miljonbemanning. Kommunen ser den aldrig, och den skickas inte till kommunen.
+
+1. Välj **Månad**. Förra månaden är förvald.
+2. Välj **Yrkesområde** om du bara vill se ett. Yrkesområdet är det som gällde den månaden.
+3. Läs avsnitten: start och slut per yrkesområde, närvarograd, progression, aktiviteter, resultat och en rad per deltagare. Varje diagram har en tabell med samma siffror.
+4. Tryck på en deltagare för att öppna deltagarkortet.
+5. Tryck på **Ladda ner PDF** för samma rapport som fil. Filen innehåller namn. Spara den bara där Miljonbemanning får spara personuppgifter, och skicka den inte med vanlig e-post.
+
+Rapporten räknas av godkända och registrerade uppgifter: godkända månadsbedömningar, registrerad närvaro, delmål som någon har markerat som uppnådda, händelser och avslut. Nivåerna 0–3 visas som antal per nivå. Gruppmål, nivåer och taggar finns inte med. Varje visning och nedladdning loggas.
 
 ## Operativ samordnare
 

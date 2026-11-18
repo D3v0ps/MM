@@ -52,6 +52,8 @@ export const ACTION_LABEL: Record<string, string> = {
   // ärendenummer eller urvalets värden.
   "saved_report.created": "Sparade rapport", "saved_report.updated": "Ändrade sparad rapport", "saved_report.shared": "Ändrade delning av rapport",
   "saved_report.archived": "Arkiverade rapport", "saved_report.viewed": "Visade sparad rapport", "export.saved_report": "Exporterade rapport",
+  // Den interna månadsrapporten (Karims beslut 2026-11-18): avtalet, månaden, yrkesområdets kod och ärendenas id:n – aldrig namn.
+  "monthly_overview.viewed": "Visade intern månadsrapport", "monthly_overview.downloaded": "Laddade ner intern månadsrapport",
   "saved_report.export_blocked": "Stoppade rapportfil", "export.results_mb": "Exporterade resultat för hela avtalet",
   // Beslut 2026-10-07: självregistrering, egna uppgifter i portalen och bilagor till beställningen. Loggen har id:n, typ,
   // storlek och domän – aldrig e-postadresser eller filnamn.
@@ -377,6 +379,8 @@ export type JobKey = (typeof JOB_KEYS)[number];
 /** Visningar och exporter som chef/controller stickprovar i första hand (SPEC §10). */
 export const VIEW_ACTIONS = [
   "case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed", "group_activity.view",
+  // Den interna månadsrapporten (Karims beslut 2026-11-18) – visning och nedladdning.
+  "monthly_overview.viewed", "monthly_overview.downloaded",
   // Redovisningsunderlaget för bonus (Karims beslut 2026-11-04) – visning och nedladdning.
   "bonus_claim.underlag_viewed", "bonus_claim.underlag_downloaded",
 ] as const;

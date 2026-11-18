@@ -475,3 +475,6 @@ export const contractResultExport = command("rapporter.resultatfilExport", z.obj
 
 /** Läget för förhandsvisningen (skärmens växel). */
 export type { BuilderAudience as PreviewAudience };
+
+// ================================================================ Intern månadsrapport (Karims beslut 2026-11-18)
+export * from "./manad/api";

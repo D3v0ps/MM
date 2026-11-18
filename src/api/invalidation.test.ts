@@ -85,6 +85,8 @@ const SAMPLES: Record<string, Sample[]> = {
   "rapporter.lista": [...one("u-sara"), ...one("u-amira")], "rapporter.dokument": one("u-sara", { reportId: "rep-16008" }), "rapporter.visa": [...one("u-sara", { reportId: "rep-16008" }), ...one("u-sara", { reportId: "rep-16011" })],
   "rapporter.byggKatalog": one("u-sara"), "rapporter.sparadeLista": one("u-sara"), "rapporter.sparad": one("u-sara", { savedReportId: "sr-seed-privat" }),
   "rapporter.resultatfilForhandsvisning": one("u-johan", { from: "2026-12", to: "2027-01" }),
+  // Den interna månadsrapporten (Karims beslut 2026-11-18): januari (avslutad månad) och februari (innevarande, med gruppaktiviteten).
+  "rapporter.manadsrapport": [...one("u-sara", { month: "2027-01" }), ...one("u-amira", { month: "2027-02" }), ...one("u-karin", { month: "2027-01", area: "G" })],
   "rost.link": one("deltagare", {}), "rost.sendStatus": one("deltagare", { aiRunId: "ai-run-mehmet" }), "rost.caseVoice": one("u-amira", { caseId: NADIA }), "rost.pendingNotes": one("u-amira"),
   "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-maria")],
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
@@ -175,6 +177,8 @@ const WRITES: Record<string, string[]> = {
   "rapporter.reportCorrect": ["reports", AUDIT_CASE, AUDIT], "rapporter.reportOpen": ["reports", AUDIT_CASE, AUDIT], "rapporter.snapshot": ["reports"], "rapporter.download": [AUDIT_CASE, AUDIT],
   "rapporter.qualityReview": ["reports", AUDIT_CASE, AUDIT], "rapporter.saveFinal": ["reports", AUDIT_CASE, AUDIT], "rapporter.saveSummary": ["reports", AUDIT_CASE, AUDIT],
   "rapporter.correctionNote": ["reports", AUDIT_CASE, AUDIT], "rapporter.byggForhandsvisning": [AUDIT], "rapporter.byggExport": [AUDIT],
+  // Den interna månadsrapporten: visningen och PDF:en loggas med ärendenas id:n (syns i deltagarkortets Historik för chefen).
+  "rapporter.manadsrapportVisad": [AUDIT_CASE, AUDIT], "rapporter.manadsrapportPdf": [AUDIT_CASE, AUDIT],
   "rapporter.sparadSpara": ["saved_reports", AUDIT], "rapporter.sparadDela": ["saved_reports", AUDIT], "rapporter.sparadArkivera": ["saved_reports", AUDIT], "rapporter.resultatfilExport": [AUDIT],
   "rost.uploadStart": [], "rost.send": ["voice_links", "participant_voice_notes", "ai_runs", "jobs", "audio_uploads", AUDIT_CASE, AUDIT],
   "rost.linkSend": ["voice_links", "outbound_messages", AUDIT_CASE, AUDIT], "rost.notesSeen": [AUDIT_CASE, AUDIT], "rost.noteReview": ["participant_voice_notes", AUDIT_CASE, AUDIT],
@@ -247,7 +251,8 @@ const AUDIT_READS: Record<string, string[]> = {
  * (chefens Historik, revisionsloggen) hämtas om vid nästa sidvisning. Hämtningen av en bilaga (arenden.bilagaHamta) likaså.
  */
 const SILENT_NONE = ["arenden.visaPersonnummer", "arenden.bilagaHamta", "inkorg.revealPnr", "kommun.visaPersonnummer", "rapporter.snapshot", "rapporter.download",
-  "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.resultatfilExport", "rost.notesSeen", "session.auditView", "bonus.underlag"];
+  "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.resultatfilExport", "rost.notesSeen", "session.auditView", "bonus.underlag",
+  "rapporter.manadsrapportVisad", "rapporter.manadsrapportPdf"];
 
 /**
  * Tabeller som inte räknas automatiskt (avgränsning 2): namn, åtkomst och avtalskonfiguration som nästan varje fråga läser

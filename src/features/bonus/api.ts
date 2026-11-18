@@ -4,7 +4,7 @@
 // redovisningsunderlaget (bonus_claims.snapshot) – intygen skickas på annat sätt.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { BILLING, BONUS, CARD, LOG, NAV, PORTAL } from "@/api/invalidation";
+import { BILLING, BONUS, CARD, LOG, MANADSRAPPORT, NAV, PORTAL } from "@/api/invalidation";
 import type { LocalDate, LocalDateTime, MonthKey } from "@/core/time";
 import { BONUS_CHECKLIST_ITEMS, type BonusClaimStatus, type BonusDecisionVia, type BonusSource } from "@/data/schema";
 import { IdSchema, LocalDateSchema } from "../_shared/schemas";
@@ -175,7 +175,7 @@ export const bonusPortal = query("bonus.portal", z.object({ claimId: IdSchema })
 
 // ---------------------------------------------------------------- Kommandon
 /** Omräkning efter ett kommando som skriver bonusanspråk: bonus, kortet, coachens Min vecka, portalen, ekonomin och räknarna. */
-const AFTER = [BONUS, CARD, "coach.minVecka", PORTAL, BILLING, "inkorg.start", NAV, ...LOG] as const;
+const AFTER = [BONUS, CARD, "coach.minVecka", PORTAL, BILLING, "inkorg.start", NAV, MANADSRAPPORT, ...LOG] as const;
 const StepSchema = z.number().int().min(1).max(5);
 const ChecklistSchema = z.partialRecord(z.enum(BONUS_CHECKLIST_ITEMS), z.object({ done: z.boolean(), where: z.string().max(200) }).strict());
 const FieldsSchema = {
