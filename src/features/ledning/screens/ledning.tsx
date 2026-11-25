@@ -345,7 +345,6 @@ function CustomerCard({ c }: { c: CustomerCardData }) {
         )}
         {c.results && (
           <Table
-            caption={`Resultat i beställarrapporten för ${c.latest ? monthName(c.latest.month) : ""}`}
             columns={c.results.cols.map((label, i) => ({ key: String(i), label, num: i > 0, render: (r: { key: string; cells: string[] }) => r.cells[i] }))}
             rows={c.results.rows}
             rowKey="key"

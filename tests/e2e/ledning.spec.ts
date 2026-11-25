@@ -93,7 +93,8 @@ test("ledningsvyn: resultat, prognos, trend, tidig uppmärksamhet och kundens bi
   const cust = card(page, "Så ser kommunen resultatet");
   const ct = await text(cust);
   expect(ct).toContain("december 2026");
-  expect(ct).toMatch(/Period\s+Resultat \(arbete eller studier\)\s+Avbrott/);
+  // Kolumnrubrikerna står i versaler (tabellens stil).
+  expect(ct).toMatch(/Period\s+Resultat \(arbete eller studier\)\s+Avbrott/i);
   expect(ct).toMatch(/December 2026\s+13\s+5/);
   expect(ct).toMatch(/Rullande 6 månader\s+24\s+15/);
   expect(ct).toMatch(/Öppna utkastet för januari 2027/);
