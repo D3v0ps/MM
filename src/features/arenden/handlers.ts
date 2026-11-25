@@ -674,7 +674,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   await ctx.repo.table("activities").insert({
     id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null, inviteSource: "manual",
   });
-  // Delmålen står i en egen tabell (activity_progress_goals) – kommunen och ekonomen läser tillfällena, aldrig delmålen. En andra
+  // Delmålen står i en egen tabell (activity_progress_goals) – ekonomen läser tillfällena, aldrig delmålen. En andra
   // skrivning: nekas den (ett delmål inaktiverades under tiden, 23514) är tillfället ändå tillagt och loggas – utan delmålen.
   let goalsSaved = true;
   if (progressGoalIds.length) {

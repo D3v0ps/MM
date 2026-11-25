@@ -501,6 +501,105 @@ describe("kommunen har bara rollen handläggare (0026)", () => {
   });
 });
 
+// ================================================================ Kommunen utan närvaro och möten (0044)
+describe("kommunen läser inte tillfällen, närvaro eller mötesrapporter (0044, Karims beslut 2026-11-25)", () => {
+  const KOMMUN = ["k-maria", "k-ahmed", "k-linda", "k-omar"];
+  const TABLES = ["activities", "attendance", "check_ins"] as const;
+  const src = accessIndex(data);
+  const caseById = new Map(data.cases.map((c) => [c.id, c]));
+  /** Oberoende facit (inte policy.ts): raderna i ärenden där personen har åtkomsten full, team eller billing (caseAccess). */
+  const oracle = (userId: string, t: (typeof TABLES)[number], levels: readonly string[]) => {
+    const p = findPersona(userId);
+    return (data[t] as { id: string; caseId: string }[]).filter((x) => levels.includes(caseAccessIn(caseById.get(x.caseId)!, p.actor, src))).map((x) => x.id).sort();
+  };
+  const pgIdsAs = (userId: string, t: string, where = "") =>
+    asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>(`select id from public.${t} ${where} order by id`)).rows.map((r) => r.id));
+
+  it("handläggarna läser 0 rader ur activities, attendance och check_ins – också i sina egna ärenden", async () => {
+    for (const userId of KOMMUN) {
+      const own = data.cases.filter((c) => c.referrerId === userId).map((c) => c.id);
+      expect([userId, own.length > 0]).toEqual([userId, true]);
+      for (const t of TABLES) {
+        // Inte ett tomt test: handläggarens egna ärenden har rader i tabellen.
+        expect([userId, t, (data[t] as { caseId: string }[]).some((x) => own.includes(x.caseId))]).toEqual([userId, t, true]);
+        expect([userId, t, await pgIdsAs(userId, t)]).toEqual([userId, t, []]);
+        // Samma med ett villkor på de egna ärendena (som portalens fråga) – och policy.ts ger samma svar.
+        const own1 = await asPersona(findPersona(userId), async (tx) => (await tx.query<{ n: number }>(`select count(*)::int as n from public.${t} where case_id = any($1::text[])`, [own])).rows[0].n);
+        expect([userId, t, own1]).toEqual([userId, t, 0]);
+        expect([userId, t, (data[t] as Tables[typeof t][]).filter((x) => canReadRow(t, x as never, actorOf(findPersona(userId)), raw)).length]).toEqual([userId, t, 0]);
+      }
+    }
+  });
+
+  it("en ändring från kommunen träffar inga rader (ingen läsrätt – neka som standard) och ger inget fel som avslöjar raden", async () => {
+    const own = data.cases.filter((c) => c.referrerId === "k-maria").map((c) => c.id);
+    const res = await asPersona(findPersona("k-maria"), async (tx) => ({
+      activities: await attempt(tx, "update public.activities set note = note where case_id = any($1::text[])", [own]),
+      attendance: await attempt(tx, "update public.attendance set reason = reason where case_id = any($1::text[])", [own]),
+    }));
+    expect(res).toEqual({ activities: { ok: true, rows: 0 }, attendance: { ok: true, rows: 0 } });
+  });
+
+  it("Miljonbemanning och ekonomen som förut: coach, samordnare, avtalsansvarig och chef med full åtkomst, ekonomen med billing (facit ur caseAccess)", async () => {
+    for (const [userId, levels] of [["u-amira", ["full", "team"]], ["u-sara", ["full", "team"]], ["u-johan", ["full", "team"]], ["u-karin", ["full", "team"]], ["u-lars", ["billing"]]] as const) {
+      for (const t of ["activities", "attendance"] as const) {
+        const expected = oracle(userId, t, levels);
+        expect([userId, t, expected.length > 0]).toEqual([userId, t, true]);
+        expect([userId, t, await pgIdsAs(userId, t)]).toEqual([userId, t, expected]);
+      }
+    }
+    // Mötesrapporterna (check_ins, oförändrade sedan 0005): Miljonbemanning med full eller team – aldrig ekonomen.
+    expect(await pgIdsAs("u-amira", "check_ins")).toEqual(oracle("u-amira", "check_ins", ["full", "team"]));
+    expect(await pgIdsAs("u-lars", "check_ins")).toEqual([]);
+  });
+
+  it("de levererade veckorapporterna om närvaro läses fortfarande av handläggaren (reports är oförändrad)", async () => {
+    for (const userId of ["k-maria", "k-ahmed", "k-linda"]) {
+      const expected = data.reports.filter((r) => r.kind === "weekly_attendance" && !!r.deliveredAt && r.deliveredTo.includes(userId)).map((r) => r.id).sort();
+      expect([userId, expected.length > 0]).toEqual([userId, true]);
+      expect([userId, await pgIdsAs(userId, "reports", "where kind = 'weekly_attendance'")]).toEqual([userId, expected]);
+    }
+  });
+
+  it("policyerna: select och update på activities och attendance utan 'customer'; ändringarnas villkor oförändrade", async () => {
+    const r = await db.query<{ tablename: string; policyname: string; qual: string | null; with_check: string | null }>(
+      "select tablename, policyname, qual, with_check from pg_policies where tablename in ('activities', 'attendance', 'check_ins') order by tablename, policyname",
+    );
+    const by = Object.fromEntries(r.rows.map((x) => [`${x.tablename}.${x.policyname}`, x]));
+    expect(Object.keys(by)).toEqual([
+      "activities.activities_delete", "activities.activities_insert", "activities.activities_select", "activities.activities_update",
+      "attendance.attendance_insert", "attendance.attendance_select", "attendance.attendance_update",
+      "check_ins.check_ins_insert", "check_ins.check_ins_select", "check_ins.check_ins_update",
+    ]);
+    for (const k of ["activities.activities_select", "activities.activities_update", "attendance.attendance_select", "attendance.attendance_update"]) {
+      expect([k, by[k].qual]).toEqual([k, expect.stringContaining("{full,team,billing}")]);
+      expect([k, by[k].qual ?? ""]).toEqual([k, expect.not.stringContaining("customer")]);
+    }
+    expect(by["activities.activities_update"].with_check).toContain("work_on");
+    expect(by["attendance.attendance_update"].with_check).toMatch(/work_on[\s\S]*source = 'manual'/);
+    expect(by["check_ins.check_ins_select"].qual).toContain("{full,team}");
+  });
+
+  it("migrationen tål att köras igen (SQL Editor) och ändrar då ingenting", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0044_kommun_utan_narvaro.sql`, "utf8");
+    const POL = "select tablename, policyname, cmd, qual, with_check from pg_policies where tablename in ('activities', 'attendance') order by tablename, policyname";
+    let res: { before: unknown; after: unknown; rows: [number, number] } | null = null;
+    await db.transaction(async (tx) => {
+      const count = async () => (await tx.query<{ a: number; t: number }>("select (select count(*)::int from public.activities) as a, (select count(*)::int from public.attendance) as t")).rows[0];
+      const before = (await tx.query(POL)).rows;
+      const n0 = await count();
+      await tx.exec(sql);
+      await tx.exec(sql);
+      const n1 = await count();
+      res = { before, after: (await tx.query(POL)).rows, rows: [n1.a - n0.a, n1.t - n0.t] };
+      await tx.rollback();
+    });
+    expect(res).not.toBeNull();
+    expect(res!.after).toEqual(res!.before);
+    expect(res!.rows).toEqual([0, 0]);
+  });
+});
+
 // ================================================================ Bilagor till beställningen (0024)
 describe("bilagor till beställningen (0024): läsning och skrivning – samma regler i RLS och policy.ts", () => {
   const pgAtt = (userId: string) => asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.case_attachments order by id")).rows.map((r) => r.id));

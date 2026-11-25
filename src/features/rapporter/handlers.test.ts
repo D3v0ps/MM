@@ -306,14 +306,17 @@ describe("3. kommunen öppnar rapporten", () => {
   it("3c. levererade rapporter är låsta: frysta vid första visningen och när de levereras", async () => {
     const totalOf = (d: ReportDocResult) => (d.ok && d.doc.kind === "monthly" ? d.doc.m.total : null);
     const before = await okDoc(NADIA_DEC, maria());
+    const beforeMb = await okDoc(NADIA_DEC, amira());
     expect(before.needsSnapshot).toBe(true);
+    // Kommunen får bara närvarograden (Karims beslut 2026-11-25) – Miljonbemanning hela summan, med samma närvarograd.
+    expect(totalOf(before)).toEqual({ rate: (totalOf(beforeMb) as { rate: number | null }).rate });
     expect(await run(reportSnapshot, { reportIds: [NADIA_DEC] }, maria())).toMatchObject({ ok: true, reportIds: [NADIA_DEC] });
     const act = rows("activities").find((a) => a.caseId === NADIA && a.startsAt.startsWith("2026-12") && rows("attendance").some((x) => x.activityId === a.id && x.status === "present"))!;
     expect(await run(attendanceSet, { activityId: act.id, status: "absent_invalid", reason: "" }, amira())).toMatchObject({ ok: true });
     expect(totalOf(await doc(NADIA_DEC, maria()))).toEqual(totalOf(before));
     // Leverantören varnas – dokumentet är oförändrat
     expect((await view(NADIA_DEC, amira())).drift).toEqual({ canCorrect: true });
-    expect(totalOf(await doc(NADIA_DEC, amira()))).toEqual(totalOf(before));
+    expect(totalOf(await doc(NADIA_DEC, amira()))).toEqual(totalOf(beforeMb));
     // Januarirapporten efter leverans
     await deliverNadiaJan();
     const jan = totalOf(await doc(NADIA_JAN, maria()));

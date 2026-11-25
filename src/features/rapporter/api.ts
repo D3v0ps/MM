@@ -8,7 +8,7 @@ import { IdSchema, MonthKeySchema } from "../_shared/schemas";
 import type { Dataset, Dimension, MeasureKey } from "./builder/definition";
 import type { BuilderAudience, BuilderView } from "./builder/run";
 import { TEMPLATE_KEYS } from "./builder/templates";
-import type { FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection } from "./model";
+import type { CustomerFinalModel, CustomerMonthlyModel, FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection } from "./model";
 import type { DeniedReason } from "./report-helpers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -58,7 +58,7 @@ export const reportOpen = command("rapporter.reportOpen", z.object({
 //     PortalReport): tillbakaknapp, kvittens, rättelse, dokumentet, frågor och perspektivbyte.
 //   report-helpers.ts – reportTitle, periodText, statusLabel, effStatus, statusLook, isDelivered, DENIED …
 export type { ReportKind, ReportStatus } from "@/data/schema";
-export type { AttStats, AttRow, FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection, WeeklyRow, ReportModel } from "./model";
+export type { AttStats, AttRow, CustomerFinalModel, CustomerMonthlyModel, FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection, WeeklyRow, ReportModel } from "./model";
 
 // ---------------------------------------------------------------- Rapportlistan
 export type ReportListRow = {
@@ -125,8 +125,9 @@ export type WeeklyDocSection = (WeeklySection & { restricted: false; name: strin
  */
 export type OrderDocModel = OrderModel;
 export type ReportDocView =
-  | (DocBase & { kind: "monthly"; participant: string; m: MonthlyModel })
-  | (DocBase & { kind: "final"; participant: string; m: FinalModel })
+  // Kommunens roller får månads- och slutrapporten utan närvarons detaljer (Customer*Model, Karims beslut 2026-11-25).
+  | (DocBase & { kind: "monthly"; participant: string; m: MonthlyModel | CustomerMonthlyModel })
+  | (DocBase & { kind: "final"; participant: string; m: FinalModel | CustomerFinalModel })
   | (DocBase & { kind: "order_confirmation"; participant: string; m: OrderDocModel })
   | (DocBase & {
       kind: "weekly_attendance";

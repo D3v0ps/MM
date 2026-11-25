@@ -422,7 +422,11 @@ describe("arenden: övriga ärendekommandon", () => {
     expect(await run(reportApprove, { reportId: closed.reportId }, amira())).toMatchObject({ ok: true });
     expect(await run(reportDeliver, { reportId: closed.reportId }, amira())).toMatchObject({ ok: true });
     const delivered = (await rt.run("query", reportDocument.key, { reportId: closed.reportId }, maria())) as ReportDocResult;
-    expect(delivered.ok && delivered.doc.kind === "final" && delivered.doc.m.months.length).toBe(1);
+    // Miljonbemanning får månadsraderna; kommunen bara närvarograden (Karims beslut 2026-11-25).
+    const internal = (await rt.run("query", reportDocument.key, { reportId: closed.reportId }, amira())) as ReportDocResult;
+    expect(internal.ok && internal.doc.kind === "final" && "months" in internal.doc.m && internal.doc.m.months.length).toBe(1);
+    expect(delivered.ok && delivered.doc.kind === "final" && Object.keys(delivered.doc.m.total)).toEqual(["rate"]);
+    expect(delivered.ok && "months" in delivered.doc.m).toBe(false);
     expect(Date.now() - started).toBeLessThan(2000);
   });
 

@@ -49,7 +49,7 @@ handleCommand(activityMove, { roles: MOVERS }, async (ctx, p) => {
   // (granskningen 2026-11-11) – med datum och kontrollsiffra, så att ett telefon- eller organisationsnummer inte stoppar.
   if (location !== a.location.trim() && hasValidPnr(location)) return fail("location", PLACE_PNR);
   const to = { startsAt: p.startsAt, durationMin: p.durationMin };
-  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat. De står i activity_progress_goals (inte på tillfället – kommunen och
+  // Delmålen (Karims beslut 2026-11-11): utelämnat = oförändrat. De står i activity_progress_goals (inte på tillfället –
   // ekonomen läser tillfällena). Bara delmålen ändrade: inget flyttas och inget meddelande skickas.
   const before = (await ownGoalTags(ctx.repo, [a.id])).get(a.id) ?? [];
   const goalIds = p.progressGoalIds === undefined ? before : [...p.progressGoalIds];

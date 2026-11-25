@@ -5,7 +5,6 @@ import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { attendanceStats } from "@/core/attendance";
 import { BONUS_STATUS_TEXT, progressStepLabel, SPEED_STEP } from "@/core/bonus";
 import { hidesCommercial } from "@/api/tester-access";
 import { duplicateActive } from "@/core/cases";
@@ -33,8 +32,6 @@ const HANDL: readonly Role[] = ["kommun_handlaggare"];
 const profileIncomplete = (p: Profile | null): boolean => !p || !(p.customerUnit ?? "").trim() || p.phone.replace(/\D/g, "").length < 7;
 /** Hur länge en oläst händelse (avböjd beställning, ny coach, orderbekräftelse) visas på startsidan. Gränssnittsval, inte ett avtalsvärde. */
 const EVENT_DAYS = 14;
-/** Närvarograden på deltagarens sida i portalen räknas över så här många dagar ("senaste månaden"). Gränssnittsval. */
-const ATTENDANCE_DAYS = 30;
 /** Avböjda beställningar syns i standardfiltret så här länge, så att handläggaren hittar orsaken. Gränssnittsval. */
 const DECLINED_VISIBLE_DAYS = 30;
 const OPEN_STATUSES: readonly CaseStatus[] = ["received", "acknowledged", "confirmed", "active", "paused"];
@@ -219,12 +216,12 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
   if (access !== "customer") return { kind: "denied" as const };
   const person = await ctx.repo.table("persons").get(c.personId);
   const kc = komCase(c, viewer, k);
-  const db = await loadDb(ctx.repo, ["activities", "attendance", "messages", "case_status_history", "reports", "case_seen"], {
-    activities: { caseId: c.id }, attendance: { caseId: c.id }, messages: { caseId: c.id }, case_status_history: { caseId: c.id },
-    reports: { caseId: c.id }, case_seen: { userId: me, caseId: c.id },
+  // Ingen närvaro, inga tillfällen och inga mötesrapporter (Karims beslut 2026-11-25): sidan läser varken activities, attendance
+  // eller check_ins – kommunen får inte läsa dem (RLS 0044, policy.ts). Närvaron finns i de levererade veckorapporterna.
+  const db = await loadDb(ctx.repo, ["messages", "case_status_history", "reports", "case_seen"], {
+    messages: { caseId: c.id }, case_status_history: { caseId: c.id }, reports: { caseId: c.id }, case_seen: { userId: me, caseId: c.id },
   });
   const byCase = new Map([[c.id, c]]);
-  const env = { now, cfg };
 
   const msgs = db.messages.slice().sort(by("createdAt")).map((m) => komMessage(k, m));
   // Rapporter: levererade till läsaren (policyn).
@@ -247,18 +244,6 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
   }
   const oc = reps.find((r) => r.kind === "order_confirmation");
 
-  // Närvarograden de senaste 30 dagarna (när insatsen har startat) – en rad i portalen, ingen uppdelning (beslut 2026-10-09).
-  // En avslutad insats räknas fram till slutdatumet (den sista månaden i insatsen), så att raden inte ser oregistrerad ut
-  // efteråt. Perioden börjar aldrig före startdatumet. planned skiljer "inga tillfällen" från "inte registrerad än".
-  let attendance: KomCaseDetail["attendance"] = null;
-  if (c.startDate && c.startDate <= today) {
-    const ended = !!c.endDate && c.endDate < today;
-    const to = ended ? (c.endDate as string) : today;
-    const from = addDays(to, -(ATTENDANCE_DAYS - 1));
-    const s = attendanceStats(db, c.id, from < c.startDate ? c.startDate : from, to, env);
-    attendance = { rate: s.rate, planned: s.planned, ended };
-  }
-
   // Deltagaren: maskerat personnummer (hela numret bara via kommun.visaPersonnummer, som loggas).
   const pnr = person ? revealPnr(ctx.crypto, person) : null;
   const masked = person ? (pnr ? `${pnr.slice(0, pnr.length - 4).replace(/\d/g, "•")}${person.personnummerLast4}` : person.personnummerLast4 ? `••••••••-${person.personnummerLast4}` : null) : null;
@@ -275,7 +260,6 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
     bonus: await bonusRows(ctx, [c.id], byCase),
     // Orderbekräftelsen – inget ordervärde, inget pris och ingen beställarreferens (synpunkt #10 och #11).
     order: { coachName: c.leadCoachId ? k.name(c.leadCoachId) : null, ocReportId: oc?.id ?? null },
-    attendance,
     // Beslut 2026-10-09: ingen kontaktväg, bostadsort, bakgrundsinformation eller bilagor på deltagarens sida i portalen.
     participant: { pnrMasked: masked, canReveal: !!masked },
     seesCoachNotes: cfg.customerVisibility.seesCoachNotes,

@@ -95,44 +95,50 @@ describe("startsidan och listorna – samma siffror som den gamla prototypen", (
 });
 
 describe("deltagarens sida", () => {
-  it("Nadia: orderbekräftelse, närvaro och maskerat personnummer", async () => {
+  it("Nadia: orderbekräftelse och maskerat personnummer", async () => {
     const d = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;
     expect(d.kind).toBe("ok");
     expect(d.order).toMatchObject({ coachName: "Amira Haddad" });
     // Inget ordervärde, pris eller beställarreferens i portalen (synpunkt #10 och #11).
     for (const key of ["weeks", "priceOre", "valueOre", "buyerReference"]) expect(d.order).not.toHaveProperty(key);
     expect(JSON.stringify(d)).not.toMatch(/4410023817|139800|1398000|valueOre|priceOre/);
-    // Närvaron är en rad: närvarograden de senaste 30 dagarna – ingen uppdelning i giltig och ogiltig frånvaro (beslut 2026-10-09).
-    // Testdatat för Nadia 3 januari–1 februari 2027 (startade 14 december): 11 passerade tillfällen – 8 närvarande, 1 sen och
-    // 2 oregistrerade. Närvarograden räknas på de registrerade: (8 + 1) / 9 = 100 %.
-    expect(d.attendance).toEqual({ rate: 1, planned: 11, ended: false });
-    expect(JSON.stringify(d)).not.toMatch(/absentValid|absentInvalid|repeated|unregistered/);
     expect(d.participant).toEqual({ pnrMasked: "••••••••-9545", canReveal: true });
-    // Inget team och inget ordererkännande att visa (beslut 2026-10-09) – orderbekräftelsen finns kvar.
+    // Inget team och inget ordererkännande att visa (beslut 2026-10-09) – orderbekräftelsen finns kvar, med första mötet.
     expect(Object.keys(d.order).sort()).toEqual(["coachName", "ocReportId"]);
     expect(d.order.ocReportId).toEqual(expect.any(String));
+    expect(d.case.firstMeetingAt).toBe("2026-12-14T10:00");
     expect(JSON.stringify(d)).not.toContain("19730216");
   });
-  it("närvarograden: perioden börjar aldrig före startdatumet, en avslutad insats räknas fram till slutdatumet, inga tillfällen är inte 'inte registrerad'", async () => {
-    const att = async (caseId: string) => ((await ask(kommunCase, { caseId }, maria())) as KomCaseDetail).attendance;
-    // BOT-27-0004 startade 11 januari (inom 30 dagar): 10 tillfällen 11 januari–1 februari – 8 närvarande, 1 sen och 1 giltig
-    // frånvaro = 9 / 10. Ett registrerat tillfälle före startdatumet (påhittat här) räknas inte med.
-    const early = "case-270004";
-    expect(rows("cases").find((c) => c.id === early)?.startDate).toBe("2027-01-11");
-    expect(await att(early)).toEqual({ rate: 0.9, planned: 10, ended: false });
-    rt.store.insertRow("activities", { id: "act-fore-start", caseId: early, kind: rows("activities").find((a) => a.caseId === early)!.kind, startsAt: "2027-01-08T10:00", durationMin: 60, location: "Alby", note: "", groupActivityId: null, inviteSource: "manual" });
-    rt.store.insertRow("attendance", { id: "att-fore-start", activityId: "act-fore-start", caseId: early, status: "absent_invalid", reason: "Uteblev utan att meddela", registeredBy: "u-amira", registeredAt: "2027-01-08T12:00", customerNotifiedAt: null, source: "manual" });
-    expect(await att(early), "tillfället före startdatumet räknas inte").toEqual({ rate: 0.9, planned: 10, ended: false });
-    // BOT-26-0094 avslutades 18 december 2026 (mer än 30 dagar sedan): de sista 30 dagarna i insatsen, 19 november–18
-    // december – 13 tillfällen, alla närvarande. Tidigare räknades fönstret till i dag och visade "inte registrerad än".
-    expect(rows("cases").find((c) => c.id === "case-260094")).toMatchObject({ status: "closed", endDate: "2026-12-18" });
-    expect(await att("case-260094")).toEqual({ rate: 1, planned: 13, ended: true });
-    // BOT-26-0082 (9 november–4 december 2026) är kortare än 30 dagar: hela insatsen – 12 tillfällen, 10 närvarande och 2 med giltig frånvaro.
-    expect(await att("case-260082")).toEqual({ rate: 10 / 12, planned: 12, ended: true });
-    // BOT-27-0046 startar i dag: inga passerade tillfällen – planned 0 (skärmen skriver "inga tillfällen", inte "inte registrerad än").
-    expect(await att("case-270046")).toEqual({ rate: null, planned: 0, ended: false });
-    // Inte startad: ingen närvarorad.
-    expect(await att(MALL)).toBeNull();
+  it("ingen närvaro, inga tillfällen och inga möten på deltagarens sida (Karims beslut 2026-11-25) – för alla handläggare och ärenden", async () => {
+    // Svaret har exakt de här fälten – ingen närvarograd (attendance) och inga tillfällen, mötesrapporter eller mötestider.
+    const KEYS = ["bonus", "canWrite", "case", "coachChanges", "customerName", "kind", "messages", "order", "participant", "reports", "seesCoachNotes", "tasks", "today", "unreadReports", "unseenEvents"];
+    const kommun = listPersonas(rt.raw()).filter((p) => p.actor.role === "kommun_handlaggare").map((p) => p.actor);
+    expect(kommun.map((a) => a.userId).sort()).toEqual(["k-ahmed", "k-linda", "k-maria", "k-omar"]);
+    let pages = 0;
+    for (const a of kommun) {
+      for (const c of rows("cases").filter((x) => x.referrerId === a.userId)) {
+        const d = (await ask(kommunCase, { caseId: c.id }, a)) as KomCaseDetail;
+        if (d.kind !== "ok") continue;
+        pages++;
+        expect([c.id, Object.keys(d).sort()]).toEqual([c.id, KEYS]);
+        for (const key of ["meetingDay", "meetingTime", "activities", "attendance", "checkIns", "nextMeeting"]) expect(d.case, `${c.id} ${key}`).not.toHaveProperty(key);
+        // Inga id:n för ärendets tillfällen, närvaro eller mötesrapporter i svaret.
+        const json = JSON.stringify(d);
+        const ids = [...rows("activities"), ...rows("attendance"), ...rows("check_ins")].filter((x) => x.caseId === c.id).map((x) => x.id);
+        expect([c.id, ids.filter((id) => json.includes(`"${id}"`))]).toEqual([c.id, []]);
+      }
+    }
+    expect(pages, "handläggarnas egna ärenden prövas").toBeGreaterThan(50);
+  });
+  it("sidan bygger inte på närvaron: en ändrad närvaro eller ett nytt tillfälle ändrar inte svaret", async () => {
+    const before = await ask(kommunCase, { caseId: NADIA }, maria());
+    const act = rows("activities").find((a) => a.caseId === NADIA && !rows("attendance").some((t) => t.activityId === a.id) && a.startsAt < "2027-02-01")!;
+    expect(act, "ett passerat oregistrerat tillfälle i testdatat").toBeTruthy();
+    rt.store.insertRow("attendance", { id: "att-x-kommun", activityId: act.id, caseId: NADIA, status: "absent_invalid", reason: "Uteblev utan att meddela", registeredBy: "u-amira", registeredAt: "2027-01-30T12:00", customerNotifiedAt: null, source: "manual" });
+    rt.store.insertRow("activities", { id: "act-x-kommun", caseId: NADIA, kind: act.kind, startsAt: "2027-02-03T10:00", durationMin: 60, location: "Tumba", note: "Möte om frånvaron", groupActivityId: null, inviteSource: "manual" });
+    const after = await ask(kommunCase, { caseId: NADIA }, maria());
+    expect(after).toEqual(before);
+    expect(JSON.stringify(after)).not.toMatch(/Uteblev|Möte om frånvaron|act-x-kommun|att-x-kommun/);
   });
   it("yrkesspåret och fasen lämnas inte ut på deltagarens sida – fasen finns bara i listans rad (beslut 2026-10-09)", async () => {
     const d = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;

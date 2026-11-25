@@ -473,11 +473,13 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesf�
   expect(t).toMatch(/Omfattning\s+10 veckor, till 19 februari 2027/);
   expect(t).not.toMatch(/Beställningens värde|Beställarreferens|\d\s?kr\b/);
   expect(t).toMatch(/Första mötet\s+måndag 14 december 2026 klockan 10\.00, Alby/);
-  // Beslut 2026-10-09: närvaron är en rad – närvarograden senaste månaden och länken till rapporterna (där veckorapporterna
-  // finns). Nadia 3 januari–1 februari: 8 närvarande och 1 sen av 9 registrerade tillfällen = 100 %.
-  expect(t, "närvarograden senaste månaden").toMatch(/Närvarograd senaste månaden: 100\s%/);
-  await expect(card(page, "Närvaro").getByRole("link", { name: "Till rapporterna" })).toHaveCount(1);
-  expect(t, "ingen uppdelning i giltig och ogiltig frånvaro").not.toMatch(/Giltig frånvaro|Ogiltig frånvaro|Närvarande \d+ av/);
+  // Karims beslut 2026-11-25: ingen närvaro och inga tillfällen eller möten på deltagarens sida – närvaron finns bara i de
+  // levererade veckorapporterna (test 5c). Första mötet står kvar i orderbekräftelsen (ovan).
+  await expect(card(page, "Närvaro"), "inget kort Närvaro").toHaveCount(0);
+  expect(t, "ingen närvarograd, frånvaro eller närvaro").not.toMatch(/Närvarograd|närvaro|Giltig frånvaro|Ogiltig frånvaro|Närvarande \d+ av/i);
+  const timeline = await card(page, "Så långt har insatsen kommit").innerText();
+  expect(timeline, "tidslinjen har bara beställningens steg").toMatch(/Mottagen[\s\S]*Ordererkänd[\s\S]*Bekräftad[\s\S]*Pågår[\s\S]*Avslutad/);
+  expect(timeline, "inga möten eller tillfällen i tidslinjen").not.toMatch(/möte|tillfälle|avstämning|närvaro/i);
   // Ingen fasstapel och inget fasnamn, inget team, inget ordererkännande att visa och inga uppgifter som tagits bort.
   expect(t).not.toMatch(/Fas \d+ av \d+|fas \d+ av/);
   await expect(main(page).getByRole("progressbar")).toHaveCount(0);
@@ -583,19 +585,42 @@ test("5. rapporter och meddelanden: olästa först, filtren Olästa och Alla, tr
   await main(page).locator("section").first().getByRole("link").first().click();
   await expect.poll(() => currentPath(page, info), { message: "tråden öppnas i deltagarens meddelandeflik" }).toMatch(/^\/portal\/deltagare\/[^?]+\?flik=meddelanden$/);
 
-  // En avslutad insats (BOT-26-0094, avslutad 18 december 2026): närvarograden för den sista månaden i insatsen – inte
-  // "inte registrerad än" – och slutrapporten går att öppna från deltagarens flik Rapporter.
+  // En avslutad insats (BOT-26-0094, avslutad 18 december 2026): ingen närvaro (Karims beslut 2026-11-25) – och slutrapporten
+  // går att öppna från deltagarens flik Rapporter.
   await go(page, info, `/portal/deltagare/${SC.closed}`, MARIA);
   const closed = await mainText(page);
   expect(closed).toMatch(/Insatsen avslutades 18 december 2026/);
-  expect(closed, "närvaron för den sista månaden i insatsen").toMatch(/Närvarograd den sista månaden i insatsen: 100\s%/);
-  expect(closed).not.toMatch(/inte registrerad än/);
+  expect(closed, "ingen närvaro för en avslutad insats").not.toMatch(/Närvarograd|närvaro|inte registrerad än/i);
   await page.getByRole("tab", { name: /Rapporter/ }).click();
   await main(page).getByRole("link", { name: /Slutrapport/ }).click();
   await expect.poll(() => currentPath(page, info), { message: "slutrapporten öppnas i portalens rapportsida" }).toMatch(/^\/portal\/rapporter\/[^?]+/);
   await settle(page);
   await expect(main(page)).toContainText("Slutrapport");
   await expect(main(page)).toContainText("BOT-26-0094");
+  expect(errors).toEqual([]);
+});
+
+// ================================================================ 5c. Veckorapporten om närvaro (Karims beslut 2026-11-25)
+test("5c. närvaron finns bara i de levererade veckorapporterna: veckorapporten öppnas under Rapporter med tillfällena – deltagarens sida har ingen närvaro", async ({ page }, info) => {
+  const errors = await open(page, info, `/portal/deltagare/${SC.nadia}`, MARIA);
+  await settle(page);
+  await expect(main(page)).toContainText("BOT-26-0143");
+  await expect(card(page, "Närvaro"), "inget kort Närvaro på deltagarens sida").toHaveCount(0);
+  expect(await mainText(page)).not.toMatch(/Närvarograd|närvaro/i);
+  // Veckorapporten för vecka 3 (18–24 januari 2027), levererad till Maria, i listan under Rapporter och meddelanden.
+  await go(page, info, "/portal/rapporter", MARIA);
+  await page.getByRole("group", { name: "Visa rapporter" }).getByRole("button", { name: /^Alla/ }).click();
+  const weekly = main(page).locator("section").last().getByRole("link", { name: /Veckorapport närvaro, vecka 3\b/ });
+  await expect(weekly).toHaveCount(1);
+  await weekly.click();
+  await expect.poll(() => currentPath(page, info), { message: "veckorapporten öppnas i portalens rapportsida" }).toMatch(/^\/portal\/rapporter\/rep-16688(\?|$)/);
+  await settle(page);
+  await expect(main(page)).toContainText(/Veckorapport närvaro/i);
+  // Rapporten visar tillfällena per deltagare: underlaget läses i ett systemsteg och fryses när rapporten öppnas – kommunen läser
+  // aldrig närvaron själv (0044).
+  const nadia = main(page).locator("div").filter({ has: page.getByRole("heading", { level: 3, name: /Nadia Warsame · BOT-26-0143/ }) }).last();
+  await expect(nadia, "Nadias avsnitt").toHaveCount(1);
+  await expect(nadia.locator("tbody tr").first(), "minst ett tillfälle med närvaro").toContainText(/klockan \d{1,2}[.:]\d{2}[\s\S]*(Närvarande|Sen|Frånvaro|Ej registrerad)/);
   expect(errors).toEqual([]);
 });
 
