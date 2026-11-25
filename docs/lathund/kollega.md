@@ -226,6 +226,15 @@ Det här händer:
 
 Samordnaren, avtalsansvarig, coachen och systemadministratören kan ändra kontaktvägen. Systemadministratören kan inte ändra något annat i ärendet. Revisionsloggen visar vilka fält som ändrades, aldrig vad som står i dem.
 
+### Flikarna på deltagarkortet
+
+Deltagarkortet har sex flikar: **Översikt**, **Närvaro**, **Möten**, **Anteckningar**, **Delmål** och **Progression och resultat**. Resten finns under **Mer** sist i raden: **Tidslinje**, **Kartläggning**, **Månadsunderlag**, **Avvikelser**, **Praktik**, **Rapporter**, **Meddelanden** och **Historik**.
+
+1. Tryck på **Mer**.
+2. Välj fliken.
+
+Står det till exempel **Mer: Kartläggning** är du på fliken Kartläggning. En siffra vid **Mer** betyder att något väntar där, till exempel ett oläst meddelande från kommunen. Fliken **Delmål** finns när avtalet har delmål.
+
 ### Filer på deltagarkortet
 
 Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på deltagarkortets **Översikt**. Filerna syns bara för Miljonbemanning. Kommunen ser dem aldrig.
@@ -265,7 +274,7 @@ Den som kartlägger väljer deltagarens nivå och taggar i kortet **Nivå och yr
 1. Välj **Nivå**: en av fem nivåer, från **Nivå 1 – Långt från arbete** till **Nivå 5 – Redo för arbete**. En deltagare har alltid exakt en nivå.
 2. Välj **Vill arbeta**: **Heltid**, **Deltid** eller **Vet inte än**. Det är deltagarens eget svar.
 3. Valen sparas direkt. Deltagaren bjuds in automatiskt till nivåns aktiviteter.
-4. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. **Samtal med deltagaren** och dagens datum är förvalda. Anteckningen hamnar under fliken **Anteckningar** och i **Tidslinje**.
+4. Vill du skriva något till coacherna? Tryck på **Skriv anteckning** på deltagarkortets **Översikt**. **Samtal med deltagaren** och dagens datum är förvalda. Anteckningen hamnar under fliken **Anteckningar** och i **Tidslinje** under **Mer**.
 
 Går deltagaren framåt? I deltagarkortets huvud står nivån, yrkesområdet och taggarna. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
 
@@ -383,7 +392,7 @@ Har tiderna ändrats efter att du kopierade texten? Då står den nya texten på
 
 ### Delmål
 
-Delmålen är konkreta steg i varje progressionsområde, till exempel ”Har ett uppdaterat CV”. De står i kortet **Delmål** under deltagarkortets flik **Händelser och utfall**. Kommunen ser dem aldrig.
+Delmålen är konkreta steg i varje progressionsområde, till exempel ”Har ett uppdaterat CV”. De står under deltagarkortets flik **Delmål**. Kommunen ser dem aldrig.
 
 - **Inte påbörjat** – inget har hänt ännu.
 - **Tränar (automatiskt)** – deltagaren har varit närvarande eller kommit sent på ett tillfälle som tränar delmålet. Appen sätter det själv. Frånvaro räknas inte.
@@ -402,7 +411,7 @@ Delmålen sätts på tillfällena med **Tränar delmål**: i Ny aktivitet, i en 
 
 Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och rättar det som inte stämmer.
 
-1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden (till exempel startmånaden när insatsen startade sent i månaden). Då behövs ingen månadsbedömning – dagarna kommer med i veckorapporterna och i slutrapporten.
+1. Tryck på **Mer** i deltagarkortet, välj **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden (till exempel startmånaden när insatsen startade sent i månaden). Då behövs ingen månadsbedömning – dagarna kommer med i veckorapporterna och i slutrapporten.
 2. Varje progressionsområde står på progressionsnivå 0 med märket **Automatiskt – inget belägg**, tills du väljer något annat. **Samlad status** kommer från din senaste godkända mötesrapport. Sammanfattningen och planen är ifyllda och märkta **Ifyllt automatiskt – kontrollera** tills du ändrar dem.
 3. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
    Under varje område står de delmål som deltagaren har uppnått i månaden. De är underlag för dig – progressionsnivån väljer du.
@@ -411,11 +420,11 @@ Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och
 6. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**. Båda ligger längst ned på skärmen och följer med när du skrollar. Har du glömt kryssrutan står det vid rutan. Månadsrapporten till kommunen byggs av den.
 7. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
 
-Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
+Händelser och avslut registrerar du på fliken **Progression och resultat** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
 
 ### Progression och resultat
 
-Progression och resultat redovisas till kommunen i steg (1–5). Reglerna står i kortet **Progression och resultat** under deltagarkortets flik **Händelser och utfall**. Inga belopp syns – bara ekonomen ser belopp. Ekonomen kallar samma steg för bonussteg.
+Progression och resultat redovisas till kommunen i steg (1–5). Reglerna står i kortet **Progression och resultat** under deltagarkortets flik **Progression och resultat**. Inga belopp syns – bara ekonomen ser belopp. Ekonomen kallar samma steg för bonussteg.
 
 1. Miljonmatch föreslår ett underlag när reglerna är uppfyllda, till exempel när arbete med verifiering är registrerat. Förslaget står på Min vecka som **Progression att granska**. Du kan också trycka på **Skapa underlag** i kortet **Progression och resultat**.
 2. Tryck på **Öppna förslaget** eller **Granska och skicka**.
