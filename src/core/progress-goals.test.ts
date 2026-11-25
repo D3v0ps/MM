@@ -5,7 +5,7 @@ import type { CaseProgressGoal, GroupActivity } from "@/data/schema";
 import { STEP_ITEMS } from "@/data/schema";
 import { BOTKYRKA_CONFIG, bonusModel } from "./config";
 import {
-  caseGoalId, DEFAULT_PROGRESS_GOALS, defaultGoalId, defaultProgressGoals, goalLabelProblem, goalStateText, goalTagsProblem, sortGoals, step1ItemsMet, step2ReachedOn, stepItemMin,
+  achievedOnProblem, caseGoalId, DEFAULT_PROGRESS_GOALS, defaultGoalId, defaultProgressGoals, goalLabelProblem, goalStateText, goalTagsProblem, sortGoals, step1ItemsMet, step2ReachedOn, stepItemMin,
   stepItemStatuses, trainingRowsToAdd,
 } from "./progress-goals";
 import { mkActivity, mkAttendance } from "./test-data";
@@ -128,6 +128,13 @@ describe("punkterna i steg 1–2 ur de uppnådda delmålen", () => {
 });
 
 describe("läget, namnen och taggarna", () => {
+  it("dagen för Uppnått: i dag eller tidigare, inte före startdatumet (Markera uppnått och punkternas dialog)", () => {
+    expect(achievedOnProblem("2027-02-01", "2026-12-11", "2027-02-01")).toBeNull();
+    expect(achievedOnProblem("2026-12-11", "2026-12-11", "2027-02-01")).toBeNull();
+    expect(achievedOnProblem("2026-12-10", "2026-12-11", "2027-02-01")).toBe("Datumet kan inte vara före startdatumet 11 dec 2026.");
+    expect(achievedOnProblem("2027-02-02", "2026-12-11", "2027-02-01")).toBe("Datumet kan inte vara i framtiden.");
+    expect(achievedOnProblem("", "2026-12-11", "2027-02-01")).toBe("Välj datum.");
+  });
   it("läget som text: Inte påbörjat, Tränar (automatiskt), Tränar, Uppnått med datum", () => {
     expect(goalStateText(null)).toBe("Inte påbörjat");
     expect(goalStateText(row("c1", 1, "training", null, "auto"))).toBe("Tränar (automatiskt)");

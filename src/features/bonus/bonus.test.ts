@@ -75,6 +75,29 @@ describe("coachen: kortet Bonus och granskningen", () => {
     await expect(q(bonusCard, { caseId: "case-260008" }, lars())).rejects.toBeInstanceOf(ApiError);
   });
 
+  it("Skapa underlag står bara på stegets rad där reglerna inte täcker det (Karims beslut 2026-11-25) – ingen förklaring av stegen", async () => {
+    const offered = async (caseId: string) => {
+      const v = await q(bonusCard, { caseId }, erik());
+      if (!v.on) throw new Error("bonus av");
+      expect(Object.keys(v)).not.toContain("rules");
+      expect(v.steps.every((s) => !("createProblem" in s))).toBe(true);
+      return v.steps.filter((s) => s.canCreate).map((s) => s.step);
+    };
+    // Ett pågående ärende utan anspråk: inget – punkterna i steg 1–2 kryssas i och reglerna föreslår.
+    expect(await offered("case-260130")).toEqual([]);
+    // Förslag till steg 3 och 5: inget nytt att skapa (steg 4 föreslås när tiden har gått).
+    expect(await offered("case-260043")).toEqual([]);
+    // Steg 3 avslaget av kommunen: ett nytt underlag för steg 3 (samma underlag föreslås aldrig igen).
+    expect(await offered("case-260064")).toEqual([3]);
+    // Skapa på raden: ett förslag att granska, källa manual.
+    const created = await cmd(bonusCreate, { caseId: "case-260064", step: 3 }, erik());
+    expect(created).toMatchObject({ ok: true });
+    expect(await offered("case-260064")).toEqual([]);
+    // Den som läser (chefen) har ingen knapp.
+    const chef = await q(bonusCard, { caseId: "case-260064" }, as("u-karin", "chef"));
+    expect(chef.on && chef.steps.some((s) => s.canCreate)).toBe(false);
+  });
+
   it("granskningen säger vad som saknas; personnummer i texten stoppas; skicka fryser underlaget och mejlar handläggaren", async () => {
     const r = await q(bonusReview, { claimId: S3 }, erik());
     expect(r).toMatchObject({ step: 3, status: "suggested", canAct: true, needsVerification: true });

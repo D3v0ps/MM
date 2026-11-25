@@ -405,6 +405,8 @@ Delmålen är konkreta steg i varje progressionsområde, till exempel ”Har ett
 
 Blev det fel? Tryck på **Ångra** och välj **Tränar** eller **Inte påbörjat**.
 
+Delmål som fyller en punkt i steg 1 eller 2 kan du också kryssa i direkt i kortet **Progression och resultat**. Se nedan.
+
 Delmålen sätts på tillfällena med **Tränar delmål**: i Ny aktivitet, i en återkommande aktivitet och i deltagarens egna tillfällen (**Lägg till aktivitet** och **Ändra tid**). Coachen, samordnaren och avtalsansvarig markerar uppnått. Avtalsansvarig bestämmer vilka delmål som finns.
 
 ### Månadsbedömning
@@ -424,15 +426,27 @@ Händelser och avslut registrerar du på fliken **Progression och resultat** med
 
 ### Progression och resultat
 
-Progression och resultat redovisas till kommunen i steg (1–5). Reglerna står i kortet **Progression och resultat** under deltagarkortets flik **Progression och resultat**. Inga belopp syns – bara ekonomen ser belopp. Ekonomen kallar samma steg för bonussteg.
+Progression och resultat redovisas till kommunen i steg (1–5). Stegen står i kortet **Progression och resultat** under deltagarkortets flik **Progression och resultat**. Inga belopp syns – bara ekonomen ser belopp. Ekonomen kallar samma steg för bonussteg.
 
-1. Miljonmatch föreslår ett underlag när reglerna är uppfyllda, till exempel när arbete med verifiering är registrerat. Förslaget står på Min vecka som **Progression att granska**. Du kan också trycka på **Skapa underlag** i kortet **Progression och resultat**.
+Punkterna i steg 1 och 2 – till exempel **Förbättrade ansökningshandlingar** – fyller du i direkt i kortet:
+
+1. Tryck på punkten.
+2. Kryssa i de delmål som deltagaren har klarat.
+3. **Datum** är i dag. I en avslutad insats är det slutdatumet. Ändra om deltagaren klarade det tidigare.
+4. Välj **Underlag** om du vill: ett tillfälle, en mötesrapport eller en anteckning i ärendet.
+5. Tryck på **Spara**.
+
+Punkten visar **Uppfyllt** när tillräckligt många delmål är uppnådda. Förbättrade ansökningshandlingar kräver två delmål. Blev det fel? Tryck på punkten och ta bort krysset. Välj **Tränar** eller **Inte påbörjat** och tryck på **Spara**. Delmålen står också under fliken **Delmål**. Kommunen ser bara om punkten är uppfylld – aldrig delmålen.
+
+Steg 1 föreslås när närvaron räcker, två månadsbedömningar är godkända och alla fyra punkter är uppfyllda. Steg 2 föreslås när en punkt i steg 2 är uppfylld.
+
+1. Miljonmatch föreslår ett underlag när reglerna är uppfyllda, till exempel när punkterna är uppfyllda eller när arbete med verifiering är registrerat. Förslaget står i kortet och på Min vecka som **Progression att granska**.
 2. Tryck på **Öppna förslaget** eller **Granska och skicka**.
 3. Fyll i vilken verifiering som finns och verifieringens datum. Skriv aldrig personnummer.
 4. Läs förhandsvisningen av redovisningsunderlaget. Tryck på **Spara**.
 5. Tryck på **Skicka till kommunen**. Underlaget låses och handläggaren får ett mejl med bara ärendenumret.
 
-Punkterna i steg 1 och 2 – till exempel **Förbättrade ansökningshandlingar** – fylls av uppnådda delmål. I kortet och i granskningen står det vid varje punkt om den är **Uppfyllt** eller **Inte uppfyllt** och vilka delmål som fyller den. Steg 1 föreslås när närvaron räcker, två månadsbedömningar är godkända och alla fyra punkter är uppfyllda. Förbättrade ansökningshandlingar kräver två delmål. Kommunen ser bara om punkten är uppfylld – aldrig delmålen.
+Står det **Skapa underlag** vid ett steg kan du skapa underlaget själv. Det gäller till exempel när kommunen har avslagit ett tidigare underlag, eller när deltagaren har fått arbete eller börjat studera men verifieringen inte är registrerad.
 
 Ett skickat anspråk kan du återta med **Återta anspråket** tills kommunen beslutat. När kommunen beslutat får huvudcoachen en notis. Har kommunen svarat med mejl registrerar samordnaren eller avtalsansvarig beslutet med **Registrera beslutet**.
 

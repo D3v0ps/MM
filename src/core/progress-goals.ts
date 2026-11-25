@@ -101,6 +101,16 @@ export function goalStateText(row: Pick<CaseProgressGoal, "status" | "source" | 
   if (row.status === "training") return row.source === "auto" ? "Tränar (automatiskt)" : "Tränar";
   return row.achievedOn ? `Uppnått ${fmtDate(row.achievedOn)}` : "Uppnått";
 }
+/**
+ * Dagen för Uppnått: i dag eller tidigare, inte före insatsens startdatum (också databasen prövar det, 0043). null = godkänd, annars
+ * felet i klarspråk. Samma prövning i hanteraren (delmal.uppnatt) och i dialogerna innan något sparas.
+ */
+export function achievedOnProblem(day: LocalDate, startDate: LocalDate | null, today: LocalDate): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "Välj datum.";
+  if (day > today) return "Datumet kan inte vara i framtiden.";
+  if (startDate && day < startDate) return `Datumet kan inte vara före startdatumet ${fmtDate(startDate)}.`;
+  return null;
+}
 /** Radens fasta id: ett läge per ärende och delmål (också primärnyckeln stoppar en andra rad). */
 export const caseGoalId = (caseId: string, goalId: string): string => `cpg-${caseId}-${goalId}`;
 
