@@ -51,7 +51,7 @@ export type TimelineOpts = {
 
 /** Månader per svar. */
 export const TIMELINE_PAGE_MONTHS = 3;
-/** Händelser som räknas som arbetsgivarkontakter – teamet ser bara dem (samma som fliken Händelser). */
+/** Händelser som räknas som arbetsgivarkontakter – teamet ser bara dem (samma som fliken Progression och resultat för teamet). */
 export const TEAM_EVENT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
 /** Arbetar i ärendet och får skriva anteckningar (policyns CASE_WORKERS). Chef och systemadministratör läser bara. */
 const WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
