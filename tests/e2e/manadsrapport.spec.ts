@@ -1,6 +1,6 @@
 // Den interna månadsrapporten (Karims beslut 2026-11-18) – samma test mot prototypen och appen. Bara för Miljonbemanning:
-// samordnaren öppnar rapporten från menyn, byter månad och yrkesområde (adressen har bara koder) och laddar ned PDF:en.
-// Ekonomen och kommunen har ingen åtkomst.
+// samordnaren öppnar rapporten från menyn, fäller ut en deltagare, byter månad och yrkesområde (adressen har bara koder) och laddar
+// ned PDF:en. Coachen ser rapporten utan resultatgraden. Ekonomen och kommunen har ingen åtkomst.
 import fs from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { open } from "./helpers";
@@ -27,6 +27,19 @@ test("samordnaren öppnar rapporten, byter månad och yrkesområde och laddar ne
   await expect(main(page).getByRole("img", { name: /^Närvarograd per yrkesområde, januari 2027/ })).toBeVisible();
   await expect(main(page).getByRole("table", { name: "Start och slut per yrkesområde, januari 2027" })).toContainText("G Lager och logistik");
   await expect(main(page).getByRole("heading", { level: 2, name: /Per deltagare \(134\)/ })).toBeVisible();
+  // Samordnaren ser resultatgraden.
+  await expect(main(page).getByText(/^Resultatgrad januari 2027$/)).toBeVisible();
+  // Raden fälls ut med frånvaron uppdelad och nivåerna per progressionsområde.
+  const people = main(page).getByRole("table", { name: "Deltagare i januari 2027" });
+  const more = people.getByRole("button", { name: /^Mer om BOT-/ }).first();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+  await more.click();
+  await expect(more).toHaveAttribute("aria-expanded", "true");
+  const detail = page.locator(`#${await more.getAttribute("aria-controls")}`);
+  await expect(detail).toContainText("Ej registrerade");
+  await expect(detail).toContainText("Progressionsområden");
+  await more.click();
+  await expect(detail).toHaveCount(0);
 
   // Byt månad: februari pågår.
   await month.selectOption("2027-02");
@@ -58,6 +71,10 @@ test("coachen har rapporten i menyn; ekonomen och kommunen har ingen åtkomst", 
   await open(page, info, "/manadsrapport?manad=2027-01&sortera=narvaro", AMIRA);
   await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Intern månadsrapport");
   await expect(main(page).getByLabel("Sortera", { exact: true })).toHaveValue("narvaro");
+  // Coachen får inte resultatgraden (Karims beslut 2026-11-24) – resten av avsnittet Resultat finns.
+  await expect(main(page).getByRole("heading", { level: 2, name: "Resultat", exact: true })).toBeVisible();
+  await expect(main(page).getByText("Verifierade resultat")).toBeVisible();
+  await expect(main(page)).not.toContainText("Resultatgrad");
   await expect(page.locator("aside nav").getByRole("link", { name: "Intern månadsrapport" })).toBeVisible();
   await open(page, info, "/manadsrapport", LARS);
   await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");

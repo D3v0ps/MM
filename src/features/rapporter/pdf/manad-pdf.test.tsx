@@ -94,15 +94,14 @@ describe("PDF för den interna månadsrapporten", () => {
     const pages = await pdfPages(buf);
     expect(pages.length).toBeGreaterThan(2);
     for (const pg of pages) for (const l of pg.lines) expect(l.y, l.text).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
-  it("aldrig delmålens namn eller nivåernas, taggarnas och gruppernas namn – förra och innevarande månad", async () => {
-    for (const month of ["2027-01", "2027-02"]) {
-      const text = squash(await pdfText(await render(await model({ month }))));
-      expect(text, month).not.toMatch(/DELMALSNAMN|GRUPPERINGSNAMN|TAGGKATEGORI/);
-      for (const g of data.progress_goals) expect(text).not.toContain(g.id);
-    }
-  });
+  // En PDF per test – bilagan gör renderingen långsam (testTimeout 20 s när allt körs samtidigt).
+  it.each(["2027-01", "2027-02"])("aldrig delmålens namn eller nivåernas, taggarnas och gruppernas namn (%s)", async (month) => {
+    const text = squash(await pdfText(await render(await model({ month }))));
+    expect(text).not.toMatch(/DELMALSNAMN|GRUPPERINGSNAMN|TAGGKATEGORI/);
+    for (const g of data.progress_goals) expect(text).not.toContain(g.id);
+  }, 60_000);
 
   it("coachens PDF har ingen resultatgrad och inga mål för den (Karims beslut 2026-11-24)", async () => {
     const m = await model({ month: "2027-01" }, actor("u-amira", "coach"));
@@ -111,7 +110,7 @@ describe("PDF för den interna månadsrapporten", () => {
     expect(text).toContain("RESULTAT");
     expect(text).toContain("Verifierade resultat");
     expect(text).not.toMatch(/Resultatgrad|Avtalets mål|Internt mål/);
-  });
+  }, 60_000);
 
   it("ett yrkesområde och innevarande månad: filtret och läget står i informationsblocket", async () => {
     const m = await model({ month: "2027-02", area: "G" });
@@ -119,5 +118,5 @@ describe("PDF för den interna månadsrapporten", () => {
     expect(text).toContain("G Lager och logistik");
     expect(text).toContain("Månaden pågår".toUpperCase());
     expect(text).not.toContain("Alla yrkesområden");
-  });
+  }, 60_000);
 });
