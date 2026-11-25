@@ -54,8 +54,11 @@ export const goalCatalog = query("delmal.katalog", z.object({ contractId: IdSche
 
 const Label = z.string().trim().min(1, "Skriv delmålet.").max(PROGRESS_GOAL_LABEL_MAX);
 const StepItemsSchema = z.array(z.enum(STEP_ITEMS)).max(STEP_ITEMS.length);
-/** Katalogen visas i valen för tillfällena, på deltagarkortet, i månadsbedömningen och i Progression och resultat. */
-const CATALOG_WRITES = [DELMAL, AKTIVITETER, BONUS, "coach.assessmentPage", MANADSRAPPORT, ...LOG] as const;
+/**
+ * Katalogen visas i valen för tillfällena, på deltagarkortet, i månadsbedömningen och i Progression och resultat. CARD: kortet
+ * säger om fliken Delmål visas (CaseCard.progressGoals, Karims beslut 2026-11-25).
+ */
+const CATALOG_WRITES = [DELMAL, AKTIVITETER, BONUS, CARD, "coach.assessmentPage", MANADSRAPPORT, ...LOG] as const;
 
 /** Nytt delmål sist i området. duplicate: ett delmål med samma namn finns redan i området. */
 export const goalCreate = command("delmal.ny", z.object({ contractId: IdSchema, areaKey: z.string().min(1).max(60), label: Label, stepItems: StepItemsSchema }), {

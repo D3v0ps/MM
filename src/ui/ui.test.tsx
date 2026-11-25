@@ -26,6 +26,7 @@ import {
   SlaBadge,
   Status,
   Table,
+  TabPanel,
   Tabs,
   Toaster,
   confirmDialog,
@@ -138,6 +139,55 @@ describe("Tabs", () => {
     expect(screen.getByRole("tab", { name: "Översikt" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tab", { name: "Översikt" }).tabIndex).toBe(0);
     expect(screen.getByRole("tab", { name: "Rapporter" }).tabIndex).toBe(-1);
+    // Utan flikar under Mer: ingen menyknapp.
+    expect(screen.queryByRole("button", { name: /^Mer/ })).toBeNull();
+  });
+
+  // Deltagarkortet (Karims beslut 2026-11-25): flikarna som inte står i raden ligger under menyknappen Mer.
+  type K = "a" | "b" | "k" | "m";
+  function M({ start = "a" as K, onChange }: { start?: K; onChange?: (id: K) => void }) {
+    const [a, setA] = useState<K>(start);
+    return (
+      <>
+        <Tabs
+          id="t"
+          active={a}
+          onChange={(id) => {
+            onChange?.(id);
+            setA(id);
+          }}
+          tabs={[{ id: "a", label: "Översikt" }, { id: "b", label: "Närvaro" }]}
+          more={[{ id: "k", label: "Kartläggning" }, { id: "m", label: "Meddelanden", count: 2 }]}
+        />
+        <TabPanel tabsId="t" active={a}>
+          Panel {a}
+        </TabPanel>
+      </>
+    );
+  }
+  it("Mer: en menyknapp utanför flikraden med summan av siffrorna", () => {
+    render(<M />);
+    const mer = screen.getByRole("button", { name: /^Mer/ });
+    expect(mer.getAttribute("aria-haspopup")).toBe("menu");
+    expect(mer.getAttribute("aria-expanded")).toBe("false");
+    expect(mer.closest("[role=tablist]")).toBeNull();
+    expect(mer.textContent).toContain("2");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Översikt", "Närvaro"]);
+  });
+  it("vald flik under Mer: knappen visar 'Mer: Kartläggning', panelen namnges av den, den första fliken nås med Tab", () => {
+    const changed = vi.fn();
+    render(<M start="k" onChange={changed} />);
+    expect(screen.getByRole("button", { name: /^Mer: Kartläggning/ })).toBeTruthy();
+    expect(screen.getAllByRole("tab").every((t) => t.getAttribute("aria-selected") === "false")).toBe(true);
+    expect(screen.getByRole("tab", { name: "Översikt" }).tabIndex).toBe(0);
+    expect(screen.getByRole("tab", { name: "Närvaro" }).tabIndex).toBe(-1);
+    expect(screen.getByRole("tabpanel", { name: "Kartläggning" }).textContent).toBe("Panel k");
+    // Piltangenterna går från fliken som har fokus.
+    screen.getByRole("tab", { name: "Översikt" }).focus();
+    fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowRight" });
+    expect(changed).toHaveBeenLastCalledWith("b");
+    expect(screen.getByRole("tab", { name: "Närvaro" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: /^Mer/ }).textContent).not.toContain("Kartläggning");
   });
 });
 
