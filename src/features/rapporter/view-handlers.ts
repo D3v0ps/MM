@@ -22,7 +22,8 @@ import { docBase, monthlyDocView } from "./doc-view";
 import { freezeReport } from "./freeze";
 import { contractInfo, loadReportDb, pendingCorrection, recipientOf, reportAccess, versionChain, viewerFor, type ContractInfo, type Viewer } from "./load";
 import {
-  driftedSinceDelivery, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel, summaryFromNumbers,
+  customerFinalModel, customerMonthlyModel, driftedSinceDelivery, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel,
+  summaryFromNumbers,
   type OrderModel, type ReportModel, type SummaryModel,
 } from "./model";
 import { DENIED, effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportFilename, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
@@ -160,11 +161,15 @@ function orderDocModel(m: OrderModel & { price?: unknown }): OrderDocModel {
 
 async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info: ContractInfo, m: ReportModel, profiles: readonly Profile[]): Promise<ReportDocView> {
   const base = docBase(r, info, profiles, m.kind === "weekly_attendance" ? m.recipientUserId : r.recipientUserId);
+  // Kommunens roller får månads- och slutrapporten utan närvarons detaljer (veckor, månader, antal, orsaker, upprepad frånvaro) –
+  // bara närvarograden, som dokumentet visar (Karims beslut 2026-11-25). Den frysta ögonblicksbilden ändras inte; Miljonbemanning
+  // får hela modellen. Veckorapporten om närvaro (avtalets formella rapport) lämnas ut som förut.
+  const customer = isCustomerRole(ctx.actor.role);
   switch (m.kind) {
     case "monthly":
-      return monthlyDocView(base, viewer.name(c), m);
+      return monthlyDocView(base, viewer.name(c), customer ? customerMonthlyModel(m) : m);
     case "final":
-      return { ...base, kind: "final", participant: viewer.name(c), m };
+      return { ...base, kind: "final", participant: viewer.name(c), m: customer ? customerFinalModel(m) : m };
     case "order_confirmation":
       return { ...base, kind: "order_confirmation", participant: viewer.name(c), m: orderDocModel(m) };
     case "customer_summary":
@@ -192,7 +197,7 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
       const pub = info.cfg.sla.find((x) => x.key === "veckorapport_publicering");
       const pubTime = pub?.time || "16:00";
       const pubDay = WEEKDAYS[pub?.weekday ?? 0];
-      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerRole(ctx.actor.role), pubTime, pubDay };
+      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer, pubTime, pubDay };
     }
   }
 }

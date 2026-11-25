@@ -16,7 +16,7 @@ import type { OrderPeriodBasis } from "@/core/early-start";
 import type { WeekPlanRow } from "@/core/schedule";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText, WeekKeySchema } from "../_shared/schemas";
 import type { DecisionForm } from "../inkorg/api";
-import type { ReportDocView } from "../rapporter/api";
+import type { MonthlyModel, ReportDocView } from "../rapporter/api";
 import type { MonthlyGaps } from "../rapporter/model";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -1182,7 +1182,7 @@ export type CaseMonthBasis = {
   /** Det som saknas (null när månaden är levererad, före start eller utan månadsrapport). */
   gaps: MonthlyGaps | null;
   /** Samma dokument som månadsrapporten (monthlyPreview) – null när månaden är levererad, före start eller utan månadsrapport. */
-  doc: Extract<ReportDocView, { kind: "monthly" }> | null;
+  doc: (Extract<ReportDocView, { kind: "monthly" }> & { m: MonthlyModel }) | null;
   /** Den levererade versionen, och en rättelse som är ett utkast. */
   delivered: { reportId: string; deliveredAt: LocalDateTime; version: number; correctionDraft: number | null } | null;
   /** Rapportraden för månaden om den finns (senaste version som inte är ersatt). */

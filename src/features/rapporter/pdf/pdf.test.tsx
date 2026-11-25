@@ -13,6 +13,7 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { createSeed, DEMO_START } from "@/data/seed";
 import { decodeTestPnr } from "@/data/seed/pnr";
 import { reportDocument, type ReportDocResult, type ReportDocView } from "../api";
+import { customerFinalModel, customerMonthlyModel } from "../model";
 import { ReportDocument } from "../components/report-document";
 import { metaTitle, ReportPdf } from "./documents";
 import { pdfMultiUnicodeMappings, pdfPages, pdfText as renderedText, type PdfPage } from "./pdf-text";
@@ -400,6 +401,62 @@ describe("granskningen av rapporterna (2026-10-13)", () => {
       const head = pagesWith("Period");
       expect(head, `extra ${extra}`).toHaveLength(1);
       for (const row of ["Rullande 6 månader", "Sedan avtalets start"]) expect(pagesWith(row), `extra ${extra}: ${row}`).toEqual(head);
+    }
+  }, 120_000);
+});
+
+// ---------------------------------------------------------------- Karims beslut 2026-11-25: kommunen ser inte närvarons detaljer
+describe("kommunens månads- och slutrapport: bara närvarograden lämnas ut – dokumentet ser likadant ut (Karims beslut 2026-11-25)", () => {
+  const KOMMUN = ["k-maria", "k-ahmed", "k-linda", "k-omar"];
+  /** Levererade månads- och slutrapporter till kommunens handläggare (den senaste versionen, som kommunen ser). */
+  const delivered = () =>
+    rt.store.rows("reports").filter((r) => (r.kind === "monthly" || r.kind === "final") && !!r.deliveredAt && !r.superseded && r.deliveredTo.some((u) => KOMMUN.includes(u)));
+  const DETAIL_KEYS = /"(weeks|months|reasons|planned|present|late|absentValid|unregistered)"/;
+
+  it("svaret till kommunen har inga veckor, månader, antal, orsaker eller upprepad frånvaro – Miljonbemanning får hela modellen", async () => {
+    const reps = delivered();
+    expect(reps.filter((r) => r.kind === "monthly").length).toBeGreaterThan(5);
+    expect(reps.filter((r) => r.kind === "final").length).toBeGreaterThan(0);
+    let hits = 0;
+    for (const r of reps) {
+      const kom = await docOf(r.id, as(r.deliveredTo.find((u) => KOMMUN.includes(u))!, "kommun_handlaggare"));
+      const mb = await docOf(r.id, as("u-sara", "samordnare"));
+      if ((kom.kind !== "monthly" && kom.kind !== "final") || kom.kind !== mb.kind) throw new Error(`${r.id}: ${kom.kind}`);
+      // Kommunen: bara närvarograden.
+      expect([r.id, Object.keys(kom.m.total)]).toEqual([r.id, ["rate"]]);
+      for (const key of ["weeks", "months", "reasons", "repeated"]) expect(kom.m, `${r.id} ${key}`).not.toHaveProperty(key);
+      expect([r.id, DETAIL_KEYS.test(JSON.stringify(kom))]).toEqual([r.id, false]);
+      // Avsnitt 6: risken bara när regeln slår till – annars inget antal.
+      if (!kom.m.deviations.repeated.hit) expect([r.id, kom.m.deviations.repeated.count]).toEqual([r.id, 0]);
+      else hits++;
+      // Miljonbemanning: hela modellen, och kommunens vy är exakt den utan detaljerna.
+      const full = mb.m as Record<string, unknown>;
+      expect([r.id, mb.kind === "monthly" ? Array.isArray(full.weeks) : Array.isArray(full.months)]).toEqual([r.id, true]);
+      expect([r.id, Object.keys(full.total as object).sort()]).toEqual([r.id, ["absentInvalid", "absentValid", "late", "planned", "present", "rate", "reasons", "unregistered"]]);
+      expect(kom.m).toEqual(mb.kind === "monthly" ? customerMonthlyModel(mb.m as Parameters<typeof customerMonthlyModel>[0]) : customerFinalModel(mb.m as Parameters<typeof customerFinalModel>[0]));
+      // Samma text i HTML-pappret och i PDF:en (react-pdf-trädet) för kommunen och för Miljonbemanning.
+      expect([r.id, htmlBlocks(kom)]).toEqual([r.id, htmlBlocks(mb)]);
+      expect([r.id, pdfText(<ReportPdf doc={kom} />)]).toEqual([r.id, pdfText(<ReportPdf doc={mb} />)]);
+    }
+    expect(hits, "testdatat har en rapport där risken Upprepad ogiltig frånvaro står i avsnitt 6").toBeGreaterThan(0);
+  }, 120_000);
+
+  it("den renderade PDF:en är likadan för kommunen och Miljonbemanning (text och läge) – månadsrapport och slutrapport", async () => {
+    // Också en rapport där risken "Upprepad ogiltig frånvaro" står i avsnitt 6 (antal och regel visas då för kommunen).
+    let withRisk: string | null = null;
+    for (const r of delivered()) {
+      const mb = await docOf(r.id, as("u-sara", "samordnare"));
+      if ((mb.kind === "monthly" || mb.kind === "final") && mb.m.deviations.repeated.hit) {
+        withRisk = r.id;
+        break;
+      }
+    }
+    expect(withRisk).not.toBeNull();
+    for (const id of ["rep-16008", "rep-16258", withRisk!]) {
+      const r = rt.store.rows("reports").find((x) => x.id === id)!;
+      const kom = await docOf(id, as(r.deliveredTo.find((u) => KOMMUN.includes(u))!, "kommun_handlaggare"));
+      const mb = await docOf(id, as("u-sara", "samordnare"));
+      expect([id, pdfPages(await render(kom))]).toEqual([id, pdfPages(await render(mb))]);
     }
   }, 120_000);
 });

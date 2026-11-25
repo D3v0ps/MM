@@ -93,6 +93,49 @@ export type SummaryModel = {
 };
 export type ReportModel = MonthlyModel | FinalModel | WeeklyModel | OrderModel | SummaryModel;
 
+// ================================================================ Kommunens vy av månads- och slutrapporten
+/**
+ * Närvaron i kommunens månads- och slutrapport (Karims beslut 2026-11-25): bara närvarograden, som är det enda avsnitt 2 visar.
+ * Veckorna eller månaderna, antalen, orsakerna och upprepad frånvaro lämnas inte ut till kommunen.
+ */
+type CustomerAttendance = { total: Pick<AttStats, "rate"> };
+type AttendanceDetail = "total" | "reasons" | "repeated" | "deviations";
+/** Månadsrapporten som kommunens roller får den (rapporter.dokument): utan veckorna, antalen, orsakerna och upprepad frånvaro. */
+export type CustomerMonthlyModel = Omit<MonthlyModel, AttendanceDetail | "weeks"> & CustomerAttendance & { deviations: DeviationModel };
+/** Slutrapporten som kommunens roller får den: utan månaderna, antalen, orsakerna och upprepad frånvaro. */
+export type CustomerFinalModel = Omit<FinalModel, AttendanceDetail | "months"> & CustomerAttendance & { deviations: DeviationModel };
+
+/**
+ * Avsnitt 6: risken "Upprepad ogiltig frånvaro" står i rapporten när regeln slår till (antal och regel visas då) – annars visas
+ * ingenting, och antalet ogiltiga frånvarotillfällen lämnas inte ut.
+ */
+const customerDeviations = (d: DeviationModel): DeviationModel => ({
+  ...d,
+  repeated: d.repeated.hit ? { ...d.repeated } : { hit: false, count: 0, absentInvalid: d.repeated.absentInvalid, withinDays: d.repeated.withinDays },
+});
+
+/**
+ * Kommunens vy av månadsrapporten (Karims beslut 2026-11-25): samma dokument – rapporten ser likadan ut – men utan närvarons
+ * detaljer, som dokumentet aldrig visar (beslut 2026-10-07). Den frysta ögonblicksbilden (reports.snapshot) ändras inte;
+ * Miljonbemanning får hela modellen. Används av rapporter.dokument för kommunens roller.
+ */
+export function customerMonthlyModel(m: MonthlyModel): CustomerMonthlyModel {
+  const { weeks, total, reasons, repeated, deviations, ...rest } = m;
+  void weeks;
+  void reasons;
+  void repeated;
+  return { ...rest, total: { rate: total.rate }, deviations: customerDeviations(deviations) };
+}
+
+/** Kommunens vy av slutrapporten (Karims beslut 2026-11-25) – som customerMonthlyModel. */
+export function customerFinalModel(m: FinalModel): CustomerFinalModel {
+  const { months, total, reasons, repeated, deviations, ...rest } = m;
+  void months;
+  void reasons;
+  void repeated;
+  return { ...rest, total: { rate: total.rate }, deviations: customerDeviations(deviations) };
+}
+
 /** Rapporttyper som har ett dokument. */
 export const DOC_KINDS = ["monthly", "final", "weekly_attendance", "order_confirmation", "customer_summary"] as const satisfies readonly ReportKind[];
 export const hasDocument = (kind: ReportKind): boolean => (DOC_KINDS as readonly string[]).includes(kind);

@@ -3,7 +3,7 @@
 // (arenden.kortManad), så att förhandsvisningen är exakt samma dokument som rapporten. Rena funktioner – bara för hanterare.
 import type { Report } from "@/data/schema";
 import type { DocBase, ReportDocView } from "./api";
-import { personWithUnit, type MonthlyModel, type ReportDb } from "./model";
+import { personWithUnit, type CustomerMonthlyModel, type MonthlyModel, type ReportDb } from "./model";
 
 export type DocContract = { customerName: string; contract: { contractNumber: string; dnr?: string | null } };
 
@@ -22,4 +22,6 @@ export function docBase(
 }
 
 /** Månadsrapportens dokument. participant = namnet läsaren får se ("Skyddade personuppgifter" eller namnet). */
-export const monthlyDocView = (base: DocBase, participant: string, m: MonthlyModel): Extract<ReportDocView, { kind: "monthly" }> => ({ ...base, kind: "monthly", participant, m });
+export const monthlyDocView = <M extends MonthlyModel | CustomerMonthlyModel>(base: DocBase, participant: string, m: M): Extract<ReportDocView, { kind: "monthly" }> & { m: M } => ({
+  ...base, kind: "monthly", participant, m,
+});
