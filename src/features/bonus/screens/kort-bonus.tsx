@@ -38,7 +38,7 @@ export function StepItemList({ items, onPick }: { items: readonly StepItemView[]
         );
         return (
           <li key={it.label}>
-            {onPick && it.key && it.options ? (
+            {onPick && it.key && it.options?.length ? (
               <button
                 type="button"
                 aria-haspopup="dialog"
@@ -90,7 +90,7 @@ export function BonusCard({ caseId }: { caseId: string }) {
 function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
   const [picking, setPicking] = useState<StepItem | null>(null);
   // Dialogen läser punkten ur den senaste frågan – kortet räknas om efter varje delmål som sparas.
-  const picked = picking ? v.steps.flatMap((s) => s.items).find((it) => it.key === picking && it.options) ?? null : null;
+  const picked = picking ? v.steps.flatMap((s) => s.items).find((it) => it.key === picking && it.options?.length) ?? null : null;
   return (
     <Card title="Progression och resultat" icon="award" flush>
       <List>
