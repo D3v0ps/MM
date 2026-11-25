@@ -245,7 +245,7 @@ Karims beslut 2026-11-25 (SPEC beslutet 2026-11-25 om kommunen, §4 och §7.0): 
    - **Oförändrat:** `check_ins` (mötesrapporterna läste kommunen aldrig), `reports` (veckorapporterna, månadsrapporterna och slutrapporterna levereras till handläggaren som förut – de byggs i ett systemsteg), insert- och delete-policyerna, rättigheterna och alla rader.
    - **Lås:** filen sätter `lock_timeout = '5s'` och `statement_timeout = '60s'` överst (återställs sist). Att byta en policy tar ett starkt lås på `activities` och `attendance` (heta tabeller – närvaron registreras hela dagen) tills filen är klar. Får en sats inte sitt lås inom 5 sekunder avbryts körningen med felkod **55P03** – kör då filen igen, gärna utanför arbetstid.
 
-**Driftordning:** koden **före** (eller samtidigt med) 0044 – koden från före beslutet läser närvaron på deltagarens sida med handläggarens behörighet och skulle efter 0044 visa "Det har inte varit några tillfällen den senaste månaden" i stället för närvarograden. Ingenting annat i portalen läser tillfällena eller närvaron med handläggarens behörighet. Migrationen förutsätter `mm.case_ids` och `mm.work_on` (0003, 0005).
+**Driftordning:** koden **före** (eller samtidigt med) 0044 – koden från före beslutet läser närvaron på deltagarens sida med handläggarens behörighet och skulle efter 0044 visa "Det har inte varit några tillfällen den senaste månaden" i stället för närvarograden. Ingenting annat i portalen läser tillfällena eller närvaron med handläggarens behörighet. Migrationen förutsätter `mm.case_ids` och `mm.work_on` (båda från 0003).
 
 Kontroll efteråt (i SQL Editor):
 
