@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { BonusClaim, CaseProgressGoal, MonthlyAssessment } from "@/data/schema";
 import { caseGoalId, defaultProgressGoals, defaultGoalId, stepItemStatuses } from "./progress-goals";
 import {
-  BONUS_STATUS_TEXT, bonusAttendance, bonusSuggestions, capAmounts, caseStepItems, duringInsats, inResultWindow, manualCreateProblem, resultWindowEnd, speedDeadline, stepKind,
+  BONUS_STATUS_TEXT, bonusAttendance, bonusSuggestions, capAmounts, caseStepItems, duringInsats, inResultWindow, manualCreateProblem, manualCreateSteps, resultWindowEnd, speedDeadline,
+  stepKind,
   submitProblems, sustainDate, type BonusRuleDb, type SubmitContext,
 } from "./bonus";
 import { BOTKYRKA_CONFIG, bonusBillingModel } from "./config";
@@ -208,6 +209,44 @@ describe("coachen skapar ett anspråk själv", () => {
   it("ett avslaget eller återtaget anspråk hindrar inte ett nytt", () => {
     expect(manualCreateProblem(c, [{ id: "k", step: 3, status: "rejected" }], 3)).toBeNull();
     expect(manualCreateProblem(c, [{ id: "k", step: 1, status: "withdrawn" }], 1)).toBeNull();
+  });
+});
+
+describe("Skapa underlag på stegets rad (Karims beslut 2026-11-25)", () => {
+  const C = mkCase({ id: "case-r", startDate: "2027-01-04" });
+  const today = env("2027-02-15");
+  const offered = (p: Partial<BonusRuleDb>, c = C, e = today) => manualCreateSteps(db({ cases: [c], ...p }), c, M, e);
+  const work = (verified: boolean, day = "2027-02-10") => mkEvent({ id: "e3", caseId: C.id, kind: "arbete_paborjat", occurredOn: day, verificationKind: verified ? "anställningsavtal" : null });
+  const step3 = (status: BonusClaim["status"], reachedOn = "2027-02-10") => mkClaim({ id: "k3", caseId: C.id, step: 3, status, reachedOn, outcomeEventId: "e3" });
+  const cases: [string, Partial<BonusRuleDb>, number[]][] = [
+    ["nytt ärende: ingen knapp – punkterna kryssas i och reglerna föreslår", {}, []],
+    ["steg 2 från en händelse: reglerna föreslår med händelsen – ingen knapp", { outcome_events: [mkEvent({ id: "e2", caseId: C.id, kind: "praktik_startad", occurredOn: "2027-02-01" })] }, []],
+    ["steg 2 från delmålen som inte blivit förslag: knappen", { progress_goals: GOALS, case_progress_goals: [achieved(C.id, 22, "2027-02-01")] }, [2]],
+    ["steg 2 avslaget: knappen (samma underlag föreslås aldrig igen)", { bonus_claims: [mkClaim({ id: "k2", caseId: C.id, step: 2, status: "rejected" })] }, [2]],
+    ["steg 1 återtaget: knappen", { bonus_claims: [mkClaim({ id: "k1", caseId: C.id, step: 1, status: "withdrawn" })] }, [1]],
+    ["steg 2 som förslag: ingen knapp (anspråket finns)", { bonus_claims: [mkClaim({ id: "k2", caseId: C.id, step: 2, status: "suggested" })] }, []],
+    ["resultat med verifiering utan anspråk: steg 3 (steg 5 bygger på ett steg 3)", { outcome_events: [work(true)] }, [3]],
+    ["resultat utan verifiering: steg 3 (verifieringen fylls i i granskningen)", { outcome_events: [work(false)] }, [3]],
+    ["resultat med en dag efter i dag: ingen knapp", { outcome_events: [work(true, "2027-02-20")] }, []],
+    ["steg 3 som förslag inom tio veckor: steg 5", { outcome_events: [work(true)], bonus_claims: [step3("suggested")] }, [5]],
+    ["steg 3 avslaget: steg 3 igen – steg 4 och 5 bygger på ett steg 3 som räknas", { outcome_events: [work(true)], bonus_claims: [step3("rejected")] }, [3]],
+  ];
+  for (const [name, p, want] of cases) it(name, () => expect(offered(p)).toEqual(want));
+  it("steg 4: när steg 3 är skickat och tre månader har gått – inte före", () => {
+    const k3 = { ...step3("submitted", "2027-01-20"), submittedAt: "2027-01-22T10:00" };
+    const k5 = mkClaim({ id: "k5", caseId: C.id, step: 5, status: "submitted", followsClaimId: "k3" });
+    expect(offered({ outcome_events: [work(true, "2027-01-20")], bonus_claims: [k3, k5] }, C, env("2027-04-19"))).toEqual([]);
+    expect(offered({ outcome_events: [work(true, "2027-01-20")], bonus_claims: [k3, k5] }, C, env("2027-04-20"))).toEqual([4]);
+  });
+  it("avslutad insats: ett resultat inom tre månader efter slutdatum ger knappen, dagen efter fönstret inte", () => {
+    const closed = mkCase({ id: "case-s", status: "closed", startDate: "2026-09-01", endDate: "2026-12-18" });
+    const ev = (day: string) => mkEvent({ id: "e9", caseId: closed.id, kind: "studier_paborjade", occurredOn: day });
+    expect(offered({ outcome_events: [ev("2027-03-18")] }, closed, env("2027-04-01"))).toEqual([3]);
+    expect(offered({ outcome_events: [ev("2027-03-19")] }, closed, env("2027-04-01"))).toEqual([]);
+  });
+  it("en insats som inte har startat: ingen knapp", () => {
+    const notStarted = mkCase({ id: "case-n", status: "confirmed", startDate: null });
+    expect(offered({ bonus_claims: [mkClaim({ id: "k1", caseId: notStarted.id, step: 1, status: "withdrawn" })] }, notStarted)).toEqual([]);
   });
 });
 
