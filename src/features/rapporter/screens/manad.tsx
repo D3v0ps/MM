@@ -195,15 +195,23 @@ function FlowSection({ v }: { v: View }) {
 }
 
 // ---------------------------------------------------------------- 2. Närvarograd
+/** Kolumnrubrik på två rader (kitets rubriker bryts inte), så att tabellen ryms utan att rullas i sidled. */
+const TwoLines = ({ a, b }: { a: string; b: string }) => (
+  <>
+    {a}
+    <br />
+    {b}
+  </>
+);
 const ATT_COLS: Column<AttendanceRow>[] = [
   { key: "label", label: "Yrkesområde" },
   numCol<AttendanceRow>("rate", "Närvarograd", (r) => r.rateText),
   numCol<AttendanceRow>("planned", "Tillfällen", (r) => r.planned),
   numCol<AttendanceRow>("present", "Närvarande", (r) => r.present),
   numCol<AttendanceRow>("late", "Sena", (r) => r.late),
-  numCol<AttendanceRow>("absentValid", "Giltig frånvaro", (r) => r.absentValid),
-  numCol<AttendanceRow>("absentInvalid", "Ogiltig frånvaro", (r) => r.absentInvalid),
-  numCol<AttendanceRow>("unregistered", "Ej registrerade", (r) => r.unregistered),
+  { ...numCol<AttendanceRow>("absentValid", "", (r) => r.absentValid), label: <TwoLines a="Giltig" b="frånvaro" /> },
+  { ...numCol<AttendanceRow>("absentInvalid", "", (r) => r.absentInvalid), label: <TwoLines a="Ogiltig" b="frånvaro" /> },
+  { ...numCol<AttendanceRow>("unregistered", "", (r) => r.unregistered), label: <TwoLines a="Ej" b="registrerade" /> },
 ];
 function AttendanceSection({ v }: { v: View }) {
   return (
@@ -264,7 +272,7 @@ function ProgressionSection({ v }: { v: View }) {
 const KIND_COLS: Column<ActivityKindRow>[] = [
   { key: "label", label: "Typ" },
   numCol<ActivityKindRow>("held", "Tillfällen", (r) => r.held),
-  numCol<ActivityKindRow>("inGroup", "I gruppaktiviteter", (r) => r.inGroup),
+  numCol<ActivityKindRow>("inGroup", "I grupp", (r) => r.inGroup),
   numCol<ActivityKindRow>("participants", "Deltagare", (r) => r.participants),
   numCol<ActivityKindRow>("rate", "Närvarograd", (r) => r.rateText),
   numCol<ActivityKindRow>("withGoals", "Med delmål", (r) => r.withGoals),
@@ -402,13 +410,14 @@ function ResultSection({ v }: { v: View }) {
 }
 
 // ---------------------------------------------------------------- 6. Per deltagare
-/** Det som inte ryms i tabellen: frånvaron uppdelad, nivåerna per progressionsområde, stegen och bytet av yrkesområde. */
+/** Det som inte ryms i tabellen: frånvaron uppdelad, nivåerna per progressionsområde, delmålen, tillfällena, stegen och bytet av yrkesområde. */
 function ParticipantDetail({ r, id }: { r: ParticipantRow; id: string }) {
   const a = r.attendance;
   const items: [string, string[]][] = [
     ["Närvaro", a.registered + a.unregistered > 0 ? [`Närvarande ${a.present}`, `Sena ${a.late}`, `Giltig frånvaro ${a.absentValid}`, `Ogiltig frånvaro ${a.absentInvalid}`, `Ej registrerade ${a.unregistered}`] : ["Inga tillfällen"]],
     ["Progressionsområden", r.progression.areas.length ? r.progression.areas.map((x) => x.text) : [r.progression.text]],
     ["Delmål", r.goals.lines.length ? r.goals.lines : ["Inga"]],
+    ["Tillfällen", [r.activities.text]],
     ...(r.steps.length ? ([["Progression och resultat", r.steps]] as [string, string[]][]) : []),
     ...(r.areaChanges.length ? ([["Byte av yrkesområde", r.areaChanges]] as [string, string[]][]) : []),
   ];
@@ -441,9 +450,8 @@ function ParticipantSection({ v, rows, sort, onSort }: { v: View; rows: Particip
     { key: "area", label: "Område", render: (r) => (r.areaCode ? <span title={r.areaLabel}><span aria-hidden="true">{r.areaCode}</span><span className="sr-only">{r.areaLabel}</span></span> : "–") },
     { key: "period", label: "Period", render: (r) => <Lines xs={r.periodLines} /> },
     { key: "attendance", label: "Närvarograd", num: true, render: (r) => (r.attendance.rate == null ? "–" : <>{r.attendance.rateText}<CellSub>{r.attendance.detail}</CellSub></>) },
-    { key: "progression", label: "Progression", render: (r) => r.progression.text },
-    { key: "goals", label: "Delmål", render: (r) => <Lines xs={r.goals.lines} /> },
-    { key: "activities", label: "Tillfällen", num: true, render: (r) => (r.activities.held ? <>{r.activities.held}{r.activities.inGroup > 0 && <CellSub>{`${r.activities.inGroup} i grupp`}</CellSub>}</> : "–") },
+    // Delmålen (antal) under progressionen; tillfällena och resten står i utfällningen – tabellen ryms då utan att rullas i sidled.
+    { key: "progression", label: "Progression", render: (r) => <>{r.progression.text}{r.goals.lines.length > 0 && <CellSub>{r.goals.lines.join(", ")}</CellSub>}</> },
     { key: "results", label: "Resultat", render: (r) => <Lines xs={r.results} /> },
     {
       key: "detalj",
@@ -462,6 +470,8 @@ function ParticipantSection({ v, rows, sort, onSort }: { v: View; rows: Particip
         </Field>
         <Table
           caption={`Deltagare i ${v.monthLabel}`}
+          // Behållaren är innehållsblocket för cellernas skärmläsartext (sr-only), så att den inte breddar sidan.
+          className="relative"
           columns={cols}
           rows={rows}
           rowKey="caseId"

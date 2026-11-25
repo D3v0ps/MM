@@ -159,7 +159,12 @@ function PdfRate({ label, r }: { label: string; r: RateView }) {
 
 // ---------------------------------------------------------------- Tabeller
 const cols = (spec: [string, number, boolean?][]): Col[] => spec.map(([label, width, num]) => ({ label, width, num }));
-const H = ({ children }: { children: ReactNode }) => <Text style={{ fontSize: PDF_SIZE.small, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>{children}</Text>;
+/** Underrubrik i ett avsnitt – hamnar aldrig ensam sist på en sida (diagrammet eller tabellen efter den följer med). */
+const H = ({ children }: { children: ReactNode }) => (
+  <Text wrap={false} minPresenceAhead={90} style={{ fontSize: PDF_SIZE.small, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 }}>
+    {children}
+  </Text>
+);
 const Empty = ({ children }: { children: string }) => <Small muted>{children}</Small>;
 /**
  * Flera rader i en tabellcell – en Text per rad. Aldrig "\n" i texten: radbrytningstecknet har ingen glyf i Montserrat, och react-pdf
@@ -190,7 +195,7 @@ function ParticipantBlock({ x }: { x: ParticipantRow }) {
   const a = x.attendance;
   const attendance =
     a.registered + a.unregistered > 0
-      ? `${a.rate == null ? "–" : `${a.rateText} (${a.detail})`}. Närvarande ${a.present}, sena ${a.late}, giltig frånvaro ${a.absentValid}, ogiltig frånvaro ${a.absentInvalid}, ej registrerade ${a.unregistered}.`
+      ? `${x.activities.text}. ${a.rate == null ? "Ingen registrerad närvaro" : `Närvarograd ${a.rateText} (${a.detail})`}. Närvarande ${a.present}, sena ${a.late}, giltig frånvaro ${a.absentValid}, ogiltig frånvaro ${a.absentInvalid}, ej registrerade ${a.unregistered}.`
       : "Inga tillfällen";
   return (
     <View wrap={false} style={{ flexDirection: "column", gap: 2, paddingVertical: 5, borderBottomWidth: 0.75, borderBottomColor: C.ljusgra }}>
@@ -203,8 +208,7 @@ function ParticipantBlock({ x }: { x: ParticipantRow }) {
           <DetailLine label="Period" value={x.outside ? x.periodLines.join(", ") : x.periodText} />
           <DetailLine label="Närvaro" value={attendance} />
           <DetailLine label="Progression" value={x.progression.areas.length ? `${x.progression.text}. ${x.progression.areas.map((l) => l.text).join(" · ")}` : x.progression.text} />
-          <DetailLine label="Delmål" value={x.goals.text} />
-          <DetailLine label="Tillfällen" value={x.activities.text} />
+          {x.goals.lines.length > 0 && <DetailLine label="Delmål" value={x.goals.text} />}
           {x.steps.length > 0 && <DetailLine label="Steg" value={x.steps.join(" · ")} />}
           {x.areaChanges.length > 0 && <DetailLine label="Byte av yrkesområde" value={x.areaChanges.join(" · ")} />}
           <DetailLine label="Resultat" value={x.results.length ? x.results.join(" · ") : "–"} />
@@ -293,7 +297,7 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
         <PdfBarChart spec={a.chart} />
         {a.byKind.length ? (
           <Table
-            cols={cols([["Typ", 24], ["Tillfällen", 13, true], ["I gruppaktiviteter", 17, true], ["Deltagare", 13, true], ["Närvarograd", 17, true], ["Med delmål", 16, true]])}
+            cols={cols([["Typ", 28], ["Tillfällen", 14, true], ["I grupp", 12, true], ["Deltagare", 14, true], ["Närvarograd", 16, true], ["Med delmål", 16, true]])}
             rows={a.byKind.map((x) => ({ key: x.key, cells: kindCells(x) }))}
             foot={kindCells(a.byKindTotal)}
           />
@@ -354,14 +358,14 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
       <Sec title={`Per deltagare (${participants.length})`}>
         {participants.length ? (
           <Table
-            cols={cols([["Deltagare", 15], ["Område", 9], ["Period", 13], ["Närvarograd", 13, true], ["Progression", 13], ["Delmål", 10], ["Tillfällen", 10, true], ["Resultat", 17]])}
+            cols={cols([["Deltagare", 17], ["Område", 9], ["Period", 14], ["Närvarograd", 13, true], ["Progression", 17], ["Resultat", 30]])}
             rows={participants.map((x) => ({
               key: x.caseId,
+              // Som på sidan: delmålen (antal) under progressionen; tillfällena och resten står i bilagan.
               cells: [
                 <Stack2 key="d" main={x.name} sub={x.caseNumber} />, x.areaCode || "–", <Lines key="p" xs={x.periodLines} />,
-                x.attendance.rate == null ? "–" : <Stack2 key="n" main={x.attendance.rateText} sub={x.attendance.detail || undefined} />, x.progression.text,
-                <Lines key="g" xs={x.goals.lines} />,
-                x.activities.held ? <Stack2 key="a" main={String(x.activities.held)} sub={x.activities.inGroup ? `${x.activities.inGroup} i grupp` : undefined} /> : "–",
+                x.attendance.rate == null ? "–" : <Stack2 key="n" main={x.attendance.rateText} sub={x.attendance.detail || undefined} />,
+                <Stack2 key="g" main={x.progression.text} sub={x.goals.lines.length ? x.goals.lines.join(", ") : undefined} />,
                 <Lines key="r" xs={x.results} />,
               ],
             }))}
