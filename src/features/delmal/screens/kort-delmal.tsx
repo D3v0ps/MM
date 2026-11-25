@@ -1,5 +1,5 @@
 "use client";
-// Kortet Delmål på deltagarkortet (fliken Händelser och utfall, Progression och resultat – Karims beslut 2026-11-11): avtalets
+// Kortet Delmål på deltagarkortet (egen flik Delmål sedan Karims beslut 2026-11-25; delmålen Karims beslut 2026-11-11): avtalets
 // delmål per progressionsområde med läget som text och ikon (aldrig bara färg): Inte påbörjat, Tränar (automatiskt) eller Uppnått
 // med datum. Markera uppnått (bara en människa – aldrig AI) med datum och frivilligt underlag, och Ångra (tillbaka till Tränar
 // eller Inte påbörjat). Bara Miljonbemanning – kommunen ser aldrig delmålen.

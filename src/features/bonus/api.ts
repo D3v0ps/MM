@@ -94,7 +94,7 @@ export type BonusStepRow = {
   items: StepItemView[];
 };
 /**
- * Kortet Bonus på deltagarkortet (Händelser och utfall). on false = bonus är avstängd i avtalet, eller aktören får inte se bonus
+ * Kortet Bonus på deltagarkortet (fliken Progression och resultat). on false = bonus är avstängd i avtalet, eller aktören får inte se bonus
  * (teamet, begränsade testare – bonus är ett ekonomiskt villkor). Inga belopp.
  */
 export type BonusCardView =

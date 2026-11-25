@@ -1723,7 +1723,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   };
 });
 
-// ---------------------------------------------------------------- Flik: Händelser och utfall
+// ---------------------------------------------------------------- Flik: Progression och resultat (nyckeln handelser, hette Händelser och utfall)
 handleQuery(caseEvents, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseEvents | null> => {
   const L = await loadCase(ctx, p.caseId, "handelser");
   if (!L) return null;
