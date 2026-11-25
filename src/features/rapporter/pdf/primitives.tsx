@@ -240,7 +240,8 @@ export function Status({ value }: { value: Rag | null | undefined }) {
     </View>
   );
 }
-function StatusIcon({ value }: { value: Rag | null }) {
+/** Statusens ikon (cirkel med bock, cirkel med utropstecken, triangel eller streck) – alltid tillsammans med texten. */
+export function StatusIcon({ value }: { value: Rag | null }) {
   const stroke = value === "red" ? C.rod : value ? C.antracit : C.muted;
   if (value === "red") {
     return (

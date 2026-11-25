@@ -154,7 +154,7 @@ describe("siffrorna", () => {
   it("ett resultat efter avslutet har en rad per deltagare – och loggraden har ärendet", async () => {
     const data = structuredClone(SEED);
     const c = data.cases.find((x) => x.status === "closed" && !!x.endDate && x.endDate < "2026-12-01")!;
-    data.outcome_events.push({ ...structuredClone(data.outcome_events[0]), id: "ev-efter", caseId: c.id, contractId: c.contractId, kind: "arbete_paborjat", occurredOn: "2027-01-12" });
+    data.outcome_events.push({ ...structuredClone(data.outcome_events[0]), id: "ev-efter", caseId: c.id, kind: "arbete_paborjat", occurredOn: "2027-01-12" });
     fresh(data);
     const karin = as("u-karin", "chef");
     const v = await view(karin);

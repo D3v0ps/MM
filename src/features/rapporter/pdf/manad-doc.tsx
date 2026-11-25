@@ -3,6 +3,8 @@
 // Diagrammen ritas med react-pdf:s Svg (Path, Line, Text) av samma geometri som sidan (manad/charts.ts): antracit för den första
 // serien, blått för den andra med värdet utskrivet vid stapeln, avtalets mål som röd streckad linje och det interna som antracit
 // prickad. Montserrat är inbäddat (registerPdfFonts) – texten i Svg får typsnittet uttryckligen (ärver det inte från sidan).
+// Efter sammanställningen kommer en bilaga med en kort uppställning per deltagare (samma uppgifter som raden och dess utfällning
+// på sidan). Delmålen står bara som antal och resultatgraden bara när läsaren får se den (Karims beslut 2026-11-24).
 // Byggs i webbläsaren efter att rapporter.manadsrapportPdf har loggat nedladdningen (samma mönster som rapporternas PDF):
 //   const { renderOverviewPdf } = await import("../pdf/manad-doc");
 import { G, Line, Path, pdf, Svg, Text, View } from "@react-pdf/renderer";
@@ -11,9 +13,9 @@ import type { ReactNode } from "react";
 import { pct } from "@/core/format";
 import type { MonthlyOverviewView, ParticipantSort } from "../api";
 import { barPath, flowLayout, hbarLayout } from "../manad/charts";
-import { sortParticipants, type BarChartSpec, type FlowChartSpec, type LevelRow, type RateView } from "../manad/model";
+import { sortParticipants, type ActivityKindRow, type BarChartSpec, type EventRow, type FlowChartSpec, type LevelRow, type ParticipantRow, type RateView } from "../manad/model";
 import { dtFull } from "../report-helpers";
-import { Kv, PdfDocument, Sec, Small, Stack2, Table, type Col } from "./primitives";
+import { Kv, PdfDocument, Sec, Small, Stack2, StatusIcon, Table, type Col, type Rag } from "./primitives";
 import { PDF_COLOR, PDF_FONT, PDF_SIZE, registerPdfFonts } from "./theme";
 
 export type OverviewPdfModel = Extract<MonthlyOverviewView, { allowed: true }>;
@@ -32,14 +34,6 @@ const svgText = (extra: { fontWeight?: number } = {}): SVGPresentationAttributes
 // ---------------------------------------------------------------- Diagram
 function ChartTitle({ children }: { children: string }) {
   return <Text style={{ fontSize: PDF_SIZE.small, fontWeight: 700, marginBottom: 3 }}>{children}</Text>;
-}
-function Swatch({ color, label }: { color: string; label: string }) {
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      <View style={{ width: 7, height: 7, borderRadius: 1.5, backgroundColor: color }} />
-      <Text style={{ fontSize: PDF_SIZE.label }}>{label}</Text>
-    </View>
-  );
 }
 function TargetKey({ kind, label }: { kind: "contract" | "internal"; label: string }) {
   return (
@@ -92,17 +86,14 @@ export function PdfBarChart({ spec }: { spec: BarChartSpec }) {
   );
 }
 
-/** Startade (antracit, höger) och avslutade (blått, vänster) per yrkesområde kring nollan. */
+
+/** Startade (antracit, höger) och avslutade (blått, vänster) per yrkesområde kring nollan. Rubrikerna ovanför nollan namnger serierna. */
 export function PdfFlowChart({ spec }: { spec: FlowChartSpec }) {
   if (!spec.rows.length) return null;
   const g = flowLayout(spec.rows, { width: CONTENT_W, fontSize: FS, rowH: 13, barH: 8, labelW: 160, valueW: 22 });
   return (
     <View wrap={false} style={{ flexDirection: "column" }}>
       <ChartTitle>{spec.title}</ChartTitle>
-      <View style={{ flexDirection: "row", gap: 10, marginBottom: 2 }}>
-        <Swatch color={C.antracit} label="Startade" />
-        <Swatch color={C.bla} label="Avslutade" />
-      </View>
       <Svg width={g.width} height={g.height} viewBox={`0 0 ${g.width} ${g.height}`}>
         <Text x={g.cx - 6} y={FS} textAnchor="end" fill={C.antracit} style={svgText({ fontWeight: 700 })}>
           Avslutade
@@ -131,25 +122,37 @@ export function PdfFlowChart({ spec }: { spec: FlowChartSpec }) {
   );
 }
 
-/** Resultatgraden: värdet, mätaren med målen och statusen i text. */
+/** Statusens ikon som i appen: bock (når målet), utropstecken (under det interna), triangel (under avtalets), streck (för litet underlag). */
+const RATE_ICON: Record<RateView["status"], Rag | null> = { ok: "green", below_internal: "yellow", below_contract: "red", insufficient: null };
+
+/** Resultatgraden: värdet, mätaren med målen och statusen i text med ikon. */
 function PdfRate({ label, r }: { label: string; r: RateView }) {
   const W = 240;
   const x = (v: number) => Math.max(0, Math.min(1, v)) * W;
+  const target = (v: number, kind: "contract" | "internal") => (
+    <G key={kind}>
+      {/* Vit botten under linjen, så att den syns mot både spåret och stapeln. */}
+      <Line x1={x(v)} y1={0} x2={x(v)} y2={12} stroke={C.vit} strokeWidth={3} />
+      <Line x1={x(v)} y1={0} x2={x(v)} y2={12} stroke={kind === "contract" ? C.rod : C.antracit} strokeWidth={1.5} strokeDasharray={kind === "contract" ? "3 1.5" : "1 1.5"} />
+    </G>
+  );
   return (
     <View wrap={false} style={{ flexDirection: "column", gap: 3, width: "48%" }}>
       <Text style={{ fontSize: PDF_SIZE.small, fontWeight: 700 }}>{`${label}: ${r.valueText} (${r.num} av ${r.den})`}</Text>
       <Svg width={W} height={12} viewBox={`0 0 ${W} 12`}>
-        <Path d={barPath(0, 3, W, 6, 1, 3)} fill={C.ljusgraTon} />
+        <Path d={barPath(0.25, 3, W - 0.5, 6, 1, 3)} fill={C.ljusgraTon} stroke={C.ljusgra} strokeWidth={0.5} />
         {r.value != null && r.value > 0 && <Path d={barPath(0, 3, x(r.value), 6, 1, 3)} fill={C.antracit} />}
-        {r.contractTarget != null && <Line x1={x(r.contractTarget)} y1={0} x2={x(r.contractTarget)} y2={12} stroke={C.rod} strokeWidth={1.5} strokeDasharray="3 1.5" />}
-        {r.internalTarget != null && <Line x1={x(r.internalTarget)} y1={0} x2={x(r.internalTarget)} y2={12} stroke={C.antracit} strokeWidth={1.5} strokeDasharray="1 1.5" />}
+        {r.contractTarget != null && target(r.contractTarget, "contract")}
+        {r.internalTarget != null && target(r.internalTarget, "internal")}
       </Svg>
       <View style={{ flexDirection: "row", gap: 10 }}>
         {r.contractTarget != null && <TargetKey kind="contract" label={`Avtalets mål ${pct(r.contractTarget)}`} />}
         {r.internalTarget != null && <TargetKey kind="internal" label={`Internt mål ${pct(r.internalTarget)}`} />}
       </View>
-      <Small>{`Status: ${r.statusText}`}</Small>
-      {r.note ? <Small>{r.note}</Small> : null}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <StatusIcon value={RATE_ICON[r.status]} />
+        <Small>{`Status: ${r.statusText}`}</Small>
+      </View>
     </View>
   );
 }
@@ -172,6 +175,44 @@ const Lines = ({ xs }: { xs: string[] }) => (
 const levelCells = (r: LevelRow) => [r.label, ...r.levels.map(String), String(r.notAssessed)];
 const LEVEL_COLS = (first: string) => cols([[first, 45], ["Nivå 0", 10, true], ["Nivå 1", 10, true], ["Nivå 2", 10, true], ["Nivå 3", 10, true], ["Ej bedömd", 15, true]]);
 const goalAreaCells = (r: LevelRow) => [r.label, String(r.achieved), String(r.trained)];
+const attCells = (x: OverviewPdfModel["attendance"]["total"]) => [x.label, x.rateText, String(x.planned), String(x.present), String(x.late), String(x.absentValid), String(x.absentInvalid), String(x.unregistered)];
+const kindCells = (x: ActivityKindRow) => [x.label, String(x.held), String(x.inGroup), String(x.participants), x.rateText, String(x.withGoals)];
+const eventCells = (x: EventRow) => [x.label, String(x.count), String(x.verified), String(x.participants)];
+
+// ---------------------------------------------------------------- Bilagan: en kort uppställning per deltagare
+const DetailLine = ({ label, value }: { label: string; value: string }) => (
+  <View style={{ flexDirection: "row", gap: 6 }}>
+    <Text style={{ width: "22%", fontSize: PDF_SIZE.small, fontWeight: 700, color: C.muted }}>{label}</Text>
+    <Text style={{ flex: 1, fontSize: PDF_SIZE.small, lineHeight: 1.3 }}>{value}</Text>
+  </View>
+);
+function ParticipantBlock({ x }: { x: ParticipantRow }) {
+  const a = x.attendance;
+  const attendance =
+    a.registered + a.unregistered > 0
+      ? `${a.rate == null ? "–" : `${a.rateText} (${a.detail})`}. Närvarande ${a.present}, sena ${a.late}, giltig frånvaro ${a.absentValid}, ogiltig frånvaro ${a.absentInvalid}, ej registrerade ${a.unregistered}.`
+      : "Inga tillfällen";
+  return (
+    <View wrap={false} style={{ flexDirection: "column", gap: 2, paddingVertical: 5, borderBottomWidth: 0.75, borderBottomColor: C.ljusgra }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+        <Text style={{ fontSize: PDF_SIZE.small, fontWeight: 800 }}>{`${x.name} · ${x.caseNumber}`}</Text>
+        <Text style={{ fontSize: PDF_SIZE.small }}>{x.areaLabel}</Text>
+      </View>
+      {!x.restricted && (
+        <>
+          <DetailLine label="Period" value={x.outside ? x.periodLines.join(", ") : x.periodText} />
+          <DetailLine label="Närvaro" value={attendance} />
+          <DetailLine label="Progression" value={x.progression.areas.length ? `${x.progression.text}. ${x.progression.areas.map((l) => l.text).join(" · ")}` : x.progression.text} />
+          <DetailLine label="Delmål" value={x.goals.text} />
+          <DetailLine label="Tillfällen" value={x.activities.text} />
+          {x.steps.length > 0 && <DetailLine label="Steg" value={x.steps.join(" · ")} />}
+          {x.areaChanges.length > 0 && <DetailLine label="Byte av yrkesområde" value={x.areaChanges.join(" · ")} />}
+          <DetailLine label="Resultat" value={x.results.length ? x.results.join(" · ") : "–"} />
+        </>
+      )}
+    </View>
+  );
+}
 
 export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: ParticipantSort }) {
   const p = v.progression;
@@ -202,7 +243,7 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
         )}
         <H>Avslutade per avslutsorsak</H>
         {v.flow.endReasons.length ? (
-          <Table cols={cols([["Avslutsorsak", 70], ["Avslutade", 30, true]])} rows={v.flow.endReasons.map((x) => ({ key: x.key, cells: [x.label, String(x.count)] }))} />
+          <Table cols={cols([["Avslutsorsak", 70], ["Avslutade", 30, true]])} rows={v.flow.endReasons.map((x) => ({ key: x.key, cells: [x.label, String(x.count)] }))} foot={["Totalt", String(v.flow.total.ended)]} />
         ) : (
           <Empty>{`Inga avslut i ${v.monthLabel}.`}</Empty>
         )}
@@ -212,9 +253,9 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
         <PdfBarChart spec={v.attendance.chart} />
         {v.attendance.byArea.length ? (
           <Table
-            cols={cols([["Yrkesområde", 30], ["Tillfällen", 10, true], ["Närvarande", 10, true], ["Sena", 8, true], ["Giltig frånvaro", 10, true], ["Ogiltig frånvaro", 10, true], ["Ej registrerade", 11, true], ["Närvarograd", 11, true]])}
-            rows={v.attendance.byArea.map((x) => ({ key: x.key, cells: [x.label, String(x.planned), String(x.present), String(x.late), String(x.absentValid), String(x.absentInvalid), String(x.unregistered), x.rateText] }))}
-            foot={((t) => ["Totalt", String(t.planned), String(t.present), String(t.late), String(t.absentValid), String(t.absentInvalid), String(t.unregistered), t.rateText])(v.attendance.total)}
+            cols={cols([["Yrkesområde", 22], ["Närvarograd", 14, true], ["Tillfällen", 10, true], ["Närvarande", 12, true], ["Sena", 7, true], ["Giltig frånvaro", 11, true], ["Ogiltig frånvaro", 11, true], ["Ej registrerade", 13, true]])}
+            rows={v.attendance.byArea.map((x) => ({ key: x.key, cells: attCells(x) }))}
+            foot={attCells(v.attendance.total)}
           />
         ) : (
           <Empty>Inga tillfällen i urvalet.</Empty>
@@ -225,9 +266,10 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
         <Kv
           items={[
             ["Godkända bedömningar", `${p.approved} av ${p.required}`], [p.clearLabel, `${p.clear} av ${p.approved}`], [p.anyLabel, `${p.any} av ${p.approved}`],
-            ["Uppnådda delmål", String(p.achievedCount)],
+            ["Deltagarnas uppnådda delmål", String(p.achievedCount)],
           ]}
         />
+        <H>Nivåer per progressionsområde</H>
         <PdfBarChart spec={p.levelChart} />
         <Table cols={LEVEL_COLS("Progressionsområde")} rows={p.areas.map((x) => ({ key: x.key, cells: levelCells(x) }))} foot={levelCells(p.total)} />
         {p.optional.length > 0 && (
@@ -236,36 +278,33 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
             <Table cols={LEVEL_COLS("Valfritt område")} rows={p.optional.map((x) => ({ key: x.key, cells: levelCells(x) }))} />
           </>
         )}
-        <H>Delmål</H>
+        <H>Uppnådda delmål per progressionsområde</H>
         <PdfBarChart spec={p.goalChart} />
         <Table
           cols={cols([["Progressionsområde", 60], ["Uppnådda delmål", 20, true], ["Tränade delmål", 20, true]])}
           rows={[...p.areas, ...p.optional].map((x) => ({ key: x.key, cells: goalAreaCells(x) }))}
           foot={goalAreaCells(p.total)}
         />
-        {p.achieved.length ? (
-          <Table cols={cols([["Delmål", 45], ["Progressionsområde", 40], ["Deltagare", 15, true]])} rows={p.achieved.map((x) => ({ key: x.id, cells: [x.label, x.areaLabel, String(x.participants)] }))} />
-        ) : (
-          <Empty>{`Inga delmål uppnåddes i ${v.monthLabel}.`}</Empty>
-        )}
       </Sec>
 
       <Sec title="Aktiviteter">
-        <Kv items={[["Tillfällen", String(a.held)], ["Gruppaktiviteter", String(a.groupActivities)], ["Tillfällen med delmål", String(a.withGoals)], ["Tränade delmål", String(p.trainedCount)]]} />
+        <Kv items={[["Tillfällen", String(a.held)], ["Gruppaktiviteter", String(a.groupActivities)], ["Tillfällen med delmål", String(a.withGoals)], ["Deltagarnas tränade delmål", String(p.trainedCount)]]} />
+        <H>Tillfällen per typ</H>
         <PdfBarChart spec={a.chart} />
         {a.byKind.length ? (
           <Table
-            cols={cols([["Typ", 30], ["Tillfällen", 13, true], ["I gruppaktiviteter", 15, true], ["Deltagare", 13, true], ["Närvarograd", 15, true], ["Delmål", 14, true]])}
-            rows={a.byKind.map((x) => ({ key: x.kind, cells: [x.label, String(x.held), String(x.inGroup), String(x.participants), x.rateText, String(x.goals)] }))}
+            cols={cols([["Typ", 24], ["Tillfällen", 13, true], ["I gruppaktiviteter", 17, true], ["Deltagare", 13, true], ["Närvarograd", 17, true], ["Med delmål", 16, true]])}
+            rows={a.byKind.map((x) => ({ key: x.key, cells: kindCells(x) }))}
+            foot={kindCells(a.byKindTotal)}
           />
         ) : (
           <Empty>{`Inga tillfällen i ${v.monthLabel}.`}</Empty>
         )}
-        <H>Delmål som tillfällena tränade</H>
-        {a.goals.length ? (
+        <H>Delmål per progressionsområde</H>
+        {a.goalAreas.length ? (
           <Table
-            cols={cols([["Delmål", 38], ["Progressionsområde", 32], ["Tillfällen", 12, true], ["Deltagare som var med", 18, true]])}
-            rows={a.goals.map((x) => ({ key: x.id, cells: [x.label, x.areaLabel, String(x.sessions ?? 0), String(x.participants)] }))}
+            cols={cols([["Progressionsområde", 40], ["Tillfällen med delmål", 20, true], ["Deltagare som var med", 20, true], ["Tränade delmål", 20, true]])}
+            rows={a.goalAreas.map((x) => ({ key: x.key, cells: [x.label, String(x.sessions), String(x.participants), String(x.trained)] }))}
           />
         ) : (
           <Empty>{`Inga tillfällen med delmål i ${v.monthLabel}.`}</Empty>
@@ -273,24 +312,27 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
       </Sec>
 
       <Sec title="Resultat">
-        <Kv items={[["Händelser", String(r.eventsTotal)], ["Verifierade händelser", String(r.verifiedTotal)], ["Avslut", String(r.closedTotal)], ["Verifierade resultat", String(r.month.num)]]} />
-        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
-          <PdfRate label={`Resultatgrad ${r.month.period}`} r={r.month} />
-          <PdfRate label={`Resultatgrad ${r.rolling.period}`} r={r.rolling} />
-        </View>
+        <Kv items={[["Händelser", String(r.eventsTotal)], ["Verifierade händelser", String(r.verifiedTotal)], ["Avslut", String(r.closedTotal)], ["Verifierade resultat", String(r.verifiedResults)]]} />
+        {r.month && r.rolling && (
+          <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+            <PdfRate label={`Resultatgrad ${r.month.period}`} r={r.month} />
+            <PdfRate label={`Resultatgrad ${r.rolling.period}`} r={r.rolling} />
+          </View>
+        )}
         <H>Avslut och resultat</H>
         {r.closures.length ? (
-          <Table cols={cols([["Avslut", 55], ["Antal", 20, true], ["I resultatgraden", 25]])} rows={r.closures.map((x) => ({ key: x.key, cells: [x.label, String(x.count), x.counted ? "Räknas" : "Räknas inte"] }))} />
+          <Table
+            cols={cols([["Avslut", 55], ["Antal", 20, true], ["I resultatgraden", 25]])}
+            rows={r.closures.map((x) => ({ key: x.key, cells: [x.label, String(x.count), x.counted ? "Räknas" : "Räknas inte"] }))}
+            foot={["Totalt", String(r.closedTotal), `${r.closuresCounted} räknas`]}
+          />
         ) : (
           <Empty>{`Inga avslut i ${v.monthLabel}.`}</Empty>
         )}
         <H>Händelser</H>
         <PdfBarChart spec={r.chart} />
         {r.events.length ? (
-          <Table
-            cols={cols([["Händelse", 55], ["Antal", 15, true], ["Verifierade", 15, true], ["Deltagare", 15, true]])}
-            rows={r.events.map((x) => ({ key: x.kind, cells: [x.label, String(x.count), String(x.verified), String(x.participants)] }))}
-          />
+          <Table cols={cols([["Händelse", 55], ["Antal", 15, true], ["Verifierade", 15, true], ["Deltagare", 15, true]])} rows={r.events.map((x) => ({ key: x.kind, cells: eventCells(x) }))} foot={eventCells(r.eventTotal)} />
         ) : (
           <Empty>{`Inga händelser i ${v.monthLabel}.`}</Empty>
         )}
@@ -312,13 +354,13 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
       <Sec title={`Per deltagare (${participants.length})`}>
         {participants.length ? (
           <Table
-            cols={cols([["Deltagare", 14], ["Område", 9], ["Period", 12], ["Närvarograd", 12, true], ["Progression", 12], ["Delmål", 8], ["Tillfällen", 10, true], ["Resultat", 23]])}
+            cols={cols([["Deltagare", 15], ["Område", 9], ["Period", 13], ["Närvarograd", 13, true], ["Progression", 13], ["Delmål", 10], ["Tillfällen", 10, true], ["Resultat", 17]])}
             rows={participants.map((x) => ({
               key: x.caseId,
               cells: [
-                <Stack2 key="d" main={x.name} sub={x.caseNumber} />, x.areaCode || "–", <Lines key="p" xs={[x.startText, `– ${x.endText === "Pågår" ? "pågår" : x.endText}`]} />,
+                <Stack2 key="d" main={x.name} sub={x.caseNumber} />, x.areaCode || "–", <Lines key="p" xs={x.periodLines} />,
                 x.attendance.rate == null ? "–" : <Stack2 key="n" main={x.attendance.rateText} sub={x.attendance.detail || undefined} />, x.progression.text,
-                <Lines key="g" xs={[x.goals.achieved ? `${x.goals.achieved} uppnådda` : "", x.goals.trained ? `${x.goals.trained} tränade` : ""].filter(Boolean)} />,
+                <Lines key="g" xs={x.goals.lines} />,
                 x.activities.held ? <Stack2 key="a" main={String(x.activities.held)} sub={x.activities.inGroup ? `${x.activities.inGroup} i grupp` : undefined} /> : "–",
                 <Lines key="r" xs={x.results} />,
               ],
@@ -328,6 +370,18 @@ export function OverviewPdf({ v, sort }: { v: OverviewPdfModel; sort: Participan
           <Empty>Inga deltagare i urvalet.</Empty>
         )}
       </Sec>
+
+      {participants.length > 0 && (
+        <View break style={{ flexDirection: "column", gap: 6 }}>
+          <Sec title="Bilaga: per deltagare">
+            <View style={{ flexDirection: "column" }}>
+              {participants.map((x) => (
+                <ParticipantBlock key={x.caseId} x={x} />
+              ))}
+            </View>
+          </Sec>
+        </View>
+      )}
     </PdfDocument>
   );
 }

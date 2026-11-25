@@ -1,12 +1,14 @@
 "use client";
 // Intern månadsrapport (/manadsrapport, Karims beslut 2026-11-18): allt som hände i avtalet under en månad – start och slut per
 // yrkesområde, närvarograd, progression, aktiviteter, resultat och en rad per deltagare. Bara för Miljonbemanning (samordnare,
-// avtalsansvarig, coach och chef); kommunen har ingen väg hit. Samma vy-modell som PDF:en (pdf/manad-doc.tsx).
+// avtalsansvarig, coach och chef); kommunen har ingen väg hit. Samma vy-modell som PDF:en (pdf/manad-doc.tsx). Coachen får inte
+// resultatgraden (servern skickar den inte, Karims beslut 2026-11-24), och delmålen står bara som antal (aldrig namnen).
 // Adressen: ?manad=YYYY-MM&omrade=<kod>&avtal=<id>&sortera=omrade|arende|narvaro – bara koder och id:n.
 // Karims designregel: inga hjälptexter och inga förklarande underrader – rubriker, siffror, diagram och tabeller. Varje diagram har en tabell
 // med samma tal.
 import { useState } from "react";
 import { pct } from "@/core/format";
+import { fmtDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { pick, useQueryPatch } from "@/shell/url-state";
@@ -16,7 +18,8 @@ import {
 } from "@/ui";
 import {
   monthlyOverview, monthlyOverviewPdf, monthlyOverviewViewed, PARTICIPANT_SORT_LABEL, PARTICIPANT_SORTS, sortParticipants,
-  type AttendanceRow, type FlowRow, type LevelRow, type MonthlyOverviewView, type ParticipantRow, type ParticipantSort, type RateView,
+  type ActivityKindRow, type AttendanceRow, type ClosureRow, type EventRow, type FlowRow, type GoalAreaRow, type LevelRow, type MonthlyOverviewView, type ParticipantRow,
+  type ParticipantSort, type RateView,
 } from "../api";
 import { FlowChart, OverviewBarChart } from "../components/manad-charts";
 
@@ -26,6 +29,7 @@ const TITLE = "Intern månadsrapport";
 type View = Extract<MonthlyOverviewView, { allowed: true }>;
 
 export function ManadsrapportScreen({ query }: ScreenProps) {
+  const patch = useQueryPatch();
   const manad = query.get("manad");
   const omrade = query.get("omrade");
   const avtal = query.get("avtal");
@@ -39,9 +43,15 @@ export function ManadsrapportScreen({ query }: ScreenProps) {
   if (q.error && !q.data) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (!q.data) return <Loading />;
   if (!q.data.allowed) {
+    const ns = q.data.notStarted;
     return (
       <Page title={TITLE}>
-        <Notice tone="info" title="Det finns inget avtal i drift att visa." />
+        {ns && q.data.contracts.length > 1 && (
+          <Field id="mr-avtal" label="Avtal" className="max-w-[320px]">
+            <Select value={ns.contractId} options={q.data.contracts} onValueChange={(x) => patch({ avtal: x, omrade: null, manad: null })} />
+          </Field>
+        )}
+        <Notice tone="info" title={ns ? `Avtalet startar ${fmtDate(ns.startsOn)}.` : "Det finns inget avtal i drift att visa."} />
       </Page>
     );
   }
@@ -115,6 +125,8 @@ function PdfButton({ v, sort, busy }: { v: View; sort: ParticipantSort; busy: bo
         return;
       }
       const { renderOverviewPdf } = await import("../pdf/manad-doc");
+      // Låt "Skapar PDF …" synas innan PDF:en byggs (bygget håller tråden).
+      await new Promise((r) => setTimeout(r, 50));
       const blob = await renderOverviewPdf(v, sort);
       await download(res.filename, blob, "application/pdf");
     } catch {
@@ -150,6 +162,8 @@ function Foot<R>({ columns, row }: { columns: Column<R>[]; row: R }) {
   );
 }
 const SubHead = ({ children }: { children: string }) => <h3 className="text-label font-extrabold tracking-[0.1em] uppercase">{children}</h3>;
+/** Flera rader i en cell (nyckeln har platsen, så att två lika rader inte krockar). */
+const Lines = ({ xs }: { xs: string[] }) => (xs.length ? <span className="flex flex-col">{xs.map((x, i) => <span key={`${i}:${x}`}>{x}</span>)}</span> : <>–</>);
 
 // ---------------------------------------------------------------- 1. Start och slut per yrkesområde
 const FLOW_COLS: Column<FlowRow>[] = [
@@ -159,6 +173,7 @@ const FLOW_COLS: Column<FlowRow>[] = [
   numCol<FlowRow>("ended", "Avslutade", (r) => r.ended),
   numCol<FlowRow>("atEnd", "Vid månadens slut", (r) => r.atEnd),
 ];
+const REASON_COLS: Column<{ key: string; label: string; count: number }>[] = [{ key: "label", label: "Avslutsorsak" }, numCol("count", "Avslutade", (r: { count: number }) => r.count)];
 function FlowSection({ v }: { v: View }) {
   return (
     <Card id="mr-flode" title="Start och slut per yrkesområde" icon="users">
@@ -168,10 +183,11 @@ function FlowSection({ v }: { v: View }) {
         <SubHead>Avslutade per avslutsorsak</SubHead>
         <Table
           caption={`Avslutade per avslutsorsak, ${v.monthLabel}`}
-          columns={[{ key: "label", label: "Avslutsorsak" }, numCol("count", "Avslutade", (r: { count: number }) => r.count)]}
+          columns={REASON_COLS}
           rows={v.flow.endReasons}
           rowKey="key"
           empty={`Inga avslut i ${v.monthLabel}.`}
+          footer={v.flow.endReasons.length ? <Foot columns={REASON_COLS} row={{ key: "total", label: "Totalt", count: v.flow.total.ended }} /> : undefined}
         />
       </Stack>
     </Card>
@@ -181,13 +197,13 @@ function FlowSection({ v }: { v: View }) {
 // ---------------------------------------------------------------- 2. Närvarograd
 const ATT_COLS: Column<AttendanceRow>[] = [
   { key: "label", label: "Yrkesområde" },
+  numCol<AttendanceRow>("rate", "Närvarograd", (r) => r.rateText),
   numCol<AttendanceRow>("planned", "Tillfällen", (r) => r.planned),
   numCol<AttendanceRow>("present", "Närvarande", (r) => r.present),
   numCol<AttendanceRow>("late", "Sena", (r) => r.late),
   numCol<AttendanceRow>("absentValid", "Giltig frånvaro", (r) => r.absentValid),
   numCol<AttendanceRow>("absentInvalid", "Ogiltig frånvaro", (r) => r.absentInvalid),
   numCol<AttendanceRow>("unregistered", "Ej registrerade", (r) => r.unregistered),
-  numCol<AttendanceRow>("rate", "Närvarograd", (r) => r.rateText),
 ];
 function AttendanceSection({ v }: { v: View }) {
   return (
@@ -215,11 +231,6 @@ const GOAL_AREA_COLS: Column<LevelRow>[] = [
   numCol<LevelRow>("achieved", "Uppnådda delmål", (r) => r.achieved),
   numCol<LevelRow>("trained", "Tränade delmål", (r) => r.trained),
 ];
-const GOAL_COLS: Column<{ id: string; label: string; areaLabel: string; participants: number }>[] = [
-  { key: "label", label: "Delmål" },
-  { key: "areaLabel", label: "Progressionsområde" },
-  numCol("participants", "Deltagare", (r: { participants: number }) => r.participants),
-];
 function ProgressionSection({ v }: { v: View }) {
   const p = v.progression;
   const cols = levelCols("Progressionsområde");
@@ -230,8 +241,9 @@ function ProgressionSection({ v }: { v: View }) {
           <Kpi className={WEEK_KPI_SM} label="Godkända bedömningar" value={`${p.approved} av ${p.required}`} />
           <Kpi className={WEEK_KPI_SM} label={p.clearLabel} value={`${p.clear} av ${p.approved}`} />
           <Kpi className={WEEK_KPI_SM} label={p.anyLabel} value={`${p.any} av ${p.approved}`} />
-          <Kpi className={WEEK_KPI_SM} label="Uppnådda delmål" value={p.achievedCount} />
+          <Kpi className={WEEK_KPI_SM} label="Deltagarnas uppnådda delmål" value={p.achievedCount} />
         </WeekKpis>
+        <SubHead>Nivåer per progressionsområde</SubHead>
         <OverviewBarChart spec={p.levelChart} />
         <Table caption={`Nivåer per progressionsområde i godkända månadsbedömningar, ${v.monthLabel}`} columns={cols} rows={p.areas} rowKey="key" footer={<Foot columns={cols} row={p.total} />} />
         {p.optional.length > 0 && (
@@ -240,45 +252,46 @@ function ProgressionSection({ v }: { v: View }) {
             <Table caption={`Valfria progressionsområden, ${v.monthLabel}`} columns={levelCols("Valfritt område")} rows={p.optional} rowKey="key" />
           </>
         )}
-        <SubHead>Delmål</SubHead>
+        <SubHead>Uppnådda delmål per progressionsområde</SubHead>
         <OverviewBarChart spec={p.goalChart} />
-        <Table caption={`Delmål per progressionsområde, ${v.monthLabel}`} columns={GOAL_AREA_COLS} rows={[...p.areas, ...p.optional]} rowKey="key" footer={<Foot columns={GOAL_AREA_COLS} row={p.total} />} />
-        <Table caption={`Uppnådda delmål, ${v.monthLabel}`} columns={GOAL_COLS} rows={p.achieved} rowKey="id" empty={`Inga delmål uppnåddes i ${v.monthLabel}.`} />
+        <Table caption={`Deltagarnas delmål per progressionsområde, ${v.monthLabel}`} columns={GOAL_AREA_COLS} rows={[...p.areas, ...p.optional]} rowKey="key" footer={<Foot columns={GOAL_AREA_COLS} row={p.total} />} />
       </Stack>
     </Card>
   );
 }
 
 // ---------------------------------------------------------------- 4. Aktiviteter
+const KIND_COLS: Column<ActivityKindRow>[] = [
+  { key: "label", label: "Typ" },
+  numCol<ActivityKindRow>("held", "Tillfällen", (r) => r.held),
+  numCol<ActivityKindRow>("inGroup", "I gruppaktiviteter", (r) => r.inGroup),
+  numCol<ActivityKindRow>("participants", "Deltagare", (r) => r.participants),
+  numCol<ActivityKindRow>("rate", "Närvarograd", (r) => r.rateText),
+  numCol<ActivityKindRow>("withGoals", "Med delmål", (r) => r.withGoals),
+];
+const GOAL_SESSION_COLS: Column<GoalAreaRow>[] = [
+  { key: "label", label: "Progressionsområde" },
+  numCol<GoalAreaRow>("sessions", "Tillfällen med delmål", (r) => r.sessions),
+  numCol<GoalAreaRow>("participants", "Deltagare som var med", (r) => r.participants),
+  numCol<GoalAreaRow>("trained", "Tränade delmål", (r) => r.trained),
+];
 function ActivitySection({ v }: { v: View }) {
   const a = v.activities;
-  const kindCols: Column<(typeof a.byKind)[number]>[] = [
-    { key: "label", label: "Typ" },
-    numCol("held", "Tillfällen", (r: (typeof a.byKind)[number]) => r.held),
-    numCol("inGroup", "I gruppaktiviteter", (r: (typeof a.byKind)[number]) => r.inGroup),
-    numCol("participants", "Deltagare", (r: (typeof a.byKind)[number]) => r.participants),
-    numCol("rate", "Närvarograd", (r: (typeof a.byKind)[number]) => r.rateText),
-    numCol("goals", "Delmål", (r: (typeof a.byKind)[number]) => r.goals),
-  ];
-  const goalCols: Column<(typeof a.goals)[number]>[] = [
-    { key: "label", label: "Delmål" },
-    { key: "areaLabel", label: "Progressionsområde" },
-    numCol("sessions", "Tillfällen", (r: (typeof a.goals)[number]) => r.sessions ?? 0),
-    numCol("participants", "Deltagare som var med", (r: (typeof a.goals)[number]) => r.participants),
-  ];
   return (
     <Card id="mr-aktiviteter" title="Aktiviteter" icon="calendar">
       <Stack>
         <WeekKpis>
           <Kpi className={WEEK_KPI_SM} label="Tillfällen" value={a.held} />
-          <Kpi className={WEEK_KPI_SM} label="Gruppaktiviteter" value={a.groupActivities} />
+          {/* Mjukt bindestreck: ordet får brytas på en smal skärm. */}
+          <Kpi className={WEEK_KPI_SM} label={"Grupp­aktiviteter"} value={a.groupActivities} />
           <Kpi className={WEEK_KPI_SM} label="Tillfällen med delmål" value={a.withGoals} />
-          <Kpi className={WEEK_KPI_SM} label="Tränade delmål" value={v.progression.trainedCount} />
+          <Kpi className={WEEK_KPI_SM} label="Deltagarnas tränade delmål" value={v.progression.trainedCount} />
         </WeekKpis>
+        <SubHead>Tillfällen per typ</SubHead>
         <OverviewBarChart spec={a.chart} />
-        <Table caption={`Tillfällen per typ, ${v.monthLabel}`} columns={kindCols} rows={a.byKind} rowKey="kind" empty={`Inga tillfällen i ${v.monthLabel}.`} />
-        <SubHead>Delmål som tillfällena tränade</SubHead>
-        <Table caption={`Delmål som tillfällena tränade, ${v.monthLabel}`} columns={goalCols} rows={a.goals} rowKey="id" empty={`Inga tillfällen med delmål i ${v.monthLabel}.`} />
+        <Table caption={`Tillfällen per typ, ${v.monthLabel}`} columns={KIND_COLS} rows={a.byKind} rowKey="key" empty={`Inga tillfällen i ${v.monthLabel}.`} footer={a.byKind.length ? <Foot columns={KIND_COLS} row={a.byKindTotal} /> : undefined} />
+        <SubHead>Delmål per progressionsområde</SubHead>
+        <Table caption={`Tillfällen med delmål per progressionsområde, ${v.monthLabel}`} columns={GOAL_SESSION_COLS} rows={a.goalAreas} rowKey="key" empty={`Inga tillfällen med delmål i ${v.monthLabel}.`} />
       </Stack>
     </Card>
   );
@@ -310,18 +323,22 @@ function RateBlock({ label, r }: { label: string; r: RateView }) {
           {r.statusText}
         </Badge>
       </span>
-      {r.note && <p className="m-0">{r.note}</p>}
     </div>
   );
 }
+const EVENT_COLS: Column<EventRow>[] = [
+  { key: "label", label: "Händelse" },
+  numCol<EventRow>("count", "Antal", (x) => x.count),
+  numCol<EventRow>("verified", "Verifierade", (x) => x.verified),
+  numCol<EventRow>("participants", "Deltagare", (x) => x.participants),
+];
+const CLOSURE_COLS: Column<ClosureRow>[] = [
+  { key: "label", label: "Avslut" },
+  numCol<ClosureRow>("count", "Antal", (x) => x.count),
+  { key: "counted", label: "I resultatgraden", render: (x) => (x.counted ? "Räknas" : "Räknas inte") },
+];
 function ResultSection({ v }: { v: View }) {
   const r = v.results;
-  const eventCols: Column<(typeof r.events)[number]>[] = [
-    { key: "label", label: "Händelse" },
-    numCol("count", "Antal", (x: (typeof r.events)[number]) => x.count),
-    numCol("verified", "Verifierade", (x: (typeof r.events)[number]) => x.verified),
-    numCol("participants", "Deltagare", (x: (typeof r.events)[number]) => x.participants),
-  ];
   const stepsShown = r.steps?.some((s) => s.submitted + s.approved > 0) ?? false;
   return (
     <Card id="mr-resultat" title="Resultat" icon="award">
@@ -330,23 +347,34 @@ function ResultSection({ v }: { v: View }) {
           <Kpi className={WEEK_KPI_SM} label="Händelser" value={r.eventsTotal} />
           <Kpi className={WEEK_KPI_SM} label="Verifierade händelser" value={r.verifiedTotal} />
           <Kpi className={WEEK_KPI_SM} label="Avslut" value={r.closedTotal} />
-          <Kpi className={WEEK_KPI_SM} label="Verifierade resultat" value={r.month.num} />
+          <Kpi className={WEEK_KPI_SM} label="Verifierade resultat" value={r.verifiedResults} />
         </WeekKpis>
-        <div className="grid grid-cols-2 gap-6 max-[760px]:grid-cols-1">
-          <RateBlock label={`Resultatgrad ${r.month.period}`} r={r.month} />
-          <RateBlock label={`Resultatgrad ${r.rolling.period}`} r={r.rolling} />
-        </div>
+        {r.month && r.rolling && (
+          <div className="grid grid-cols-2 gap-6 max-[760px]:grid-cols-1">
+            <RateBlock label={`Resultatgrad ${r.month.period}`} r={r.month} />
+            <RateBlock label={`Resultatgrad ${r.rolling.period}`} r={r.rolling} />
+          </div>
+        )}
         <SubHead>Avslut och resultat</SubHead>
         <Table
           caption={`Avslut efter hur de räknas i resultatgraden, ${v.monthLabel}`}
-          columns={[{ key: "label", label: "Avslut" }, numCol("count", "Antal", (x: { count: number }) => x.count), { key: "counted", label: "I resultatgraden", render: (x: { counted: boolean }) => (x.counted ? "Räknas" : "Räknas inte") }]}
+          columns={CLOSURE_COLS}
           rows={r.closures}
           rowKey="key"
           empty={`Inga avslut i ${v.monthLabel}.`}
+          footer={
+            r.closures.length ? (
+              <tr>
+                <td>Totalt</td>
+                <td className="text-right tabular-nums">{r.closedTotal}</td>
+                <td>{`${r.closuresCounted} räknas`}</td>
+              </tr>
+            ) : undefined
+          }
         />
         <SubHead>Händelser</SubHead>
         <OverviewBarChart spec={r.chart} />
-        <Table caption={`Händelser per typ, ${v.monthLabel}`} columns={eventCols} rows={r.events} rowKey="kind" empty={`Inga händelser i ${v.monthLabel}.`} />
+        <Table caption={`Händelser per typ, ${v.monthLabel}`} columns={EVENT_COLS} rows={r.events} rowKey="kind" empty={`Inga händelser i ${v.monthLabel}.`} footer={r.events.length ? <Foot columns={EVENT_COLS} row={r.eventTotal} /> : undefined} />
         {r.steps && (
           <>
             <SubHead>Progression och resultat</SubHead>
@@ -374,29 +402,75 @@ function ResultSection({ v }: { v: View }) {
 }
 
 // ---------------------------------------------------------------- 6. Per deltagare
-const Lines = ({ xs }: { xs: string[] }) => (xs.length ? <span className="flex flex-col">{xs.map((x) => <span key={x}>{x}</span>)}</span> : <>–</>);
-const PART_COLS: Column<ParticipantRow>[] = [
-  // Länken till deltagarkortet: namnet och ärendenumret (Table rowHref, linkKey).
-  { key: "deltagare", label: "Deltagare", render: (r) => (<span className="flex flex-col">{r.name}<span className="font-normal whitespace-nowrap text-text-muted tabular-nums">{r.caseNumber}</span></span>) },
-  // Koden syns (A–L), hela namnet läses upp och står i verktygstipset.
-  { key: "area", label: "Område", render: (r) => (r.areaCode ? <span title={r.areaLabel}><span aria-hidden="true">{r.areaCode}</span><span className="sr-only">{r.areaLabel}</span></span> : "–") },
-  { key: "period", label: "Period", nowrap: true, render: (r) => <Lines xs={[r.startText, `– ${r.endText === "Pågår" ? "pågår" : r.endText}`]} /> },
-  { key: "attendance", label: "Närvarograd", num: true, render: (r) => (r.attendance.rate == null ? "–" : <>{r.attendance.rateText}<CellSub>{r.attendance.detail}</CellSub></>) },
-  { key: "progression", label: "Progression", render: (r) => r.progression.text },
-  { key: "goals", label: "Delmål", render: (r) => <Lines xs={[r.goals.achieved ? `${r.goals.achieved} uppnådda` : "", r.goals.trained ? `${r.goals.trained} tränade` : ""].filter(Boolean)} /> },
-  { key: "activities", label: "Tillfällen", num: true, render: (r) => (r.activities.held ? <>{r.activities.held}{r.activities.inGroup > 0 && <CellSub>{`${r.activities.inGroup} i grupp`}</CellSub>}</> : "–") },
-  { key: "results", label: "Resultat", render: (r) => <span className="block min-w-[220px]"><Lines xs={r.results} /></span> },
-];
+/** Det som inte ryms i tabellen: frånvaron uppdelad, nivåerna per progressionsområde, stegen och bytet av yrkesområde. */
+function ParticipantDetail({ r, id }: { r: ParticipantRow; id: string }) {
+  const a = r.attendance;
+  const items: [string, string[]][] = [
+    ["Närvaro", a.registered + a.unregistered > 0 ? [`Närvarande ${a.present}`, `Sena ${a.late}`, `Giltig frånvaro ${a.absentValid}`, `Ogiltig frånvaro ${a.absentInvalid}`, `Ej registrerade ${a.unregistered}`] : ["Inga tillfällen"]],
+    ["Progressionsområden", r.progression.areas.length ? r.progression.areas.map((x) => x.text) : [r.progression.text]],
+    ["Delmål", r.goals.lines.length ? r.goals.lines : ["Inga"]],
+    ...(r.steps.length ? ([["Progression och resultat", r.steps]] as [string, string[]][]) : []),
+    ...(r.areaChanges.length ? ([["Byte av yrkesområde", r.areaChanges]] as [string, string[]][]) : []),
+  ];
+  return (
+    <dl id={id} className="m-0 grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-x-6 gap-y-3" data-participant-detail="">
+      {items.map(([label, xs]) => (
+        <div key={label} className="flex flex-col gap-0.5">
+          <dt className="text-label font-extrabold tracking-[0.08em] text-text-muted uppercase">{label}</dt>
+          <dd className="m-0">
+            <Lines xs={xs} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+const detailId = (r: ParticipantRow) => `mr-detalj-${r.caseId}`;
 function ParticipantSection({ v, rows, sort, onSort }: { v: View; rows: ParticipantRow[]; sort: ParticipantSort; onSort: (s: ParticipantSort) => void }) {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) => setOpen((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    return n;
+  });
+  const cols: Column<ParticipantRow>[] = [
+    // Länken till deltagarkortet: namnet och ärendenumret (Table rowHref, linkKey).
+    { key: "deltagare", label: "Deltagare", render: (r) => (<span className="flex flex-col">{r.name}<span className="font-normal whitespace-nowrap text-text-muted tabular-nums">{r.caseNumber}</span></span>) },
+    // Koden syns (A–L), hela namnet läses upp och står i verktygstipset.
+    { key: "area", label: "Område", render: (r) => (r.areaCode ? <span title={r.areaLabel}><span aria-hidden="true">{r.areaCode}</span><span className="sr-only">{r.areaLabel}</span></span> : "–") },
+    { key: "period", label: "Period", render: (r) => <Lines xs={r.periodLines} /> },
+    { key: "attendance", label: "Närvarograd", num: true, render: (r) => (r.attendance.rate == null ? "–" : <>{r.attendance.rateText}<CellSub>{r.attendance.detail}</CellSub></>) },
+    { key: "progression", label: "Progression", render: (r) => r.progression.text },
+    { key: "goals", label: "Delmål", render: (r) => <Lines xs={r.goals.lines} /> },
+    { key: "activities", label: "Tillfällen", num: true, render: (r) => (r.activities.held ? <>{r.activities.held}{r.activities.inGroup > 0 && <CellSub>{`${r.activities.inGroup} i grupp`}</CellSub>}</> : "–") },
+    { key: "results", label: "Resultat", render: (r) => <Lines xs={r.results} /> },
+    {
+      key: "detalj",
+      label: <span className="sr-only">Mer</span>,
+      render: (r) =>
+        r.restricted ? null : (
+          <Button kind="ghost" icon={open.has(r.caseId) ? "chevron-up" : "chevron-down"} aria-expanded={open.has(r.caseId)} aria-controls={open.has(r.caseId) ? detailId(r) : undefined} ariaLabel={`Mer om ${r.caseNumber}`} onClick={() => toggle(r.caseId)} />
+        ),
+    },
+  ];
   return (
     <Card id="mr-deltagare" title={`Per deltagare (${rows.length})`} icon="list">
       <Stack>
         <Field id="mr-sortera" label="Sortera" className="max-w-[320px]">
           <Select value={sort} options={PARTICIPANT_SORTS.map((s) => ({ value: s, label: PARTICIPANT_SORT_LABEL[s] }))} onValueChange={(x) => onSort(x as ParticipantSort)} />
         </Field>
-        <Table caption={`Deltagare i ${v.monthLabel}`} columns={PART_COLS} rows={rows} rowKey="caseId" rowHref={(r) => `/arenden/${r.caseId}`} linkKey="deltagare" empty="Inga deltagare i urvalet." />
+        <Table
+          caption={`Deltagare i ${v.monthLabel}`}
+          columns={cols}
+          rows={rows}
+          rowKey="caseId"
+          rowHref={(r) => (r.restricted ? null : `/arenden/${r.caseId}`)}
+          linkKey="deltagare"
+          rowDetail={(r) => (open.has(r.caseId) && !r.restricted ? <ParticipantDetail r={r} id={detailId(r)} /> : null)}
+          empty="Inga deltagare i urvalet."
+        />
       </Stack>
     </Card>
   );
 }
-
