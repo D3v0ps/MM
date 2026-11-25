@@ -76,7 +76,7 @@ Filnamnen innehåller bara avtal och period, aldrig namn. Exempel: `resultat_bot
   insats. Finns det en levererad månadsrapport för den månad då insatsen avslutades står de också på den raden i tabell 1.
 - Filen visar om resultatet är verifierat **så som det stod i slutrapporten**. Kommer underlaget (till exempel anställningsbeviset)
   efter att slutrapporten lämnats, rättar vi slutrapporten. När rättelsen är levererad syns verifieringen i en ny fil. Fram till
-  dess kan resultatgraden som ni räknar fram ur filen vara lägre än i beställarrapporten, som räknar verifieringen direkt.
+  dess kan antalet resultat som ni räknar fram ur filen vara lägre än i beställarrapporten, som räknar verifieringen direkt.
 
 ## 6. Rättelser
 
@@ -145,8 +145,8 @@ Nivåerna kommer från coachens månadsbedömning. Skalan är **0** = ingen / f�
 **3** = uppnått delmål. Är månadsbedömningen inte godkänd är kolumnerna tomma.
 
 `omraden_bedomda`, `progression_tydlig` och `progression_nagon` räknas bara på de tio områdena i tabellen nedan – inte på de
-frivilliga områdena hälsa och livskvalitet, som inte finns i filen. Beställarrapporten räknar på samma sätt, så andelen med
-tydlig eller någon progression som ni räknar fram ur filen stämmer med beställarrapportens.
+frivilliga områdena hälsa och livskvalitet, som inte finns i filen. Beställarrapporten räknar på samma sätt, så tydlig progression
+och deltagare utan progression som ni räknar fram ur filen stämmer med beställarrapportens.
 
 | Kolumn | Betydelse | Exempel | Möjliga värden |
 |---|---|---|---|
@@ -279,7 +279,7 @@ kolumn, beskrivning, format, möjliga värden, källa och version (kolumnnamnen 
 | Områdena "Hälsa (funktionellt beskrivet)" och "Livskvalitet (deltagarens egen skattning)" | De är frivilliga och kan röra hälsa. De finns i månadsrapporten när de är bedömda. |
 | Rapporter som inte är levererade | Bara uppgifter som är granskade och lämnade till er kommer med. |
 | Rapporter som har ersatts av en rättelse | Filen har bara den senast levererade versionen. |
-| Sammanställningar per avtalsområde | De finns i beställarrapporten. Med filen kan ni göra egna. |
+| Sammanställningar per yrkesområde | De finns i beställarrapporten. Med filen kan ni göra egna. |
 
 ## 13. Att tänka på när ni sparar filen
 

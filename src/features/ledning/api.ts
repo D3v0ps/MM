@@ -6,6 +6,7 @@ import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, MGMT, START } from "@/api/invalidation";
 import type { KpiStatus, ResultForecast, ResultStatus } from "@/core/kpi";
 import type { SlaStatus } from "@/core/sla";
+import type { SummaryTable } from "@/features/rapporter/report-helpers";
 import type {
   AlertKind, AlertSeverity, ContractDeviationLevel, ContractDeviationSource, ContractDeviationStatus, ContractDeviationType, PenaltyKind, PulsePriority,
 } from "@/data/schema";
@@ -89,15 +90,14 @@ export type EarlyCoach = { coachId: string; coachName: string; reminders: number
 export type CustomerCard = {
   /** Senast lämnade beställarrapporten (lämnas till kommunen utanför Miljonmatch sedan 2026-10-07). */
   latest: { id: string; month: string; deliveredAt: string } | null;
-  /** Rullande resultatgrad i den rapporten (utan internt mål). */
-  rolling: { value: number | null; num: number; den: number; minN: number } | null;
-  contractTarget: number | null;
+  /**
+   * Resultattabellen i den rapporten, som kommunen fick den (Karims beslut 2026-11-25): Period · Resultat (arbete eller
+   * studier) · Avbrott med exakta antal – ingen resultatgrad och inget avtalsmål.
+   */
+  results: SummaryTable | null;
   /** Närmast följande rapport som inte är levererad (utkast). */
   next: { id: string; month: string } | null;
-  nextRolling: { value: number | null; num: number; den: number } | null;
   correctionPending: boolean;
-  /** Minsta gruppstorlek i kundens rapporter ("färre än 5"). */
-  smallGroupN: number;
   canOpenReport: boolean;
 };
 
@@ -177,8 +177,6 @@ export type AreaRow = { code: string; name: string; active: number; closed: numb
 export type LedningAreas = {
   lastMonth: string;
   minN: number;
-  /** Gräns för små grupper i kundens rapporter (pulse.minNForAggregate). */
-  smallGroupN: number;
   rows: AreaRow[];
   total: { active: number; closed: number };
   all: RateView;

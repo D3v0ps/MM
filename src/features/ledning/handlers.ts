@@ -25,6 +25,9 @@ import { addDays, addMonths, dayOf, fmtDate, fmtWeekKey, monthEnd, monthKey, mon
 import { by, groupBy, sum, uniq } from "@/core/util";
 import { loadDb } from "@/api/load";
 import type { AlertAck, Contract, ContractDeviation, Db, TableName } from "@/data/schema";
+import { contractInfo } from "@/features/rapporter/load";
+import { reportModel } from "@/features/rapporter/model";
+import { customerSummaryContent } from "@/features/rapporter/report-helpers";
 import { orgSettingsFor, upsert, userName } from "../_shared/context";
 import {
   alertAck, cdevClose, cdevCustomerApproved, cdevDetail, cdevMonth, cdevRegister, cdevSave, cdLevelLabel, cdStatusKey, CD_STATUS_LABEL, cdTypeLabel, ledningAreas, ledningCoaches,
@@ -257,10 +260,12 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
   const reps = db.reports.filter((r) => r.kind === "customer_summary" && r.contractId === contract.id && !r.superseded).sort(by("month"));
   const latest = reps.filter(delivered).slice(-1)[0] ?? null;
   const next = reps.find((r) => !delivered(r) && (!latest || (r.month ?? "") > (latest.month ?? ""))) ?? null;
-  // Samma räknesätt som beställarrapporten (customerSummary: rullande 6 månader till och med månadens slut).
-  const customerRolling = (mk: MonthKey) => {
-    const r = resultRate(db, { window: "rolling_6m", to: monthEnd(mk) }, env);
-    return { value: r.value, num: r.num, den: r.den, minN: r.minN };
+  // Resultattabellen ur rapportens eget innehåll (reportModel: ögonblicksbilden, annars uppgifterna vid leveransen) – exakt
+  // det kommunen fick (Karims beslut 2026-11-25). Tabellerna som bara månadsrapporten läser behövs inte här.
+  const customerResults = async (r: Db["reports"][number]) => {
+    const info = await contractInfo(ctx, contract.id);
+    const m = reportModel({ ...db, audit_log: [], monthly_plans: [], tasks: [] }, r, info.env);
+    return m && m.kind === "customer_summary" ? customerSummaryContent(m).results : null;
   };
 
   return {
@@ -316,12 +321,9 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
     kpis: kpiList.map((v) => kpiRow(v, hide)),
     customer: {
       latest: latest && latest.month && latest.deliveredAt ? { id: latest.id, month: latest.month, deliveredAt: latest.deliveredAt } : null,
-      rolling: latest?.month ? customerRolling(latest.month) : null,
-      contractTarget: targets.contract,
+      results: latest?.month && latest.deliveredAt ? await customerResults(latest) : null,
       next: next?.month ? { id: next.id, month: next.month } : null,
-      nextRolling: next?.month ? customerRolling(next.month) : null,
       correctionPending: !!(latest?.correctionPending && db.reports.some((r) => r.id === latest.correctionPending)),
-      smallGroupN: cfg.pulse.minNForAggregate,
       canOpenReport: canOpen("rapport.visa", role),
     },
   };
@@ -400,7 +402,6 @@ handleQuery(ledningAreas, { roles: CHEF }, async (ctx) => {
   return {
     lastMonth: lm,
     minN: t.minN,
-    smallGroupN: env.cfg.pulse.minNForAggregate,
     rows,
     total: { active: sum(rows, (r) => r.active), closed: sum(rows, (r) => r.closed) },
     all: rateView(resultRate(db, { from: contract.startsOn }, env), hide),

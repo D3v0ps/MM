@@ -1844,7 +1844,7 @@ const DATA = {
      "why": "Kommunen ska få en beställarrapport varje månad med en kort sammanfattning som avtalsansvarig godkänner. Miljonbemanning lämnar den till kommunen.",
      "how": [
       "På Min vecka: Beställarrapport {månad} att godkänna. Klicka Granska.",
-      "Läs rapporten: deltagare per avtalsområde och yrkesspår, resultat mot avtalsmålet, progression, närvaro, avvikelser och nöjdhet.",
+      "Läs rapporten: deltagare per yrkesområde, resultat och avbrott, progression, närvaro i procent, avvikelser och nöjdhet.",
       "I kortet Sammanfattning – avtalsansvarig godkänner: läs AI-utkastet.",
       "Klicka Använd förslaget, eller skriv själv i Sammanfattning till kommunen.",
       "Klicka Godkänn beställarrapporten."
@@ -1861,7 +1861,7 @@ const DATA = {
      ],
      "rules": [
       "Det interna målet visas aldrig. Systemet stoppar texten om den nämner det.",
-      "Grupper med färre än 5 personer redovisas som färre än 5.",
+      "Alla antal i rapporten är exakta.",
       "Sammanfattningen är tom tills du väljer. AI föreslår – du bedömer.",
       "AI-utkastet är simulerat tills Vertex AI är inkopplat.",
       "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller allt som når kommunen: beställarrapporten, månadsrapporterna och resultatfilen."
@@ -2281,7 +2281,7 @@ const DATA = {
    ],
    "tips": [
     "Beställarrapporten och resultatfilen lämnas till kommunen – aldrig som bilaga i vanlig e-post.",
-    "Läs beställarrapporten som kommunen läser den: inget internt mål, inga små grupper, bara godkända uppgifter.",
+    "Läs beställarrapporten som kommunen läser den: inget internt mål, inga namn, exakta antal och bara godkända uppgifter.",
     "Driv de öppna frågorna med Botkyrka (resultatdefinition, tider för rapporter, beställarreferens). Tills de är bekräftade visas reglerna som Ej fastställt."
    ]
   },
@@ -4472,7 +4472,7 @@ const DATA = {
      ],
      "rules": [
       "Det interna målet, prognosen, jämförelsen per coach och flaggorna visas aldrig för kommunen.",
-      "Grupper med färre än 5 personer redovisas som färre än 5.",
+      "Alla antal i rapporten är exakta.",
       "Statistik om svarstider visas inte för kommunen (öppen fråga 17).",
       "Beställarrapportens innehåll och hur ofta den kommer ska bestämmas med Botkyrka (öppen fråga 14)."
      ],
@@ -6029,7 +6029,7 @@ const DATA = {
     "role": "avtalsansvarig",
     "phase": "manad",
     "title": "Godkänner beställarrapporten och lämnar den till kommunen",
-    "detail": "Min vecka visar beställarrapporten med knappen Granska. Rapporten visar antal deltagare (aktiva, nya och avslutade) per avtalsområde och yrkesspår, resultat mot avtalsmålet 32 procent, progression, närvarograd, avvikelser och nöjdhet. Skriv sammanfattningen, eller klicka Använd förslaget och kontrollera texten. Klicka Godkänn beställarrapporten. Lämna rapporten till kommunen, till exempel på ett möte, och klicka Registrera att rapporten är lämnad. Ingen får något mejl. Det interna målet visas aldrig för kommunen. Grupper med färre än 5 personer redovisas som färre än 5. Förfallodag och innehåll är inte fastställda med Botkyrka. Utkastet skapas automatiskt när månaden är slut, ett för hela avtalet.",
+    "detail": "Min vecka visar beställarrapporten med knappen Granska. Rapporten visar antal deltagare (aktiva, nya och avslutade) per yrkesområde, resultat och avbrott, progression, närvaro i procent, avvikelser (också deltagare utan progression och avbrott utan resultat) och nöjdhet. Alla antal är exakta. Skriv sammanfattningen, eller klicka Använd förslaget och kontrollera texten. Klicka Godkänn beställarrapporten. Lämna rapporten till kommunen, till exempel på ett möte, och klicka Registrera att rapporten är lämnad. Ingen får något mejl. Det interna målet och avtalsmålet visas aldrig i rapporten. Förfallodag och innehåll är inte fastställda med Botkyrka. Utkastet skapas automatiskt när månaden är slut, ett för hela avtalet.",
     "handoff": "Beställarrapporten lämnas till kommunen utanför Miljonmatch."
    },
    {

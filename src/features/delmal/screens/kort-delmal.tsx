@@ -8,6 +8,7 @@ import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
 import {
   Badge, Button, Card, DateInput, ErrorNotice, Field, FormGrid, List, ListItem, Loading, Modal, ModalCancelButton, Notice, Seg, Select, Stack, toast, type BadgeTone,
 } from "@/ui";
+import { achievedOnProblem } from "@/core/progress-goals";
 import { caseGoals, goalAchieve, goalEvidence, goalUndo, type CaseGoalRowView, type CaseGoalsView, type EvidenceInput } from "../api";
 
 const TONE: Record<CaseGoalRowView["state"], BadgeTone> = { none: "outline", training: "grey", achieved: "blue" };
@@ -71,28 +72,77 @@ function DelmalContent({ v }: { v: View }) {
 }
 
 const NO_EVIDENCE = "inget";
+/** Valt underlag ("activity:<id>", "check_in:<id>", "case_note:<id>" eller inget) som kommandots evidence. */
+export function evidenceOf(value: string): EvidenceInput | null {
+  if (value === NO_EVIDENCE) return null;
+  const [kind, ...rest] = value.split(":");
+  return kind ? ({ kind, id: rest.join(":") } as EvidenceInput) : null;
+}
+
+/** Underlaget att välja vid Uppnått – hämtas färskt när dialogen öppnas (ingen cache): ärendets senaste tillfällen, mötesrapporter och anteckningar. */
+function useGoalEvidence(caseId: string): { value: string; label: string }[] {
+  const runQuery = useQueryRunner();
+  const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    runQuery(goalEvidence, { caseId }).then((x) => alive && setOptions(x)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [runQuery, caseId]);
+  return options;
+}
+
+/**
+ * Datum och underlag för Uppnått – samma fält i Markera uppnått (kortet Delmål) och i dialogen för en punkt i steg 1–2 under
+ * Progression och resultat (Karims beslut 2026-11-25). Datumet är förvalt i dag; underlaget är frivilligt.
+ */
+export function AchieveFields({ caseId, on, onOnChange, evidence, onEvidenceChange, idPrefix = "delmal" }: {
+  caseId: string;
+  on: string;
+  onOnChange: (v: string) => void;
+  evidence: string;
+  onEvidenceChange: (v: string) => void;
+  idPrefix?: string;
+}) {
+  const options = useGoalEvidence(caseId);
+  return (
+    <FormGrid>
+      <Field id={`${idPrefix}-datum`} label="Datum" required>
+        <DateInput value={on} onValueChange={onOnChange} />
+      </Field>
+      <Field id={`${idPrefix}-underlag`} label="Underlag">
+        <Select value={evidence} onValueChange={onEvidenceChange} options={[{ value: NO_EVIDENCE, label: "Inget underlag" }, ...options]} />
+      </Field>
+    </FormGrid>
+  );
+}
+/** Förvalt underlag: inget. */
+export const NO_EVIDENCE_VALUE = NO_EVIDENCE;
+
+/** Ångra Uppnått: tillbaka till Tränar eller Inte påbörjat – samma val i Ångra (kortet Delmål) och i dialogen för en punkt. */
+export function UndoTargetField({ value, onChange, id = "delmal-angra", label = "Ändra till" }: { value: "training" | "none"; onChange: (v: "training" | "none") => void; id?: string; label?: string }) {
+  return (
+    <Field id={id} label={label}>
+      <Seg
+        value={value}
+        onValueChange={(x) => onChange(x)}
+        options={[{ value: "training", label: "Tränar", icon: "activity" }, { value: "none", label: "Inte påbörjat", icon: "circle" }]}
+      />
+    </Field>
+  );
+}
 
 function AchieveModal({ v, g, onClose }: { v: View; g: CaseGoalRowView; onClose: () => void }) {
   const cmd = useCommand(goalAchieve);
   const [on, setOn] = useState(v.today);
   const [evidence, setEvidence] = useState(NO_EVIDENCE);
   const [error, setError] = useState<string | null>(null);
-  // Underlaget hämtas färskt när dialogen öppnas (ingen cache): ärendets senaste tillfällen, mötesrapporter och anteckningar.
-  const runQuery = useQueryRunner();
-  const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
-  useEffect(() => {
-    let alive = true;
-    runQuery(goalEvidence, { caseId: v.caseId }).then((x) => alive && setOptions(x)).catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [runQuery, v.caseId]);
   const submit = async () => {
     setError(null);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return setError("Välj datum.");
-    const [kind, ...rest] = evidence === NO_EVIDENCE ? [] : evidence.split(":");
-    const ev = kind ? ({ kind, id: rest.join(":") } as EvidenceInput) : null;
-    const res = await cmd.run({ caseId: v.caseId, goalId: g.goalId, achievedOn: on, evidence: ev }).catch(() => null);
+    const problem = achievedOnProblem(on, v.minDate, v.today);
+    if (problem) return setError(problem);
+    const res = await cmd.run({ caseId: v.caseId, goalId: g.goalId, achievedOn: on, evidence: evidenceOf(evidence) }).catch(() => null);
     if (!res) return setError("Det gick inte att spara. Försök igen.");
     if (!res.ok) return setError(res.message || "Det gick inte att spara.");
     toast(`${g.label}: uppnått.${res.suggested ? " Ett nytt förslag finns under Progression och resultat." : ""}`);
@@ -113,14 +163,7 @@ function AchieveModal({ v, g, onClose }: { v: View; g: CaseGoalRowView; onClose:
     >
       <Stack gap="sm">
         <p className="m-0 font-bold">{g.label}</p>
-        <FormGrid>
-          <Field id="delmal-datum" label="Datum" required>
-            <DateInput value={on} onValueChange={setOn} />
-          </Field>
-          <Field id="delmal-underlag" label="Underlag">
-            <Select value={evidence} onValueChange={setEvidence} options={[{ value: NO_EVIDENCE, label: "Inget underlag" }, ...options]} />
-          </Field>
-        </FormGrid>
+        <AchieveFields caseId={v.caseId} on={on} onOnChange={setOn} evidence={evidence} onEvidenceChange={setEvidence} />
         {error && <Notice tone="critical" title="Det gick inte">{error}</Notice>}
       </Stack>
     </Modal>
@@ -154,13 +197,7 @@ function UndoModal({ v, g, onClose }: { v: View; g: CaseGoalRowView; onClose: ()
     >
       <Stack gap="sm">
         <p className="m-0 font-bold">{g.label}</p>
-        <Field id="delmal-angra" label="Ändra till">
-          <Seg
-            value={to}
-            onValueChange={(x) => setTo(x)}
-            options={[{ value: "training", label: "Tränar", icon: "activity" }, { value: "none", label: "Inte påbörjat", icon: "circle" }]}
-          />
-        </Field>
+        <UndoTargetField value={to} onChange={setTo} />
         {error && <Notice tone="critical" title="Det gick inte">{error}</Notice>}
       </Stack>
     </Modal>

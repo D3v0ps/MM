@@ -14,21 +14,21 @@ import { hidesCommercial } from "@/api/tester-access";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { loadDb } from "@/api/load";
 import {
-  approvedAssessments, bonusAttendance, BONUS_CHECKLIST_LABEL, BONUS_STATUS_TEXT, caseStepItems, FOLLOWS_STEP3, isActiveClaim, manualCreateProblem, speedDeadline, step3For, stepKind,
-  submitProblems, sustainDate,
-  progressStepLabel, SPEED_STEP,
+  approvedAssessments, bonusAttendance, BONUS_CHECKLIST_LABEL, BONUS_STATUS_TEXT, caseStepItems, FOLLOWS_STEP3, isActiveClaim, manualCreateProblem, manualCreateSteps, speedDeadline,
+  step3For, stepKind, submitProblems, sustainDate, progressStepLabel, SPEED_STEP,
 } from "@/core/bonus";
-import type { StepItemStatus } from "@/core/progress-goals";
-import { bonusModel, isOperational, type BonusModel, type OperationalConfig } from "@/core/config";
+import { GOAL_STATE_ICON, goalStateText, shownCaseGoals, sortGoals, type StepItemStatus } from "@/core/progress-goals";
+import { bonusModel, isOperational, progressionAreas, type BonusModel, type OperationalConfig } from "@/core/config";
 import { eventLabel, personName } from "@/core/labels";
 import { dayOf } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
 import { PolicyError, UniqueError } from "@/data/repo";
-import { BONUS_CHECKLIST_ITEMS, type BonusChecklist, type BonusClaim, type BonusClaimDecision, type Case, type Contract } from "@/data/schema";
+import { BONUS_CHECKLIST_ITEMS, STEP_ITEMS, type BonusChecklist, type BonusClaim, type BonusClaimDecision, type Case, type Contract, type Db, type StepItem } from "@/data/schema";
 import { notifyReferrer } from "../_shared/context";
+import { canSetCaseGoals } from "../_shared/progress-goals";
 import {
   bonusCard, bonusCreate, bonusDecide, bonusPortal, bonusRecordMail, bonusReview, bonusSave, bonusSubmit, bonusUnderlag, bonusWithdraw, type BonusCardView, type BonusDecisionView,
-  type BonusPortalView, type BonusReviewView, type BonusStepRow, type BonusUnderlag, type StepItemView,
+  type BonusPortalView, type BonusReviewView, type BonusStepRow, type BonusUnderlag, type StepItemGoalView, type StepItemView,
 } from "./api";
 import { buildUnderlag, bonusRuleText, underlagFilename, windowEndOf } from "./underlag";
 
@@ -113,34 +113,67 @@ const waitsForStep3 = (k: Pick<BonusClaim, "step" | "followsClaimId">, step3: Pi
 // ================================================================ Frågor
 
 // ---------------------------------------------------------------- bonus.kort (deltagarkortet)
+/**
+ * Delmålen att kryssa i för varje punkt i steg 1–2 (Karims beslut 2026-11-25): avtalets aktiva delmål som räknas mot punkten och de
+ * inaktiverade som ärendet har ett läge för (samma urval som kortet Delmål, shownCaseGoals), i katalogens ordning, med ärendets läge.
+ */
+function itemGoalOptions(cfg: OperationalConfig, db: Pick<Db, "progress_goals" | "case_progress_goals">): Map<StepItem, StepItemGoalView[]> {
+  const areaKeys = progressionAreas(cfg).map((a) => a.key);
+  const rowOf = new Map(db.case_progress_goals.map((r) => [r.goalId, r]));
+  const shown = sortGoals(shownCaseGoals(db.progress_goals, new Set(rowOf.keys()), areaKeys), areaKeys);
+  const out = new Map<StepItem, StepItemGoalView[]>();
+  for (const item of STEP_ITEMS) {
+    out.set(item, shown.filter((g) => g.stepItems.includes(item)).map((g) => {
+      const r = rowOf.get(g.id) ?? null;
+      const state = r?.status ?? "none";
+      return { goalId: g.id, label: g.label, state, stateText: goalStateText(r), icon: GOAL_STATE_ICON[state] };
+    }));
+  }
+  return out;
+}
+
 handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView> => {
   // Bonus är ett ekonomiskt villkor: begränsade testare ser det inte (src/api/tester-access.ts).
   if (hidesCommercial(ctx.actor)) return { on: false };
   const x = await caseCtx(ctx, p.caseId);
   if (!x) return { on: false };
   const { c, m } = x;
-  const canAct = await worksOn(ctx, c);
+  const [canAct, canTick] = await Promise.all([worksOn(ctx, c), canSetCaseGoals(ctx, c)]);
   const claims = (await ctx.repo.table("bonus_claims").list({ caseId: c.id })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : -1));
   const goals = await goalsDb(ctx, c);
   const today = dayOf(ctx.now());
+  const options = itemGoalOptions(x.cfg, goals);
+  // Skapa underlag per steg (Karims beslut 2026-11-25): bara där reglerna inte täcker det själva (manualCreateSteps).
+  const offered = new Set<number>();
+  if (canAct) {
+    const byCase = { caseId: c.id };
+    const rest = await loadDb(ctx.repo, ["activities", "attendance", "monthly_assessments", "outcome_events"], {
+      activities: byCase, attendance: byCase, monthly_assessments: byCase, outcome_events: byCase,
+    });
+    for (const step of manualCreateSteps({ ...rest, cases: [c], bonus_claims: claims, ...goals }, c, m, { now: ctx.now() })) offered.add(step);
+  }
   const steps: BonusStepRow[] = m.steps
     .slice()
     .sort((a, b) => a.step - b.step)
     .map((s) => {
       const mine = claims.filter((k) => k.step === s.step);
       const shown = mine.find(isActiveClaim) ?? mine[0] ?? null;
-      const problem = manualCreateProblem(c, claims, s.step);
+      // Ett skickat anspråk som räknas (skickat eller godkänt) visar det som skickades; ett avslaget eller återtaget anspråk är inte
+      // stegets läge – då punkterna ur dagens uppnådda delmål (granskningen av anspråket visar fortfarande det frysta). Bara de
+      // levande punkterna har delmål att kryssa i.
+      const frozen = s.step <= 2 ? frozenItems(shown && isActiveClaim(shown) ? shown : null) : null;
+      const live = (): StepItemView[] => caseStepItems(goals, c, s.step, m, today).map((it) => ({ ...itemsView([it])[0], key: it.item, options: options.get(it.item) ?? [] }));
       return {
         step: s.step, label: progressStepLabel(m, s.step), status: shown?.status ?? "none", ...statusOf(shown?.status ?? "none"), claimId: shown?.id ?? null, source: shown?.source ?? null,
         // Steg 4 och 5: resultatdatum är bonussteg 3:s (det levande), aldrig kopian på anspråket.
-        reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null, canCreate: canAct && !problem, createProblem: canAct ? problem : null,
+        reachedOn: (shown?.followsClaimId ? claims.find((y) => y.id === shown.followsClaimId)?.reachedOn : shown?.reachedOn) ?? null, submittedAt: shown?.submittedAt ?? null, decidedAt: shown?.decidedAt ?? null,
+        canCreate: offered.has(s.step),
         history: mine.filter((k) => k !== shown).map((k) => ({ claimId: k.id, status: k.status, statusText: BONUS_STATUS_TEXT[k.status].text, at: k.decidedAt ?? k.withdrawnAt ?? k.createdAt })),
-        // Ett skickat anspråk som räknas (skickat eller godkänt) visar det som skickades; ett avslaget eller återtaget anspråk är inte
-        // stegets läge – då punkterna ur dagens uppnådda delmål (granskningen av anspråket visar fortfarande det frysta).
-        items: s.step <= 2 ? frozenItems(shown && isActiveClaim(shown) ? shown : null) ?? itemsView(caseStepItems(goals, c, s.step, m, today)) : [],
+        items: s.step <= 2 ? frozen ?? live() : [],
       };
     });
-  return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, steps, rules: m.steps.map((s) => `Steg ${s.step} · ${progressStepLabel(m, s.step)}: ${bonusRuleText(m, s.step)}`) };
+  const defaultDate = c.endDate && c.endDate < today ? c.endDate : today;
+  return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, canTick, today, minDate: c.startDate, defaultDate, steps };
 });
 
 // ---------------------------------------------------------------- bonus.granska (Granska och skicka)

@@ -11,10 +11,12 @@
 //   deliveredOk(r)       levererad (eller kvitterad) och inte ersatt av en rättelse
 //   DENIED[reason]       rubrik och text när rapporten inte får visas
 // Datum skrivs utan förkortningar ("1 februari 2027") eftersom dokumenten också visas i kommunportalen.
+import { num, pct } from "@/core/format";
 import { reportKindLabel, reportStatusLabel } from "@/core/labels";
 import { addDays, fmtDateFull, fmtDateTimeFull, MONTHS, monthEnd, monthKey, monthName, weekday, weekMonday, WEEKDAYS, type MonthKey, type WeekKey } from "@/core/time";
 import type { BadgeTone, IconName } from "@/ui";
 import type { Report, ReportKind, ReportStatus } from "@/data/schema";
+import type { AttStats, RateModel, SummaryModel } from "./model";
 
 /** Fälten i en rapport som hjälparna behöver (vy-modellerna skickar bara dessa). */
 export type ReportHead = Pick<Report, "kind" | "status" | "month" | "week" | "periodStart" | "periodEnd"> & { openedAt?: string | null };
@@ -63,8 +65,70 @@ export function goalSentence(g: { yes: number; partly: number; no: number }): st
 /** Förkortningar skrivs ut (dokumenten visas i kommunportalen): "Praktik/APL" → "Praktik (arbetsplatsförlagt lärande)". */
 export const plain = (t: string | null | undefined): string => String(t == null ? "" : t).replace(/\/APL\b/i, " (arbetsplatsförlagt lärande)");
 
-/** Antal för kommunen: 1 till minN − 1 skrivs "färre än 5" (små grupper redovisas inte). */
+/**
+ * Antal för kommunen: 1 till minN − 1 skrivs "färre än 5" (små grupper redovisas inte). Används inte längre i
+ * beställarrapporten (exakta antal, Karims beslut 2026-11-25) – bara i rapportbyggarens kommunläge.
+ */
 export const smallN = (minN: number, n: number): string => (n > 0 && n < minN ? `färre än ${minN}` : String(n));
+
+// ---------------------------------------------------------------- Beställarrapporten (Karims beslut 2026-11-25)
+/**
+ * Närvaron i procent med samma nämnare som närvarograden – de passerade tillfällen där närvaron är registrerad – så att
+ * närvarograd + giltig + ogiltig frånvaro = 100 %. Sen ankomst räknas i närvarograden. Inget registrerat: null ("–").
+ */
+export function attendanceShares(st: Pick<AttStats, "present" | "late" | "absentValid" | "absentInvalid">): { present: number | null; valid: number | null; invalid: number | null } {
+  const registered = st.present + st.late + st.absentValid + st.absentInvalid;
+  if (!registered) return { present: null, valid: null, invalid: null };
+  return { present: (st.present + st.late) / registered, valid: st.absentValid / registered, invalid: st.absentInvalid / registered };
+}
+
+type Pair = [string, string];
+export type SummaryTable = { cols: string[]; rows: { key: string; cells: string[] }[] };
+/** Beställarrapportens avsnitt 1–6 som text. */
+export type SummaryContent = {
+  participants: Pair[]; areas: SummaryTable; results: SummaryTable; progression: Pair[]; progressionAreas: SummaryTable;
+  attendance: Pair[]; deviations: Pair[]; pulse: Pair[];
+};
+
+/**
+ * Beställarrapportens innehåll som text – samma för HTML-pappret och PDF:en, så att de inte kan glida isär. Bara fakta och
+ * rubriker, inga hjälptexter (Karims designregel). Exakta antal överallt; bara nöjdhetens andel kräver minst minN svar.
+ * Bara yrkesområdet (byTrack visas inte), inget avtalsmål och inget internt mål. Fält som saknas i en äldre ögonblicksbild
+ * (avbrott, noProgression, avbrottNoResult) visas som "–".
+ */
+export function customerSummaryContent(m: SummaryModel): SummaryContent {
+  const share = (part: number, whole: number) => pct(whole ? part / whole : null, 0);
+  const rate = (label: string, x: RateModel) => ({ key: label, cells: [label, num(x.num), num(x.avbrott)] });
+  const att = attendanceShares(m.attendance);
+  return {
+    participants: [["Aktiva under månaden", num(m.active)], ["Nya insatser", num(m.started)], ["Avslutade insatser", num(m.closed)]],
+    areas: {
+      cols: ["Yrkesområde", "Aktiva", "Nya", "Avslutade"],
+      rows: m.byArea.map((a) => ({ key: a.code, cells: [a.name, num(a.active), num(a.started), num(a.closed)] })),
+    },
+    results: {
+      cols: ["Period", "Resultat (arbete eller studier)", "Avbrott"],
+      rows: [rate(ucfirst(monthName(m.month)), m.result.month), rate("Rullande 6 månader", m.result.rolling), rate("Sedan avtalets start", m.result.sinceStart)],
+    },
+    progression: [
+      ["Godkända månadsbedömningar", num(m.progression.assessed)], ["Tydlig progression", num(m.progression.clear)],
+      ["Andel med tydlig progression", share(m.progression.clear, m.progression.assessed)],
+    ],
+    progressionAreas: {
+      cols: ["Område", "Tydlig progression", "Andel"],
+      rows: m.progression.areaDist.map((a) => ({ key: a.key, cells: [a.label, num(a.clear), share(a.clear, a.n)] })),
+    },
+    attendance: [["Närvarograd", pct(m.attendanceRate)], ["Giltig frånvaro", pct(att.valid)], ["Ogiltig frånvaro", pct(att.invalid)]],
+    deviations: [
+      ["Avvikelser på deltagarnivå", num(m.deviations)], ["Avtalsavvikelser", num(m.contractDeviations)],
+      ["Deltagare utan progression", num(m.noProgression)], ["Avbrott utan resultat", num(m.avbrottNoResult)],
+    ],
+    pulse: [
+      ["Svarsperiod", m.pulse.period], ["Antal svar", num(m.pulse.responses)],
+      ["Andel nöjda (4–5)", m.pulse.responses >= m.minN ? pct(m.pulse.satisfaction, 0) : "–"],
+    ],
+  };
+}
 
 // ---------------------------------------------------------------- Datum utan förkortningar
 /** "14 december" */

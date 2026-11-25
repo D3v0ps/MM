@@ -52,7 +52,36 @@ function protoDocText(t: string): string {
  * omfattningen i text (period). Jämförelsen kontrollerar omfattningen för sig och lägger tillbaka prototypens pris, så att alla
  * andra fält fortfarande jämförs med facit.
  */
+/**
+ * Dokumenterad avvikelse (Karims beslut 2026-11-25): beställarrapporten har exakta antal och tre nya fält – avbrott per
+ * resultatrad, deltagare utan progression och avbrott utan resultat. Jämförelsen kontrollerar dem för sig (se nedan), tar
+ * bort dem och skriver sammanfattningen med prototypens "färre än 5" – så att resten av modellen fortfarande jämförs med facit.
+ */
+function protoSummary(m: SummaryModel): string {
+  const sm = (n: number) => (n > 0 && n < m.minN ? `färre än ${m.minN}` : String(n));
+  const uc = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  return summaryFromNumbers(m)
+    .replace(/var (\d+) deltagare aktiva och (\d+) nya/, (_, a: string, b: string) => `var ${sm(+a)} deltagare aktiva och ${sm(+b)} nya`)
+    .replace(/startade\. (\d+) insatser avslutades, varav (\d+) till/, (_, a: string, b: string) => `startade. ${uc(sm(+a))} insatser avslutades, varav ${sm(+b)} till`)
+    .replace(/(\d+) avvikelser på deltagarnivå/, (_, a: string) => `${uc(sm(+a))} avvikelser på deltagarnivå`);
+}
+function summaryAsPrototype(m: SummaryModel): unknown {
+  const { noProgression, avbrottNoResult, ...rest } = m;
+  expect(noProgression, "noProgression").toEqual(expect.any(Number));
+  expect(avbrottNoResult, "avbrottNoResult").toEqual(expect.any(Number));
+  const rate = (x: SummaryModel["result"]["month"]) => {
+    const { avbrott, ...r } = x;
+    expect(avbrott, "avbrott").toEqual(expect.any(Number));
+    return r;
+  };
+  if (m.summary != null) expect(m.summary).toBe(summaryFromNumbers(m));
+  return {
+    ...rest, summary: m.summary == null ? null : protoSummary(m),
+    result: { ...m.result, month: rate(m.result.month), rolling: rate(m.result.rolling), sinceStart: rate(m.result.sinceStart) },
+  };
+}
 function asPrototype(r: Report, m: unknown): unknown {
+  if (r.kind === "customer_summary" && m) return summaryAsPrototype(m as SummaryModel);
   if ((r.kind === "monthly" || r.kind === "final") && m && typeof (m as { docText?: unknown }).docText === "string") {
     return { ...(m as object), docText: protoDocText((m as { docText: string }).docText) };
   }
@@ -136,5 +165,92 @@ describe("beställarrapporten: Första möte inom en vecka räknar det första b
     expect(sla({ ...rebooked, first_meeting_no_shows: [{ caseId: "case-270043", meetingAt: "2027-01-29T14:00" }] })).toEqual(before);
     // Utan registreringen räknas ombokningen som sent (så som det var före beslutet).
     expect(sla({ ...rebooked, first_meeting_no_shows: [] })).not.toEqual(before);
+  });
+});
+
+describe("beställarrapporten: Karims beslut 2026-11-25 (exakta antal, avbrott, deltagare utan progression, avbrott utan resultat)", () => {
+  const summary = (d: Db) => reportModel(d, rep("rep-16699"), env) as SummaryModel;
+  const inJan = (c: Db["cases"][number]) => c.status === "closed" && c.endDate != null && c.endDate >= "2027-01-01" && c.endDate <= "2027-01-31";
+  const isAvbrott = (r: string | null) => r != null && r.startsWith("avbrott_");
+
+  it("sammanfattningen har exakta antal – aldrig \"färre än 5\"", () => {
+    const m = summary(db);
+    const small = { ...m, active: 3, started: 1, closed: 4, deviations: 2, result: { ...m.result, month: { ...m.result.month, num: 1 } } };
+    const text = summaryFromNumbers(small);
+    expect(text).toMatch(/^Under januari 2027 var 3 deltagare aktiva och 1 nya insatser startade\. 4 insatser avslutades, varav 1 till arbete eller studier\./);
+    expect(text).toContain("2 avvikelser på deltagarnivå har hanterats med åtgärd.");
+    expect(text).not.toMatch(/färre än/i);
+  });
+
+  it("Avbrott per resultatrad: alla avslut i perioden med en avbrottsorsak – också flytt och kommunens beslut, som inte räknas i nämnaren", () => {
+    const m = summary(db);
+    const want = db.cases.filter((c) => inJan(c) && isAvbrott(c.endReason)).length;
+    expect(want).toBeGreaterThan(0);
+    expect(m.result.month.avbrott).toBe(want);
+    // En deltagare som flyttar räknas inte i resultatgraden men är ett avbrott.
+    const c = db.cases.find((x) => inJan(x) && x.endReason === "arbete")!;
+    const moved = summary({ ...db, cases: db.cases.map((x) => (x.id === c.id ? { ...x, endReason: "avbrott_flytt" as const, resultClass: "excluded" as const } : x)) });
+    expect(moved.result.month.avbrott).toBe(want + 1);
+    expect(moved.result.month.den).toBe(m.result.month.den - 1);
+    expect(m.result.rolling.avbrott).toBeGreaterThanOrEqual(want);
+    expect(m.result.sinceStart.avbrott).toBe(db.cases.filter((x) => x.status === "closed" && x.endDate != null && x.endDate <= "2027-01-31" && isAvbrott(x.endReason)).length);
+  });
+
+  it("Avbrott utan resultat: avslutade under månaden med avbrott och utan resultat – ett avbrott med resultat räknas inte; 0 utan avbrott", () => {
+    const m = summary(db);
+    const ab = db.cases.filter((c) => inJan(c) && isAvbrott(c.endReason));
+    expect(m.avbrottNoResult).toBe(ab.filter((c) => c.resultClass !== "result").length);
+    expect(m.avbrottNoResult).toBeGreaterThan(0);
+    const withResult = summary({ ...db, cases: db.cases.map((x) => (x.id === ab[0].id ? { ...x, resultClass: "result" as const } : x)) });
+    expect(withResult.avbrottNoResult).toBe(m.avbrottNoResult! - 1);
+    // Avbrottet står kvar i resultattabellens Avbrott.
+    expect(withResult.result.month.avbrott).toBe(m.result.month.avbrott);
+    const none = summary({ ...db, cases: db.cases.map((x) => (inJan(x) && isAvbrott(x.endReason) ? { ...x, endReason: "planerat_utan_resultat" as const } : x)) });
+    expect(none.avbrottNoResult).toBe(0);
+    expect(none.result.month.avbrott).toBe(0);
+  });
+
+  it("Deltagare utan progression: bara godkända bedömningar för månaden, inget obligatoriskt område på nivå 1 eller högre – de valfria räknas aldrig", () => {
+    const cfg = env.cfg;
+    const approved = db.monthly_assessments.filter((x) => x.month === "2027-01" && x.status === "approved");
+    expect(approved.length).toBeGreaterThan(3);
+    expect(summary(db).noProgression).toBe(0);
+    type Ma = (typeof approved)[number];
+    const levels = (x: Ma, level: (key: string) => number): Ma => ({
+      ...x, areas: Object.fromEntries([...cfg.progression.areas, ...cfg.progression.optionalAreas].map((k) => [k, { ...x.areas[k], level: level(k) }])) as Ma["areas"],
+    });
+    const optional = new Set<string>(cfg.progression.optionalAreas);
+    const [a, b, c] = approved;
+    // a: alla obligatoriska på 0, de valfria på 3 – räknas. b: ett obligatoriskt område på nivå 1 – räknas inte. c: utkast med allt på 0 – räknas inte.
+    const changed = db.monthly_assessments.map((x) =>
+      x.id === a.id ? levels(x, (k) => (optional.has(k) ? 3 : 0))
+        : x.id === b.id ? levels(x, (k) => (k === cfg.progression.areas[0] ? 1 : 0))
+          : x.id === c.id ? { ...levels(x, () => 0), status: "draft" as const }
+            : x,
+    );
+    expect(summary({ ...db, monthly_assessments: changed }).noProgression).toBe(1);
+  });
+
+  it("en ögonblicksbild från före beslutet (utan de nya fälten, med byTrack) visas som den är och ser inte ut att ha ändrats", () => {
+    const dec = rep("rep-16698");
+    const fresh = J(frozenModel(db, dec, env) as SummaryModel);
+    const { noProgression, avbrottNoResult, ...old } = fresh;
+    void noProgression;
+    void avbrottNoResult;
+    const strip = (x: SummaryModel["result"]["month"]) => {
+      const { avbrott, ...r } = x;
+      void avbrott;
+      return r;
+    };
+    const oldModel = { ...old, result: { ...old.result, month: strip(old.result.month), rolling: strip(old.result.rolling), sinceStart: strip(old.result.sinceStart) } };
+    expect(oldModel.byTrack.length).toBeGreaterThan(0);
+    const snap: Report = { ...dec, snapshot: { reportId: dec.id, takenAt: "2027-01-12T10:05", deliveredAt: dec.deliveredAt, model: oldModel } };
+    expect(J(reportModel(db, snap, env))).toEqual(oldModel);
+    expect(driftedSinceDelivery(db, snap, env)).toBe(false);
+    // En verklig ändring av underlaget upptäcks fortfarande: ett verifierat resultat i december blir inget resultat.
+    const c = db.cases.find((x) => x.status === "closed" && x.endDate?.startsWith("2026-12") && x.resultClass === "result" && x.resultVerifiedAt)!;
+    expect(driftedSinceDelivery({ ...db, cases: db.cases.map((x) => (x.id === c.id ? { ...x, resultClass: "no_result" as const } : x)) }, snap, env)).toBe(true);
+    // En ny ögonblicksbild (med fälten) jämförs som vanligt.
+    expect(driftedSinceDelivery(db, { ...snap, snapshot: { ...snap.snapshot!, model: fresh } }, env)).toBe(false);
   });
 });

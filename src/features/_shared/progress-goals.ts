@@ -20,7 +20,8 @@ import { caseGoalId, goalTagsProblem, shownCaseGoals, sortGoals, trainingRowsToA
 import { uniq } from "@/core/util";
 import { PolicyError, UniqueError } from "@/data/repo";
 import { PROGRESS_GOAL_TAGS_MAX, type Activity, type AppRepo, type Case, type ProgressGoal } from "@/data/schema";
-import type { GoalPickerArea } from "../delmal/api";
+import { GOAL_SETTERS, type GoalPickerArea } from "../delmal/api";
+import { canEditCase } from "./context";
 
 /**
  * Valet "Tränar delmål" i formulären: avtalets progressionsområden i avtalets ordning med delmålen (aktiva och inaktiverade – de
@@ -49,6 +50,18 @@ const errorCode = (e: unknown): string => {
 export async function caseHasGoals(repo: AppRepo, c: Pick<Case, "id" | "contractId">, cfg: Pick<OperationalConfig, "progression">): Promise<boolean> {
   const [goals, rows] = await Promise.all([repo.table("progress_goals").list({ contractId: c.contractId }), repo.table("case_progress_goals").list({ caseId: c.id })]);
   return shownCaseGoals(goals, new Set(rows.map((r) => r.goalId)), progressionAreas(cfg).map((a) => a.key)).length > 0;
+}
+
+/** Statusar där delmålen kan markeras: insatsen har startat (också avslutad – ett intyg kan komma efteråt). */
+export const GOALS_STARTED: readonly Case["status"][] = ["active", "paused", "closed"];
+/**
+ * Får aktören markera Uppnått och Ångra i ärendet? Samma svar på kortet Delmål (delmal.arende) och för punkterna i steg 1–2 under
+ * Progression och resultat (bonus.kort, Karims beslut 2026-11-25): rollerna GOAL_SETTERS (coach, samordnare, avtalsansvarig),
+ * insatsen har startat och aktören arbetar i ärendet med full åtkomst (canEditCase – personen läsbar via behörigheten). Chefen,
+ * systemadministratören, teamet och den vilande rollen handledare läser bara.
+ */
+export async function canSetCaseGoals(ctx: Ctx, c: Pick<Case, "status" | "startDate" | "personId" | "leadCoachId" | "referrerId">): Promise<boolean> {
+  return GOAL_SETTERS.includes(ctx.actor.role) && GOALS_STARTED.includes(c.status) && !!c.startDate && (await canEditCase(ctx, c));
 }
 
 /** Avtalets katalog (också inaktiva) via repot som anroparen ger – ctx.repo (behörigheten) eller ctx.system. */

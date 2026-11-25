@@ -18,6 +18,7 @@ import type { AppRepo, Db, Report, TableName, Tables } from "@/data/schema";
 import { ensureFacts } from "./freeze";
 import { parseDocText } from "./facts";
 import { goalSentence } from "./report-helpers";
+import { summaryFromNumbers } from "./model";
 import { orderPeriodText } from "@/core/cases";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { assessmentSave, attendanceSet } from "@/features/coach/api";
@@ -170,6 +171,15 @@ describe("rapporter.dokument läser rätt underlag", () => {
       } else if ((d.doc.kind === "monthly" || d.doc.kind === "final") && typeof s.model.docText === "string") {
         // Dokumenterad avvikelse (granskningen 2026-10-13): meningen om veckomålet utan delar som är noll (goalSentence).
         expect(d.doc.m).toEqual({ ...s.model, docText: withGoalSentence(s.model.docText) });
+      } else if (d.doc.kind === "customer_summary") {
+        // Dokumenterad avvikelse (Karims beslut 2026-11-25): avbrott per resultatrad, deltagare utan progression och avbrott
+        // utan resultat är nya, och sammanfattningens förslag har exakta antal i stället för "färre än 5".
+        const { noProgression, avbrottNoResult, result, summary, ...rest } = d.doc.m;
+        expect([noProgression, avbrottNoResult, result.month.avbrott, result.rolling.avbrott, result.sinceStart.avbrott]).toEqual(Array(5).fill(expect.any(Number)));
+        const rate = ({ avbrott: _a, ...x }: typeof result.month) => (void _a, x);
+        expect({ ...rest, result: { ...result, month: rate(result.month), rolling: rate(result.rolling), sinceStart: rate(result.sinceStart) }, summary: s.model.summary }).toEqual(s.model);
+        if (s.model.summary != null) expect(summary).toBe(summaryFromNumbers(d.doc.m));
+        expect(summary ?? "").not.toMatch(/färre än/i);
       } else expect(d.doc.m).toEqual(s.model);
     });
   }

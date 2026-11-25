@@ -69,9 +69,18 @@ describe("ledningsvyn", () => {
     expect(d.cds.openPlans.map((x) => x.sla?.label)).toEqual(["Senast 5 feb kl. 16.00", "Senast 12 feb kl. 16.00"]);
     // Kommunens bild: senast levererade beställarrapporten (december) och utkastet för januari
     expect(d.customer.latest).toEqual({ id: "rep-16698", month: "2026-12", deliveredAt: "2027-01-12T10:05" });
-    expect(d.customer.rolling).toMatchObject({ num: 24, den: 77 });
+    // Rapportens resultattabell som kommunen fick den (Karims beslut 2026-11-25): Resultat och Avbrott, exakta antal – ingen
+    // resultatgrad och inget avtalsmål.
+    expect(d.customer.results).toEqual({
+      cols: ["Period", "Resultat (arbete eller studier)", "Avbrott"],
+      rows: [
+        { key: "December 2026", cells: ["December 2026", "13", "5"] },
+        { key: "Rullande 6 månader", cells: ["Rullande 6 månader", "24", "15"] },
+        { key: "Sedan avtalets start", cells: ["Sedan avtalets start", "24", "15"] },
+      ],
+    });
     expect(d.customer.next).toEqual({ id: "rep-16699", month: "2027-01" });
-    expect(d.customer.nextRolling).toMatchObject({ num: 43, den: 127 });
+    expect(JSON.stringify(d.customer)).not.toMatch(/contractTarget|rolling|0\.32|färre än/);
     expect(d.kpis.map((k) => k.key)).toEqual(["resultatgrad", "avrop_besvarade_i_tid", "forsta_mote_inom_en_vecka", "veckorapporter_i_tid", "manadsrapporter_i_tid", "narvarograd", "nojdhet"]);
     // Vy-modellen innehåller inga hela ärenden (KpiValue.late tas bort)
     expect(JSON.stringify(d)).not.toMatch(/personId|personnummer/);
