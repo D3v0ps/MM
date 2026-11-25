@@ -367,13 +367,12 @@ describe("granskningen av rapporterna (2026-10-13)", () => {
     }
   }, 30_000);
 
-  it("beställarrapporten (HTML och PDF): avtalsavvikelser med exakt antal, avvikelser på deltagarnivå maskerade, ingen rad Mottagare och inga ord om prototypen", async () => {
+  it("beställarrapporten (HTML och PDF): avvikelser med exakt antal (Karims beslut 2026-11-25), ingen rad Mottagare och inga ord om prototypen", async () => {
     const base = await docOf("rep-16698", as("u-johan", "avtalsansvarig"));
     if (base.kind !== "customer_summary") throw new Error("rep-16698");
-    // Avtalets text är "Preliminärt i prototypen: …" – kommunen får den utan orden om prototypen, också i prototypen.
-    expect(base.resultNote).toMatch(/^Preliminärt: avslut till arbete eller studier/);
-    expect(base.resultNote).not.toMatch(/prototyp/i);
-    for (const [deviations, contractDeviations, wantDev, wantContract] of [[2, 3, "färre än 5", "3"], [0, 1, "0", "1"], [7, 0, "7", "0"]] as const) {
+    // Avtalets text om resultatdefinitionen ("Preliminärt i prototypen: …") står inte längre i rapporten (inga hjälptexter).
+    expect("resultNote" in base).toBe(false);
+    for (const [deviations, contractDeviations, wantDev, wantContract] of [[2, 3, "2", "3"], [0, 1, "0", "1"], [7, 0, "7", "0"]] as const) {
       const doc = { ...base, m: { ...base.m, deviations, contractDeviations } } as ReportDocView;
       const html = htmlBlocks(doc);
       const pdf = pdfText(<ReportPdf doc={doc} />);
@@ -391,7 +390,7 @@ describe("granskningen av rapporterna (2026-10-13)", () => {
   it("beställarrapportens resultattabell: rubrikraden står aldrig ensam på en sida – rubriken och alla tre raderna hålls ihop", async () => {
     const base = await docOf("rep-16698", as("u-johan", "avtalsansvarig"));
     if (base.kind !== "customer_summary") throw new Error("rep-16698");
-    // Fler avtalsområden flyttar resultattabellen nedåt, så att sidbrytningen hamnar före, i och efter tabellen.
+    // Fler yrkesområden flyttar resultattabellen nedåt, så att sidbrytningen hamnar före, i och efter tabellen.
     for (let extra = 0; extra <= 14; extra++) {
       const areas = [...base.m.byArea, ...Array.from({ length: extra }, (_, i) => ({ ...base.m.byArea[0], code: `X${i}`, name: `Testområde ${i + 1}` }))];
       const doc = { ...base, m: { ...base.m, byArea: areas } } as ReportDocView;
@@ -402,4 +401,194 @@ describe("granskningen av rapporterna (2026-10-13)", () => {
       for (const row of ["Rullande 6 månader", "Sedan avtalets start"]) expect(pagesWith(row), `extra ${extra}: ${row}`).toEqual(head);
     }
   }, 120_000);
+});
+
+// ---------------------------------------------------------------- Karims beslut 2026-11-25: beställarrapportens innehåll
+type SummaryDoc = Extract<ReportDocView, { kind: "customer_summary" }>;
+const summaryDoc = async (id: string): Promise<SummaryDoc> => {
+  const d = await docOf(id, as("u-johan", "avtalsansvarig"));
+  if (d.kind !== "customer_summary") throw new Error(id);
+  return d;
+};
+const withM = (d: SummaryDoc, m: Partial<SummaryDoc["m"]>): SummaryDoc => ({ ...d, m: { ...d.m, ...m } });
+/** Tabellens kolumnrubriker och rader i HTML-pappret, i avsnittet som börjar med `heading`. */
+const htmlTable = (doc: ReportDocView, heading: string, i = 0) => {
+  const t = htmlSection(doc, heading).querySelectorAll("table")[i];
+  if (!t) throw new Error(`${heading}: ingen tabell ${i}`);
+  return {
+    head: [...t.querySelectorAll("th")].map((e) => e.textContent?.trim()),
+    rows: [...t.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((e) => e.textContent?.trim())),
+  };
+};
+const htmlKv = (doc: ReportDocView, heading: string) => {
+  const sec = htmlSection(doc, heading);
+  const dt = [...sec.querySelectorAll("dt")].map((e) => e.textContent?.trim() ?? "");
+  const dd = [...sec.querySelectorAll("dd")].map((e) => e.textContent?.trim() ?? "");
+  return Object.fromEntries(dt.map((k, i) => [k, dd[i]]));
+};
+/** PDF-texterna mellan två avsnittsrubriker. */
+const pdfBetween = (texts: string[], from: string, to: string) => texts.slice(texts.indexOf(from), texts.indexOf(to) > 0 ? texts.indexOf(to) : undefined);
+/** "85,5 %" → 85.5 */
+const pctNum = (s: string | undefined) => Number(String(s).replace(/\s|%/g, "").replace(",", "."));
+
+// Texterna som är borttagna ur beställarrapporten (hjälptexter, maskering och avtalsmålet).
+const REMOVED = [
+  /färre än/i, /Rapporten innehåller inga namn/, /Resultatdefinitionen/, /Preliminärt/, /Minst ett område på nivå/, /räknas inte/i, /redovisas inte/i,
+  /Underlag:/, /väntar på verifiering/, /Sammanfattningen skrivs/, /avtalsmål/i, /32\s?%/, /35\s?%/, /Avslut som räknas/, /Jämfört med/, /Planerade tillfällen/,
+  /Yrkesspår/, /Avtalsområde/, /Övriga \d+ yrkesspår/, /Inte valt än/, /av deltagarna (med|som)/,
+];
+
+describe("beställarrapporten (Karims beslut 2026-11-25): HTML och PDF", () => {
+  it("exakta antal med 1–4 deltagare i ett yrkesområde – kolumnen heter Yrkesområde och ingen tabell för yrkesspår", async () => {
+    const base = await summaryDoc("rep-16699");
+    expect(base.m.byTrack.length).toBeGreaterThan(0);
+    const doc = withM(base, {
+      active: 7, started: 1, closed: 3,
+      byArea: [{ code: "A", name: "A Administration", active: 4, started: 1, closed: 2 }, { code: "B", name: "B Hälsa och sjukvård", active: 3, started: 0, closed: 1 }],
+    });
+    const t = htmlTable(doc, "1.");
+    expect(t.head).toEqual(["Yrkesområde", "Aktiva", "Nya", "Avslutade"]);
+    expect(t.rows).toEqual([["A Administration", "4", "1", "2"], ["B Hälsa och sjukvård", "3", "0", "1"]]);
+    expect(htmlSection(doc, "1.").querySelectorAll("table")).toHaveLength(1);
+    expect(htmlKv(doc, "1.")).toEqual({ "Aktiva under månaden": "7", "Nya insatser": "1", "Avslutade insatser": "3" });
+    const pdf = pdfText(<ReportPdf doc={doc} />);
+    const sec = pdfBetween(pdf, "1. Deltagare", "2. Resultat");
+    expect(sec).toEqual(expect.arrayContaining(["Yrkesområde", "A Administration", "4", "1", "2", "B Hälsa och sjukvård", "3", "0"]));
+    expect(valueAfter(pdf, "Aktiva under månaden")).toBe("7");
+    for (const text of [htmlBlocks(doc).join("\n"), pdf.join("\n"), renderedText(await render(doc))]) {
+      expect(text).not.toMatch(/färre än|Yrkesspår|Avtalsområde/i);
+    }
+  }, 30_000);
+
+  it("resultattabellen har exakt Period · Resultat (arbete eller studier) · Avbrott – inget avtalsmål, ingen andel och ingen mätare", async () => {
+    const doc = await summaryDoc("rep-16699");
+    const t = htmlTable(doc, "2.");
+    expect(htmlSection(doc, "2.").querySelector("h2")?.textContent?.trim()).toBe("2. Resultat");
+    expect(t.head).toEqual(["Period", "Resultat (arbete eller studier)", "Avbrott"]);
+    const r = doc.m.result;
+    expect(r.month.avbrott).toBeGreaterThan(0);
+    expect(t.rows).toEqual([
+      ["Januari 2027", String(r.month.num), String(r.month.avbrott)],
+      ["Rullande 6 månader", String(r.rolling.num), String(r.rolling.avbrott)],
+      ["Sedan avtalets start", String(r.sinceStart.num), String(r.sinceStart.avbrott)],
+    ]);
+    const sec = htmlSection(doc, "2.");
+    expect(sec.querySelectorAll("p, [role=meter], meter, svg")).toHaveLength(0);
+    const pdf = pdfBetween(pdfText(<ReportPdf doc={doc} />), "2. Resultat", "3. Progression");
+    expect(pdf).toEqual(["2. Resultat", "Period", "Resultat (arbete eller studier)", "Avbrott", ...t.rows.flat()]);
+    for (const text of [sec.textContent ?? "", pdf.join("\n")]) expect(text).not.toMatch(/32\s?%|Andel|Avslut som räknas|avtalsmål|Resultatgrad/i);
+    expect(renderedText(await render(doc))).not.toMatch(/32\s?%|Avslut som räknas|avtalsmål|Resultatgrad/i);
+  }, 30_000);
+
+  it("nöjdhet: antalet svar står alltid; andelen 4–5 bara från pulse.minNForAggregate (5) svar – annars \"–\"", async () => {
+    const base = await summaryDoc("rep-16699");
+    expect(base.m.minN).toBe(5);
+    for (const [responses, satisfaction, want] of [[3, 2 / 3, "–"], [4, 1, "–"], [5, 0.6, "60 %"], [6, 4 / 6, "67 %"], [0, null, "–"]] as const) {
+      const doc = withM(base, { pulse: { ...base.m.pulse, responses, satisfaction, enough: responses >= 5 } });
+      const kv = htmlKv(doc, "6.");
+      expect(Object.keys(kv)).toEqual(["Svarsperiod", "Antal svar", "Andel nöjda (4–5)"]);
+      expect(kv["Antal svar"]).toBe(String(responses));
+      expect(kv["Andel nöjda (4–5)"]?.replace(/\s/g, " ")).toBe(want);
+      expect(kv["Svarsperiod"]).toBe(base.m.pulse.period);
+      const pdf = pdfText(<ReportPdf doc={doc} />);
+      expect(valueAfter(pdf, "Antal svar")).toBe(String(responses));
+      expect(valueAfter(pdf, "Andel nöjda (4–5)").replace(/\s/g, " ")).toBe(want);
+      expect(pdfBetween(pdf, "6. Nöjdhet", "7. Sammanfattning")).toHaveLength(7);
+    }
+  }, 30_000);
+
+  it("närvaron i procent med samma nämnare: närvarograd + giltig + ogiltig frånvaro = 100 % – inga planerade tillfällen och inga antal", async () => {
+    const base = await summaryDoc("rep-16699");
+    expect(base.m.attendance.unregistered).toBeGreaterThan(0);
+    const a = { ...base.m.attendance, present: 300, late: 42, absentValid: 37, absentInvalid: 21, unregistered: 9, planned: 409 };
+    for (const [doc, st] of [[base, base.m.attendance], [withM(base, { attendance: a, attendanceRate: (300 + 42) / 400 }), a]] as const) {
+      const kv = htmlKv(doc, "4.");
+      expect(Object.keys(kv)).toEqual(["Närvarograd", "Giltig frånvaro", "Ogiltig frånvaro"]);
+      const reg = st.present + st.late + st.absentValid + st.absentInvalid;
+      // En decimal: avrundat till närmaste tiondel.
+      expect(Math.abs(pctNum(kv["Giltig frånvaro"]) - (st.absentValid / reg) * 100)).toBeLessThanOrEqual(0.05 + 1e-9);
+      expect(Math.abs(pctNum(kv["Ogiltig frånvaro"]) - (st.absentInvalid / reg) * 100)).toBeLessThanOrEqual(0.05 + 1e-9);
+      const sum = pctNum(kv["Närvarograd"]) + pctNum(kv["Giltig frånvaro"]) + pctNum(kv["Ogiltig frånvaro"]);
+      expect(Math.abs(sum - 100)).toBeLessThanOrEqual(0.15);
+      for (const v of Object.values(kv)) expect(v).toMatch(/^\d{1,3},\d\s%$/);
+      const pdf = pdfText(<ReportPdf doc={doc} />);
+      for (const k of Object.keys(kv)) expect(valueAfter(pdf, k)).toBe(kv[k]);
+      expect(pdfBetween(pdf, "4. Närvaro", "5. Avvikelser")).toHaveLength(7);
+    }
+    // Inget registrerat: tre streck.
+    const none = withM(base, { attendance: { ...a, present: 0, late: 0, absentValid: 0, absentInvalid: 0, unregistered: 12, planned: 12, rate: null }, attendanceRate: null });
+    expect(htmlKv(none, "4.")).toEqual({ Närvarograd: "–", "Giltig frånvaro": "–", "Ogiltig frånvaro": "–" });
+    for (const text of [htmlBlocks(base).join("\n"), pdfText(<ReportPdf doc={base} />).join("\n"), renderedText(await render(base))]) expect(text).not.toMatch(/Planerade tillfällen/);
+  }, 30_000);
+
+  it("avvikelser: deltagare utan progression och avbrott utan resultat med exakta antal, också 0", async () => {
+    const base = await summaryDoc("rep-16699");
+    expect(base.m.noProgression).toBe(0);
+    expect(base.m.avbrottNoResult).toBeGreaterThan(0);
+    for (const [deviations, contractDeviations, noProgression, avbrottNoResult] of [[2, 1, 3, 4], [0, 0, 0, 0], [base.m.deviations, base.m.contractDeviations, base.m.noProgression, base.m.avbrottNoResult]] as const) {
+      const doc = withM(base, { deviations, contractDeviations, noProgression, avbrottNoResult });
+      const want = { "Avvikelser på deltagarnivå": String(deviations), Avtalsavvikelser: String(contractDeviations), "Deltagare utan progression": String(noProgression), "Avbrott utan resultat": String(avbrottNoResult) };
+      expect(htmlKv(doc, "5.")).toEqual(want);
+      const pdf = pdfText(<ReportPdf doc={doc} />);
+      for (const [k, v] of Object.entries(want)) expect(valueAfter(pdf, k)).toBe(v);
+    }
+  }, 30_000);
+
+  it("progression utan godkända bedömningar: siffrorna (0) och \"–\" – ingen mening", async () => {
+    const base = await summaryDoc("rep-16699");
+    const doc = withM(base, { progression: { assessed: 0, clear: 0, areaDist: base.m.progression.areaDist.map((a) => ({ ...a, clear: 0, n: 0 })) } });
+    expect(htmlKv(doc, "3.")).toEqual({ "Godkända månadsbedömningar": "0", "Tydlig progression": "0", "Andel med tydlig progression": "–" });
+    const t = htmlTable(doc, "3.");
+    expect(t.head).toEqual(["Område", "Tydlig progression", "Andel"]);
+    expect(t.rows).toEqual(base.m.progression.areaDist.map((a) => [a.label, "0", "–"]));
+    expect(htmlSection(doc, "3.").querySelectorAll("p")).toHaveLength(0);
+    // Med 3 bedömningar (färre än 5) visas andelen ändå.
+    const few = withM(base, { progression: { assessed: 3, clear: 2, areaDist: base.m.progression.areaDist.map((a, i) => ({ ...a, clear: i === 0 ? 2 : 0, n: 3 })) } });
+    expect(htmlKv(few, "3.")["Andel med tydlig progression"]?.replace(/\s/g, " ")).toBe("67 %");
+  });
+
+  it("ingen av de borttagna texterna står i HTML-pappret, PDF-texten eller den renderade PDF:en (utkast, levererad, små tal)", async () => {
+    const jan = await summaryDoc("rep-16699");
+    const small = withM(jan, {
+      active: 3, started: 1, closed: 2, deviations: 1, progression: { ...jan.m.progression, assessed: 2, clear: 1 },
+      pulse: { ...jan.m.pulse, responses: 3, satisfaction: 1, enough: false }, result: { ...jan.m.result, rolling: { ...jan.m.result.rolling, prelim: 2 } },
+    });
+    for (const doc of [jan, await summaryDoc("rep-16698"), small]) {
+      const texts = [htmlBlocks(doc).join("\n"), pdfText(<ReportPdf doc={doc} />).join("\n"), renderedText(await render(doc))];
+      for (const text of texts) for (const re of REMOVED) expect(text, `${doc.id}: ${re}`).not.toMatch(re);
+    }
+    // Utkastet utan sammanfattning: bara ett streck, ingen förklaring.
+    expect(jan.m.summary).toBeNull();
+    expect(squash(htmlSection(jan, "7.").textContent ?? "")).toBe(squash("7. Sammanfattning–"));
+  }, 60_000);
+
+  it("en levererad rapport med en ögonblicksbild från före beslutet (utan avbrott och de nya raderna, med byTrack) visas med \"–\" och utan yrkesspår", async () => {
+    const id = "rep-16698";
+    const row = rt.store.getRow("reports", id)!;
+    const fresh = structuredClone((await summaryDoc(id)).m) as SummaryDoc["m"];
+    const { noProgression, avbrottNoResult, ...rest } = fresh;
+    void noProgression;
+    void avbrottNoResult;
+    const strip = (x: SummaryDoc["m"]["result"]["month"]) => ({ value: x.value, num: x.num, den: x.den, prelim: x.prelim });
+    const old = { ...rest, result: { ...rest.result, month: strip(rest.result.month), rolling: strip(rest.result.rolling), sinceStart: strip(rest.result.sinceStart) } };
+    expect(old.byTrack.length).toBeGreaterThan(0);
+    rt.store.updateRow("reports", id, { snapshot: { reportId: id, takenAt: "2027-01-12T10:05", deliveredAt: row.deliveredAt, model: old } });
+    try {
+      const doc = await summaryDoc(id);
+      expect(doc.m).toEqual(old);
+      expect(htmlTable(doc, "2.").rows.map((r) => r[2])).toEqual(["–", "–", "–"]);
+      const kv = htmlKv(doc, "5.");
+      expect(kv["Deltagare utan progression"]).toBe("–");
+      expect(kv["Avbrott utan resultat"]).toBe("–");
+      const buf = await renderToBuffer(<ReportPdf doc={doc} />);
+      expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+      const pdf = pdfText(<ReportPdf doc={doc} />);
+      expect(valueAfter(pdf, "Avbrott utan resultat")).toBe("–");
+      const flat = squash(pdf.join(""));
+      expect(htmlBlocks(doc).filter((b) => !flat.includes(squash(b)))).toEqual([]);
+      for (const text of [htmlBlocks(doc).join("\n"), pdf.join("\n"), renderedText(new Uint8Array(buf))]) expect(text).not.toMatch(/Yrkesspår|färre än/i);
+    } finally {
+      rt.store.updateRow("reports", id, { snapshot: row.snapshot });
+    }
+  }, 30_000);
 });
