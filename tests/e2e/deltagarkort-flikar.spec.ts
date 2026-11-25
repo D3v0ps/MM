@@ -55,7 +55,9 @@ test("sex flikar och Mer: Mer med tangentbordet, Mer → Kartläggning, Delmål 
 
   // 3. Mer → Kartläggning (med tangentbordet): fliken öppnas, Mer visar var man är, fokus tillbaka på Mer.
   await page.keyboard.press("Enter");
+  await expect(menu.getByRole("menuitemradio", { name: /^Tidslinje/ })).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitemradio", { name: /^Kartläggning/ })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(menu).toHaveCount(0);
   await expect.poll(() => here(page, info)).toBe(`/arenden/${NADIA}?flik=kartlaggning`);
@@ -101,8 +103,11 @@ test("390 px: sex flikar och Mer utan sidledsscroll – flikraden skrollar i sin
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(await overflow(), "ingen sidledsscroll").toBeLessThanOrEqual(0);
   const mer = page.getByRole("button", { name: /^Mer: Månadsunderlag/ });
+  await mer.scrollIntoViewIfNeeded();
   await expect(mer).toBeInViewport({ ratio: 1 });
   const box = (await mer.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
   expect(box.height).toBeGreaterThanOrEqual(44);
   expect(await mer.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "texten på Mer klipps inte").toBe(true);
   // Flikraden rullar i sin egen ruta.
