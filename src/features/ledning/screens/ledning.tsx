@@ -11,7 +11,7 @@ import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, ProtoText, useRuntime } from "@/shell/runtime";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Empty, Grid, Icon, Kpi, Meter, Notice, Page, PerspectiveLink, QueryView, Row, SlaBadge, Split,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Empty, Grid, Icon, Kpi, Kv, Meter, Notice, Page, PerspectiveLink, QueryView, Row, SlaBadge, Split,
   Stack, TabPanel, Table, Tabs, UserName, cn, type MeterMarker, type TabDef,
 } from "@/ui";
 import {
@@ -216,7 +216,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
               <div className="text-text-muted">Prognosen är ett räkneexempel.</div>
             </Stack>
           </Card>
-          <CustomerCard c={d.customer} liveValue={rolling.value} />
+          <CustomerCard c={d.customer} />
         </Stack>
       </Split>
 
@@ -330,64 +330,29 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
   );
 }
 
-/** Kundens omdöme om resultatgraden – samma regel och text som i kommunens beställarrapport. */
-function CustVerdict({ r, target }: { r: CustomerCardData["rolling"]; target: number | null }) {
-  if (!r || r.den < r.minN) {
-    return (
-      <Badge tone="grey" icon="info">
-        För få avslut för att bedöma
-      </Badge>
-    );
-  }
-  return target != null && r.value != null && r.value >= target ? (
-    <Badge tone="blue" icon="check-circle">
-      Når avtalsmålet
-    </Badge>
-  ) : (
-    <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
-      Under avtalsmålet
-    </Badge>
-  );
-}
-
-function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number | null }) {
-  const r = c.rolling;
-  const n = c.smallGroupN;
+/**
+ * Den senast lämnade beställarrapportens resultattabell, som kommunen fick den: Period · Resultat (arbete eller studier) ·
+ * Avbrott med exakta antal (Karims beslut 2026-11-25). Ingen resultatgrad och inget avtalsmål – de är Miljonbemannings egna.
+ */
+function CustomerCard({ c }: { c: CustomerCardData }) {
   return (
     <Card title="Så ser kommunen resultatet" icon="building" tone="sub">
       <Stack gap="sm">
-        {c.latest && r ? (
-          <>
-            <p>
-              I beställarrapporten för <b>{monthName(c.latest.month)}</b>: resultatgrad <b>{r.value == null ? "–" : pct(r.value)}</b> ({r.num} av {r.den} avslut, rullande 6 månader) mot
-              avtalsmålet <b>{pct0(c.contractTarget)}</b>.
-            </p>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <CustVerdict r={r} target={c.contractTarget} />
-            </div>
-            <p>
-              Det är den senast lämnade rapporten (lämnad till kommunen {fmtDateTime(c.latest.deliveredAt)}). Avtalsansvarig lämnar beställarrapporten till kommunen utanför
-              Miljonmatch.
-            </p>
-          </>
+        {c.latest ? (
+          <Kv items={[["Beställarrapport", monthName(c.latest.month)], ["Lämnad till kommunen", fmtDateTime(c.latest.deliveredAt)]]} />
         ) : (
-          <p>Kommunen har inte fått någon beställarrapport ännu. Siffrorna når kommunen först när avtalsansvarig har godkänt och lämnat den första rapporten.</p>
+          <p>Kommunen har inte fått någon beställarrapport ännu.</p>
         )}
-        {c.next && c.nextRolling && (
-          <p>
-            Rapporten för {monthName(c.next.month)} är ett utkast tills avtalsansvarig godkänner den. Med dagens underlag visar den {c.nextRolling.value == null ? "–" : pct(c.nextRolling.value)} (
-            {c.nextRolling.num} av {c.nextRolling.den} avslut).
-          </p>
+        {c.results && (
+          <Table
+            caption={`Resultat i beställarrapporten för ${c.latest ? monthName(c.latest.month) : ""}`}
+            columns={c.results.cols.map((label, i) => ({ key: String(i), label, num: i > 0, render: (r: { key: string; cells: string[] }) => r.cells[i] }))}
+            rows={c.results.rows}
+            rowKey="key"
+            linkKey={false}
+          />
         )}
-        {c.correctionPending && (
-          <p>En rättad version av rapporten väntar. Kommunen har den lämnade versionen tills den nya har lämnats.</p>
-        )}
-        {r && r.value != null && liveValue != null && pct(liveValue) !== pct(r.value) && (
-          <p className="text-text-muted">Ledningsvyns {pct(liveValue)} räknas fram till i dag och tar med avslut som ännu inte finns i en levererad rapport.</p>
-        )}
-        <p className="text-text-muted">
-          Grupper med färre än {n} personer redovisas som &quot;färre än {n}&quot;.
-        </p>
+        {c.correctionPending && <p>En rättad version väntar på att lämnas till kommunen.</p>}
         <Row gap="sm">
           {c.latest && c.canOpenReport && (
             <WrapBtn>
@@ -720,7 +685,6 @@ function AreaTab() {
                               Litet underlag
                             </Badge>
                           </span>
-                          {r.rr.den > 0 && r.rr.den < d.smallGroupN && <CellSub>Kommunen ser &quot;färre än {d.smallGroupN}&quot;</CellSub>}
                         </div>
                       ),
                   },
@@ -738,8 +702,7 @@ function AreaTab() {
             </Card>
             <Grid cols={2}>
               <Notice tone="info" title="Små grupper">
-                Resultatgrad i områden med färre än {d.minN} avslut svänger kraftigt och ska inte jämföras rakt av. I beställarrapporten till kommunen redovisas grupper med färre än {d.smallGroupN}{" "}
-                personer som &quot;färre än {d.smallGroupN}&quot;.
+                Resultatgrad i områden med färre än {d.minN} avslut svänger kraftigt och ska inte jämföras rakt av.
               </Notice>
               <Notice tone="info" title="Två sätt att räkna aktiva">
                 &quot;Aktiva just nu&quot; är deltagare med status aktiv i dag. Beställarrapporten räknar i stället alla som var aktiva någon gång under månaden, även de som avslutades eller

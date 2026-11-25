@@ -88,19 +88,16 @@ test("ledningsvyn: resultat, prognos, trend, tidig uppmärksamhet och kundens bi
   expect(t).toMatch(/0 av 3/);
 
   // "Så ser kommunen resultatet" = den senast lämnade beställarrapporten. Avtalsansvarig lämnar den till kommunen utanför
-  // Miljonmatch (beslut 2026-10-07 – kommunens chef finns inte i portalen).
+  // Miljonmatch (beslut 2026-10-07 – kommunens chef finns inte i portalen). Karims beslut 2026-11-25: kortet visar rapportens
+  // resultattabell – Resultat och Avbrott med exakta antal, ingen resultatgrad, inget avtalsmål och ingen maskering.
   const cust = card(page, "Så ser kommunen resultatet");
   const ct = await text(cust);
   expect(ct).toContain("december 2026");
-  expect(ct).toContain("31,2 %");
-  expect(ct).toContain("24 av 77");
-  expect(ct).toMatch(/Under avtalsmålet/);
-  expect(ct).toContain("januari 2027");
-  expect(ct).toContain("33,9 %");
-  expect(ct).toMatch(/utkast/);
-  expect(ct).toMatch(/färre än 5/);
-  expect(ct).not.toMatch(/35\s?%/);
-  expect(ct).toContain("Avtalsansvarig lämnar beställarrapporten till kommunen utanför Miljonmatch.");
+  expect(ct).toMatch(/Period\s+Resultat \(arbete eller studier\)\s+Avbrott/);
+  expect(ct).toMatch(/December 2026\s+13\s+5/);
+  expect(ct).toMatch(/Rullande 6 månader\s+24\s+15/);
+  expect(ct).toMatch(/Öppna utkastet för januari 2027/);
+  expect(ct).not.toMatch(/\d\s?%|avtalsmål|färre än|Resultatgrad/i);
 
   // Status med text och ikon, inte bara färg (SLA-staplar)
   const sla = card(page, "SLA-uppfyllnad");
@@ -417,8 +414,8 @@ test("ledningsvyn: när nästa beställarrapport levereras följer kundkortet me
   await switchUser(page, info, "/ledning", CHEF);
   const ct = card(page, "Så ser kommunen resultatet");
   await expect(ct).toContainText("januari 2027");
-  await expect(ct).toContainText("33,9 %");
-  await expect(ct).not.toContainText("är ett utkast");
+  await expect(ct.getByRole("row", { name: /Januari 2027/ })).toHaveCount(1);
+  await expect(ct.getByRole("link", { name: /Öppna utkastet/ })).toHaveCount(0);
 });
 
 // ============================================================ Avtalsansvarig registrerar kommunens godkännande (beslut 2026-10-07)

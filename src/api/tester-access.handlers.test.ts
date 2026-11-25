@@ -165,7 +165,8 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect(s.sla.rows.map((r: { target: unknown; status: string }) => [r.target, r.status])).toEqual([[null, "target_hidden"], [null, "target_hidden"], [null, "target_hidden"], [null, "target_hidden"]]);
     const rr = s.kpis.find((x: { key: string }) => x.key === "resultatgrad");
     expect(rr).toMatchObject({ target: null, contractTarget: 0.32, status: "ok" });
-    expect(s.customer.contractTarget).toBe(0.32);
+    // Kommunens kort har inget avtalsmål längre (beställarrapporten visar resultat och avbrott, Karims beslut 2026-11-25).
+    expect(s.customer).not.toHaveProperty("contractTarget");
     expect(s.alertCount).toBeLessThan(k.alertCount);
     expectClean(JSON.stringify(s), "ledning.overview");
     for (const key of ["ledning.head", "ledning.coaches", "ledning.areas", "ledning.pulse"]) {
