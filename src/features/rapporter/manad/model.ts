@@ -8,16 +8,19 @@
 //     Progression och resultat som är skickade till eller godkända av kommunen (förslagen från regeln räknas inte).
 //   - Aldrig råtranskript, AI-utkast, gruppmål (group_activities.goal, group_goal_results), nivåer eller taggar – underlaget har
 //     inte ens fälten.
+//   - Delmålen bara som antal per progressionsområde – aldrig delmålens namn eller id (Karims beslut 2026-11-24). Underlaget har
+//     bara delmålets id och område.
 //   - Progressionsnivåerna 0–3 bara som fördelning – aldrig ett medelvärde.
 //   - Yrkesområdet är det som gällde månaden (areaForMonth – samma regel som fakturan och månadsrapporten till kommunen).
-//   - Närvarograden räknas som nyckeltalet (attendanceStats: närvarande och sena av registrerade passerade tillfällen). Att
+//   - Närvarograden räknas som nyckeltalet (attendanceStats: närvarande och sena av registrerade passerade tillfällen) över alla
+//     tillfällen i månaden för ärendena i yrkesområdet – också ett tillfälle efter ett avslut med tidigare slutdatum. Att
 //     deltagaren inte kom till första mötet (first_meeting_no_shows) är inget tillfälle och läses aldrig.
-//   - Resultatgraden räknas som nyckeltalet (resultRate) och notisen om litet underlag läser gränsen ur kpis.
-//   - Inga belopp, inga personnummer. Namnet kommer från hanteraren (läsarens behörighet).
+//   - Resultatgraden räknas som nyckeltalet (resultRate) – och visas inte för coachen (Karims beslut 2026-11-24, showRate).
+//   - Inga belopp, inga personnummer och inga namn: hanteraren sätter namnet efter läsarens behörighet.
 import { areaForMonth } from "@/core/area-changes";
 import { attendanceStats, type AttendanceStats } from "@/core/attendance";
+import { bonusStepTitle } from "@/core/bonus";
 import { bonusModel, kpiDef, progressionAreas, progressionFlags, type OperationalConfig, type ProgressLevel } from "@/core/config";
-import { progressStepLabel } from "@/core/bonus";
 import { pct, plural } from "@/core/format";
 import { resultRate, type ResultStatus } from "@/core/kpi";
 import { endReasonLabel, eventLabel, RESULT_CLASS_LABEL } from "@/core/labels";
@@ -30,13 +33,13 @@ import {
 } from "@/data/schema";
 
 // ================================================================ Underlaget
-/** Tabellerna som rapporten byggs av – bara fälten som behövs. Gruppaktiviteterna har aldrig gruppmålet. */
+/** Tabellerna som rapporten byggs av – bara fälten som behövs. Gruppaktiviteterna har aldrig gruppmålet, delmålen aldrig namnet. */
 export type OverviewDb = {
   /** Avtalets ärenden (läsarens behörighet). */
   cases: readonly Case[];
   case_area_changes: readonly Pick<CaseAreaChange, "id" | "caseId" | "fromArea" | "toArea" | "effectiveMonth" | "changedAt" | "seq">[];
   contract_areas: readonly Pick<ContractArea, "code" | "name">[];
-  /** Tillfällen i månaden för ärendena i urvalet. */
+  /** Tillfällen i månaden för avtalets ärenden i yrkesområdet (också efter ett avslut – som nyckeltalet). */
   activities: readonly Pick<Activity, "id" | "caseId" | "kind" | "startsAt" | "groupActivityId">[];
   /** Närvaron på tillfällena (också den automatiska). */
   attendance: readonly Pick<Attendance, "id" | "activityId" | "caseId" | "status" | "reason">[];
@@ -46,9 +49,9 @@ export type OverviewDb = {
   activity_progress_goals: readonly Pick<ActivityProgressGoal, "id" | "caseId" | "goalIds">[];
   /** Månadsbedömningarna för månaden – bara de godkända räknas. */
   monthly_assessments: readonly Pick<MonthlyAssessment, "id" | "caseId" | "month" | "status" | "areas">[];
-  /** Avtalets delmål (också inaktiva). */
-  progress_goals: readonly Pick<ProgressGoal, "id" | "areaKey" | "label" | "sortOrder">[];
-  /** Delmålens lägen – bara Uppnått räknas här (Tränar räknas ur närvaron på tillfällena i månaden). */
+  /** Avtalets delmål (också inaktiva) – bara id och progressionsområde, aldrig namnet (Karims beslut 2026-11-24). */
+  progress_goals: readonly Pick<ProgressGoal, "id" | "areaKey">[];
+  /** Delmålens lägen – bara Uppnått räknas här (Tränade räknas ur närvaron på tillfällena i månaden). */
   case_progress_goals: readonly Pick<CaseProgressGoal, "id" | "caseId" | "goalId" | "status" | "source" | "achievedOn">[];
   outcome_events: readonly Pick<OutcomeEvent, "id" | "caseId" | "kind" | "occurredOn" | "verificationKind">[];
   /** Stegen i Progression och resultat – inga belopp (raden har aldrig något). Tom när läsaren inte får se dem. */
@@ -63,50 +66,77 @@ export type OverviewEnv = {
   month: MonthKey;
   /** Yrkesområdets kod (A–L) eller null = alla. */
   area: string | null;
-  /** Deltagarens namn enligt läsarens behörighet. */
-  name: (caseId: string) => string;
   /**
    * Stegen i Progression och resultat och Miljonbemannings interna mål visas (false för en begränsad testare i testmiljön –
    * de är ekonomiska villkor, src/api/tester-access.ts).
    */
   showCommercial: boolean;
+  /** Resultatgraden (månaden och rullande) med avtalets och det interna målet visas – inte för coachen (Karims beslut 2026-11-24). */
+  showRate: boolean;
 };
 
 // ================================================================ Vy-modellen
 export type FlowRow = { code: string; label: string; atStart: number; started: number; ended: number; atEnd: number };
 export type CountRow = { key: string; label: string; count: number };
 export const CLOSURE_CLASSES = ["result_verified", "result_prelim", "no_result", "excluded", "unclassified"] as const;
+/** no_start: avslutade i månaden utan att ha startat – räknas i resultatgraden men är inte med i urvalet. */
+export type ClosureKey = (typeof CLOSURE_CLASSES)[number] | "no_start";
 /** Avsluten efter hur de räknas i resultatgraden. counted = räknas i nämnaren. */
-export type ClosureRow = { key: (typeof CLOSURE_CLASSES)[number]; label: string; count: number; counted: boolean };
+export type ClosureRow = { key: ClosureKey; label: string; count: number; counted: boolean };
 export type AttendanceRow = {
   key: string; label: string; planned: number; registered: number; present: number; late: number; absentValid: number; absentInvalid: number; unregistered: number;
   rate: number | null; rateText: string;
 };
-/** Fördelningen per progressionsområde: antal deltagare per nivå 0–3 – aldrig ett medelvärde. */
+/**
+ * Fördelningen per progressionsområde: antal deltagare per nivå 0–3 – aldrig ett medelvärde. achieved och trained räknar
+ * deltagare × delmål (en deltagare som uppnått två delmål i området räknas två gånger).
+ */
 export type LevelRow = { key: string; label: string; levels: [number, number, number, number]; notAssessed: number; achieved: number; trained: number };
-export type GoalRow = { id: string; label: string; areaLabel: string; participants: number; sessions?: number };
-export type ActivityKindRow = { kind: ActivityKind; label: string; held: number; inGroup: number; participants: number; rate: number | null; rateText: string; goals: number };
+/** Tillfällen som tränade delmål i ett progressionsområde – bara antal, aldrig delmålens namn (Karims beslut 2026-11-24). */
+export type GoalAreaRow = { key: string; label: string; sessions: number; participants: number; trained: number };
+export type ActivityKindRow = { key: string; label: string; held: number; inGroup: number; participants: number; rate: number | null; rateText: string; withGoals: number };
 export type EventRow = { kind: string; label: string; count: number; verified: number; participants: number };
 export type StepRow = { step: number; label: string; submitted: number; approved: number };
 export type RateView = {
   /** "januari 2027", "augusti 2026 – januari 2027". */
   period: string;
   value: number | null; valueText: string; num: number; den: number; prelim: number;
+  /** statusText för för litet underlag har gränsen ur kpis: "Färre än 10 avslut". */
   status: ResultStatus; statusText: string;
-  /** "Underlaget är litet (färre än 10 avslut som räknas). Jämför försiktigt." – gränsen ur kpis. */
-  note: string | null;
   contractTarget: number | null; internalTarget: number | null;
 };
+export type ParticipantLevel = { key: string; label: string; level: ProgressLevel | null; text: string };
 export type ParticipantRow = {
-  caseId: string; caseNumber: string; name: string; areaCode: string; areaLabel: string;
+  caseId: string; caseNumber: string;
+  /** Namnet enligt läsarens behörighet – sätts av hanteraren ("" i modellen). */
+  name: string;
+  areaCode: string; areaLabel: string;
+  /** Skyddade personuppgifter för läsaren (den vilande spärren): bara ärendenumret och området, inga andra uppgifter. */
+  restricted: boolean;
+  /** Med utan att vara inskriven i månaden – för en händelse eller ett steg i månaden: "Avslutad 29 jan 2027". */
+  outside: string | null;
   startDate: LocalDate | null; endDate: LocalDate | null; startText: string; endText: string; startedInMonth: boolean; endedInMonth: boolean;
   /** "29 okt 2026 – 1 jan 2027" eller "Från 14 dec 2026". */
   periodText: string;
-  /** rateText "85,7 %", detail "6 av 7" (närvarande och sena av registrerade), text båda ihop. */
-  attendance: { rate: number | null; rateText: string; detail: string; text: string; registered: number; attended: number };
-  progression: { state: "clear" | "any" | "none" | "not_approved" | "not_needed"; text: string };
-  goals: { achieved: number; trained: number; text: string };
+  /** Perioden på två rader: ["29 okt 2026", "– 1 jan 2027"], ["14 dec 2026", "– pågår"] eller ["5 okt 2026", "Avslutad 29 dec 2026"]. */
+  periodLines: string[];
+  /**
+   * Deltagarens tillfällen i månaden under insatsen (från start till slut). rateText "85,7 %", detail "6 av 7" (närvarande och
+   * sena av registrerade), text båda ihop; frånvaron uppdelad.
+   */
+  attendance: {
+    rate: number | null; rateText: string; detail: string; text: string; registered: number; attended: number;
+    present: number; late: number; absentValid: number; absentInvalid: number; unregistered: number;
+  };
+  /** Läget och nivåerna per progressionsområde ur den godkända bedömningen (tom utan godkänd bedömning). */
+  progression: { state: "clear" | "any" | "none" | "not_approved" | "not_needed"; text: string; areas: ParticipantLevel[] };
+  /** Antal – aldrig delmålens namn (Karims beslut 2026-11-24). lines: ["1 uppnådda", "3 tränade"]. */
+  goals: { achieved: number; trained: number; text: string; lines: string[] };
   activities: { held: number; inGroup: number; text: string };
+  /** Stegen i Progression och resultat i månaden, utan belopp: "Steg 3 · …: godkänt av kommunen". */
+  steps: string[];
+  /** Byte av yrkesområde som gjordes eller började gälla i månaden: "G till D från februari 2027". */
+  areaChanges: string[];
   results: string[];
   resultText: string;
 };
@@ -123,6 +153,7 @@ export type MonthlyOverview = {
   partial: boolean;
   area: { code: string; label: string } | null;
   totals: { participants: number; atStart: number; started: number; ended: number; atEnd: number };
+  /** endReasons summeras i total.ended. */
   flow: { rows: FlowRow[]; total: FlowRow; endReasons: CountRow[]; chart: FlowChartSpec };
   attendance: { total: AttendanceRow; byArea: AttendanceRow[]; chart: BarChartSpec };
   progression: {
@@ -139,21 +170,31 @@ export type MonthlyOverview = {
     areas: LevelRow[];
     total: LevelRow;
     optional: LevelRow[];
-    achieved: GoalRow[];
+    /** Deltagare × delmål. */
     achievedCount: number;
     trainedCount: number;
+    /** Inga staplar när ingen nivå är bedömd (tabellen står kvar). */
     levelChart: BarChartSpec;
     goalChart: BarChartSpec;
   };
-  activities: { held: number; groupActivities: number; withGoals: number; rate: number | null; rateText: string; byKind: ActivityKindRow[]; goals: GoalRow[]; chart: BarChartSpec };
+  activities: {
+    held: number; groupActivities: number; withGoals: number; rate: number | null; rateText: string;
+    byKind: ActivityKindRow[]; byKindTotal: ActivityKindRow; goalAreas: GoalAreaRow[]; chart: BarChartSpec;
+  };
   results: {
     events: EventRow[];
+    eventTotal: EventRow;
     eventsTotal: number;
     verifiedTotal: number;
     closures: ClosureRow[];
+    /** Summan av raderna – och de som räknas i resultatgraden (= resultatgradens nämnare för månaden). */
     closedTotal: number;
-    month: RateView;
-    rolling: RateView;
+    closuresCounted: number;
+    /** Avslut med verifierat resultat i månaden (resultatgradens täljare). */
+    verifiedResults: number;
+    /** null = visas inte för läsaren (coachen, Karims beslut 2026-11-24). */
+    month: RateView | null;
+    rolling: RateView | null;
     /** null = visas inte (avtalet saknar stegen eller läsaren är en begränsad testare). */
     steps: StepRow[] | null;
     chart: BarChartSpec;
@@ -163,23 +204,25 @@ export type MonthlyOverview = {
 
 // ================================================================ Texter
 export const KIND_LABEL: Record<ActivityKind, string> = { möte: "Coachträff", yrkesmoment: "Yrkesmoment", praktikdag: "Praktikdag", arbetsgivarbesök: "Arbetsgivarbesök", annat: "Annan aktivitet" };
-const RATE_STATUS_TEXT: Record<ResultStatus, string> = {
-  ok: "Når målet", below_internal: "Under det interna målet", below_contract: "Under avtalets mål", insufficient: "För litet underlag",
+const RATE_STATUS_TEXT: Record<Exclude<ResultStatus, "insufficient">, string> = {
+  ok: "Når målet", below_internal: "Under det interna målet", below_contract: "Under avtalets mål",
 };
-const CLOSURE_LABEL: Record<ClosureRow["key"], string> = {
+const CLOSURE_LABEL: Record<ClosureKey, string> = {
   result_verified: "Resultat, verifierat", result_prelim: "Resultat, väntar på verifiering", no_result: RESULT_CLASS_LABEL.no_result,
-  excluded: RESULT_CLASS_LABEL.excluded, unclassified: "Inte klassat",
+  excluded: RESULT_CLASS_LABEL.excluded, unclassified: "Inte klassat", no_start: "Avslutade utan start",
 };
 const PROGRESSION_TEXT: Record<ParticipantRow["progression"]["state"], string> = {
-  clear: "Tydlig progression", any: "Någon progression", none: "Ingen progression", not_approved: "Inte godkänd", not_needed: "Ingen bedömning",
+  clear: "Tydlig progression", any: "Någon progression", none: "Ingen progression", not_approved: "Väntar på godkännande", not_needed: "Ingen bedömning",
 };
 /** "41,7 %" eller "–". */
 export const rateText = (v: number | null): string => pct(v);
 const NONE_AREA = "–";
+export const PROTECTED_NAME = "Skyddade personuppgifter";
 
 // ================================================================ Byggstenar
 const endOf = (c: Pick<Case, "status" | "endDate" | "closedAt">): LocalDate | null => c.endDate ?? (c.status === "closed" && c.closedAt ? dayOf(c.closedAt) : null);
 const isClosed = (c: Pick<Case, "status">) => c.status === "closed";
+const isLevel = (lv: unknown): lv is ProgressLevel => lv === 0 || lv === 1 || lv === 2 || lv === 3;
 
 function attRow(key: string, label: string, st: AttendanceStats): AttendanceRow {
   const registered = st.planned - st.unregistered;
@@ -202,7 +245,7 @@ function barChart(title: string, unit: BarChartSpec["unit"], bars: ChartBar[], t
 }
 const countBar = (key: string, label: string, value: number): ChartBar => ({ key, label, value, valueText: String(value) });
 
-/** Resultatgraden med status och notisen om litet underlag – samma räkning som nyckeltalet (resultRate). */
+/** Resultatgraden med status – samma räkning som nyckeltalet (resultRate). För litet underlag: gränsen ur kpis i statustexten. */
 function rateView(cases: readonly Case[], from: LocalDate, to: LocalDate, period: string, env: OverviewEnv): RateView {
   const r = resultRate({ cases: [...cases] }, { from, to }, { cfg: env.cfg, now: env.now, contractStart: env.contractStart });
   const internalTarget = env.showCommercial ? r.internalTarget : null;
@@ -211,11 +254,23 @@ function rateView(cases: readonly Case[], from: LocalDate, to: LocalDate, period
   if (r.den < r.minN) status = "insufficient";
   else if (r.value != null && r.contractTarget != null && r.value < r.contractTarget) status = "below_contract";
   else if (r.value != null && internalTarget != null && r.value < internalTarget) status = "below_internal";
-  const minN = kpiDef(env.cfg, "resultatgrad")?.minN ?? 0;
   return {
-    period, value: r.value, valueText: rateText(r.value), num: r.num, den: r.den, prelim: r.prelim, status, statusText: RATE_STATUS_TEXT[status],
-    note: minN > 0 && r.den < minN ? `Underlaget är litet (färre än ${minN} avslut som räknas). Jämför försiktigt.` : null,
+    period, value: r.value, valueText: rateText(r.value), num: r.num, den: r.den, prelim: r.prelim, status,
+    statusText: status === "insufficient" ? `Färre än ${r.minN} avslut` : RATE_STATUS_TEXT[status],
     contractTarget: r.contractTarget, internalTarget,
+  };
+}
+
+/** Raden för en deltagare med skyddade personuppgifter (läsarens åtkomst "restricted"): bara ärendenumret och området. */
+export function maskParticipant(r: ParticipantRow): ParticipantRow {
+  return {
+    caseId: r.caseId, caseNumber: r.caseNumber, name: PROTECTED_NAME, areaCode: r.areaCode, areaLabel: r.areaLabel, restricted: true, outside: null,
+    startDate: null, endDate: null, startText: "–", endText: "–", startedInMonth: false, endedInMonth: false, periodText: "–", periodLines: [],
+    attendance: { rate: null, rateText: "–", detail: "", text: "–", registered: 0, attended: 0, present: 0, late: 0, absentValid: 0, absentInvalid: 0, unregistered: 0 },
+    progression: { state: "not_needed", text: "–", areas: [] },
+    goals: { achieved: 0, trained: 0, text: "–", lines: [] },
+    activities: { held: 0, inGroup: 0, text: "–" },
+    steps: [], areaChanges: [], results: [], resultText: "–",
   };
 }
 
@@ -225,6 +280,10 @@ export function buildMonthlyOverview(db: OverviewDb, env: OverviewEnv): MonthlyO
   const from = `${M}-01`;
   const to = monthEnd(M);
   const today = dayOf(env.now);
+  const partial = monthKey(today) === M;
+  // Innevarande månad räknas till och med i dag: den som inte har startat än är inte med. Bara starten begränsas – avsluten räknas
+  // som i resultatgraden (slutdatum i månaden).
+  const startTo = partial && today < to ? today : to;
   const areaLabelOf = (code: string | null): string => {
     if (!code) return NONE_AREA;
     const a = db.contract_areas.find((x) => x.code === code);
@@ -232,61 +291,81 @@ export function buildMonthlyOverview(db: OverviewDb, env: OverviewEnv): MonthlyO
   };
   const areaOf = (c: Pick<Case, "id" | "primaryAreaCode">, mk: MonthKey): string => areaForMonth(c, db.case_area_changes, mk) ?? "";
   const inArea = (c: Case, mk: MonthKey) => !env.area || areaOf(c, mk) === env.area;
+  const sortCodes = (xs: Iterable<string>) => [...new Set(xs)].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b, "sv")));
 
-  // ---- Urvalet: deltagare som var inskrivna någon dag i månaden, i yrkesområdet som gällde månaden.
-  const scope = db.cases.filter((c) => enrolledDays(c, from, to) > 0 && inArea(c, M));
+  // ---- Urvalet: deltagare som var inskrivna någon dag i månaden, i yrkesområdet som gällde månaden. Händelserna, stegen och
+  // tillfällena gäller alla avtalets ärenden i yrkesområdet (areaCases) – ett resultat kan komma efter avslutet.
+  const scope = db.cases.filter((c) => enrolledDays(c, from, startTo) > 0 && inArea(c, M));
   const scopeIds = new Set(scope.map((c) => c.id));
-  const areaCode = new Map(scope.map((c) => [c.id, areaOf(c, M)]));
+  const areaCases = db.cases.filter((c) => inArea(c, M));
+  const areaCaseIds = new Set(areaCases.map((c) => c.id));
+  const areaCode = new Map(areaCases.map((c) => [c.id, areaOf(c, M)]));
+  const codeOf = (caseId: string) => areaCode.get(caseId) ?? "";
 
   // ---- 1. Start och slut per yrkesområde (flödet går ihop: vid start + startade − avslutade = vid slut).
   const startedBefore = (c: Case) => !!c.startDate && c.startDate < from;
-  const startedIn = (c: Case) => !!c.startDate && c.startDate >= from && c.startDate <= to;
+  const startedIn = (c: Case) => !!c.startDate && c.startDate >= from && c.startDate <= startTo;
   const endedIn = (c: Case) => isClosed(c) && !!endOf(c) && (endOf(c) as LocalDate) >= from && (endOf(c) as LocalDate) <= to;
   const flowOf = (code: string, label: string, cs: readonly Case[]): FlowRow => ({
     code, label, atStart: cs.filter(startedBefore).length, started: cs.filter(startedIn).length, ended: cs.filter(endedIn).length,
     atEnd: cs.filter((c) => !endedIn(c)).length,
   });
-  const codes = [...new Set(scope.map((c) => areaCode.get(c.id) ?? ""))].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b, "sv")));
-  const flowRows = codes.map((code) => flowOf(code, areaLabelOf(code || null), scope.filter((c) => (areaCode.get(c.id) ?? "") === code)));
+  const codes = sortCodes(scope.map((c) => codeOf(c.id)));
+  const flowRows = codes.map((code) => flowOf(code, areaLabelOf(code || null), scope.filter((c) => codeOf(c.id) === code)));
   const flowTotal = flowOf("total", "Totalt", scope);
   const ended = scope.filter(endedIn);
   const endReasons: CountRow[] = [...END_REASONS, null]
     .map((k) => ({ key: k ?? "saknas", label: k ? endReasonLabel(k) : "Avslutsorsak saknas", count: ended.filter((c) => (c.endReason ?? null) === k).length }))
     .filter((x) => x.count > 0);
 
-  // ---- 2. Närvarograd (samma räkning som nyckeltalet: närvarande och sena av registrerade passerade tillfällen).
-  const acts = db.activities.filter((a) => scopeIds.has(a.caseId) && dayOf(a.startsAt) >= from && dayOf(a.startsAt) <= to);
+  // ---- 2. Närvarograd (samma räkning som nyckeltalet: närvarande och sena av registrerade passerade tillfällen) över alla
+  // tillfällen i månaden för ärendena i yrkesområdet. Raderna per yrkesområde är områdena som har tillfällen – de går ihop med Totalt.
+  const acts = db.activities.filter((a) => areaCaseIds.has(a.caseId) && dayOf(a.startsAt) >= from && dayOf(a.startsAt) <= to);
+  type Act = (typeof acts)[number];
   const actIds = new Set(acts.map((a) => a.id));
   const att = db.attendance.filter((x) => actIds.has(x.activityId));
-  const statsFor = (caseIds: ReadonlySet<string> | null, filter: (a: (typeof acts)[number]) => boolean = () => true): AttendanceStats =>
-    attendanceStats({ activities: acts.filter((a) => (!caseIds || caseIds.has(a.caseId)) && filter(a)) as Activity[], attendance: att as Attendance[] }, null, from, to, { now: env.now });
-  const attTotal = attRow("total", "Totalt", statsFor(null));
-  const attByArea = codes.map((code) => attRow(code || "saknas", areaLabelOf(code || null), statsFor(new Set(scope.filter((c) => (areaCode.get(c.id) ?? "") === code).map((c) => c.id)))));
+  const stats = (xs: readonly Act[]): AttendanceStats => attendanceStats({ activities: xs as Activity[], attendance: att as Attendance[] }, null, from, to, { now: env.now });
+  const attTotal = attRow("total", "Totalt", stats(acts));
+  const attByArea = sortCodes(acts.map((a) => codeOf(a.caseId))).map((code) => attRow(code || "saknas", areaLabelOf(code || null), stats(acts.filter((a) => codeOf(a.caseId) === code))));
   const attTarget = kpiDef(cfg, "narvarograd");
   const attTargets: ChartTarget[] = [];
   if (attTarget?.contractTarget != null) attTargets.push({ kind: "contract", value: attTarget.contractTarget, label: "Avtalets mål" });
   if (env.showCommercial && typeof attTarget?.internalTarget === "number") attTargets.push({ kind: "internal", value: attTarget.internalTarget, label: "Internt mål" });
 
   // ---- Delmålen på tillfällena (egna tillfällen: activity_progress_goals; gruppaktiviteter: aktivitetens delmål, aldrig en inställd).
-  const goalById = new Map(db.progress_goals.map((g) => [g.id, g]));
+  const goalArea = new Map(db.progress_goals.map((g) => [g.id, g.areaKey]));
   const ownTags = new Map(db.activity_progress_goals.map((r) => [r.id, r.goalIds ?? []]));
   const groupById = new Map(db.group_activities.map((g) => [g.id, g]));
-  const tagsOf = (a: (typeof acts)[number]): string[] => {
+  const tagsOf = (a: Act): string[] => {
     if (a.groupActivityId) {
       const g = groupById.get(a.groupActivityId);
-      return g && !g.cancelledAt ? (g.progressGoalIds ?? []).filter((id) => goalById.has(id)) : [];
+      return g && !g.cancelledAt ? (g.progressGoalIds ?? []).filter((id) => goalArea.has(id)) : [];
     }
-    return (ownTags.get(a.id) ?? []).filter((id) => goalById.has(id));
+    return (ownTags.get(a.id) ?? []).filter((id) => goalArea.has(id));
   };
   const passed = acts.filter((a) => a.startsAt < env.now);
   const attByActivity = new Map(att.map((x) => [x.activityId, x]));
-  const trainedHere = (a: (typeof acts)[number]) => {
+  const trainedHere = (a: Act) => {
     const s = attByActivity.get(a.id)?.status;
     return s === "present" || s === "late";
   };
-  /** Delmål som deltagaren tränade i månaden: närvarande eller sen på ett tillfälle som tränar delmålet (samma regel som Tränar). */
-  const trainedPairs = new Set<string>();
-  for (const a of passed) if (trainedHere(a)) for (const g of tagsOf(a)) trainedPairs.add(`${a.caseId}|${g}`);
+  /** Tränade delmål: deltagare × delmål där deltagaren var närvarande eller sen på ett märkt tillfälle i månaden. */
+  const pairsOf = (xs: readonly Act[]): string[][] => {
+    const seen = new Set<string>();
+    const out: string[][] = [];
+    for (const a of xs) {
+      if (a.startsAt >= env.now || !trainedHere(a)) continue;
+      for (const g of tagsOf(a)) {
+        const k = `${a.caseId}|${g}`;
+        if (!seen.has(k)) {
+          seen.add(k);
+          out.push([a.caseId, g]);
+        }
+      }
+    }
+    return out;
+  };
+  const trainedPairs = pairsOf(acts);
 
   // ---- 3. Progression: godkända bedömningar (fördelning per nivå) och delmål som en människa markerat uppnådda i månaden.
   const approved = db.monthly_assessments.filter((m) => m.month === M && m.status === "approved" && scopeIds.has(m.caseId));
@@ -295,21 +374,21 @@ export function buildMonthlyOverview(db: OverviewDb, env: OverviewEnv): MonthlyO
   const required = scope.filter((c) => needsAssessment(c, M, minDays)).length;
   const flags = approved.map((m) => progressionFlags(cfg, m.areas));
   const achievedRows = db.case_progress_goals.filter(
-    (r) => scopeIds.has(r.caseId) && r.status === "achieved" && r.source === "manual" && !!r.achievedOn && r.achievedOn >= from && r.achievedOn <= to && goalById.has(r.goalId),
+    (r) => scopeIds.has(r.caseId) && r.status === "achieved" && r.source === "manual" && !!r.achievedOn && r.achievedOn >= from && r.achievedOn <= to && goalArea.has(r.goalId),
   );
+  const inAreaGoal = (key: string) => (goalId: string) => goalArea.get(goalId) === key;
   const levelRow = (key: string, label: string): LevelRow => {
     const levels = emptyLevels();
     let notAssessed = 0;
     for (const m of approved) {
       const lv = m.areas[key]?.level;
-      if (lv === 0 || lv === 1 || lv === 2 || lv === 3) levels[lv]++;
+      if (isLevel(lv)) levels[lv]++;
       else notAssessed++;
     }
-    const inAreaGoal = (goalId: string) => goalById.get(goalId)?.areaKey === key;
     return {
       key, label, levels, notAssessed,
-      achieved: achievedRows.filter((r) => inAreaGoal(r.goalId)).length,
-      trained: [...trainedPairs].filter((p) => inAreaGoal(p.split("|")[1])).length,
+      achieved: achievedRows.filter((r) => inAreaGoal(key)(r.goalId)).length,
+      trained: trainedPairs.filter(([, g]) => inAreaGoal(key)(g)).length,
     };
   };
   const areasMain = progressionAreas(cfg).map((a) => levelRow(a.key, a.label));
@@ -319,108 +398,143 @@ export function buildMonthlyOverview(db: OverviewDb, env: OverviewEnv): MonthlyO
     .filter((r) => r.levels.some((n) => n > 0) || r.achieved > 0 || r.trained > 0);
   const totalLevels = emptyLevels();
   for (const r of areasMain) for (let i = 0; i < 4; i++) totalLevels[i] += r.levels[i];
-  // Summan av nivåerna gäller de obligatoriska områdena; delmålen räknas alla (samma tal som rutorna Uppnådda och Tränade delmål).
+  // Summan av nivåerna gäller de obligatoriska områdena; delmålen räknas alla (samma tal som rutorna för delmålen).
   const levelTotal: LevelRow = {
     key: "total", label: "Totalt", levels: totalLevels, notAssessed: areasMain.reduce((s, r) => s + r.notAssessed, 0),
-    achieved: achievedRows.length, trained: trainedPairs.size,
+    achieved: achievedRows.length, trained: trainedPairs.length,
   };
   const scaleText = (lv: ProgressLevel) => `${lv} – ${cfg.progression.scale[String(lv) as "0" | "1" | "2" | "3"]}`;
   const scale: [string, string, string, string] = [scaleText(0), scaleText(1), scaleText(2), scaleText(3)];
   const areaOrder = [...cfg.progression.areas, ...cfg.progression.optionalAreas];
   const areaLabel = (key: string) => cfg.progression.areaLabels[key] ?? key;
-  const goalSort = (a: string, b: string) => {
-    const ga = goalById.get(a)!;
-    const gb = goalById.get(b)!;
-    const ia = areaOrder.indexOf(ga.areaKey);
-    const ib = areaOrder.indexOf(gb.areaKey);
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || ga.sortOrder - gb.sortOrder || ga.label.localeCompare(gb.label, "sv") || (a < b ? -1 : 1);
-  };
-  const achievedGoals: GoalRow[] = [...new Set(achievedRows.map((r) => r.goalId))].sort(goalSort).map((id) => ({
-    id, label: goalById.get(id)!.label, areaLabel: areaLabel(goalById.get(id)!.areaKey), participants: new Set(achievedRows.filter((r) => r.goalId === id).map((r) => r.caseId)).size,
-  }));
 
   // ---- 4. Aktiviteter: passerade tillfällen i månaden (egna och i gruppaktiviteter), närvaron på dem och delmålen de tränade.
-  const byKind: ActivityKindRow[] = ACTIVITY_KINDS.map((kind) => {
-    const xs = passed.filter((a) => a.kind === kind);
-    const st = statsFor(null, (a) => a.kind === kind);
+  const kindRow = (key: string, label: string, xs: readonly Act[]): ActivityKindRow => {
+    const st = stats(xs);
     return {
-      kind, label: KIND_LABEL[kind], held: xs.length, inGroup: xs.filter((a) => !!a.groupActivityId).length, participants: new Set(xs.map((a) => a.caseId)).size,
-      rate: st.rate, rateText: rateText(st.rate), goals: new Set(xs.flatMap(tagsOf)).size,
+      key, label, held: xs.length, inGroup: xs.filter((a) => !!a.groupActivityId).length, participants: new Set(xs.map((a) => a.caseId)).size,
+      rate: st.rate, rateText: rateText(st.rate), withGoals: xs.filter((a) => tagsOf(a).length > 0).length,
     };
-  }).filter((r) => r.held > 0);
+  };
+  const byKind = ACTIVITY_KINDS.map((kind) => kindRow(kind, KIND_LABEL[kind], passed.filter((a) => a.kind === kind))).filter((r) => r.held > 0);
+  const byKindTotal = kindRow("total", "Totalt", passed);
   const taggedActs = passed.filter((a) => tagsOf(a).length > 0);
-  const trainedGoalIds = [...new Set(taggedActs.flatMap(tagsOf))].sort(goalSort);
-  const activityGoals: GoalRow[] = trainedGoalIds.map((id) => {
-    const xs = taggedActs.filter((a) => tagsOf(a).includes(id));
-    return { id, label: goalById.get(id)!.label, areaLabel: areaLabel(goalById.get(id)!.areaKey), sessions: xs.length, participants: new Set(xs.filter(trainedHere).map((a) => a.caseId)).size };
-  });
-  const passedStats = statsFor(null, (a) => a.startsAt < env.now);
+  const goalAreas: GoalAreaRow[] = areaOrder
+    .map((key) => {
+      const xs = taggedActs.filter((a) => tagsOf(a).some(inAreaGoal(key)));
+      return {
+        key, label: areaLabel(key), sessions: xs.length, participants: new Set(xs.filter(trainedHere).map((a) => a.caseId)).size,
+        trained: trainedPairs.filter(([, g]) => inAreaGoal(key)(g)).length,
+      };
+    })
+    .filter((r) => r.sessions > 0);
 
   // ---- 5. Resultat: händelser och avslut i månaden (yrkesområdet som gällde månaden), resultatgraden och stegen.
-  const areaCases = db.cases.filter((c) => inArea(c, M));
-  const areaCaseIds = new Set(areaCases.map((c) => c.id));
   const events = db.outcome_events.filter((e) => areaCaseIds.has(e.caseId) && e.occurredOn >= from && e.occurredOn <= to);
-  const eventRows: EventRow[] = OUTCOME_EVENT_KINDS.map((kind) => {
-    const xs = events.filter((e) => e.kind === kind);
-    return { kind, label: eventLabel(kind), count: xs.length, verified: xs.filter((e) => !!e.verificationKind).length, participants: new Set(xs.map((e) => e.caseId)).size };
-  }).filter((r) => r.count > 0);
-  // Avsluten i månaden efter hur de räknas i resultatgraden (samma klasser som resultTally: verifierat resultat i täljaren,
-  // allt utom "räknas inte" i nämnaren – också ett avslut utan klass).
-  const closureClass = (c: Case): ClosureRow["key"] =>
-    c.resultClass === "result" ? (c.resultVerifiedAt ? "result_verified" : "result_prelim") : (c.resultClass ?? "unclassified");
-  const closures: ClosureRow[] = CLOSURE_CLASSES.map((k) => ({ key: k, label: CLOSURE_LABEL[k], count: ended.filter((c) => closureClass(c) === k).length, counted: k !== "excluded" })).filter(
-    (x) => x.count > 0,
-  );
+  const eventRow = (kind: string, label: string, xs: typeof events): EventRow => ({
+    kind, label, count: xs.length, verified: xs.filter((e) => !!e.verificationKind).length, participants: new Set(xs.map((e) => e.caseId)).size,
+  });
+  const eventRows: EventRow[] = OUTCOME_EVENT_KINDS.map((kind) => eventRow(kind, eventLabel(kind), events.filter((e) => e.kind === kind))).filter((r) => r.count > 0);
   // Resultatgraden: avslutade ärenden med yrkesområdet som gällde avslutsmånaden.
   const closedInArea = (c: Case) => isClosed(c) && !!c.endDate && (!env.area || areaOf(c, monthKey(c.endDate)) === env.area);
   const rateCases = db.cases.filter(closedInArea);
+  // Avsluten i månaden efter hur de räknas i resultatgraden (samma klasser som resultTally: verifierat resultat i täljaren,
+  // allt utom "räknas inte" i nämnaren – också ett avslut utan klass). Avslut i månaden utan start (inte i urvalet) står på en
+  // egen rad, så att raderna som räknas går ihop med resultatgradens nämnare.
+  const closureClass = (c: Case): (typeof CLOSURE_CLASSES)[number] =>
+    c.resultClass === "result" ? (c.resultVerifiedAt ? "result_verified" : "result_prelim") : (c.resultClass ?? "unclassified");
+  const endedIds = new Set(ended.map((c) => c.id));
+  const noStart = rateCases.filter((c) => (c.endDate as LocalDate) >= from && (c.endDate as LocalDate) <= to && !endedIds.has(c.id));
+  const closures: ClosureRow[] = [
+    ...CLOSURE_CLASSES.map((k): ClosureRow => ({
+      key: k, label: CLOSURE_LABEL[k], counted: k !== "excluded",
+      count: ended.filter((c) => closureClass(c) === k).length + (k === "excluded" ? noStart.filter((c) => c.resultClass === "excluded").length : 0),
+    })),
+    { key: "no_start" as const, label: CLOSURE_LABEL.no_start, counted: true, count: noStart.filter((c) => c.resultClass !== "excluded").length },
+  ].filter((x) => x.count > 0);
   // Rullande sex månader till och med rapportmånaden (som beställarrapporten), aldrig före avtalets start.
   const rollFromMonth = addMonths(M, -5) < monthKey(env.contractStart) ? monthKey(env.contractStart) : addMonths(M, -5);
   const monthRate = rateView(rateCases, from, to, monthName(M), env);
   const rollingRate = rateView(rateCases, `${rollFromMonth}-01`, to, rollFromMonth === M ? monthName(M) : `${monthName(rollFromMonth)} – ${monthName(M)}`, env);
   const bonus = bonusModel(cfg);
+  const showSteps = env.showCommercial && !!bonus;
+  const claims = showSteps
+    ? db.bonus_claims.filter(
+        (b): b is typeof b & { step: number } =>
+          areaCaseIds.has(b.caseId) && b.step != null && (b.status === "submitted" || b.status === "approved") && !!b.reachedOn && b.reachedOn >= from && b.reachedOn <= to,
+      )
+    : [];
   const steps: StepRow[] | null =
-    env.showCommercial && bonus
+    showSteps && bonus
       ? bonus.steps.map((s) => {
-          const xs = db.bonus_claims.filter((b) => areaCaseIds.has(b.caseId) && b.step === s.step && !!b.reachedOn && b.reachedOn >= from && b.reachedOn <= to);
-          return { step: s.step, label: `Steg ${s.step} · ${progressStepLabel(bonus, s.step)}`, submitted: xs.filter((b) => b.status === "submitted").length, approved: xs.filter((b) => b.status === "approved").length };
+          const xs = claims.filter((b) => b.step === s.step);
+          return { step: s.step, label: bonusStepTitle(bonus, s.step), submitted: xs.filter((b) => b.status === "submitted").length, approved: xs.filter((b) => b.status === "approved").length };
         })
       : null;
 
-  // ---- 6. Per deltagare.
-  const eventsByCase = new Map<string, typeof events>();
-  for (const e of events) eventsByCase.set(e.caseId, [...(eventsByCase.get(e.caseId) ?? []), e]);
-  const participants: ParticipantRow[] = scope.map((c) => {
-    const st = statsFor(new Set([c.id]));
+  // ---- 6. Per deltagare: urvalet, och dessutom ärenden i yrkesområdet med en händelse eller ett steg i månaden utan att vara
+  // inskrivna (t.ex. ett resultat efter avslutet) – så att varje händelse och varje steg i summorna har en rad.
+  const group = <T extends { caseId: string }>(xs: readonly T[]) => {
+    const m = new Map<string, T[]>();
+    for (const x of xs) m.set(x.caseId, [...(m.get(x.caseId) ?? []), x]);
+    return m;
+  };
+  const eventsByCase = group(events);
+  const claimsByCase = group(claims);
+  const changesByCase = group(db.case_area_changes.filter((x) => x.effectiveMonth === M || (dayOf(x.changedAt) >= from && dayOf(x.changedAt) <= to)));
+  const extra = areaCases.filter((c) => !scopeIds.has(c.id) && (eventsByCase.has(c.id) || claimsByCase.has(c.id)));
+  const mainAreas = progressionAreas(cfg);
+  const rowOf = (c: Case): ParticipantRow => {
+    const inScope = scopeIds.has(c.id);
+    const end = endOf(c);
+    // Tillfällena räknas under insatsen: från start till slut (ett tillfälle efter slutdatum står inte på raden).
+    const winFrom = c.startDate && c.startDate > from ? c.startDate : from;
+    const winTo = isClosed(c) && end && end < to ? end : to;
+    const mine = inScope ? passed.filter((a) => a.caseId === c.id && dayOf(a.startsAt) >= winFrom && dayOf(a.startsAt) <= winTo) : [];
+    const st = stats(mine);
     const registered = st.planned - st.unregistered;
     const attended = st.present + st.late;
-    const ma = approvedByCase.get(c.id);
+    const ma = inScope ? approvedByCase.get(c.id) : undefined;
     const f = ma ? progressionFlags(cfg, ma.areas) : null;
-    const pstate: ParticipantRow["progression"]["state"] = f ? (f.clear ? "clear" : f.any ? "any" : "none") : needsAssessment(c, M, minDays) ? "not_approved" : "not_needed";
-    const achieved = achievedRows.filter((r) => r.caseId === c.id).length;
-    const trained = [...trainedPairs].filter((p) => p.startsWith(`${c.id}|`)).length;
-    const mine = passed.filter((a) => a.caseId === c.id);
+    const pstate: ParticipantRow["progression"]["state"] = f ? (f.clear ? "clear" : f.any ? "any" : "none") : inScope && needsAssessment(c, M, minDays) ? "not_approved" : "not_needed";
+    const levelAreas = ma
+      ? [...mainAreas.map((a) => a.key), ...cfg.progression.optionalAreas.filter((k) => isLevel(ma.areas[k]?.level))].map((key): ParticipantLevel => {
+          const lv = ma.areas[key]?.level;
+          const level = isLevel(lv) ? lv : null;
+          return { key, label: areaLabel(key), level, text: `${areaLabel(key)}: ${level == null ? "ej bedömd" : `nivå ${level}`}` };
+        })
+      : [];
+    const achieved = inScope ? achievedRows.filter((r) => r.caseId === c.id).length : 0;
+    const trained = pairsOf(mine).length;
+    const goalLines = [achieved ? `${achieved} uppnådda` : "", trained ? `${trained} tränade` : ""].filter(Boolean);
     const inGroup = mine.filter((a) => !!a.groupActivityId).length;
-    const end = endOf(c);
+    const closed = isClosed(c) && !!end;
+    const outside = inScope ? null : closed ? `Avslutad ${fmtDate(end)}` : c.startDate ? `Startar ${fmtDate(c.startDate)}` : "Ingen start";
     const results = [
       ...(eventsByCase.get(c.id) ?? []).map((e) => `${eventLabel(e.kind)} ${fmtDateShort(e.occurredOn)}`),
-      ...(endedIn(c) ? [`Avslut: ${endReasonLabel(c.endReason)}`] : []),
+      ...(inScope && endedIn(c) ? [`Avslut: ${endReasonLabel(c.endReason)}`] : []),
     ];
     return {
-      caseId: c.id, caseNumber: c.caseNumber, name: env.name(c.id), areaCode: areaCode.get(c.id) ?? "", areaLabel: areaLabelOf(areaCode.get(c.id) || null),
-      startDate: c.startDate, endDate: isClosed(c) ? end : null, startText: fmtDate(c.startDate), endText: isClosed(c) && end ? fmtDate(end) : "Pågår",
-      periodText: isClosed(c) && end ? `${fmtDate(c.startDate)} – ${fmtDate(end)}` : `Från ${fmtDate(c.startDate)}`,
-      startedInMonth: startedIn(c), endedInMonth: endedIn(c),
+      caseId: c.id, caseNumber: c.caseNumber, name: "", areaCode: codeOf(c.id), areaLabel: areaLabelOf(codeOf(c.id) || null), restricted: false, outside,
+      startDate: c.startDate, endDate: closed ? end : null, startText: fmtDate(c.startDate), endText: closed ? fmtDate(end) : "Pågår",
+      periodText: closed ? `${fmtDate(c.startDate)} – ${fmtDate(end)}` : `Från ${fmtDate(c.startDate)}`,
+      periodLines: inScope ? [fmtDate(c.startDate), `– ${closed ? fmtDate(end) : "pågår"}`] : closed && c.startDate ? [fmtDate(c.startDate), outside as string] : [outside as string],
+      startedInMonth: inScope && startedIn(c), endedInMonth: inScope && endedIn(c),
       attendance: {
         rate: st.rate, rateText: rateText(st.rate), detail: registered ? `${attended} av ${registered}` : "", text: st.rate == null ? "–" : `${rateText(st.rate)} (${attended} av ${registered})`,
-        registered, attended,
+        registered, attended, present: st.present, late: st.late, absentValid: st.absentValid, absentInvalid: st.absentInvalid, unregistered: st.unregistered,
       },
-      progression: { state: pstate, text: PROGRESSION_TEXT[pstate] },
-      goals: { achieved, trained, text: achieved || trained ? [achieved ? `${achieved} uppnådda` : "", trained ? `${trained} tränade` : ""].filter(Boolean).join(", ") : "–" },
+      progression: { state: pstate, text: PROGRESSION_TEXT[pstate], areas: levelAreas },
+      goals: { achieved, trained, text: goalLines.length ? goalLines.join(", ") : "–", lines: goalLines },
       activities: { held: mine.length, inGroup, text: mine.length ? `${plural(mine.length, "tillfälle", "tillfällen")}${inGroup ? `, ${inGroup} i grupp` : ""}` : "–" },
+      steps: [...(claimsByCase.get(c.id) ?? [])]
+        .sort((a, b) => a.step - b.step)
+        .map((b) => `${bonusStepTitle(bonus, b.step)}: ${b.status === "approved" ? "godkänt av kommunen" : "skickat till kommunen"}`),
+      areaChanges: [...(changesByCase.get(c.id) ?? [])].sort((a, b) => a.seq - b.seq).map((x) => `${x.fromArea} till ${x.toArea} från ${monthName(x.effectiveMonth)}`),
       results, resultText: results.length ? results.join("; ") : "–",
     };
-  });
+  };
+  const participants = [...scope, ...extra].map(rowOf);
 
   // ---- Diagrammen (samma tal som tabellerna).
   const flowChart: FlowChartSpec = {
@@ -428,8 +542,9 @@ export function buildMonthlyOverview(db: OverviewDb, env: OverviewEnv): MonthlyO
     rows: flowRows.map((r) => ({ key: r.code || "saknas", label: r.label, started: r.started, ended: r.ended })),
     ariaLabel: `Startade och avslutade insatser per yrkesområde, ${monthName(M)}. ${flowRows.length ? flowRows.map((r) => `${r.label}: ${r.started} startade, ${r.ended} avslutade`).join(". ") : "Inga uppgifter"}.`,
   };
+  const levelBars = totalLevels.some((n) => n > 0) ? scale.map((s, i) => countBar(`niva-${i}`, `Nivå ${s}`, totalLevels[i])) : [];
   return {
-    month: M, monthLabel: monthName(M), partial: monthKey(today) === M, area: env.area ? { code: env.area, label: areaLabelOf(env.area) } : null,
+    month: M, monthLabel: monthName(M), partial, area: env.area ? { code: env.area, label: areaLabelOf(env.area) } : null,
     totals: { participants: scope.length, atStart: flowTotal.atStart, started: flowTotal.started, ended: flowTotal.ended, atEnd: flowTotal.atEnd },
     flow: { rows: flowRows, total: flowTotal, endReasons, chart: flowChart },
     attendance: {
@@ -439,18 +554,20 @@ export function buildMonthlyOverview(db: OverviewDb, env: OverviewEnv): MonthlyO
     progression: {
       required, approved: approved.length, clear: flags.filter((x) => x.clear).length, any: flags.filter((x) => x.any).length,
       clearLabel: `Tydlig progression, nivå ${cfg.progression.clearFromLevel} eller högre`, anyLabel: `Någon progression, nivå ${cfg.progression.anyFromLevel} eller högre`,
-      scale, areas: areasMain, total: levelTotal, optional: areasOptional, achieved: achievedGoals, achievedCount: achievedRows.length, trainedCount: trainedPairs.size,
-      levelChart: barChart(`Områdesbedömningar per nivå i godkända månadsbedömningar, ${monthName(M)}`, "antal", scale.map((s, i) => countBar(`niva-${i}`, `Nivå ${s}`, totalLevels[i]))),
-      goalChart: barChart(`Uppnådda delmål per progressionsområde, ${monthName(M)}`, "antal", [...areasMain, ...areasOptional].filter((r) => r.achieved > 0).map((r) => countBar(r.key, r.label, r.achieved))),
+      scale, areas: areasMain, total: levelTotal, optional: areasOptional, achievedCount: achievedRows.length, trainedCount: trainedPairs.length,
+      levelChart: barChart(`Områdesbedömningar per nivå i godkända månadsbedömningar, ${monthName(M)}`, "antal", levelBars),
+      goalChart: barChart(`Deltagarnas uppnådda delmål per progressionsområde, ${monthName(M)}`, "antal", [...areasMain, ...areasOptional].filter((r) => r.achieved > 0).map((r) => countBar(r.key, r.label, r.achieved))),
     },
     activities: {
       held: passed.length, groupActivities: new Set(passed.map((a) => a.groupActivityId).filter(Boolean)).size, withGoals: taggedActs.length,
-      rate: passedStats.rate, rateText: rateText(passedStats.rate), byKind, goals: activityGoals,
-      chart: barChart(`Tillfällen per typ, ${monthName(M)}`, "antal", byKind.map((r) => countBar(r.kind, r.label, r.held))),
+      rate: byKindTotal.rate, rateText: byKindTotal.rateText, byKind, byKindTotal, goalAreas,
+      chart: barChart(`Tillfällen per typ, ${monthName(M)}`, "antal", byKind.map((r) => countBar(r.key, r.label, r.held))),
     },
     results: {
-      events: eventRows, eventsTotal: events.length, verifiedTotal: events.filter((e) => !!e.verificationKind).length, closures, closedTotal: ended.length,
-      month: monthRate, rolling: rollingRate, steps,
+      events: eventRows, eventTotal: eventRow("total", "Totalt", events), eventsTotal: events.length, verifiedTotal: events.filter((e) => !!e.verificationKind).length,
+      closures, closedTotal: closures.reduce((s, x) => s + x.count, 0), closuresCounted: closures.filter((x) => x.counted).reduce((s, x) => s + x.count, 0),
+      verifiedResults: monthRate.num,
+      month: env.showRate ? monthRate : null, rolling: env.showRate ? rollingRate : null, steps,
       chart: barChart(`Händelser per typ, ${monthName(M)}`, "antal", eventRows.map((r) => countBar(r.kind, r.label, r.count))),
     },
     participants: sortParticipants(participants, "omrade"),

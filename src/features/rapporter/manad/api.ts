@@ -2,25 +2,35 @@
 // kontrollen av omräkningen (src/api/invalidation.test.ts) hittar dem. Importeras av skärmar – aldrig hanterarna.
 //
 // Vem: samordnare, avtalsansvarig, coach och chef i avtalet (MANAD_ROLES) – aldrig ekonomen, kommunen, systemadministratören eller
-// deltagaren. Adressen har bara månaden (YYYY-MM), yrkesområdets kod och avtalets id – aldrig namn.
+// deltagaren. Coachen får inte resultatgraden eller målen för den (RATE_HIDDEN_ROLES, Karims beslut 2026-11-24). Adressen har
+// bara månaden (YYYY-MM), yrkesområdets kod och avtalets id – aldrig namn.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { IdSchema, MonthKeySchema } from "../../_shared/schemas";
 import type { MonthlyOverview } from "./model";
 
-export type { MonthlyOverview, ParticipantRow, ParticipantSort, BarChartSpec, FlowChartSpec, ChartBar, ChartTarget, RateView, LevelRow, AttendanceRow, FlowRow } from "./model";
+export type {
+  MonthlyOverview, ParticipantRow, ParticipantSort, BarChartSpec, FlowChartSpec, ChartBar, ChartTarget, RateView, LevelRow, AttendanceRow, FlowRow, ActivityKindRow, GoalAreaRow,
+  EventRow, ClosureRow,
+} from "./model";
 export { PARTICIPANT_SORTS, PARTICIPANT_SORT_LABEL, sortParticipants } from "./model";
 
 /** Rollerna som läser den interna månadsrapporten (rutten, menyn och hanterarna). */
 export const MANAD_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "chef"];
+/** Rollerna som inte får resultatgraden (månaden och rullande) eller målen för den – servern skickar dem inte (Karims beslut 2026-11-24). */
+export const RATE_HIDDEN_ROLES: readonly Role[] = ["coach"];
 
 /** Yrkesområdets kod (A–L i Botkyrka). */
 const AreaCodeSchema = z.string().regex(/^[A-Z0-9]{1,4}$/);
 
 export type OverviewOption = { value: string; label: string };
 export type MonthlyOverviewView =
-  | { allowed: false; contracts: OverviewOption[] }
+  /**
+   * Inget avtal i drift att visa – eller ett valt avtal som inte har startat än (notStarted: avtalet och startdagen). Ett avtal som
+   * inte har startat är aldrig förvalt.
+   */
+  | { allowed: false; contracts: OverviewOption[]; notStarted: { contractId: string; startsOn: string } | null }
   | ({
       allowed: true;
       contractId: string;

@@ -6,13 +6,13 @@ import { resultRate } from "@/core/kpi";
 import { mkActivity, mkAttendance, mkCase, mkEvent } from "@/core/test-data";
 import type { Case, CaseAreaChange, MonthlyAssessment } from "@/data/schema";
 import { barPath, flowLayout, hbarLayout } from "./charts";
-import { buildMonthlyOverview, overviewFilename, sortParticipants, type OverviewDb, type OverviewEnv } from "./model";
+import { buildMonthlyOverview, maskParticipant, overviewFilename, sortParticipants, type OverviewDb, type OverviewEnv } from "./model";
 
 const NOW = "2027-02-01T09:12";
 const JAN = "2027-01";
 const AREAS = [{ code: "D", name: "Kök, restaurang och måltidsservice" }, { code: "F", name: "Lokalvård" }, { code: "G", name: "Lager och logistik" }];
 const env = (p: Partial<OverviewEnv> = {}): OverviewEnv => ({
-  cfg: BOTKYRKA_CONFIG, contractStart: "2026-09-10", now: NOW, month: JAN, area: null, name: (id) => `Namn ${id}`, showCommercial: true, ...p,
+  cfg: BOTKYRKA_CONFIG, contractStart: "2026-09-10", now: NOW, month: JAN, area: null, showCommercial: true, showRate: true, ...p,
 });
 const db = (p: Partial<OverviewDb> = {}): OverviewDb => ({
   cases: [], case_area_changes: [], contract_areas: AREAS, activities: [], attendance: [], group_activities: [], activity_progress_goals: [], monthly_assessments: [],
@@ -96,9 +96,14 @@ describe("närvarograd", () => {
     expect(v.attendance.total).toMatchObject({ planned: kpi.planned, present: kpi.present, late: kpi.late, unregistered: kpi.unregistered, rate: kpi.rate });
     expect(v.attendance.total.rate).toBeCloseTo(3 / 5);
     expect(v.attendance.total.rateText).toBe("60,0\u00a0%");
-    expect(v.attendance.byArea.map((r) => [r.key, r.planned, r.registered, r.rate])).toEqual([["D", 0, 0, null], ["F", 1, 1, 1], ["G", 5, 4, 0.5]]);
+    // Raderna är yrkesområdena som har tillfällen (D har inga) – de går ihop med Totalt.
+    expect(v.attendance.byArea.map((r) => [r.key, r.planned, r.registered, r.rate])).toEqual([["F", 1, 1, 1], ["G", 5, 4, 0.5]]);
+    expect(v.attendance.byArea.reduce((s, r) => s + r.planned, 0)).toBe(v.attendance.total.planned);
     const a = v.participants.find((p) => p.caseId === "a")!;
-    expect(a.attendance).toMatchObject({ registered: 3, attended: 2, detail: "2 av 3" });
+    expect(a.attendance).toMatchObject({ registered: 3, attended: 2, detail: "2 av 3", present: 1, late: 1, absentValid: 0, absentInvalid: 1, unregistered: 0 });
+    expect(v.participants.find((p) => p.caseId === "b")?.attendance).toMatchObject({ absentValid: 1, unregistered: 1, registered: 1 });
+    // Totalt för tillfällena per typ har samma närvarograd som avsnittet Närvarograd.
+    expect(v.activities.byKindTotal).toMatchObject({ key: "total", held: 6, participants: 3, rate: v.attendance.total.rate });
     expect(a.attendance.rate).toBeCloseTo(2 / 3);
     // Diagrammet har samma tal som tabellen (yrkesområden utan registrerade tillfällen har ingen stapel).
     expect(v.attendance.chart.bars.map((b) => [b.key, b.value])).toEqual([["F", 1], ["G", 0.5]]);
@@ -155,7 +160,12 @@ describe("progression", () => {
     // Valfria områden räknas aldrig i summan – de står för sig när något är bedömt.
     expect(v.progression.optional.map((r) => [r.key, r.levels])).toEqual([["halsa_funktionellt", [0, 0, 1, 0]]]);
     expect(v.progression.areas.some((r) => r.key === "halsa_funktionellt")).toBe(false);
-    expect(v.participants.find((p) => p.caseId === "c")?.progression.state).toBe("not_approved");
+    expect(v.participants.find((p) => p.caseId === "c")?.progression).toMatchObject({ state: "not_approved", text: "Väntar på godkännande", areas: [] });
+    // Nivåerna per progressionsområde ur den godkända bedömningen – en lista, aldrig ett medelvärde (valfria bara när de är bedömda).
+    const aLevels = v.participants.find((p) => p.caseId === "a")!.progression.areas;
+    expect(aLevels).toHaveLength(BOTKYRKA_CONFIG.progression.areas.length + 1);
+    expect(aLevels.find((x) => x.key === "beredskap")).toMatchObject({ level: 3, text: "Beredskap för praktik, arbete eller studier: nivå 3" });
+    expect(aLevels.at(-1)).toMatchObject({ key: "halsa_funktionellt", level: 2 });
     expect(v.participants.find((p) => p.caseId === "a")?.progression.text).toBe("Tydlig progression");
   });
 
@@ -194,31 +204,61 @@ describe("progression", () => {
       env(),
     );
     expect(v.progression.achievedCount).toBe(1);
-    expect(v.progression.achieved).toEqual([{ id: "g1", label: "Har ett uppdaterat CV", areaLabel: "Beredskap för praktik, arbete eller studier", participants: 1 }]);
     // Tränade: a (g3 eget tillfälle, g1 och g2 i gruppen), b (g1 och g2 i gruppen; g3 frånvaro, ga2 inställd).
     expect(v.progression.trainedCount).toBe(5);
     expect(v.progression.areas.find((r) => r.key === "beredskap")).toMatchObject({ achieved: 1, trained: 4 });
     expect(v.progression.areas.find((r) => r.key === "narvaro_rutiner")).toMatchObject({ achieved: 0, trained: 1 });
-    expect(v.participants.find((p) => p.caseId === "a")?.goals).toMatchObject({ achieved: 1, trained: 3, text: "1 uppnådda, 3 tränade" });
-    // Aktiviteterna: vilka delmål tillfällena tränade och vilka som var med.
-    expect(v.activities.goals.map((g) => [g.id, g.sessions, g.participants])).toEqual([["g3", 2, 1], ["g1", 2, 2], ["g2", 2, 2]]);
+    expect(v.participants.find((p) => p.caseId === "a")?.goals).toMatchObject({ achieved: 1, trained: 3, text: "1 uppnådda, 3 tränade", lines: ["1 uppnådda", "3 tränade"] });
+    // Aktiviteterna: tillfällena med delmål per progressionsområde och vilka som var med – bara antal (Karims beslut 2026-11-24).
+    expect(v.activities.goalAreas.map((g) => [g.key, g.sessions, g.participants, g.trained])).toEqual([["narvaro_rutiner", 2, 1, 1], ["beredskap", 2, 2, 4]]);
     expect(v.activities.groupActivities).toBe(2);
-    expect(v.activities.byKind.find((k) => k.kind === "yrkesmoment")).toMatchObject({ held: 3, inGroup: 3, participants: 2, goals: 2 });
+    expect(v.activities.byKind.find((k) => k.key === "yrkesmoment")).toMatchObject({ held: 3, inGroup: 3, participants: 2, withGoals: 2 });
+    // Aldrig delmålens namn eller id i vy-modellen.
+    const json = JSON.stringify(v);
+    for (const g of goals) {
+      expect(json).not.toContain(g.label);
+      expect(json).not.toContain(`"${g.id}"`);
+    }
   });
 });
 
 describe("resultat", () => {
-  it("resultatgraden räknas som nyckeltalet, med notisen om litet underlag ur kpis", () => {
+  it("resultatgraden räknas som nyckeltalet; för litet underlag står gränsen ur kpis i statusen", () => {
     const v = buildMonthlyOverview(db({ cases: CASES }), env());
     const kpi = resultRate({ cases: CASES.filter((c) => c.id !== "x") }, { from: "2027-01-01", to: "2027-01-31" }, { cfg: BOTKYRKA_CONFIG, now: NOW, contractStart: "2026-09-10" });
     expect(v.results.month).toMatchObject({ value: kpi.value, num: kpi.num, den: kpi.den, status: "insufficient", contractTarget: 0.32, internalTarget: 0.35 });
     expect(v.results.month).toMatchObject({ num: 1, den: 1, valueText: "100,0\u00a0%" });
-    expect(v.results.month.note).toBe("Underlaget är litet (färre än 10 avslut som räknas). Jämför försiktigt.");
+    expect(v.results.month?.statusText).toBe("Färre än 10 avslut");
+    expect(JSON.stringify(v)).not.toMatch(/Jämför försiktigt|Underlaget är litet/);
     // Rullande sex månader till och med januari, aldrig före avtalets start: september 2026 – januari 2027 (x räknas med).
     expect(v.results.rolling).toMatchObject({ period: "september 2026 – januari 2027", num: 2, den: 2 });
     expect(v.results.closures.map((c) => [c.key, c.count, c.counted])).toEqual([["result_verified", 1, true], ["excluded", 1, false]]);
+    expect([v.results.closedTotal, v.results.closuresCounted, v.results.verifiedResults]).toEqual([2, 1, 1]);
     // En begränsad testare ser inte det interna målet.
-    expect(buildMonthlyOverview(db({ cases: CASES }), env({ showCommercial: false })).results.month.internalTarget).toBeNull();
+    expect(buildMonthlyOverview(db({ cases: CASES }), env({ showCommercial: false })).results.month?.internalTarget).toBeNull();
+  });
+
+  it("coachen får inte resultatgraden eller målen för den (Karims beslut 2026-11-24) – allt annat är detsamma", () => {
+    const full = buildMonthlyOverview(db({ cases: CASES }), env());
+    const coach = buildMonthlyOverview(db({ cases: CASES }), env({ showRate: false }));
+    expect(coach.results.month).toBeNull();
+    expect(coach.results.rolling).toBeNull();
+    expect(JSON.stringify(coach)).not.toMatch(/contractTarget|internalTarget|Resultatgrad/);
+    expect({ ...coach, results: { ...coach.results, month: null, rolling: null } }).toEqual({ ...full, results: { ...full.results, month: null, rolling: null } });
+    expect(coach.results.verifiedResults).toBe(1);
+  });
+
+  it("ett ärende som avslutades i månaden utan att ha startat står på en egen rad – raderna som räknas går ihop med nämnaren", () => {
+    const z = mkCase({ id: "z", status: "closed", startDate: null, primaryAreaCode: "G", endDate: "2027-01-15", closedAt: "2027-01-15T10:00", endReason: "avbrott_deltagarens_val", resultClass: "no_result" });
+    const zx = mkCase({ id: "zx", status: "closed", startDate: null, primaryAreaCode: "G", endDate: "2027-01-16", closedAt: "2027-01-16T10:00", endReason: "avbrott_flytt", resultClass: "excluded" });
+    const v = buildMonthlyOverview(db({ cases: [...CASES, z, zx] }), env());
+    expect(v.results.closures.map((c) => [c.key, c.count, c.counted])).toEqual([["result_verified", 1, true], ["excluded", 2, false], ["no_start", 1, true]]);
+    expect(v.results.closures.find((c) => c.key === "no_start")?.label).toBe("Avslutade utan start");
+    expect(v.results.closuresCounted).toBe(v.results.month?.den);
+    expect(v.results.closedTotal).toBe(4);
+    // Flödet är oförändrat: ärendet utan start är inte med i urvalet.
+    expect(v.flow.total).toMatchObject({ started: 2, ended: 2 });
+    expect(v.participants.some((p) => p.caseId === "z")).toBe(false);
   });
 
   it("händelser i månaden per typ och stegen i Progression och resultat – bara skickade och godkända, inga belopp", () => {
@@ -245,6 +285,14 @@ describe("resultat", () => {
     expect(v.results.steps?.[4].label).toBe("Steg 5 · Snabbt resultat");
     expect(JSON.stringify(v)).not.toMatch(/amount|belopp|öre|kr\b/i);
     expect(v.participants.find((p) => p.caseId === "c")?.results).toEqual(["Arbete påbörjat 18 jan", "Avslut: Arbete"]);
+    expect(v.participants.find((p) => p.caseId === "c")?.steps).toEqual([`${v.results.steps?.[2].label}: godkänt av kommunen`, "Steg 5 · Snabbt resultat: skickat till kommunen"]);
+    // Resultatet efter avslutet har en egen rad, märkt med avslutet (x avslutades i december).
+    const x = v.participants.find((p) => p.caseId === "x")!;
+    expect(x).toMatchObject({ outside: "Avslutad 18 dec 2026", periodLines: ["5 okt 2026", "Avslutad 18 dec 2026"], results: ["Studier påbörjade/antagen 10 jan"], endedInMonth: false });
+    expect(x.attendance.rate).toBeNull();
+    expect(v.totals.participants).toBe(5);
+    expect(v.participants).toHaveLength(6);
+    expect(v.results.eventTotal).toMatchObject({ kind: "total", count: 3, verified: 2, participants: 3 });
     // Stegen visas inte för en begränsad testare (ekonomiskt villkor).
     expect(buildMonthlyOverview(db({ cases: CASES }), env({ showCommercial: false })).results.steps).toBeNull();
   });
@@ -259,11 +307,84 @@ describe("per deltagare och filnamn", () => {
     expect(v.participants.map((p) => p.areaCode)).toEqual(["D", "F", "G", "G", "G"]);
     expect(sortParticipants(v.participants, "narvaro").slice(0, 2).map((p) => p.caseId)).toEqual(["a", "b"]);
     expect(sortParticipants(v.participants, "arende").map((p) => p.caseNumber)).toEqual([...v.participants.map((p) => p.caseNumber)].sort());
-    expect(v.participants.find((p) => p.caseId === "d")).toMatchObject({ periodText: "18 jan 2027 – 29 jan 2027", startedInMonth: true, endedInMonth: true, name: "Namn d" });
+    expect(v.participants.find((p) => p.caseId === "d")).toMatchObject({ periodText: "18 jan 2027 – 29 jan 2027", periodLines: ["18 jan 2027", "– 29 jan 2027"], startedInMonth: true, endedInMonth: true, name: "" });
+  });
+
+  it("bytet av yrkesområde står på raden i månaden det gjordes och månaden det börjar gälla", () => {
+    const jan = buildMonthlyOverview(db({ cases: CASES, case_area_changes: [CHANGE] }), env());
+    expect(jan.participants.find((p) => p.caseId === "e")?.areaChanges).toEqual(["G till D från februari 2027"]);
+    const feb = buildMonthlyOverview(db({ cases: CASES, case_area_changes: [CHANGE] }), env({ month: "2027-02", now: "2027-02-20T10:00" }));
+    expect(feb.participants.find((p) => p.caseId === "e")).toMatchObject({ areaCode: "D", areaChanges: ["G till D från februari 2027"] });
+    expect(jan.participants.find((p) => p.caseId === "a")?.areaChanges).toEqual([]);
+  });
+
+  it("en skyddad rad har bara ärendenumret och området", () => {
+    const acts = [mkActivity({ id: "a1", caseId: "a", startsAt: "2027-01-12T10:00" })];
+    const v = buildMonthlyOverview(db({ cases: CASES, activities: acts, attendance: [mkAttendance({ activityId: "a1", caseId: "a", status: "present" })] }), env());
+    const m = maskParticipant(v.participants.find((p) => p.caseId === "a")!);
+    expect(m).toMatchObject({ caseId: "a", name: "Skyddade personuppgifter", restricted: true, areaCode: "G", periodLines: [], results: [], steps: [], areaChanges: [] });
+    expect(m.attendance.rate).toBeNull();
+    expect(m.progression.areas).toEqual([]);
   });
 
   it("filnamnet har bara avtalets prefix, rapportens slag och månaden", () => {
     expect(overviewFilename("BOT", "2027-01")).toBe("rapport_bot_manadsrapport_2027-01.pdf");
+  });
+});
+
+describe("granskningen 2026-11-24", () => {
+  it("närvarograden räknas över alla tillfällen i månaden – också för ett ärende som avslutats med ett tidigare slutdatum (som nyckeltalet)", () => {
+    // w avslutades 20 december, men tillfällen i januari har registrerad närvaro (slutdatum satt i efterhand).
+    const w = mkCase({ id: "w", startDate: "2026-10-05", primaryAreaCode: "F", status: "closed", endDate: "2026-12-20", closedAt: "2027-01-25T10:00", endReason: "arbete", resultClass: "result" });
+    const acts = [
+      mkActivity({ id: "a1", caseId: "a", startsAt: "2027-01-12T10:00" }),
+      mkActivity({ id: "w1", caseId: "w", startsAt: "2027-01-12T10:00" }),
+      mkActivity({ id: "w2", caseId: "w", startsAt: "2027-01-13T10:00" }),
+    ];
+    const att = [
+      mkAttendance({ activityId: "a1", caseId: "a", status: "present" }),
+      mkAttendance({ activityId: "w1", caseId: "w", status: "absent_invalid" }),
+      mkAttendance({ activityId: "w2", caseId: "w", status: "present", source: "auto" }),
+    ];
+    const cases = [...CASES, w];
+    const v = buildMonthlyOverview(db({ cases, activities: acts, attendance: att }), env());
+    const kpi = attendanceStats({ activities: acts, attendance: att }, null, "2027-01-01", "2027-01-31", { now: NOW });
+    expect(v.attendance.total).toMatchObject({ planned: kpi.planned, present: kpi.present, absentInvalid: kpi.absentInvalid, rate: kpi.rate });
+    expect(v.attendance.total.rate).toBeCloseTo(2 / 3);
+    // Yrkesområdena med tillfällen (F genom w) går ihop med Totalt; w är inte en deltagare i januari.
+    expect(v.attendance.byArea.map((r) => [r.key, r.planned])).toEqual([["F", 2], ["G", 1]]);
+    expect(v.participants.some((p) => p.caseId === "w")).toBe(false);
+    expect(v.flow.rows.find((r) => r.code === "F")).toMatchObject({ atStart: 0, started: 1 });
+  });
+
+  it("raden per deltagare räknar bara tillfällen under insatsen – inte efter slutdatum", () => {
+    const acts = [
+      mkActivity({ id: "c1", caseId: "c", startsAt: "2027-01-19T10:00" }),
+      // Efter c:s slutdatum 20 januari – oregistrerat, står inte på raden (men räknas i Totalt som nyckeltalet).
+      mkActivity({ id: "c2", caseId: "c", startsAt: "2027-01-22T10:00" }),
+      mkActivity({ id: "c3", caseId: "c", startsAt: "2027-01-26T10:00" }),
+    ];
+    const v = buildMonthlyOverview(db({ cases: CASES, activities: acts, attendance: [mkAttendance({ activityId: "c1", caseId: "c", status: "present" })] }), env());
+    expect(v.participants.find((p) => p.caseId === "c")).toMatchObject({ activities: { held: 1 }, attendance: { unregistered: 0, registered: 1, rate: 1 } });
+    expect(v.attendance.total).toMatchObject({ planned: 3, unregistered: 2 });
+  });
+
+  it("innevarande månad räknas till och med i dag: den som startar senare i månaden är inte med än", () => {
+    const later = mkCase({ id: "later", startDate: "2027-02-15", primaryAreaCode: "G", status: "active" });
+    const today = mkCase({ id: "idag", startDate: "2027-02-10", primaryAreaCode: "G", status: "active" });
+    const v = buildMonthlyOverview(db({ cases: [...CASES, later, today] }), env({ month: "2027-02", now: "2027-02-10T09:00" }));
+    expect(v.partial).toBe(true);
+    expect(v.participants.some((p) => p.caseId === "later")).toBe(false);
+    expect(v.participants.find((p) => p.caseId === "idag")?.startedInMonth).toBe(true);
+    expect(v.flow.total.started).toBe(1);
+    // En avslutad månad påverkas inte.
+    expect(buildMonthlyOverview(db({ cases: [...CASES, later] }), env({ month: "2027-02", now: "2027-03-01T09:00" })).participants.some((p) => p.caseId === "later")).toBe(true);
+  });
+
+  it("utan bedömda nivåer finns inget nivådiagram – tabellen står kvar", () => {
+    const v = buildMonthlyOverview(db({ cases: CASES }), env());
+    expect(v.progression.levelChart.bars).toEqual([]);
+    expect(v.progression.areas.length).toBe(BOTKYRKA_CONFIG.progression.areas.length);
   });
 });
 
