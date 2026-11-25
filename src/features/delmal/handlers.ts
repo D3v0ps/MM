@@ -10,7 +10,7 @@ import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionAreas, type OperationalConfig } from "@/core/config";
-import { caseGoalId, GOAL_STATE_ICON, goalLabelProblem, goalStateText, sameGoalLabel, sortGoals, STEP_ITEM_LABEL, stepOfItem, stepItemsOf } from "@/core/progress-goals";
+import { caseGoalId, GOAL_STATE_ICON, goalLabelProblem, goalStateText, sameGoalLabel, shownCaseGoals, sortGoals, STEP_ITEM_LABEL, stepOfItem, stepItemsOf } from "@/core/progress-goals";
 import { dayOf, fmtDate } from "@/core/time";
 import { uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
@@ -217,8 +217,8 @@ handleQuery(caseGoals, { roles: GOAL_READERS }, async (ctx, p): Promise<CaseGoal
   if (!x) return { on: false };
   const [goals, rows] = await Promise.all([ctx.repo.table("progress_goals").list({ contractId: c.contractId }), ctx.repo.table("case_progress_goals").list({ caseId: c.id })]);
   const rowOf = new Map(rows.map((r) => [r.goalId, r]));
-  // Inaktiverade delmål visas bara när ärendet har ett läge för dem.
-  const shown = goals.filter((g) => g.active || rowOf.has(g.id));
+  // Inaktiverade delmål visas bara när ärendet har ett läge för dem (samma urval som fliken Delmål på deltagarkortet).
+  const shown = shownCaseGoals(goals, new Set(rowOf.keys()), progressionAreas(x.cfg).map((a) => a.key));
   const canEdit = GOAL_SETTERS.includes(ctx.actor.role) && STARTED.includes(c.status) && !!c.startDate && (await canEditCase(ctx, c));
   const evidence = await evidenceLabels(ctx, rows);
   return {

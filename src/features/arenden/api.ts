@@ -709,17 +709,25 @@ export const caseList = query("arenden.lista", z.object({})).returns<CaseListMod
 export const CASE_LIST_SCOPES = ["mina", "alla"] as const;
 
 // ---------------------------------------------------------------- Deltagarkortet (/arenden/:caseId)
+/**
+ * Deltagarkortets flikar (nyckeln i ?flik=). Karims beslut 2026-11-25: sex flikar i raden och resten under Mer (CASE_MORE_TABS,
+ * modellen i card-tabs.ts). handelser heter Progression och resultat men behåller nyckeln, så att gamla länkar fungerar.
+ */
 export type CaseTab =
-  | "oversikt" | "tidslinje" | "anteckningar" | "kartlaggning" | "avstamningar" | "narvaro" | "manad" | "handelser" | "avvikelser" | "praktik" | "rapporter" | "meddelanden"
-  | "historik";
+  | "oversikt" | "narvaro" | "avstamningar" | "anteckningar" | "delmal" | "handelser" | "tidslinje" | "kartlaggning" | "manad" | "avvikelser" | "praktik" | "rapporter"
+  | "meddelanden" | "historik";
+/** Alla flikar i visningsordning: först de i raden, sedan de under Mer. */
 export const CASE_TABS = [
-  "oversikt", "tidslinje", "anteckningar", "kartlaggning", "avstamningar", "narvaro", "manad", "handelser", "avvikelser", "praktik", "rapporter", "meddelanden", "historik",
+  "oversikt", "narvaro", "avstamningar", "anteckningar", "delmal", "handelser", "tidslinje", "kartlaggning", "manad", "avvikelser", "praktik", "rapporter", "meddelanden",
+  "historik",
 ] as const satisfies readonly CaseTab[];
+/** Flikarna under Mer (Karims beslut 2026-11-25), i menyns ordning. */
+export const CASE_MORE_TABS = ["tidslinje", "kartlaggning", "manad", "avvikelser", "praktik", "rapporter", "meddelanden", "historik"] as const satisfies readonly CaseTab[];
 /**
  * Flikarna som teamet (handledare) ser – inga coachanteckningar, bedömningar eller rapporter. Tidslinjen och Anteckningar visar
- * bara teamets delar (anteckningar med audience team).
+ * bara teamets delar (anteckningar med audience team). Delmål som förut (kortet låg under Händelser), när ärendet har delmål.
  */
-export const TEAM_TABS = ["oversikt", "tidslinje", "anteckningar", "narvaro", "praktik", "handelser"] as const satisfies readonly CaseTab[];
+export const TEAM_TABS = ["oversikt", "tidslinje", "anteckningar", "narvaro", "praktik", "handelser", "delmal"] as const satisfies readonly CaseTab[];
 
 export type CaseCard = {
   kind: "ok";
@@ -737,6 +745,11 @@ export type CaseCard = {
   readOnly: boolean;
   /** Kortet Filer (CV, personligt brev, betyg och intyg) visas: samordnare, avtalsansvarig och coach med full åtkomst (0037). */
   files: boolean;
+  /**
+   * Fliken Delmål visas (Karims beslut 2026-11-25): Miljonbemanning med full- eller teamåtkomst som läser delmålen, och ärendet har
+   * delmål att visa – samma urval som kortet Delmål (delmal.arende). Aldrig kommunen.
+   */
+  progressGoals: boolean;
   status: CaseStatus;
   phase: number;
   phaseName: string;

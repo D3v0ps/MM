@@ -3,6 +3,10 @@
 // Flikbytet hoppar aldrig: sidan står kvar, och om flikraden har skrollats ovanför skärmen läggs den överst (inte sidans topp).
 // sticky: flikraden ligger kvar överst när man skrollar i panelen (under --mm-sticky-top, t.ex. mobilens fasta topprad).
 // Får flikarna inte plats syns tonade kanter och pilknappar, och den valda fliken skrollas in i flikraden.
+// more: flikar under knappen Mer i slutet av flikraden (deltagarkortet, Karims beslut 2026-11-25). Mer är en riktig menyknapp
+// utanför tablist (aria-haspopup="menu", aria-expanded, piltangenter, Esc stänger och fokus tillbaka till Mer – Radix
+// DropdownMenu). Är den valda fliken en av dem står den på knappen som vald: "Mer: Kartläggning".
+import { DropdownMenu } from "radix-ui";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
@@ -40,6 +44,8 @@ export function anchorTabs(list: HTMLElement | null, panelId: string | null, sti
 
 export function Tabs<T extends string>({
   tabs,
+  more,
+  moreLabel = "Mer",
   active,
   onChange,
   onIntent,
@@ -49,6 +55,10 @@ export function Tabs<T extends string>({
   className,
 }: {
   tabs: readonly TabDef<T>[];
+  /** Flikar under menyknappen Mer i slutet av flikraden. Tom eller utelämnad = ingen Mer. */
+  more?: readonly TabDef<T>[];
+  /** Menyknappens text (standard "Mer"). */
+  moreLabel?: string;
   active: T;
   onChange: (id: T) => void;
   /**
@@ -145,11 +155,15 @@ export function Tabs<T extends string>({
     if (id && (!a || a === document.body || !document.contains(a))) document.getElementById(`${base}-panel`)?.focus({ preventScroll: true });
   }, [active, base, id, sticky]);
 
+  // Den valda fliken kan ligga under Mer – då är ingen flik i raden vald, och den första nås med Tab.
+  const noneSelected = !tabs.some((t) => t.id === active);
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const i = tabs.findIndex((t) => t.id === active);
+    // Från fliken som har fokus (den valda, eller den första när den valda ligger under Mer).
+    const focused = [...(listRef.current?.querySelectorAll<HTMLButtonElement>("[role=tab]") ?? [])].findIndex((b) => b === document.activeElement);
+    const i = focused >= 0 ? focused : tabs.findIndex((t) => t.id === active);
     let j: number | null = null;
-    if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
-    if (e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
+    if (e.key === "ArrowRight") j = i < 0 ? 0 : (i + 1) % tabs.length;
+    if (e.key === "ArrowLeft") j = i < 0 ? tabs.length - 1 : (i - 1 + tabs.length) % tabs.length;
     if (e.key === "Home") j = 0;
     if (e.key === "End") j = tabs.length - 1;
     if (j === null) return;
@@ -163,8 +177,9 @@ export function Tabs<T extends string>({
     if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8 });
   };
   const arrow = "absolute top-0 bottom-0.5 z-10 flex w-11 cursor-pointer items-center border-0 bg-transparent text-antracit";
-  return (
-    <div ref={wrapRef} data-tabs-sticky={sticky ? "" : undefined} className={cn("relative", sticky && "sticky top-[var(--mm-sticky-top,0px)] z-20 bg-vit")}>
+  const moreTabs = more ?? [];
+  const strip = (
+    <>
       <div
         ref={listRef}
         role="tablist"
@@ -182,7 +197,7 @@ export function Tabs<T extends string>({
               id={tabDomId(base, t.id)}
               aria-selected={on}
               aria-controls={id ? `${base}-panel` : undefined}
-              tabIndex={on ? 0 : -1}
+              tabIndex={on || (noneSelected && i === 0) ? 0 : -1}
               onClick={() => change(t.id)}
               onPointerEnter={onIntent ? () => onIntent(t.id) : undefined}
               onFocus={
@@ -197,19 +212,11 @@ export function Tabs<T extends string>({
                   : undefined
               }
               onTouchStart={onIntent ? () => onIntent(t.id) : undefined}
-              className={cn(
-                "-mb-0.5 inline-flex min-h-11 cursor-pointer items-center gap-1.5 border-0 border-b-[3px] border-transparent bg-transparent px-3.5 py-2.5 text-ui font-semibold whitespace-nowrap text-text-muted",
-                "hover:text-antracit aria-selected:border-rod aria-selected:text-antracit portal:text-body",
-              )}
+              className={cn(TAB_CLASS, "aria-selected:border-rod aria-selected:text-antracit")}
             >
               {t.icon && <Icon name={t.icon} />}
               {t.label}
-              {t.count != null && t.count !== 0 && (
-                <>
-                  <span className="sr-only"> </span>
-                  <span className="rounded-full bg-ljusgra px-[7px] text-label text-antracit portal:text-body">{t.count}</span>
-                </>
-              )}
+              <TabCount count={t.count} />
             </button>
           );
         })}
@@ -225,6 +232,113 @@ export function Tabs<T extends string>({
           <Icon name="chevron-right" />
         </button>
       )}
+    </>
+  );
+  const wrapClass = cn("relative", sticky && "sticky top-[var(--mm-sticky-top,0px)] z-20 bg-vit");
+  if (!moreTabs.length) {
+    return (
+      <div ref={wrapRef} data-tabs-sticky={sticky ? "" : undefined} className={wrapClass}>
+        {strip}
+      </div>
+    );
+  }
+  // Med Mer: flikraden (skrollar i sidled i sin egen ruta när den inte får plats), Mer direkt efter den och linjen ut till kanten.
+  return (
+    <div ref={wrapRef} data-tabs-sticky={sticky ? "" : undefined} className={wrapClass}>
+      <div className="flex">
+        <div className="relative min-w-0">{strip}</div>
+        <TabsMore base={base} tabs={moreTabs} active={active} label={moreLabel} onSelect={change} onIntent={onIntent} />
+        <div aria-hidden="true" className="min-w-0 flex-1 border-b-2 border-ljusgra" />
+      </div>
+    </div>
+  );
+}
+
+const TAB_CLASS = cn(
+  "-mb-0.5 inline-flex min-h-11 cursor-pointer items-center gap-1.5 border-0 border-b-[3px] border-transparent bg-transparent px-3.5 py-2.5 text-ui font-semibold whitespace-nowrap text-text-muted",
+  "hover:text-antracit portal:text-body",
+);
+
+function TabCount({ count }: { count?: number | null }) {
+  if (count == null || count === 0) return null;
+  return (
+    <>
+      <span className="sr-only"> </span>
+      <span className="rounded-full bg-ljusgra px-[7px] text-label text-antracit portal:text-body">{count}</span>
+    </>
+  );
+}
+
+/**
+ * Menyknappen Mer med flikarna som inte står i raden: en meny med ett val per flik (menuitemradio – den valda har en bock). Den
+ * valda fliken under Mer står på knappen ("Mer: Kartläggning"), och panelen namnges av namnet där (samma id som en flik i
+ * raden). Siffran på knappen är summan av flikarnas siffror (olästa meddelanden, öppna avvikelser); valen visar sina egna.
+ * Ingen modal meny (modal false): sidan låses inte och hoppar inte när menyn öppnas.
+ */
+function TabsMore<T extends string>({ base, tabs, active, label, onSelect, onIntent }: {
+  base: string;
+  tabs: readonly TabDef<T>[];
+  active: T;
+  label: string;
+  onSelect: (id: T) => void;
+  onIntent?: (id: T) => void;
+}) {
+  const cur = tabs.find((t) => t.id === active) ?? null;
+  const total = tabs.reduce((n, t) => n + (t.count ?? 0), 0);
+  return (
+    <div className="flex shrink-0 border-b-2 border-ljusgra">
+      <DropdownMenu.Root modal={false}>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            id={`${base}-mer`}
+            data-tabs-more=""
+            data-active={cur ? "" : undefined}
+            className={cn(TAB_CLASS, "data-[active]:border-rod data-[active]:text-antracit data-[state=open]:text-antracit")}
+          >
+            {cur ? (
+              <span>
+                {label}: <span id={tabDomId(base, cur.id)}>{cur.label}</span>
+              </span>
+            ) : (
+              label
+            )}
+            <TabCount count={total} />
+            <Icon name="chevron-down" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={4}
+            collisionPadding={16}
+            className="z-30 flex max-h-[min(520px,calc(100dvh-32px))] min-w-60 flex-col overflow-y-auto rounded-mb border border-ljusgra bg-vit p-1.5 text-antracit shadow-pop"
+          >
+            <DropdownMenu.RadioGroup value={active} onValueChange={(v) => onSelect(v as T)}>
+              {tabs.map((t) => (
+                <DropdownMenu.RadioItem
+                  key={t.id}
+                  value={t.id}
+                  onFocus={onIntent ? () => onIntent(t.id) : undefined}
+                  className={cn(
+                    "flex min-h-11 cursor-pointer items-center gap-2 rounded-mb px-3 py-2 text-ui font-semibold whitespace-nowrap outline-none select-none",
+                    "data-[highlighted]:bg-antracit-ton data-[highlighted]:outline-3 data-[highlighted]:-outline-offset-3 data-[highlighted]:outline-antracit data-[state=checked]:bg-ljusgra-ton",
+                  )}
+                >
+                  <span className="inline-flex w-5 shrink-0 justify-center">
+                    <DropdownMenu.ItemIndicator>
+                      <Icon name="check" />
+                    </DropdownMenu.ItemIndicator>
+                  </span>
+                  {t.icon && <Icon name={t.icon} />}
+                  <span className="flex-1">{t.label}</span>
+                  <TabCount count={t.count} />
+                </DropdownMenu.RadioItem>
+              ))}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
 }

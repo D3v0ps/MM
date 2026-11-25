@@ -1,5 +1,6 @@
 "use client";
-// Deltagarkortets flikar Händelser och utfall, Avvikelser (med kallelse till kommunen) och Praktik (prototypens views/arenden.js).
+// Deltagarkortets flikar Progression och resultat (hette Händelser och utfall före Karims beslut 2026-11-25), Avvikelser (med
+// kallelse till kommunen) och Praktik (prototypens views/arenden.js).
 import { useState, type FormEvent } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
@@ -15,9 +16,9 @@ import { caseDeviations, caseEvents, casePlacements, type CaseDeviationRow, type
 import { canOpen, caseLink, clip, fd, FOUR, Label, MiniList, PLACEMENT, PNR_ERROR, PNR_RE, TabQuery, withDot } from "./common";
 import { CustSwitch, type TabProps } from "./kort";
 import { BonusCard } from "@/features/bonus/screens/kort-bonus";
-import { DelmalCard } from "@/features/delmal/screens/kort-delmal";
 
-// ---------------------------------------------------------------- Händelser och utfall
+// ---------------------------------------------------------------- Progression och resultat (nyckeln handelser)
+// Utfallet, händelserna och kortet Progression och resultat (stegen). Delmålen har en egen flik sedan 2026-11-25.
 const eventIcon = (kind: string): IconName =>
   kind === "praktik_startad" ? "briefcase" : kind === "arbete_paborjat" || kind === "arbetserbjudande" ? "award" : kind === "studier_paborjade" ? "book" : "target";
 
@@ -120,8 +121,6 @@ export function TabHandelser({ card }: TabProps) {
             {/* Bonusstegen (beslut 2026-11-04): inte för teamet – bonus är ett ekonomiskt villkor. Kortet döljer sig självt när bonus är
                 avstängd eller aktören inte får se bonus (begränsade testare). */}
             {!team && <BonusCard caseId={card.caseId} />}
-            {/* Delmålen (Karims beslut 2026-11-11): Miljonbemanning med full- eller teamåtkomst – aldrig kommunen. */}
-            <DelmalCard caseId={card.caseId} />
           </Stack>
         );
       }}

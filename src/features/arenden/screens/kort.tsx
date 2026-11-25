@@ -1,6 +1,7 @@
 "use client";
 // Deltagarkortet (prototypens arende.kort): huvud med insatsen, deltagaren och teamet, samtycke, åtgärder och flikar.
-// Chef och systemadmin läser bara. Handledare (teamet) ser fem flikar – inga coachanteckningar, bedömningar eller rapporter.
+// Flikarna (Karims beslut 2026-11-25): sex i raden och resten under Mer – modellen i ../card-tabs.ts.
+// Chef och systemadmin läser bara. Handledare (teamet) ser färre flikar – inga coachanteckningar, bedömningar eller rapporter.
 // Visningen loggas i revisionsloggen (case.view), liksom försök utan behörighet (case.view_denied).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePageTitle } from "@/shell/page-effects";
@@ -18,8 +19,11 @@ import { auditView } from "@/features/session/api";
 import { recordingOffered } from "@/features/coach/api";
 import {
   caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis, caseNotes,
-  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, consentSet, messageRead, type CaseCard, type CaseTab,
 } from "../api";
+import { cardTabFor, cardTabLabel, cardTabs } from "../card-tabs";
+import { caseGoals } from "@/features/delmal/api";
+import { DelmalCard } from "@/features/delmal/screens/kort-delmal";
 import { canOpen, cap, fd, Facts, Label, MiniList } from "./common";
 import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kort-flikar";
 import { TabManad } from "./kort-manad";
@@ -36,10 +40,6 @@ import { CaseStartChange, CaseStartHistory } from "./kort-startdatum";
 import { NoShowModal } from "./kort-uteblev";
 import { CaseAreaChange, CaseAreaHistory } from "./kort-yrkesomrade";
 
-const TAB_LABEL: Record<CaseTab, string> = {
-  oversikt: "Översikt", tidslinje: "Tidslinje", anteckningar: "Anteckningar", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
-  handelser: "Händelser och utfall", avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
-};
 const CUST_WHO = { kommun_handlaggare: "kommunen" } as const;
 
 /** Vad varje flik får från kortet. */
@@ -132,6 +132,7 @@ function prefetchCaseTab(prefetch: ReturnType<typeof usePrefetch>, t: CaseTab, c
     case "avstamningar": return prefetch(caseCheckIns, p);
     case "narvaro": return prefetch(caseAttendance, p);
     case "manad": return prefetch(caseMonthBasis, p);
+    case "delmal": return prefetch(caseGoals, p);
     case "handelser": return prefetch(caseEvents, p);
     case "avvikelser": return prefetch(caseDeviations, p);
     case "praktik": return prefetch(casePlacements, p);
@@ -172,7 +173,7 @@ function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
         return;
       }
       if (panel && ((waited > 400 && !panel.querySelector("[data-loading]")) || waited > 3000)) {
-        anchorTabs(panel.parentElement?.querySelector<HTMLElement>("[role=tablist]")?.parentElement ?? null, panelId, true);
+        anchorTabs(panel.parentElement?.querySelector<HTMLElement>("[data-tabs-sticky]") ?? null, panelId, true);
         panel.focus({ preventScroll: true });
         return;
       }
@@ -201,10 +202,11 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
   const nav = useNav();
   const role = useSession().actor.role;
   const team = card.access === "team";
-  const tabIds: readonly CaseTab[] = team ? TEAM_TABS : CASE_TABS;
-  // ?visa=rost ("Läs röstmeddelandet" på Min vecka): röstmeddelandena ligger under Meddelanden sedan 2026-10-09.
-  const tab: CaseTab = tabIds.includes(flik as CaseTab) ? (flik as CaseTab) : visa === "rost" && tabIds.includes("meddelanden") ? "meddelanden" : "oversikt";
-  const blocked = !!flik && !tabIds.includes(flik as CaseTab) && (CASE_TABS as readonly string[]).includes(flik);
+  // Sex flikar i raden och resten under Mer (Karims beslut 2026-11-25). Vilka flikar rollen får är desamma som förut.
+  const model = cardTabs(card);
+  const tabIds = model.all;
+  // ?visa=rost ("Läs röstmeddelandet" på Min vecka) öppnar Meddelanden (under Mer).
+  const { tab, blocked } = cardTabFor(flik, visa, model);
   const [modal, setModal] = useState<ModalKind | null>(null);
   // ?starta=1 (knappen Starta insatsen på Min vecka): dialogen öppnas en gång när kortet har laddats.
   const autoStarted = useRef(false);
@@ -242,9 +244,9 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
     }
     const t = window.setTimeout(run, 500);
     return () => window.clearTimeout(t);
-    // tabIds följer team.
+    // tabIds följer team och progressGoals.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [card.caseId, team, prefetch]);
+  }, [card.caseId, team, card.progressGoals, prefetch]);
   useScrollToTarget(mal, tab, "arende-panel");
   const read = useCommand(messageRead);
   const unread = card.unread;
@@ -252,11 +254,11 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
     if (tab === "meddelanden" && unread > 0) void read.run({ caseId: card.caseId }).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, unread, card.caseId]);
-  const tabs = tabIds.map((id) => ({
+  const tabDef = (id: CaseTab) => ({
     id,
-    label: team && id === "handelser" ? "Arbetsgivarkontakter och händelser" : TAB_LABEL[id],
+    label: cardTabLabel(id, card.access),
     count: id === "meddelanden" ? unread : id === "avvikelser" ? card.openDeviations : id === "oversikt" ? card.flags.length : null,
-  }));
+  });
   const props: TabProps = { card, setTab, openTab, openModal: setModal };
 
   return (
@@ -285,13 +287,14 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
       <Stack>
         <Tabs
           id="arende"
-          tabs={tabs}
+          tabs={model.main.map(tabDef)}
+          more={model.more.map(tabDef)}
           active={tab}
           onChange={setTab}
           onIntent={prefetchTab}
           sticky
           ariaLabel="Delar av deltagarkortet"
-          className="relative min-[621px]:flex-wrap min-[621px]:overflow-x-visible [&_[role=tab]]:px-2.5"
+          className="relative [&_[role=tab]]:px-3"
         />
         {blocked && (
           <Notice tone="info" title="Den delen visas inte för din roll" />
@@ -314,6 +317,8 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta, uteblev, boka,
           {tab === "avstamningar" && <TabAvstamningar {...props} />}
           {tab === "narvaro" && <TabNarvaro {...props} />}
           {tab === "manad" && <TabManad {...props} month={manad && /^\d{4}-\d{2}$/.test(manad) ? manad : null} />}
+          {/* Delmålen (Karims beslut 2026-11-11, egen flik 2026-11-25): Miljonbemanning med full- eller teamåtkomst – aldrig kommunen. */}
+          {tab === "delmal" && <DelmalCard caseId={card.caseId} />}
           {tab === "handelser" && <TabHandelser {...props} />}
           {tab === "avvikelser" && <TabAvvikelser {...props} />}
           {tab === "praktik" && <TabPraktik {...props} />}
