@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { fmtDate } from "@/core/time";
-import { Badge, Button, Card, ErrorNotice, Icon, List, ListItem, Loading, toast, type BadgeTone } from "@/ui";
+import { Badge, Button, Card, cn, ErrorNotice, Icon, List, ListItem, Loading, toast, type BadgeTone } from "@/ui";
 import { StepItemModal } from "@/features/delmal/screens/punkt";
 import type { StepItem } from "@/data/schema";
 import { bonusCard, bonusCreate, type BonusCardView, type BonusStepRow, type StepItemView } from "../api";
@@ -44,7 +44,11 @@ export function StepItemList({ items, onPick }: { items: readonly StepItemView[]
                 aria-haspopup="dialog"
                 onClick={() => onPick(it)}
                 data-punkt={it.key}
-                className="flex min-h-11 w-full cursor-pointer items-start gap-2 rounded-mb border-[1.5px] border-line-strong bg-vit px-3 py-2.5 text-left text-ui text-antracit hover:bg-antracit-ton"
+                className={cn(
+                  "flex min-h-11 w-full cursor-pointer items-start gap-2 rounded-mb border-[1.5px] px-3 py-2.5 text-left text-ui text-antracit",
+                  // Uppfyllt: blå yta med antracit text (aldrig grönt) – texten och ikonen bär läget.
+                  it.fulfilled ? "border-bla bg-bla-ton hover:bg-bla-ton2" : "border-line-strong bg-vit hover:bg-antracit-ton",
+                )}
               >
                 {content}
               </button>
