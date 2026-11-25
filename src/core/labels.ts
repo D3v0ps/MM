@@ -43,6 +43,13 @@ export const END_REASON_LABEL: Record<EndReason, string> = {
   avbrott_deltagarens_val: "Avbrott: deltagarens val", avbrott_ovriga_skal: "Avbrott: övriga skäl", planerat_utan_resultat: "Planerat avslut utan resultat",
 };
 export const endReasonLabel = (r: string | null | undefined): string => lookup(END_REASON_LABEL, r) ?? "–";
+/**
+ * Avslutsorsakerna som är avbrott ("Avbrott: flytt", "Avbrott: kommunens beslut" …) – ordlistan, inte avtalet: avtalet säger
+ * bara vilka orsaker som räknas som resultat och vilka som inte räknas i nämnaren (`result`). Beställarrapportens Avbrott
+ * (Karims beslut 2026-11-25) räknar alla fyra, också de som inte räknas i resultatgraden.
+ */
+export const ABORT_END_REASONS: readonly EndReason[] = SCHEMA_END_REASONS.filter((r) => r.startsWith("avbrott_"));
+export const isAbortEndReason = (r: string | null | undefined): boolean => r != null && (ABORT_END_REASONS as readonly string[]).includes(r);
 
 /**
  * Hur ett avslut räknas i resultatgraden (cases.result_class). En ordlista för deltagarkortet och kommunens resultatfil

@@ -3,7 +3,6 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX } from "@/api/invalidation";
 import { SAVED_REPORT_VISIBILITIES, type ReportKind, type ReportStatus, type SavedReportVisibility } from "@/data/schema";
-import type { ProgressionRuleText } from "@/core/config";
 import type { SlaView } from "@/ui/badge";
 import { IdSchema, MonthKeySchema } from "../_shared/schemas";
 import type { Dataset, Dimension, MeasureKey } from "./builder/definition";
@@ -145,13 +144,7 @@ export type ReportDocView =
       kind: "customer_summary";
       m: SummaryModel;
       approver: string;
-      resultNote: string;
-      /**
-       * Avtalets regler för tydlig och någon progression i klarspråk (progressionRuleText), t.ex. "Minst ett område på nivå 2
-       * eller högre", och vilka områden som inte räknas (excluded). Ligger i vy-modellen – inte i SummaryModel – så att den
-       * frysta modellen och paritetsfacit inte ändras.
-       */
-      progressionRule: ProgressionRuleText;
+      // Ingen resultatdefinition och inga regeltexter för progressionen (inga hjälptexter, Karims beslut 2026-11-25).
     });
 
 /** Rapportsidan i kommunportalen (prototypens PortalReport). */

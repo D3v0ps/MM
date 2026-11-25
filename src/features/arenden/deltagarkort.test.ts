@@ -620,7 +620,8 @@ describe("tydlig och någon progression följer avtalets gränser (clearFromLeve
     const { reportDocument } = await import("@/features/rapporter/api");
     const doc = await q(reportDocument, { reportId: rep.id }, johan());
     if (!doc.ok || doc.doc.kind !== "customer_summary") throw new Error("inget dokument");
-    expect(doc.doc.progressionRule).toEqual({ clear: "Minst ett område på nivå 3 eller högre", any: "Minst ett område på nivå 2 eller högre", excluded: "Hälsa (funktionellt beskrivet) och livskvalitet (deltagarens egen skattning) är valfria områden och räknas inte." });
+    // Inga regeltexter i beställarrapporten (inga hjälptexter, Karims beslut 2026-11-25) – bara siffrorna.
+    expect("progressionRule" in doc.doc).toBe(false);
     expect(doc.doc.m.progression.clear).toBe(at(3));
     expect(doc.doc.m.progression.areaDist.map((d) => d.clear)).toEqual(areas.map((a) => mas.filter((m) => (m.areas[a]?.level ?? -1) >= 3).length));
 

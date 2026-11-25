@@ -6,12 +6,12 @@
 // Inga personnummer: modellen innehåller bara ärendenummer och id:n, och namnet är det läsaren får se (behörigheten).
 import { Text, View } from "@react-pdf/renderer";
 import { attLabel } from "@/core/labels";
-import { num, pct } from "@/core/format";
+import { pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import type { ReportDocView } from "../api";
 import type { ActivityModel, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
-import { ATTENDANCE_RATE_RULE, BUYER_REFERENCE_LATER, dayMonth, dFull, dtFull, isDelivered, isDraftDoc, lcfirst, monthRangeText, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
-import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type KvItem, type Rag } from "./primitives";
+import { ATTENDANCE_RATE_RULE, BUYER_REFERENCE_LATER, customerSummaryContent, dayMonth, dFull, dtFull, isDelivered, isDraftDoc, monthRangeText, NO_PNR, PRINCIPLE, plain, reportTitle, ucfirst, weekRange, weekText, type SummaryTable } from "../report-helpers";
+import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type KvItem, type Rag } from "./primitives";
 import { PDF_COLOR } from "./theme";
 
 type Doc<K extends ReportDocView["kind"]> = Extract<ReportDocView, { kind: K }>;
@@ -372,93 +372,42 @@ function OrderPdf({ doc }: { doc: Doc<"order_confirmation"> }) {
 }
 
 // ---------------------------------------------------------------- Beställarrapport (lämnas till kommunen av avtalsansvarig)
+/** En tabell ur beställarrapportens innehåll (customerSummaryContent) med kolumnbredderna i procent; kolumnerna efter den första är tal. */
+const summaryTable = (t: SummaryTable, widths: readonly number[]) => (
+  <Table cols={t.cols.map((label, i) => ({ label, width: widths[i] ?? 0, num: i > 0 }))} rows={t.rows} />
+);
+
+/**
+ * Karims beslut 2026-11-25: exakta antal, bara yrkesområdet, resultattabellen Period · Resultat · Avbrott utan avtalsmålet,
+ * närvaron i procent och inga hjälptexter. Innehållet kommer från customerSummaryContent – samma som HTML-pappret.
+ */
 function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
   const m = doc.m;
-  const target = m.result.contractTarget;
-  const small = (n: number) => smallN(m.minN, n);
-  const numSmall = (x: { num: number }) => x.num > 0 && x.num < m.minN;
-  const resRow = (label: string, x: { value: number | null; num: number; den: number }) => {
-    const hidden = x.den > 0 && x.den < m.minN;
-    const share = x.den === 0 ? "–" : hidden || numSmall(x) ? "Redovisas inte" : pct(x.value);
-    const vs = x.den === 0 || hidden ? "–" : x.den < m.resultMinN ? "För få avslut för att bedöma" : (x.value ?? 0) >= target ? "I nivå med eller över avtalsmålet" : "Under avtalsmålet";
-    return { key: label, cells: [label, small(x.num), hidden ? `färre än ${m.minN}` : String(x.den), share, vs] };
-  };
-  const roll = m.result.rolling;
-  const tracks = m.byTrack.slice(0, 8);
-  const restTracks = m.byTrack.slice(8);
-  const month = monthText(m.month);
+  const c = customerSummaryContent(m);
   return (
     // Ingen rad Mottagare: beställarrapporten lämnas till kommunen utanför Miljonmatch och har ingen mottagare här (beslut 2026-10-07).
-    <PdfDocument metaTitle={metaTitle(doc)} title="Beställarrapport" label={isDraftDoc(doc.status) ? "Utkast" : null} watermark={!isDelivered(doc)} info={baseInfo(doc, null, [["Månad", month]])}>
+    <PdfDocument metaTitle={metaTitle(doc)} title="Beställarrapport" label={isDraftDoc(doc.status) ? "Utkast" : null} watermark={!isDelivered(doc)} info={baseInfo(doc, null, [["Månad", monthText(m.month)]])}>
       <Superseded doc={doc} />
-      <Small>
-        Uppgifter per grupp med färre än {m.minN} personer redovisas som &quot;färre än {m.minN}&quot;. Rapporten innehåller inga namn.
-      </Small>
       <Sec n="1" title="Deltagare">
-        <Kv items={[["Aktiva under månaden", small(m.active)], ["Nya insatser", small(m.started)], ["Avslutade insatser", small(m.closed)]]} />
-        <Table
-          cols={[{ label: "Avtalsområde", width: 46 }, { label: "Aktiva", width: 18, num: true }, { label: "Nya", width: 18, num: true }, { label: "Avslutade", width: 18, num: true }]}
-          rows={m.byArea.map((a) => ({ key: a.code, cells: [a.name, small(a.active), small(a.started), small(a.closed)] }))}
-        />
-        <Table
-          cols={[{ label: "Yrkesspår", width: 70 }, { label: "Aktiva", width: 30, num: true }]}
-          rows={[
-            ...tracks.map((t) => ({ key: t.track || "-", cells: [t.track || "Inte valt än", small(t.active)] })),
-            ...(restTracks.length > 0 ? [{ key: "rest", cells: [`Övriga ${restTracks.length} yrkesspår`, small(restTracks.reduce((s, t) => s + t.active, 0))] }] : []),
-          ]}
-        />
+        <Kv items={c.participants} />
+        {summaryTable(c.areas, [46, 18, 18, 18])}
       </Sec>
-      <Sec n="2" title="Resultat – arbete eller studier">
+      <Sec n="2" title="Resultat">
         {/* Tre rader: rubrikraden och raderna hålls ihop på samma sida (annars kan rubrikraden upprepas ensam överst på nästa sida). */}
-        <View wrap={false}>
-          <Table
-            cols={[{ label: "Period", width: 22 }, { label: "Resultat", width: 14, num: true }, { label: "Avslut som räknas", width: 18, num: true }, { label: "Andel", width: 16, num: true }, { label: `Jämfört med avtalsmålet ${pct(target, 0)}`, width: 30 }]}
-            rows={[resRow(ucfirst(month), m.result.month), resRow("Rullande 6 månader", roll), resRow("Sedan avtalets start", m.result.sinceStart)]}
-          />
-        </View>
-        {roll.den >= m.resultMinN && roll.value != null && !numSmall(roll) && (
-          <Meter value={roll.value} max={0.6} label={`Resultatgrad rullande 6 månader ${pct(roll.value)}`} markers={[{ value: target, label: `Avtalsmål ${pct(target, 0)}` }]} />
-        )}
-        <Small>
-          {roll.prelim > 0 ? `${ucfirst(small(roll.prelim))} avslut till arbete eller studier väntar på verifiering och räknas inte ännu. ` : ""}Resultatdefinitionen är inte fastställd. {doc.resultNote}
-        </Small>
+        <View wrap={false}>{summaryTable(c.results, [34, 40, 26])}</View>
       </Sec>
       <Sec n="3" title="Progression">
-        {m.progression.assessed >= m.minN ? (
-          <P>
-            <B>{pct(m.progression.clear / m.progression.assessed, 0)}</B> av deltagarna med godkänd månadsbedömning visade tydlig progression ({lcfirst(doc.progressionRule.clear)}).{doc.progressionRule.excluded ? ` ${doc.progressionRule.excluded}` : ""} Underlag:{" "}
-            {m.progression.assessed} bedömningar.
-          </P>
-        ) : (
-          <P>{`Färre än ${m.minN} godkända månadsbedömningar – andelen redovisas inte.`}</P>
-        )}
-        {m.progression.assessed >= m.minN && (
-          <Table
-            cols={[{ label: "Område", width: 52 }, { label: "Tydlig progression", width: 24, num: true }, { label: "Andel", width: 24, num: true }]}
-            rows={m.progression.areaDist.map((a) => ({ key: a.key, cells: [a.label, small(a.clear), a.clear > 0 && a.clear < m.minN ? "Redovisas inte" : pct(a.n ? a.clear / a.n : null, 0)] }))}
-          />
-        )}
+        <Kv items={c.progression} />
+        {summaryTable(c.progressionAreas, [52, 24, 24])}
       </Sec>
       <Sec n="4" title="Närvaro">
-        <Kv
-          items={[
-            ["Närvarograd", pct(m.attendanceRate)], ["Planerade tillfällen", num(m.attendance.planned)], ["Giltig frånvaro", small(m.attendance.absentValid)],
-            ["Ogiltig frånvaro", small(m.attendance.absentInvalid)],
-          ]}
-        />
+        <Kv items={c.attendance} />
       </Sec>
       <Sec n="5" title="Avvikelser">
-        {/* Avtalsavvikelser är Miljonbemannings egna (inga personuppgifter) – exakt antal. Bara avvikelser på deltagarnivå maskeras. */}
-        <Kv items={[["Avvikelser på deltagarnivå", small(m.deviations)], ["Avtalsavvikelser", num(m.contractDeviations)]]} />
+        <Kv items={c.deviations} />
       </Sec>
       <Sec n="6" title="Nöjdhet">
-        {m.pulse.enough ? (
-          <P>
-            <B>{pct(m.pulse.satisfaction, 0)}</B> av deltagarna som svarade gav 4 eller 5 på en skala från 1 till 5 på frågan om hur nöjda de är ({m.pulse.responses} svar under {m.pulse.period}).
-          </P>
-        ) : (
-          <P>{`Färre än ${m.minN} svar under ${m.pulse.period} – resultatet redovisas inte.`}</P>
-        )}
+        <Kv items={c.pulse} />
       </Sec>
       {m.sla && (
         <Sec n="7" title="Svarstider">
@@ -475,7 +424,7 @@ function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
             </Small>
           </>
         ) : (
-          <Wait>Sammanfattningen skrivs när avtalsansvarig godkänner rapporten.</Wait>
+          <P>–</P>
         )}
       </Sec>
     </PdfDocument>
