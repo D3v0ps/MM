@@ -176,11 +176,26 @@ describe("kommunens handläggare ser bara sina ärenden", () => {
     expect(msgs.map((m) => m.id).sort()).toEqual(["msg-1", "msg-2", "msg-3", "msg-4", "msg-5"]);
     expect((await repoFor(who("k-ahmed")).table("messages").list()).map((m) => m.id)).toEqual(["msg-6", "msg-7"]);
   });
-  it("närvaro och aktiviteter för veckorapporten, men inte för andras deltagare", async () => {
-    const att = await repoFor(MARIA).table("attendance").list();
-    const own = new Set(all("cases").filter((c) => c.referrerId === "k-maria").map((c) => c.id));
-    expect(att.length).toBe(all("attendance").filter((a) => own.has(a.caseId)).length);
-    expect(att.every((a) => own.has(a.caseId))).toBe(true);
+  it("inga tillfällen, ingen närvaro och inga mötesrapporter – inte heller i egna ärenden (Karims beslut 2026-11-25, 0044)", async () => {
+    // Veckorapporterna når handläggaren som levererade rapporter (reports) – underlaget läses i ett systemsteg, aldrig av kommunen.
+    for (const a of [MARIA, OMAR, who("k-ahmed"), who("k-linda")]) {
+      const own = new Set(all("cases").filter((c) => c.referrerId === a.userId).map((c) => c.id));
+      for (const n of ["activities", "attendance", "check_ins"] as const) {
+        // Inte ett tomt test: handläggarens egna ärenden har rader i tabellen.
+        expect([a.userId, n, all(n).some((x) => own.has(x.caseId))]).toEqual([a.userId, n, true]);
+        expect([a.userId, n, await count(a, n)]).toEqual([a.userId, n, 0]);
+        const mine = all(n).find((x) => own.has(x.caseId))!;
+        expect([a.userId, n, await repoFor(a).table(n).get(mine.id)]).toEqual([a.userId, n, null]);
+      }
+    }
+  });
+  it("ekonomen läser fortfarande alla tillfällen och all närvaro i avtalet (fakturering) – Miljonbemanning som förut", async () => {
+    expect(await count(LARS, "activities")).toBe(all("activities").length);
+    expect(await count(LARS, "attendance")).toBe(all("attendance").length);
+    for (const a of [AMIRA, SARA, JOHAN, KARIN]) {
+      expect([a.userId, await count(a, "activities")]).toEqual([a.userId, all("activities").length]);
+      expect([a.userId, await count(a, "attendance")]).toEqual([a.userId, all("attendance").length]);
+    }
   });
   it("Omar ser sin beställning – också när skyddade personuppgifter är påslagna (han lämnade uppgifterna)", async () => {
     const skyddad = raw.get("cases", tagged("skyddad"))!;

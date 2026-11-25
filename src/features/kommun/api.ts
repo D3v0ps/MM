@@ -2,7 +2,8 @@
 //
 // Portalen är skriven för ovana användare. Vy-modellerna innehåller bara det kommunen får se: aldrig interna mål,
 // coachanteckningar, interna flaggor, personnummer i klartext (bara maskerat – "Visa" är ett eget kommando som loggas),
-// ordervärde eller andra belopp (synpunkt #10 och #11, beslut 2026-10-07).
+// ordervärde eller andra belopp (synpunkt #10 och #11, beslut 2026-10-07) och aldrig deltagarens närvaro, tillfällen eller
+// möten – bara de levererade rapporterna (Karims beslut 2026-11-25).
 // Kommunen har bara rollen handläggare (beslut 2026-10-07): ingen beställarrapport, resultatfil eller delade rapporter i
 // portalen – Miljonbemanning tar fram dem och lämnar dem till kommunen. Alla med en adress på avtalets kommundomän kan skapa
 // ett konto själva (självregistrering i inloggningen) och fyller i sina uppgifter under Mina uppgifter.
@@ -239,13 +240,8 @@ export type KomCaseDetail = {
     /** Levererad orderbekräftelse (öppnas som rapport). */
     ocReportId: string | null;
   };
-  /**
-   * Närvarograden de senaste 30 dagarna – en rad, ingen uppdelning i giltig och ogiltig frånvaro (beslut 2026-10-09).
-   * En avslutad insats: de sista 30 dagarna fram till slutdatumet (ended). Perioden börjar aldrig före startdatumet.
-   * planned = passerade tillfällen i perioden (0 = inga tillfällen). rate null = inget av tillfällena är registrerat än (eller
-   * inga tillfällen). null = insatsen har inte startat än.
-   */
-  attendance: { rate: number | null; planned: number; ended: boolean } | null;
+  // Ingen närvaro och inga tillfällen eller möten (Karims beslut 2026-11-25): handläggaren ser närvaron bara i de levererade
+  // veckorapporterna under Rapporter. Databasen lämnar inte ut activities, attendance eller check_ins till kommunen (0044).
   participant: { pnrMasked: string | null; canReveal: boolean };
   seesCoachNotes: boolean;
   reports: KomReportRow[];

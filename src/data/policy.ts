@@ -11,7 +11,8 @@
 //                  (skyddade personer bara som ärende)
 //   Kommunen       bara rollen handläggare (beslut 2026-10-07 – kommunens chef är borttagen): sina beställningar (eller
 //                  enhetens/alla enligt avtalet) · bara levererade rapporter till dem · bara meddelanden i sina ärenden · aldrig
-//                  coachanteckningar, flaggor, KPI:er eller prislistan (#11)
+//                  coachanteckningar, flaggor, KPI:er eller prislistan (#11) · aldrig tillfällen, närvaro eller mötesrapporter
+//                  (activities, attendance, check_ins – Karims beslut 2026-11-25, 0044): närvaron bara i veckorapporterna
 //   Skyddade       VILANDE sedan 2026-10-07 (Karims beslut): skyddet är borttaget ur appen och protected_identity är alltid
 //                  false. Reglerna nedan (protectedCase, caseAccess "restricted") ligger kvar som spegel av RLS, så att skyddet
 //                  kan slås på igen utan migration: bara namngiven huvudcoach, avtalsansvarig och beställande handläggare ser
@@ -113,7 +114,7 @@
 //                 automatiskt (auto) bara av systemet · tas bort (Ångra) av den som arbetar i ärendet · för alla roller: ärendets
 //                 avtal, delmålet i samma avtal (aktivt vid en ny rad), underlaget i ärendet; för inloggade dagen för Uppnått mellan
 //                 startdatumet och i dag · delmålen på deltagarens egna tillfällen (activity_progress_goals, id = tillfällets id):
-//                 läses med full- eller teamåtkomst (aldrig kommunen eller ekonomen, som läser tillfällena), skrivs av den som
+//                 läses med full- eller teamåtkomst (aldrig kommunen eller ekonomen – ekonomen läser tillfällena), skrivs av den som
 //                 arbetar i ärendet i eget namn, tas aldrig bort (raden försvinner med tillfället i databasen) · taggarna
 //                 (goalIds där, progressGoalIds på group_activities och group_activity_series): för alla roller (guard) delmål i
 //                 avtalet, inga dubbletter, de som läggs till är aktiva, högst 20, aldrig på en deltagares rad i en gruppaktivitet
@@ -1334,9 +1335,10 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   monthly_plans: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: (x, a, raw) => workOn(x.caseId, a, raw) },
   deviations: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: (x, a, raw) => workOn(x.caseId, a, raw) },
   consents: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: (x, a, raw) => workOn(x.caseId, a, raw) },
-  // Närvaro: även ekonom (debitering) och kommunen (veckorapport, orsakskategori)
+  // Tillfällen och närvaro: även ekonom (debitering, billing) – aldrig kommunen (Karims beslut 2026-11-25, 0044: närvaron når
+  // kommunen bara i de levererade veckorapporterna, som byggs i ett systemsteg). Mötesrapporterna (check_ins) ovan: aldrig kommunen.
   activities: {
-    read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
+    read: (x, a, raw) => ["full", "team", "billing"].includes(accessTo(raw, a, x.caseId)),
     // Inbjudningens källa (0035, triggern activities_invite_source): en ny rad är manuell, och källan ändras aldrig – audience skrivs
     // bara av servern (den automatiska synkningen, ctx.system). Borttagning (raden som den är) prövas som förut.
     write: (x, a, raw) => {
@@ -1346,7 +1348,7 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     },
   },
   attendance: {
-    read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
+    read: (x, a, raw) => ["full", "team", "billing"].includes(accessTo(raw, a, x.caseId)),
     // Bara manuell närvaro – automatisk (auto) skrivs bara av jobbet auto_attendance via ctx.system (0030).
     write: (x, a, raw) => workOn(x.caseId, a, raw) && x.source === "manual",
   },
@@ -1596,7 +1598,7 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     write: caseGoalWrite,
     guard: caseGoalGuard,
   },
-  // Delmålen på deltagarens egna tillfällen: som läget – full- eller teamåtkomst, aldrig kommunen eller ekonomen (som läser tillfällena).
+  // Delmålen på deltagarens egna tillfällen: som läget – full- eller teamåtkomst, aldrig kommunen eller ekonomen (ekonomen läser tillfällena).
   activity_progress_goals: {
     read: (x, a, raw) => {
       const acc = accessTo(raw, a, x.caseId);

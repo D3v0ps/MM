@@ -87,7 +87,7 @@ När en orderbekräftelse, månadsrapport eller slutrapport finns i portalen få
 
 1. Tryck på **Mina deltagare** på startsidan.
 2. Du ser bara de deltagare som du själv har beställt insatser för. Välj **Pågår** eller **Alla** överst i listan.
-3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Närvaro**, **Levererade rapporter** och **Säkra meddelanden**. Under Närvaro står närvarograden för den senaste månaden. För en avslutad insats står närvarograden för den sista månaden i insatsen. Närvaron vecka för vecka finns i veckorapporterna under **Rapporter och meddelanden**.
+3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Levererade rapporter** och **Säkra meddelanden**. Deltagarens närvaro finns i veckorapporterna under **Rapporter och meddelanden**.
 4. Vill du skriva till coachen: tryck på **Nytt meddelande** under Säkra meddelanden. Skriv aldrig personnummer i ett meddelande. Ärendenumret räcker.
 
 ## Avbryta en insats

@@ -2179,7 +2179,7 @@ export type CaseProgressGoal = {
 /**
  * Delmålen som deltagarens eget tillfälle tränar (0043, Karims beslut 2026-11-11): en rad per tillfälle, id = tillfällets id
  * (activities.id; tas tillfället bort försvinner raden med det i databasen). Ligger i en egen tabell och inte på activities, eftersom
- * kommunen och ekonomen läser tillfällena – raden läses bara med full- eller teamåtkomst till ärendet. Bara tillfällen utanför
+ * ekonomen läser tillfällena (kommunen inte sedan 0044) – raden läses bara med full- eller teamåtkomst till ärendet. Bara tillfällen utanför
  * gruppaktiviteter: i en gruppaktivitet står delmålen på aktiviteten (group_activities.progressGoalIds). Ingen rad = inga delmål.
  */
 export type ActivityProgressGoal = {
