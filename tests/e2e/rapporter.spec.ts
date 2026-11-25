@@ -259,7 +259,8 @@ test("3c. levererade rapporter är låsta", async ({ page }, info) => {
   // Beställarrapporten lämnas till kommunen utanför Miljonmatch – avtalsansvarig läser den levererade versionen.
   await go(page, info, `/rapporter/${CS_DEC}`, AVTALSANSVARIG);
   const t = await mainText(page);
-  expect(t).toMatch(/svar under oktober–december 2026/);
+  // Nöjdhetens svarsperiod (rullande tre månader) står som en egen rad (Karims beslut 2026-11-25 – inga hjälptexter).
+  expect(t).toMatch(/Svarsperiod\s+oktober–december 2026/);
   expect(t).not.toMatch(/senaste tre månaderna/);
   expect(errors).toEqual([]);
 });
@@ -323,12 +324,18 @@ test("5. samordnarens valfria kvalitetsgranskning", async ({ page }, info) => {
 });
 
 // ================================================================ 6. Beställarrapport
-test("6. beställarrapport januari: bara avtalsmålet, sammanfattning, godkänn och registrera att den är lämnad", async ({ page }, info) => {
+test("6. beställarrapport januari: exakta antal utan mål, sammanfattning, godkänn och registrera att den är lämnad", async ({ page }, info) => {
   const errors = await open(page, info, `/rapporter/${CS_JAN}`, AVTALSANSVARIG);
   const t = await mainText(page);
-  expect((t.split(/FÖRHANDSVISNING/i)[1] ?? t)).not.toMatch(/35\s?%/);
-  expect(t).toMatch(/avtalsmål(et)? 32\s%/i);
-  expect(t).toMatch(/färre än 5/);
+  // Karims beslut 2026-11-25: förhandsvisningen har exakta antal, bara yrkesområdet, resultattabellen Period · Resultat ·
+  // Avbrott och närvaron i procent – inget avtalsmål, inget internt mål, ingen maskering och inga hjälptexter.
+  const preview = t.split(/FÖRHANDSVISNING/i)[1] ?? t;
+  expect(preview).not.toMatch(/35\s?%|32\s?%|avtalsmål|färre än|Yrkesspår|Avtalsområde|Planerade tillfällen|Resultatdefinitionen|Minst ett område på nivå/i);
+  expect(preview).toMatch(/Yrkesområde\s+Aktiva\s+Nya\s+Avslutade/);
+  expect(preview).toMatch(/Period\s+Resultat \(arbete eller studier\)\s+Avbrott/);
+  expect(preview).toMatch(/Avbrott utan resultat\s+\d+/);
+  expect(preview).toMatch(/Deltagare utan progression\s+\d+/);
+  expect(preview).toMatch(/Giltig frånvaro\s+\d{1,3},\d\s%/);
   await btn(page, "Godkänn beställarrapporten").click();
   await expect(main(page)).toContainText("Skriv en sammanfattning");
   await page.fill("#rap-summary", "Resultatgraden ligger under det interna målet 35 %.");

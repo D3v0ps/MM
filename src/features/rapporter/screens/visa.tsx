@@ -515,7 +515,7 @@ function SummaryApprovalCard({ v, s }: { v: ReportView; s: NonNullable<ReportVie
         </AiBox>
         {s.canApprove ? (
           <>
-            <Field label="Sammanfattning till kommunen" id="rap-summary" required error={err ?? undefined} help="Kort och sakligt. Inga namn. Skriv aldrig det interna målet – kommunen ser bara avtalsmålet.">
+            <Field label="Sammanfattning till kommunen" id="rap-summary" required error={err ?? undefined} help="Kort och sakligt. Inga namn. Skriv aldrig det interna målet.">
               <TextArea
                 rows={4}
                 value={text}

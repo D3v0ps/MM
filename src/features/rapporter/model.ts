@@ -12,7 +12,7 @@ import { levelIsClear, progressionFlags, type OperationalConfig } from "@/core/c
 import { activitiesOf, attendanceFor, byId, groupedBy } from "@/core/db-index";
 import { pct } from "@/core/format";
 import { kpiValue, type KpiDb } from "@/core/kpi";
-import { areaName, endReasonLabel, eventLabel, personName } from "@/core/labels";
+import { areaName, endReasonLabel, eventLabel, isAbortEndReason, personName } from "@/core/labels";
 import { orderPeriodText } from "@/core/cases";
 import { areaForMonth, secondaryAreaForMonth, trackForMonth } from "@/core/area-changes";
 import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd, monthKey, monthName, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
@@ -80,7 +80,19 @@ export type OrderModel = {
   /** Omfattningen ("6 månader", "Annan tidsperiod", "8 veckor"). Inget pris och inget ordervärde (beslut 2026-10-07, synpunkt #10). */
   weeks: number | null; plannedEnd: string | null; period: string; buyerReference: string | null; purchaseOrderNumber: string | null;
 };
-export type RateModel = { value: number | null; num: number; den: number; prelim: number };
+export type RateModel = {
+  value: number | null; num: number; den: number; prelim: number;
+  /**
+   * Avslut i perioden med en avslutsorsak som är avbrott (isAbortEndReason) – också de som inte räknas i nämnaren (Karims
+   * beslut 2026-11-25). Saknas i ögonblicksbilder från före beslutet (visas då som "–").
+   */
+  avbrott?: number;
+};
+/**
+ * Beställarrapportens innehåll. Karims beslut 2026-11-25: exakta antal (minN används bara för nöjdhetens andel), bara
+ * yrkesområdet (byTrack finns kvar i modellen för paritet och frysta rapporter men visas inte), resultattabellen visar inte
+ * avtalsmålet (contractTarget och resultMinN finns kvar i modellen men visas inte).
+ */
 export type SummaryModel = {
   kind: "customer_summary"; month: MonthKey; minN: number; resultMinN: number; active: number; started: number; closed: number;
   byArea: { code: string; name: string; active: number; started: number; closed: number }[];
@@ -88,6 +100,13 @@ export type SummaryModel = {
   result: { month: RateModel; rolling: RateModel; sinceStart: RateModel; contractTarget: number };
   progression: { assessed: number; clear: number; areaDist: { key: string; label: string; clear: number; n: number }[] };
   attendance: AttStats; attendanceRate: number | null; deviations: number; contractDeviations: number;
+  /**
+   * Deltagare vars godkända månadsbedömning för månaden inte visar någon progression – inget obligatoriskt område på avtalets
+   * nivå för någon progression (progressionFlags(...).any). Saknas i ögonblicksbilder från före Karims beslut 2026-11-25.
+   */
+  noProgression?: number;
+  /** Ärenden avslutade under månaden med en avslutsorsak som är avbrott och utan resultat (resultClass inte 'result'). Som ovan. */
+  avbrottNoResult?: number;
   pulse: { responses: number; satisfaction: number | null; enough: boolean; period: string };
   contractorName: string; sla: Kv[] | null; summary: string | null;
 };
@@ -562,10 +581,9 @@ function buildOrder(src: Src, r: Report): OrderModel | null {
 
 // ================================================================ Beställarrapport (lämnas till kommunen av avtalsansvarig)
 
-/** Förslag till sammanfattning ur rapportens siffror (avsnitt 1–6). Nämner aldrig det interna målet. */
+/** Förslag till sammanfattning ur rapportens siffror (avsnitt 1–6). Exakta antal (Karims beslut 2026-11-25). Nämner aldrig det interna målet. */
 export function summaryFromNumbers(m: SummaryModel): string {
-  const sm = (n: number) => smallN(m.minN, n);
-  return `Under ${monthName(m.month)} var ${sm(m.active)} deltagare aktiva och ${sm(m.started)} nya insatser startade. ${ucfirst(sm(m.closed))} insatser avslutades, varav ${sm(m.result.month.num)} till arbete eller studier. Närvarograden var ${pct(m.attendanceRate)}. ${m.deviations > 0 ? `${ucfirst(sm(m.deviations))} avvikelser på deltagarnivå har hanterats med åtgärd.` : "Inga avvikelser på deltagarnivå registrerades."}`;
+  return `Under ${monthName(m.month)} var ${m.active} deltagare aktiva och ${m.started} nya insatser startade. ${m.closed} insatser avslutades, varav ${m.result.month.num} till arbete eller studier. Närvarograden var ${pct(m.attendanceRate)}. ${m.deviations > 0 ? `${m.deviations} avvikelser på deltagarnivå har hanterats med åtgärd.` : "Inga avvikelser på deltagarnivå registrerades."}`;
 }
 
 /** SLA-nyckeltal som kommunen ser om avtalet säger det (customerVisibility.seesSlaStats). */
@@ -606,8 +624,12 @@ function buildSummary(src: Src, env: ReportEnv, r: Report, frozen: boolean): Sum
     const counted = cs.filter((c) => c.resultClass !== "excluded");
     const isVer = (c: Case) => c.resultClass === "result" && !!c.resultVerifiedAt && src.ok(c.resultVerifiedAt);
     const num = counted.filter(isVer).length;
-    return { value: counted.length ? num / counted.length : null, num, den: counted.length, prelim: counted.filter((c) => c.resultClass === "result" && !isVer(c)).length };
+    return {
+      value: counted.length ? num / counted.length : null, num, den: counted.length, prelim: counted.filter((c) => c.resultClass === "result" && !isVer(c)).length,
+      avbrott: cs.filter((c) => isAbortEndReason(c.endReason)).length,
+    };
   };
+  const closedInMonth = src.db.cases.filter((c) => src.closed(c) && c.endDate != null && c.endDate >= start && c.endDate <= end);
   const pm = monthKey(pFrom);
   const kpiDb: KpiDb = {
     cases: src.db.cases, reports: src.db.reports, activities: src.db.activities, attendance: src.db.attendance, pulse_responses: src.db.pulse_responses,
@@ -620,6 +642,9 @@ function buildSummary(src: Src, env: ReportEnv, r: Report, frozen: boolean): Sum
     progression: { assessed: mas.length, clear, areaDist }, attendance: att, attendanceRate: att.rate,
     deviations: src.db.deviations.filter((x) => dayOf(x.createdAt) >= start && dayOf(x.createdAt) <= end && src.ok(x.createdAt)).length,
     contractDeviations: src.db.contract_deviations.filter((x) => dayOf(x.raisedAt) >= start && dayOf(x.raisedAt) <= end && src.ok(x.raisedAt)).length,
+    // Karims beslut 2026-11-25: bara godkända bedömningar (en per ärende och månad); de valfria områdena räknas aldrig.
+    noProgression: new Set(mas.filter((m) => !progressionFlags(cfg, m.areas).any).map((m) => m.caseId)).size,
+    avbrottNoResult: closedInMonth.filter((c) => isAbortEndReason(c.endReason) && c.resultClass !== "result").length,
     pulse: {
       responses: rs.length, satisfaction: rs.length ? rs.filter((x) => x.answers.q1 >= 4).length / rs.length : null, enough: rs.length >= minN,
       period: pm === mk ? monthName(mk) : pm.slice(0, 4) === mk.slice(0, 4) ? `${MONTHS[Number(pm.slice(5)) - 1]}–${monthName(mk)}` : `${monthName(pm)} – ${monthName(mk)}`,
@@ -744,6 +769,28 @@ export function canonicalJson(v: unknown): string {
 }
 
 /**
+ * Beställarrapportens fält från Karims beslut 2026-11-25 (avbrott, noProgression, avbrottNoResult) finns inte i ögonblicksbilder
+ * från före beslutet. Den ombyggda modellen jämförs då utan dem – annars ser varje sådan rapport ut att ha ändrats.
+ */
+function likeSnapshot(built: ReportModel, frozen: ReportModel): ReportModel {
+  if (built.kind !== "customer_summary" || frozen.kind !== "customer_summary") return built;
+  const f = frozen as SummaryModel;
+  const rate = (b: RateModel, old: RateModel | undefined): RateModel => {
+    if (old && old.avbrott !== undefined) return b;
+    const { avbrott, ...rest } = b;
+    void avbrott;
+    return rest;
+  };
+  const m: SummaryModel = {
+    ...built,
+    result: { ...built.result, month: rate(built.result.month, f.result?.month), rolling: rate(built.result.rolling, f.result?.rolling), sinceStart: rate(built.result.sinceStart, f.result?.sinceStart) },
+  };
+  if (f.noProgression === undefined) delete m.noProgression;
+  if (f.avbrottNoResult === undefined) delete m.avbrottNoResult;
+  return m;
+}
+
+/**
  * Har underlaget för den rapporterade perioden ändrats efter att rapporten frystes? Jämför det frysta innehållet med
  * samma uppgifter plus allt som ändrats efter ögonblicksbilden. Uppgifter som tillkom mellan leveransen och
  * ögonblicksbilden (testdatats historik) räknas inte. Utan ögonblicksbild finns inget att jämföra med.
@@ -751,8 +798,9 @@ export function canonicalJson(v: unknown): string {
 export function driftedSinceDelivery(db: ReportDb, r: Report, env: ReportEnv): boolean {
   if (!isDelivered(r) || r.superseded || !hasDocument(r.kind) || !hasSnapshot(r)) return false;
   const a = reportModel(db, r, env);
-  const b = build(makeSrc(db, env, r.deliveredAt, r.snapshot!.takenAt), env, r, true);
-  if (!a || !b) return false;
+  const built = build(makeSrc(db, env, r.deliveredAt, r.snapshot!.takenAt), env, r, true);
+  if (!a || !built) return false;
+  const b = likeSnapshot(built, a);
   const norm = (m: ReportModel) => canonicalJson({ ...m, now: null, summary: null, recommendation: null, sla: null, basics: null });
   return norm(a) !== norm(b);
 }
