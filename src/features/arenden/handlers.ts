@@ -74,7 +74,8 @@ import "./attachment-handlers";
 import "./contact-handlers";
 import { participantFilesFor } from "./participant-file-handlers";
 import { caseBackground } from "./background";
-import { goalTagsCheck, ownGoalTags, setOwnGoalTags } from "../_shared/progress-goals";
+import { caseHasGoals, goalTagsCheck, ownGoalTags, setOwnGoalTags } from "../_shared/progress-goals";
+import { GOAL_READERS } from "../delmal/api";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
   activityAdd, activityRemove, caseAccept, caseAcceptForm, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseScheduleChange, caseSetBuyerRef, caseSetTeam, caseStart,
@@ -1184,6 +1185,8 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     readOnly: READ_ONLY.includes(role),
     // Filer på deltagarkortet (0037): samma läsrätt som RLS – samordnare, avtalsansvarig och coach med full åtkomst.
     files: access === "full" && PARTICIPANT_FILE_ROLES.includes(role),
+    // Fliken Delmål (Karims beslut 2026-11-25): samma läsare och samma urval som kortet Delmål – via behörigheten.
+    progressGoals: GOAL_READERS.includes(role) && (await caseHasGoals(ctx.repo, c, cfg)),
     status: c.status,
     phase: c.phase,
     phaseName: phaseName(cfg, c.phase),
@@ -1720,7 +1723,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   };
 });
 
-// ---------------------------------------------------------------- Flik: Händelser och utfall
+// ---------------------------------------------------------------- Flik: Progression och resultat (nyckeln handelser, hette Händelser och utfall)
 handleQuery(caseEvents, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseEvents | null> => {
   const L = await loadCase(ctx, p.caseId, "handelser");
   if (!L) return null;

@@ -235,5 +235,13 @@ export function sortGoals<T extends Pick<ProgressGoal, "areaKey" | "sortOrder" |
   const pos = (k: string) => { const i = areaOrder.indexOf(k); return i < 0 ? areaOrder.length : i; };
   return [...goals].sort((a, b) => pos(a.areaKey) - pos(b.areaKey) || a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, "sv") || (a.id < b.id ? -1 : 1));
 }
+/**
+ * Delmålen som visas i ett ärende: de aktiva och de inaktiverade som ärendet har ett läge för, bara i avtalets progressionsområden.
+ * Samma urval för kortet Delmål (delmal.arende) och för om deltagarkortet har fliken Delmål (Karims beslut 2026-11-25).
+ */
+export function shownCaseGoals<T extends Pick<ProgressGoal, "id" | "active" | "areaKey">>(goals: readonly T[], caseGoalIds: ReadonlySet<string>, areaKeys: readonly string[]): T[] {
+  return goals.filter((g) => (g.active || caseGoalIds.has(g.id)) && areaKeys.includes(g.areaKey));
+}
+
 /** Källan i klarspråk för loggens text och kortet. */
 export const goalSourceText = (s: ProgressGoalSource): string => (s === "auto" ? "automatiskt" : "av Miljonbemanning");

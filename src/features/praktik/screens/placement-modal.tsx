@@ -145,7 +145,7 @@ export function PlacementModal({
           </FormGrid>
           <Notice tone="info" icon="calendar" title="Det här händer när du sparar">
             Praktikdagarna läggs in som tillfällen {until ? `till och med ${fmtDate(until)}` : ""} och ersätter yrkesmoment samma dagar som ännu saknar närvaro. Händelsen
-            ”Praktik startad” registreras utan verifiering – ladda upp praktikavtalet under Händelser och utfall. Uppföljningsdatum och de fyra rätten fylls i på praktikplatsen.
+            ”Praktik startad” registreras utan verifiering – ladda upp praktikavtalet under Progression och resultat. Uppföljningsdatum och de fyra rätten fylls i på praktikplatsen.
           </Notice>
         </Stack>
       )}
@@ -185,7 +185,7 @@ export function EndPlacementModal({ placementId, employerName, startsOn, now, on
         <Field id="pl-endson" label="Slutdag" required error={err} help="Praktikdagar efter slutdagen som saknar närvaro tas bort.">
           <DateInput value={endsOn} onValueChange={(v) => { setEndsOn(v); setErr(null); }} />
         </Field>
-        <p className="m-0 text-text-muted">Ledde praktiken till arbete eller ett erbjudande? Registrera det som en händelse under Händelser och utfall.</p>
+        <p className="m-0 text-text-muted">Ledde praktiken till arbete eller ett erbjudande? Registrera det som en händelse under Progression och resultat.</p>
         {endsOn && endsOn > addDays(dayOf(now), 0) && <Notice tone="warn" title="Slutdagen ligger framåt i tiden">Praktiken markeras som avslutad redan nu.</Notice>}
       </Stack>
     </Modal>

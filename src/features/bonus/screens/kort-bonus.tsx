@@ -1,5 +1,5 @@
 "use client";
-// Kortet Bonus på deltagarkortet (fliken Händelser och utfall, SPEC §7.17, beslut 2026-11-04): bonussteg 1–5 med läget som text
+// Kortet Bonus på deltagarkortet (fliken Progression och resultat, ?flik=handelser, SPEC §7.17, beslut 2026-11-04): bonussteg 1–5 med läget som text
 // och ikon (aldrig bara färg), länk till Granska och skicka och knappen Skapa bonusanspråk. Inga belopp – bara ekonomen ser belopp.
 // Visas inte när bonus är avstängd i avtalet eller för den som inte får se bonus (begränsade testare, teamet).
 import { useState } from "react";

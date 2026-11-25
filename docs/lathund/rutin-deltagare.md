@@ -41,7 +41,7 @@ Vem: huvudcoachen eller den som kartlägger (i dag Adam).
 
 Vem: den som kartlägger. Kartläggningen kräver rollen coach.
 
-1. Öppna deltagarkortet, välj fliken **Kartläggning** och tryck på **Påbörja kartläggningen**.
+1. Öppna deltagarkortet, tryck på **Mer**, välj **Kartläggning** och tryck på **Påbörja kartläggningen**.
 2. Fyll i erfarenhet, utbildning, mål och yrkesspår. Beskriv behov av anpassning med vad deltagaren behöver – aldrig med diagnoser.
 3. Längst ned finns kortet **Nivå och yrkesområde**. Välj en nivå och **Vill arbeta**. Vill arbeta är deltagarens eget svar. Valen sparas direkt. Yrkesområdet står redan där – det kommer från beställningen.
 4. Tryck på **Godkänn kartläggningen**. Det går bara när nivån är vald. Saknas något står det överst på sidan, med en länk till varje fält. Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter och yrkesområdets träffar.
@@ -94,7 +94,7 @@ Vem: alla som arbetar i ärendet.
 - Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen trycker på **Ändra** vid nivån och yrkesområdet i deltagarkortet, sedan på **Byt yrkesområde**, och skriver en kort motivering. Deltagaren flyttas direkt till det nya yrkesområdets träffar. Fakturan räknas på det nya yrkesområdet från och med månaden efter.
 - Upprepad ogiltig frånvaro ger en flagga under **Följ upp** på Min vecka. Håll ett uppföljningsmöte och gör en plan.
 - Röd samlad status blir en avvikelse automatiskt. Fyll i åtgärd, ansvarig och datum för uppföljning. Behöver kommunen besluta något: tryck på **Kalla kommunen till uppföljning**.
-- Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Händelser och utfall**. En praktik läggs in med **Ny praktik** under fliken **Praktik**.
+- Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Progression och resultat**. En praktik läggs in med **Ny praktik** under **Mer → Praktik**.
 - Vill deltagaren bli kontaktad på ett annat sätt? Tryck på **Ändra** vid **Kontaktväg**.
 - Spara deltagarens CV, personliga brev, betyg och intyg i kortet **Filer** på deltagarkortets **Översikt**. Tryck på **Ladda upp fil** och välj typ och fil. Filerna syns bara för Miljonbemanning, aldrig för kommunen.
 
@@ -102,7 +102,7 @@ Vem: alla som arbetar i ärendet.
 
 Vem: huvudcoachen.
 
-1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden, och då behövs ingen månadsbedömning. Bedömningen är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
+1. Öppna deltagarkortet, tryck på **Mer**, välj **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Står det **Ingen månadsrapport** har deltagaren för få inskrivna dagar i månaden, och då behövs ingen månadsbedömning. Bedömningen är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
 2. Underlaget är godkända mötesrapporter, närvaro och händelser. Har deltagaren registrerat samtycke till AI kan AI skriva ett utkast och föreslå progressionsnivå 1–3 – bara med ett citat ur underlaget. Utkastet kan också bygga på månadens anteckningar, utan personnummer och med källan utskriven. Nivå, taggar och gruppmål skickas aldrig till AI.
 3. Gå igenom varje område. Tryck på **Godta** för de AI-förslag som stämmer och välj själv där det inte stämmer. Skriv en konkret observation.
 4. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**.
@@ -121,7 +121,7 @@ Vem: samordnaren och huvudcoachen, samma dag.
 
 Vem: huvudcoachen, samordnaren och ekonomen.
 
-1. Huvudcoachen öppnar fliken **Händelser och utfall** i deltagarkortet, trycker på **Avsluta insatsen** och fyller i avslutsdatum och avslutsorsak. Arbete och studier räknas som resultat först när de är verifierade.
+1. Huvudcoachen öppnar fliken **Progression och resultat** i deltagarkortet, trycker på **Avsluta insatsen** och fyller i avslutsdatum och avslutsorsak. Arbete och studier räknas som resultat först när de är verifierade.
 2. Ett utkast till slutrapport skapas automatiskt. Skriv rekommenderad fortsättning, tryck på **Godkänn** och sedan på **Leverera till kommunen**.
 3. Nivån behöver du inte ändra. En avslutad insats syns inte i Anteckningar, räknas inte i nivåerna och yrkesområdena och kan inte bjudas in till aktiviteter. Den tas bort automatiskt ur kommande nivåaktiviteter och yrkesområdesträffar.
 4. Samordnaren eller avtalsansvarig tar bort bilagorna från beställningen när insatsen är avslutad. Det görs för hand.

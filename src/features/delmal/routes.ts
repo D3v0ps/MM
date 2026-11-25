@@ -1,6 +1,6 @@
 // Rutter för området delmål (Karims beslut 2026-11-11). Adressen har bara avtalets id (?avtal=) – aldrig namn.
 //   /avtal/delmal  katalogen: avtalsansvarig (fliken Avtalet) och systemadministratören (länken på Avtal och konfiguration)
-// Delmålen i ett ärende står på deltagarkortet (fliken Händelser och utfall).
+// Delmålen i ett ärende står på deltagarkortets flik Delmål (Karims beslut 2026-11-25).
 import type { RouteDef } from "@/shell/routes";
 import { CATALOG_ROLES } from "./api";
 import { DelmalKatalogScreen } from "./screens/katalog";

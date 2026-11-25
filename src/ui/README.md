@@ -271,6 +271,14 @@ const flik = query.get("flik") ?? "oversikt";
 ```
 Piltangenter, Home och End byter flik. `count` 0 eller null visas inte. Flikval hör hemma i URL:en (`?flik=`).
 
+**Mer** (`more`, deltagarkortet – Karims beslut 2026-11-25): de flikar som inte står i raden ligger under menyknappen **Mer** direkt efter
+flikraden (`moreLabel` byter texten). Mer står utanför `tablist` och är en riktig menyknapp (Radix DropdownMenu, `modal={false}` så att
+sidan inte låses eller hoppar): `aria-haspopup="menu"`, `aria-expanded`, piltangenter och bokstäver i menyn, Esc stänger och fokus går
+tillbaka till Mer. Valen är `menuitemradio` – den valda har en bock. Är den valda fliken en av dem står den på knappen som vald
+("Mer: Kartläggning", röd linje som en vald flik), och panelen namnges av namnet där; då nås den första fliken i raden med Tab.
+Siffran på Mer är summan av flikarnas siffror – valen visar sina egna. Tom eller utelämnad `more` = ingen Mer (samma rad som förut).
+På smal skärm skrollar flikraden i sidled i sin egen ruta och Mer står kvar till höger.
+
 ---
 
 ## 7. Dialoger, toasts, filer

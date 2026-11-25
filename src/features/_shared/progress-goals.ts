@@ -15,11 +15,11 @@
 //   setOwnGoalTags       ekonomen läser): läsa per tillfälle och skriva via behörigheten (ctx.repo, i eget namn).
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
-import { isOperational, progressionAreas } from "@/core/config";
-import { caseGoalId, goalTagsProblem, sortGoals, trainingRowsToAdd } from "@/core/progress-goals";
+import { isOperational, progressionAreas, type OperationalConfig } from "@/core/config";
+import { caseGoalId, goalTagsProblem, shownCaseGoals, sortGoals, trainingRowsToAdd } from "@/core/progress-goals";
 import { uniq } from "@/core/util";
 import { PolicyError, UniqueError } from "@/data/repo";
-import { PROGRESS_GOAL_TAGS_MAX, type Activity, type AppRepo, type ProgressGoal } from "@/data/schema";
+import { PROGRESS_GOAL_TAGS_MAX, type Activity, type AppRepo, type Case, type ProgressGoal } from "@/data/schema";
 import type { GoalPickerArea } from "../delmal/api";
 
 /**
@@ -41,6 +41,15 @@ const errorCode = (e: unknown): string => {
   const x = e as { code?: unknown; name?: unknown } | null;
   return typeof x?.code === "string" && x.code ? x.code : typeof x?.name === "string" && x.name ? x.name : "error";
 };
+
+/**
+ * Har ärendet delmål att visa? Avgör om deltagarkortet har fliken Delmål (Karims beslut 2026-11-25) – samma urval som kortet
+ * Delmål (shownCaseGoals). Läser via repot som anroparen ger (ctx.repo – behörigheten: kommunen och ekonomen läser inga delmål).
+ */
+export async function caseHasGoals(repo: AppRepo, c: Pick<Case, "id" | "contractId">, cfg: Pick<OperationalConfig, "progression">): Promise<boolean> {
+  const [goals, rows] = await Promise.all([repo.table("progress_goals").list({ contractId: c.contractId }), repo.table("case_progress_goals").list({ caseId: c.id })]);
+  return shownCaseGoals(goals, new Set(rows.map((r) => r.goalId)), progressionAreas(cfg).map((a) => a.key)).length > 0;
+}
 
 /** Avtalets katalog (också inaktiva) via repot som anroparen ger – ctx.repo (behörigheten) eller ctx.system. */
 export const goalsOfContract = (repo: AppRepo, contractId: string): Promise<ProgressGoal[]> => repo.table("progress_goals").list({ contractId });

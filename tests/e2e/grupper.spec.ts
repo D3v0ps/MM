@@ -4,7 +4,7 @@
 // yrkesområdet och Höj nivå; ärendelistan filtrerar på yrkesområde, nivå och tagg; Grupper och nivåer; massanteckningar för ett
 // yrkesområde; kommunen ser inget av det.
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open, switchPersona } from "./helpers";
+import { isDemo, open, openCardTab, switchPersona } from "./helpers";
 
 const COACH = { userId: "u-amira", role: "coach" };
 const MARIA = { userId: "k-maria", role: "kommun_handlaggare" };
@@ -57,7 +57,7 @@ test("kartläggningen: coachen sätter nivå och Vill arbeta – gruppen är yrk
   await btn(note, "Spara anteckningen").click();
   await expect(note).toHaveCount(0);
   await expect(page.getByText("Anteckningen är sparad.")).toBeVisible();
-  await page.getByRole("tab", { name: /^Tidslinje/ }).click();
+  await openCardTab(page, "Tidslinje");
   await expect(main(page)).toContainText("Vill börja med lager. Behöver stöd med CV.");
   expect(relevant(errors)).toEqual([]);
 });

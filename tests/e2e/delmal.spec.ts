@@ -79,13 +79,18 @@ test("Delmål: avtalsansvarig lägger till – coachen tränar det i en gruppakt
   await btn(att, "Närvarande").click();
   await expect(btn(att, "Närvarande")).toHaveAttribute("aria-pressed", "true");
 
-  // 3. Deltagarkortet: Tränar (automatiskt) – coachen markerar delmålet uppnått i dag.
+  // 3. Deltagarkortet: punkten i steg 1 är inte uppfylld under Progression och resultat (gamla nyckeln handelser). Delmålen har
+  // en egen flik (Karims beslut 2026-11-25): Tränar (automatiskt) – coachen markerar delmålet uppnått i dag.
   await go(page, info, `/arenden/${NADIA}?flik=handelser`);
+  await expect(page.getByRole("tab", { name: /^Progression och resultat/ })).toHaveAttribute("aria-selected", "true");
+  const steps = card(page, "Progression och resultat");
+  await expect(steps.getByTestId("steg-punkter").first()).toContainText("Genomförd branschintroduktion: Inte uppfyllt");
+  await expect(card(page, "Delmål"), "delmålen står inte längre under Progression och resultat").toHaveCount(0);
+  await page.getByRole("tab", { name: /^Delmål/ }).click();
+  await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${NADIA}?flik=delmal`);
   const goals = card(page, "Delmål");
   const goal = goals.locator("[data-delmal]").filter({ hasText: GOAL });
   await expect(goal).toContainText("Tränar (automatiskt)");
-  const steps = card(page, "Progression och resultat");
-  await expect(steps.getByTestId("steg-punkter").first()).toContainText("Genomförd branschintroduktion: Inte uppfyllt");
   await btn(goal, `Markera uppnått – ${GOAL}`).click();
   const dlg = page.getByRole("dialog", { name: "Markera uppnått" });
   await expect(dlg).toContainText(GOAL);
@@ -94,6 +99,7 @@ test("Delmål: avtalsansvarig lägger till – coachen tränar det i en gruppakt
   await expect(toasts(page)).toContainText(`${GOAL}: uppnått.`);
   await expect(goal).toContainText("Uppnått 1 feb 2027");
   await expect(btn(goal, `Ångra – ${GOAL}`)).toBeVisible();
+  await page.getByRole("tab", { name: /^Progression och resultat/ }).click();
   await expect(steps.getByTestId("steg-punkter").first()).toContainText(`Genomförd branschintroduktion: Uppfyllt – ${GOAL}`);
   expect(await main(page).innerText()).not.toMatch(/undefined|NaN|\[object Object\]/);
 

@@ -2,7 +2,7 @@
 // påverkar (CommandDef.invalidates) – och inget blir inaktuellt: räknaren i sidopanelen, listorna och kortet stämmer.
 // Räknar anrop till /api/rpc, så testerna körs bara i projektet "app" (prototypen kör hanterarna i webbläsaren).
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, loaded, open } from "./helpers";
+import { isDemo, loaded, open, openCardTab } from "./helpers";
 
 const AMIRA = { userId: "u-amira", role: "coach" };
 const NADIA = "case-260143"; // BOT-26-0143
@@ -131,7 +131,7 @@ test("öppna kortet direkt: högst 8 anrop, varje fråga en gång, och röstmedd
   expect(all).toContain("cmd session.auditView");
   // Röstmeddelandena ligger under fliken Meddelanden (sedan 2026-10-09): att öppna fliken markerar meddelandena som lästa
   // (arenden.messageRead räknar om kortet) men loggar aldrig en visning av röstmeddelandet.
-  await page.getByRole("tab", { name: /^Meddelanden/ }).click();
+  await openCardTab(page, "Meddelanden");
   await expect(page.getByRole("group", { name: "Röstmeddelanden:" })).toBeVisible();
   await quiet(page);
   expect(rpc.all()).not.toContain("cmd rost.notesSeen");

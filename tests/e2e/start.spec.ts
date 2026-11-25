@@ -129,7 +129,8 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   await expect(toastWith(page, "Praktiken hos Testföretaget AB är registrerad. 10 praktikdagar är inplanerade.")).toBeVisible();
   await expect(main(page)).toContainText("Testföretaget AB");
   await expect(main(page).getByText("Planerad", { exact: true }).first()).toBeVisible();
-  await page.getByRole("tab", { name: /Händelser/ }).click();
+  // Händelser och utfall heter Progression och resultat (Karims beslut 2026-11-25).
+  await page.getByRole("tab", { name: /^Progression och resultat/ }).click();
   await expect(main(page)).toContainText("Praktik");
   await expect(main(page)).toContainText("Testföretaget AB");
 

@@ -2,7 +2,7 @@
 // Samma test körs mot prototypen (hash-navigering) och appen (grunda history-anrop). Nätverkskontrollerna – inget
 // serveranrop för sidan (RSC) och ingen ny hämtning av sessionen – gäller bara appen.
 import { expect, test, type Page, type Request, type TestInfo } from "@playwright/test";
-import { isDemo, leaveWarnings, loaded, open } from "./helpers";
+import { expectCardTab, isDemo, leaveWarnings, loaded, open, openCardTab } from "./helpers";
 
 type Who = { userId: string; role: string };
 const AMIRA: Who = { userId: "u-amira", role: "coach" };
@@ -54,20 +54,22 @@ test("flikbyte på deltagarkortet: sidan står kvar, adressen och titeln stämme
   expect(top, "flikraden syns utan att skrolla").toBeLessThan(800);
   await tabsMidScreen(page);
   const server = watchServer(page);
+  // Tidslinje och Månadsunderlag ligger under Mer (Karims beslut 2026-11-25) – samma krav: sidan hoppar inte.
   for (const [name, flik] of [["Tidslinje", "tidslinje"], ["Närvaro", "narvaro"], ["Månadsunderlag", "manad"]] as const) {
     const y0 = await scrollY(page);
-    await tab(page, name).click();
-    await expect(tab(page, name)).toHaveAttribute("aria-selected", "true");
+    await openCardTab(page, name);
+    await expectCardTab(page, name);
     await settle(page, info);
     expect(Math.abs((await scrollY(page)) - y0), `${name}: sidan hoppar inte`).toBeLessThanOrEqual(2);
     expect(await here(page, info)).toBe(`/arenden/${NADIA}?flik=${flik}`);
     await expect(page).toHaveTitle(TITLE);
   }
-  // Tangentbordet: pil höger byter flik, fokus stannar på flikraden och sidan står kvar.
+  // Tangentbordet: pil höger byter flik, fokus stannar på flikraden och sidan står kvar – också när den valda fliken låg under Mer.
   const y1 = await scrollY(page);
-  await tab(page, "Månadsunderlag").focus();
+  await tab(page, "Delmål").focus();
   await page.keyboard.press("ArrowRight");
-  await expect(tab(page, "Händelser")).toBeFocused();
+  await expect(tab(page, "Progression och resultat")).toBeFocused();
+  await expect(tab(page, "Progression och resultat")).toHaveAttribute("aria-selected", "true");
   await settle(page, info);
   expect(Math.abs((await scrollY(page)) - y1)).toBeLessThanOrEqual(2);
   server.stop();
@@ -123,7 +125,7 @@ test("Tillbaka efter flikbyte: tillbaka till listan med samma filter och samma s
   await expect.poll(() => here(page, info)).toBe(`/arenden/${NADIA}`);
   await settle(page, info);
   expect(await scrollY(page), "nytt kort börjar överst").toBe(0);
-  await tab(page, "Tidslinje").click();
+  await openCardTab(page, "Tidslinje");
   await settle(page, info);
   await tab(page, "Närvaro").click();
   await settle(page, info);
@@ -201,7 +203,7 @@ test("tidslinjens Öppna visar raden i sin flik – Tillbaka leder tillbaka till
   await expect(main(page)).toContainText("Du kom hit från tidslinjen.");
   await page.goBack();
   await expect.poll(() => here(page, info)).toBe(`/arenden/${NADIA}?flik=tidslinje`);
-  await expect(tab(page, "Tidslinje")).toHaveAttribute("aria-selected", "true");
+  await expectCardTab(page, "Tidslinje");
   await expect.poll(() => scrollY(page), { timeout: 4000 }).toBeGreaterThanOrEqual(y0 - 20);
   expect(Math.abs((await scrollY(page)) - y0), "samma plats i tidslinjen").toBeLessThanOrEqual(20);
   expect(errors).toEqual([]);
@@ -284,7 +286,7 @@ async function shiftTabBelowSticky(page: Page, steps: number) {
     await page.keyboard.press("Shift+Tab");
     const r = await page.evaluate(() => {
       const a = document.activeElement as HTMLElement | null;
-      if (!a || !document.getElementById("main")?.contains(a) || a.closest("[role=tablist]")) return null;
+      if (!a || !document.getElementById("main")?.contains(a) || a.closest("[data-tabs-sticky]")) return null; // flikraden med Mer
       let bottom = 0;
       const bar = document.querySelector("aside");
       if (bar && getComputedStyle(bar).position === "sticky") bottom = Math.max(bottom, bar.getBoundingClientRect().bottom);

@@ -4,7 +4,7 @@
 //   app   appen i minnesläge – riktig inspelning med Chromiums falska mikrofon, simulerad AI och ljud i minnet
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import fs from "node:fs";
-import { allowLeaveWarnings, isDemo, open, switchPersona } from "./helpers";
+import { allowLeaveWarnings, isDemo, open, openCardTab, switchPersona } from "./helpers";
 
 const chromium = fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined;
 // Falsk mikrofon (ljudton) och automatiskt ja till mikrofonen – gäller appen på localhost.
@@ -29,7 +29,7 @@ const relevant = (errors: string[]) => errors.filter((e) => !/Failed to load res
 
 /** Deltagarkortet: röstmeddelandena ligger under fliken Meddelanden (sedan 2026-10-09) – fäll ut rutan ("Läs" eller "Visa"). */
 async function openVoice(page: Page) {
-  await page.getByRole("tab", { name: /^Meddelanden/ }).click();
+  await openCardTab(page, "Meddelanden");
   await page.getByRole("group", { name: "Röstmeddelanden:" }).getByRole("button", { name: /^(Läs|Visa)$/ }).click();
 }
 
@@ -265,7 +265,7 @@ async function logRows(page: Page, text: string, who = "Amira Haddad"): Promise<
 test("visningen av röstmeddelanden loggas när texten fälls ut – inte när kortet laddas – och kortets öppning loggas en gång per besök", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, COACH);
   // Kortet laddat, två flikbyten – texten inte utfälld: ingen visning loggad. Öppningen loggad en gång.
-  await page.getByRole("tab", { name: /^Tidslinje/ }).click();
+  await openCardTab(page, "Tidslinje");
   await page.getByRole("tab", { name: /^Närvaro/ }).click();
   await expect(main(page)).toContainText("Närvaro");
   await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
@@ -275,7 +275,7 @@ test("visningen av röstmeddelanden loggas när texten fälls ut – inte när k
 
   // Läs → Dölj → Läs: två utfällningar = två visningar.
   await switchUser(page, info, COACH, `/arenden/${SC.nadia}`);
-  await page.getByRole("tab", { name: /^Meddelanden/ }).click();
+  await openCardTab(page, "Meddelanden");
   const group = page.getByRole("group", { name: "Röstmeddelanden:" });
   await btn(group, "Läs").click();
   await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");
