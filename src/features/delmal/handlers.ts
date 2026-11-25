@@ -10,14 +10,14 @@ import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionAreas, type OperationalConfig } from "@/core/config";
-import { caseGoalId, GOAL_STATE_ICON, goalLabelProblem, goalStateText, sameGoalLabel, shownCaseGoals, sortGoals, STEP_ITEM_LABEL, stepOfItem, stepItemsOf } from "@/core/progress-goals";
+import { achievedOnProblem, caseGoalId, GOAL_STATE_ICON, goalLabelProblem, goalStateText, sameGoalLabel, shownCaseGoals, sortGoals, STEP_ITEM_LABEL, stepOfItem, stepItemsOf } from "@/core/progress-goals";
 import { dayOf, fmtDate } from "@/core/time";
 import { uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
 import { STEP_ITEMS, type Activity, type ActivityKind, type Case, type CaseNote, type CaseProgressGoal, type CheckIn, type Contract, type ProgressGoal, type StepItem } from "@/data/schema";
 import { ensureBonusClaims } from "../bonus/ensure";
 import { canEditCase } from "../_shared/context";
-import { goalPickerAreas } from "../_shared/progress-goals";
+import { canSetCaseGoals, goalPickerAreas, GOALS_STARTED } from "../_shared/progress-goals";
 import {
   CATALOG_ROLES, caseGoals, GOAL_READERS, GOAL_SETTERS, goalAchieve, goalCatalog, goalCreate, goalEvidence, goalMove, goalPicker, goalSetActive, goalUndo, goalUpdate,
   type CaseGoalsView, type GoalPickerArea,
@@ -26,8 +26,6 @@ import {
 const NOT_FOUND = "Delmålet finns inte, eller så har du inte behörighet att ändra det.";
 const CASE_NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
 const NO_EDIT = "Du kan inte ändra delmålen i det här ärendet.";
-/** Statusar där delmålen kan markeras: insatsen har startat (också avslutad – ett intyg kan komma efteråt). */
-const STARTED: readonly Case["status"][] = ["active", "paused", "closed"];
 const KIND_LABEL: Record<ActivityKind, string> = { möte: "Coachträff", yrkesmoment: "Yrkesmoment", praktikdag: "Praktikdag", arbetsgivarbesök: "Arbetsgivarbesök", annat: "Annat" };
 
 /** Avtalet och dess driftkonfiguration via behörigheten, eller null. */
@@ -219,7 +217,7 @@ handleQuery(caseGoals, { roles: GOAL_READERS }, async (ctx, p): Promise<CaseGoal
   const rowOf = new Map(rows.map((r) => [r.goalId, r]));
   // Inaktiverade delmål visas bara när ärendet har ett läge för dem (samma urval som fliken Delmål på deltagarkortet).
   const shown = shownCaseGoals(goals, new Set(rowOf.keys()), progressionAreas(x.cfg).map((a) => a.key));
-  const canEdit = GOAL_SETTERS.includes(ctx.actor.role) && STARTED.includes(c.status) && !!c.startDate && (await canEditCase(ctx, c));
+  const canEdit = await canSetCaseGoals(ctx, c);
   const evidence = await evidenceLabels(ctx, rows);
   return {
     on: true, caseId: c.id, caseNumber: c.caseNumber, canEdit, today: dayOf(ctx.now()), minDate: c.startDate,
@@ -257,13 +255,12 @@ handleCommand(goalAchieve, { roles: GOAL_SETTERS }, async (ctx, p) => {
   const r = await caseAndGoal(ctx, p.caseId, p.goalId);
   if ("error" in r) return fail(r.error, r.text);
   const { c, g, row } = r;
-  if (!STARTED.includes(c.status) || !c.startDate) return fail("wrong_status", "Delmål kan markeras när insatsen har startat.");
+  if (!GOALS_STARTED.includes(c.status) || !c.startDate) return fail("wrong_status", "Delmål kan markeras när insatsen har startat.");
   if (row?.status === "achieved") return fail("already", "Delmålet är redan uppnått. Ladda om sidan.");
   // Ett nytt läge för ett inaktiverat delmål sätts inte – ett som redan tränas kan fortfarande bli uppnått.
   if (!g.active && !row) return fail("inactive", "Delmålet är inaktiverat och kan inte markeras.");
-  const today = dayOf(ctx.now());
-  if (p.achievedOn > today) return fail("date", "Datumet kan inte vara i framtiden.");
-  if (p.achievedOn < c.startDate) return fail("date", `Datumet kan inte vara före startdatumet ${fmtDate(c.startDate)}.`);
+  const dateProblem = achievedOnProblem(p.achievedOn, c.startDate, dayOf(ctx.now()));
+  if (dateProblem) return fail("date", dateProblem);
   // Underlaget hör till ärendet (samma kontroll som databasen, 0043) – läst via behörigheten.
   if (p.evidence) {
     const id = p.evidence.id;

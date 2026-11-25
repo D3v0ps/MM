@@ -6,7 +6,7 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { BILLING, BONUS, CARD, LOG, MANADSRAPPORT, NAV, PORTAL } from "@/api/invalidation";
 import type { LocalDate, LocalDateTime, MonthKey } from "@/core/time";
-import { BONUS_CHECKLIST_ITEMS, type BonusClaimStatus, type BonusDecisionVia, type BonusSource } from "@/data/schema";
+import { BONUS_CHECKLIST_ITEMS, type BonusClaimStatus, type BonusDecisionVia, type BonusSource, type StepItem } from "@/data/schema";
 import { IdSchema, LocalDateSchema } from "../_shared/schemas";
 
 /** Läget med ikon i klarspråk (status visas alltid som text och ikon). */
@@ -69,8 +69,21 @@ export type BonusUnderlag = {
   comment: string;
 };
 
-/** En punkt i steg 1–2 på deltagarkortet och i granskningen: uppfylld eller inte, och delmålen som uppfyller den (bara Miljonbemanning). */
-export type StepItemView = { label: string; fulfilled: boolean; need: number; goals: string[] };
+/** Ett delmål som räknas mot en punkt i steg 1–2, med ärendets läge – dialogen som öppnas från punkten (Karims beslut 2026-11-25). */
+export type StepItemGoalView = {
+  goalId: string;
+  label: string;
+  state: "none" | "training" | "achieved";
+  /** "Inte påbörjat", "Tränar (automatiskt)", "Tränar" eller "Uppnått 12 jan 2027" – samma som kortet Delmål. */
+  stateText: string;
+  icon: "circle" | "activity" | "check-circle";
+};
+/**
+ * En punkt i steg 1–2 på deltagarkortet och i granskningen: uppfylld eller inte, och delmålen som uppfyller den (bara Miljonbemanning).
+ * key och options bara på kortet, när punkten räknas fram ur dagens delmål (inte det som frystes i ett skickat anspråk): avtalets
+ * aktiva delmål som räknas mot punkten (och inaktiverade som ärendet har ett läge för), i katalogens ordning.
+ */
+export type StepItemView = { label: string; fulfilled: boolean; need: number; goals: string[]; key?: StepItem; options?: StepItemGoalView[] };
 
 // ---------------------------------------------------------------- Deltagarkortet: kortet Bonus
 export type BonusStepRow = {
@@ -85,12 +98,17 @@ export type BonusStepRow = {
   reachedOn: LocalDate | null;
   submittedAt: LocalDateTime | null;
   decidedAt: LocalDateTime | null;
-  /** Coachen kan skapa ett nytt anspråk för steget. createProblem = varför inte. */
+  /**
+   * Skapa underlag på stegets rad (Karims beslut 2026-11-25 – ingen knapp i kortets huvud): ett anspråk kan skapas nu och reglerna
+   * täcker det inte själva – se manualCreateSteps i src/core/bonus.ts.
+   */
   canCreate: boolean;
-  createProblem: string | null;
   /** Tidigare avslagna och återtagna anspråk för steget, nyast först. */
   history: { claimId: string; status: BonusClaimStatus; statusText: string; at: LocalDateTime | null }[];
-  /** Steg 1–2: punkterna ur de uppnådda delmålen (Karims beslut 2026-11-11). Tom för steg 3–5. */
+  /**
+   * Steg 1–2: punkterna ur de uppnådda delmålen (Karims beslut 2026-11-11). Tom för steg 3–5. Ett skickat eller godkänt anspråk
+   * visar punkterna som de skickades (utan key och options – de kryssas inte i).
+   */
   items: StepItemView[];
 };
 /**
@@ -99,7 +117,26 @@ export type BonusStepRow = {
  */
 export type BonusCardView =
   | { on: false }
-  | { on: true; caseId: string; caseNumber: string; canAct: boolean; steps: BonusStepRow[]; rules: string[] };
+  | {
+      on: true;
+      caseId: string;
+      caseNumber: string;
+      canAct: boolean;
+      /**
+       * Punkterna i steg 1–2 kryssas i med delmålen (Karims beslut 2026-11-25): samma som Markera uppnått på kortet Delmål – coach,
+       * samordnare och avtalsansvarig som arbetar i ärendet, och insatsen har startat. Övriga läser.
+       */
+      canTick: boolean;
+      today: LocalDate;
+      /** Tidigaste dag för Uppnått: insatsens startdatum. */
+      minDate: LocalDate | null;
+      /**
+       * Förvald dag i dialogen för en punkt: den senaste dagen som räknas mot punkterna – i dag, eller slutdatumet i en avslutad
+       * insats (bara delmål som uppnåtts under insatsen räknas, caseStepItems).
+       */
+      defaultDate: LocalDate;
+      steps: BonusStepRow[];
+    };
 export const bonusCard = query("bonus.kort", z.object({ caseId: IdSchema })).returns<BonusCardView>();
 
 // ---------------------------------------------------------------- Granska och skicka (coachen)

@@ -182,9 +182,9 @@ describe("Progression och resultat: punkterna i steg 1–2 ur de uppnådda delm�
       return v.on ? v.steps.find((s) => s.step === n)!.items : [];
     };
     const ans = async () => (await step(1)).find((x) => x.label === "Förbättrade ansökningshandlingar");
-    expect(await ans()).toEqual({ label: "Förbättrade ansökningshandlingar", fulfilled: false, need: 2, goals: ["Har ett uppdaterat CV"] });
+    expect(await ans()).toMatchObject({ label: "Förbättrade ansökningshandlingar", fulfilled: false, need: 2, goals: ["Har ett uppdaterat CV"] });
     expect(await cmd(goalAchieve, { caseId: NADIA, goalId: G(21), achievedOn: "2027-01-27", evidence: null }, amira())).toMatchObject({ ok: true });
-    expect(await ans()).toEqual({ label: "Förbättrade ansökningshandlingar", fulfilled: true, need: 2, goals: ["Har ett uppdaterat CV", "Har ett personligt brev"] });
+    expect(await ans()).toMatchObject({ label: "Förbättrade ansökningshandlingar", fulfilled: true, need: 2, goals: ["Har ett uppdaterat CV", "Har ett personligt brev"] });
     expect((await step(3))).toEqual([]);
   });
 
@@ -233,6 +233,129 @@ describe("Progression och resultat: punkterna i steg 1–2 ur de uppnådda delm�
     const komText = JSON.stringify(kom);
     for (const g of DEFAULT_PROGRESS_GOALS) expect(komText).not.toContain(g.label);
     expect(komText).not.toMatch(/pg-c-bot|progressGoal|stepItem|Tränar/i);
+  });
+});
+
+describe("Karims beslut 2026-11-25: punkterna i steg 1–2 kryssas i på kortet Progression och resultat", () => {
+  const MEHMET = "case-260130"; // Amira, start 11 dec 2026, inga uppnådda delmål, ingen händelse för steg 2
+  const card = async (caseId: string, actor: Actor = amira()) => {
+    const v = await q(bonusCard, { caseId }, actor);
+    if (!v.on) throw new Error("kortet är av");
+    return v;
+  };
+  const item = async (caseId: string, label: string, actor?: Actor) => (await card(caseId, actor)).steps.flatMap((s) => s.items).find((x) => x.label === label)!;
+  const ANS = "Förbättrade ansökningshandlingar";
+  const states = (it: { options?: { goalId: string; state: string }[] }) => Object.fromEntries((it.options ?? []).map((o) => [o.goalId, o.state]));
+
+  it("punkten har avtalets delmål med läget – två ikryssade delmål uppfyller Förbättrade ansökningshandlingar, och fliken Delmål visar samma", async () => {
+    const v = await card(MEHMET);
+    expect(v).toMatchObject({ canTick: true, today: "2027-02-01", minDate: "2026-12-11", defaultDate: "2027-02-01" });
+    const before = await item(MEHMET, ANS);
+    expect(before).toMatchObject({ key: "ansokningshandlingar", fulfilled: false, need: 2, goals: [] });
+    // Avtalets aktiva delmål som räknas mot punkten, i katalogens ordning – med läget som text och ikon.
+    expect(before.options?.map((o) => [o.goalId, o.label, o.state, o.stateText, o.icon])).toEqual([
+      [G(13), "Söker jobb via datorn (Platsbanken eller annan sajt)", "none", "Inte påbörjat", "circle"],
+      [G(14), "Skickar en ansökan med bifogat CV", "none", "Inte påbörjat", "circle"],
+      [G(20), "Har ett uppdaterat CV", "none", "Inte påbörjat", "circle"],
+      [G(21), "Har ett personligt brev", "none", "Inte påbörjat", "circle"],
+    ]);
+    // Dialogen sparar ett delmål i taget med samma kommando som Markera uppnått.
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2027-02-01", evidence: null }, amira())).toMatchObject({ ok: true, suggested: 0 });
+    expect(await item(MEHMET, ANS)).toMatchObject({ fulfilled: false, goals: ["Har ett uppdaterat CV"] });
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(21), achievedOn: "2027-02-01", evidence: null }, amira())).toMatchObject({ ok: true });
+    const after = await item(MEHMET, ANS);
+    expect(after).toMatchObject({ fulfilled: true, need: 2, goals: ["Har ett uppdaterat CV", "Har ett personligt brev"] });
+    expect(states(after)).toEqual({ [G(13)]: "none", [G(14)]: "none", [G(20)]: "achieved", [G(21)]: "achieved" });
+    expect(after.options?.find((o) => o.goalId === G(21))?.stateText).toBe("Uppnått 1 feb 2027");
+    // Fliken Delmål läser samma rader.
+    const tab = await q(caseGoals, { caseId: MEHMET }, amira());
+    const shown = tab.on ? tab.areas.flatMap((a) => a.goals) : [];
+    expect(shown.filter((g) => g.state === "achieved").map((g) => [g.goalId, g.stateText])).toEqual([[G(20), "Uppnått 1 feb 2027"], [G(21), "Uppnått 1 feb 2027"]]);
+    // Bara en människa: källan manual, i coachens namn, loggat med id:n.
+    expect([caseRow(MEHMET, 20), caseRow(MEHMET, 21)].map((r) => r && [r.status, r.source, r.setBy])).toEqual([["achieved", "manual", "u-amira"], ["achieved", "manual", "u-amira"]]);
+    expect(rows("audit_log").filter((l) => l.action === "case_progress_goal.achieved" && l.details.caseId === MEHMET)).toHaveLength(2);
+  });
+
+  it("dagen prövas: före startdatumet eller i framtiden nekas – inget sparas", async () => {
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2026-12-10", evidence: null }, amira()))
+      .toMatchObject({ ok: false, error: "date", message: "Datumet kan inte vara före startdatumet 11 dec 2026." });
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2027-02-02", evidence: null }, amira()))
+      .toMatchObject({ ok: false, error: "date", message: "Datumet kan inte vara i framtiden." });
+    expect(caseRow(MEHMET, 20)).toBeNull();
+    // Startdagen och i dag går bra.
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2026-12-11", evidence: null }, amira())).toMatchObject({ ok: true });
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(21), achievedOn: "2027-02-01", evidence: null }, amira())).toMatchObject({ ok: true });
+  });
+
+  it("avslutad insats: dialogens förvalda dag är slutdatumet – två delmål den dagen uppfyller punkten; en dag efter slutdatumet räknas inte", async () => {
+    const CLOSED = "case-260064"; // huvudcoach Erik, avslutad, steg 3 avslaget
+    const c = rows("cases").find((x) => x.id === CLOSED)!;
+    const v = await card(CLOSED, erik());
+    expect(c.status).toBe("closed");
+    expect(c.endDate! < v.today).toBe(true);
+    expect(v).toMatchObject({ canTick: true, defaultDate: c.endDate });
+    // Uppnått i dag sparas (i dag eller tidigare, inte före start) men ligger efter insatsen – det räknas inte mot punkten.
+    expect(await cmd(goalAchieve, { caseId: CLOSED, goalId: G(13), achievedOn: v.today, evidence: null }, erik())).toMatchObject({ ok: true });
+    expect(await item(CLOSED, ANS, erik())).toMatchObject({ fulfilled: false, goals: [] });
+    for (const n of [20, 21]) expect(await cmd(goalAchieve, { caseId: CLOSED, goalId: G(n), achievedOn: v.defaultDate, evidence: null }, erik())).toMatchObject({ ok: true });
+    expect(await item(CLOSED, ANS, erik())).toMatchObject({ fulfilled: true, goals: ["Har ett uppdaterat CV", "Har ett personligt brev"] });
+  });
+
+  it("den som inte får markera delmål läser punkterna utan att kunna kryssa i – kommandot nekas; en begränsad testare ser inte kortet", async () => {
+    for (const a of [as("u-karin", "chef"), robin()]) {
+      const v = await card(MEHMET, a);
+      expect(v.canTick, a.role).toBe(false);
+      await expect(cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2027-02-01", evidence: null }, a), a.role).rejects.toBeInstanceOf(ApiError);
+    }
+    for (const a of [maria(), lars()]) {
+      await expect(q(bonusCard, { caseId: MEHMET }, a), a.role).rejects.toBeInstanceOf(ApiError);
+      await expect(cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2027-02-01", evidence: null }, a), a.role).rejects.toBeInstanceOf(ApiError);
+    }
+    expect(await q(bonusCard, { caseId: MEHMET }, { ...amira(), testerId: "t-begransad" })).toEqual({ on: false });
+    // Samordnaren och avtalsansvarig arbetar i ärendet och får kryssa i.
+    expect((await card(MEHMET, as("u-sara", "samordnare"))).canTick).toBe(true);
+    expect((await card(MEHMET, johan())).canTick).toBe(true);
+    expect(caseRow(MEHMET, 20)).toBeNull();
+  });
+
+  it("ett kryss som tas bort är Ångra: punkten blir inte uppfylld igen – tillbaka till Tränar eller Inte påbörjat", async () => {
+    await cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2027-01-20", evidence: null }, amira());
+    await cmd(goalAchieve, { caseId: MEHMET, goalId: G(21), achievedOn: "2027-01-21", evidence: null }, amira());
+    expect((await item(MEHMET, ANS)).fulfilled).toBe(true);
+    expect(await cmd(goalUndo, { caseId: MEHMET, goalId: G(21), to: "training" }, amira())).toMatchObject({ ok: true });
+    const after = await item(MEHMET, ANS);
+    expect(after).toMatchObject({ fulfilled: false, goals: ["Har ett uppdaterat CV"] });
+    expect(after.options?.find((o) => o.goalId === G(21))).toMatchObject({ state: "training", stateText: "Tränar" });
+    expect(await cmd(goalUndo, { caseId: MEHMET, goalId: G(20), to: "none" }, amira())).toMatchObject({ ok: true });
+    expect(states(await item(MEHMET, ANS))).toMatchObject({ [G(20)]: "none", [G(21)]: "training" });
+    expect(caseRow(MEHMET, 20)).toBeNull();
+  });
+
+  it("Påbörjat praktik eller arbetsträning ikryssat: punkten i steg 2 är uppfylld och förslaget till steg 2 står på kortet direkt", async () => {
+    const praktik = await item(MEHMET, "Praktik eller arbetsträning");
+    expect(praktik).toMatchObject({ key: "praktik", fulfilled: false });
+    expect(praktik.options?.map((o) => o.label)).toEqual(["Påbörjat praktik eller arbetsträning"]);
+    const before = (await card(MEHMET)).steps.find((s) => s.step === 2)!;
+    expect(before).toMatchObject({ status: "none", claimId: null, canCreate: false });
+    expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(22), achievedOn: "2027-01-28", evidence: null }, amira())).toMatchObject({ ok: true, suggested: 1 });
+    const step2 = (await card(MEHMET)).steps.find((s) => s.step === 2)!;
+    expect(step2).toMatchObject({ status: "suggested", statusText: "Förslag att granska", source: "auto", reachedOn: "2027-01-28", canCreate: false });
+    expect(step2.items.find((x) => x.label === "Praktik eller arbetsträning")).toMatchObject({ fulfilled: true, goals: ["Påbörjat praktik eller arbetsträning"] });
+    // Förslaget kommer från regeln efter coachens kryss – en människa granskar och skickar.
+    expect(rows("bonus_claims").find((k) => k.id === step2.claimId)).toMatchObject({ status: "suggested", createdBy: "system", outcomeEventId: null });
+  });
+
+  it("ett skickat anspråk visar punkterna som de skickades – de kryssas inte i", async () => {
+    const claimId = "bonus-case-260002-1-1";
+    const review = await q(bonusReview, { claimId }, erik());
+    expect(await cmd(bonusSubmit, { claimId, basis: "", reachedOn: review!.fields.reachedOn, verificationKind: null, verificationOn: null, checklist: {} }, erik())).toMatchObject({ ok: true });
+    const v = await card(TWO, erik());
+    const step1 = v.steps.find((s) => s.step === 1)!;
+    expect(step1.status).toBe("submitted");
+    expect(step1.items.length).toBe(4);
+    expect(step1.items.every((x) => x.key === undefined && x.options === undefined)).toBe(true);
+    // Steg 2 räknas fortfarande fram ur dagens delmål och kan kryssas i.
+    expect(v.steps.find((s) => s.step === 2)!.items.every((x) => !!x.key && Array.isArray(x.options))).toBe(true);
   });
 });
 

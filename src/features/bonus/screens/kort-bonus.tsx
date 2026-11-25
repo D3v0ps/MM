@@ -1,30 +1,63 @@
 "use client";
-// Kortet Bonus på deltagarkortet (fliken Progression och resultat, ?flik=handelser, SPEC §7.17, beslut 2026-11-04): bonussteg 1–5 med läget som text
-// och ikon (aldrig bara färg), länk till Granska och skicka och knappen Skapa bonusanspråk. Inga belopp – bara ekonomen ser belopp.
+// Kortet Progression och resultat på deltagarkortet (fliken Progression och resultat, ?flik=handelser, SPEC §7.17, beslut 2026-11-04):
+// steg 1–5 med läget som text och ikon (aldrig bara färg) och länken Granska och skicka. Inga belopp – bara ekonomen ser belopp.
+// Karims beslut 2026-11-25: punkterna i steg 1–2 kryssas i direkt på kortet – en punkt öppnar en dialog med delmålen som räknas mot
+// den (src/features/delmal/screens/punkt.tsx), och reglerna skapar förslaget när punkterna är uppfyllda. Ingen knapp i kortets huvud
+// och ingen förklaring av stegen: Skapa underlag står bara på stegets rad där reglerna inte täcker det själva (manualCreateSteps).
 // Visas inte när bonus är avstängd i avtalet eller för den som inte får se bonus (begränsade testare, teamet).
 import { useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { fmtDate } from "@/core/time";
-import { Badge, Button, Card, Disclosure, ErrorNotice, Icon, List, ListItem, Loading, Modal, ModalCancelButton, Notice, Select, Field, toast, type BadgeTone } from "@/ui";
+import { Badge, Button, Card, cn, ErrorNotice, Icon, List, ListItem, Loading, toast, type BadgeTone } from "@/ui";
+import { StepItemModal } from "@/features/delmal/screens/punkt";
+import type { StepItem } from "@/data/schema";
 import { bonusCard, bonusCreate, type BonusCardView, type BonusStepRow, type StepItemView } from "../api";
 
-/** Punkterna i steg 1–2 ur de uppnådda delmålen (Karims beslut 2026-11-11): uppfylld eller inte, och delmålen som uppfyller den. */
-export function StepItemList({ items }: { items: readonly StepItemView[] }) {
+/** Punktens text: "Förbättrade ansökningshandlingar: Inte uppfyllt (1 av 2) – Har ett uppdaterat CV". */
+const itemText = (it: StepItemView) =>
+  `${it.fulfilled ? "Uppfyllt" : "Inte uppfyllt"}${!it.fulfilled && it.need > 1 ? ` (${it.goals.length} av ${it.need})` : ""}${it.goals.length ? ` – ${it.goals.join(", ")}` : ""}`;
+
+/**
+ * Punkterna i steg 1–2 ur de uppnådda delmålen (Karims beslut 2026-11-11): uppfylld eller inte, och delmålen som uppfyller den.
+ * Med onPick (Karims beslut 2026-11-25) är varje levande punkt en knapp som öppnar dialogen med punktens delmål.
+ */
+export function StepItemList({ items, onPick }: { items: readonly StepItemView[]; onPick?: (item: StepItemView) => void }) {
   if (!items.length) return null;
   return (
     <ul className="m-0 flex list-none flex-col gap-1 p-0 text-small" data-testid="steg-punkter">
-      {items.map((it) => (
-        <li key={it.label} className="flex items-start gap-1.5">
-          <Icon name={it.fulfilled ? "check-circle" : "circle"} size="sm" className="mt-0.5" />
-          <span>
-            <b className="font-bold">{it.label}</b>
-            {`: ${it.fulfilled ? "Uppfyllt" : "Inte uppfyllt"}`}
-            {!it.fulfilled && it.need > 1 ? ` (${it.goals.length} av ${it.need})` : ""}
-            {it.goals.length ? ` – ${it.goals.join(", ")}` : ""}
-          </span>
-        </li>
-      ))}
+      {items.map((it) => {
+        const content = (
+          <>
+            <Icon name={it.fulfilled ? "check-circle" : "circle"} size="sm" className="mt-0.5 flex-none" />
+            <span>
+              <b className="font-bold">{it.label}</b>
+              {`: ${itemText(it)}`}
+            </span>
+          </>
+        );
+        return (
+          <li key={it.label}>
+            {onPick && it.key && it.options?.length ? (
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => onPick(it)}
+                data-punkt={it.key}
+                className={cn(
+                  "flex min-h-11 w-full cursor-pointer items-start gap-2 rounded-mb border-[1.5px] px-3 py-2.5 text-left text-ui text-antracit",
+                  // Uppfyllt: blå yta med antracit text (aldrig grönt) – texten och ikonen bär läget.
+                  it.fulfilled ? "border-bla bg-bla-ton hover:bg-bla-ton2" : "border-line-strong bg-vit hover:bg-antracit-ton",
+                )}
+              >
+                {content}
+              </button>
+            ) : (
+              <span className="flex items-start gap-1.5">{content}</span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -55,26 +88,11 @@ export function BonusCard({ caseId }: { caseId: string }) {
 }
 
 function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
-  const [create, setCreate] = useState(false);
-  const creatable = v.steps.filter((s) => s.canCreate);
+  const [picking, setPicking] = useState<StepItem | null>(null);
+  // Dialogen läser punkten ur den senaste frågan – kortet räknas om efter varje delmål som sparas.
+  const picked = picking ? v.steps.flatMap((s) => s.items).find((it) => it.key === picking && it.options?.length) ?? null : null;
   return (
-    <Card
-      title="Progression och resultat"
-      icon="award"
-      flush
-      actions={v.canAct && creatable.length > 0 ? <Button icon="plus" onClick={() => setCreate(true)}>Skapa underlag</Button> : undefined}
-      foot={
-        <Disclosure label="Så fungerar stegen">
-          <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-small">
-            {v.rules.map((r, i) => <li key={i}>{r}</li>)}
-          </ul>
-          <p className="mt-2 text-small text-text-muted">
-            Ett förslag skapas av reglerna eller av dig. Du granskar och skickar – kommunen beslutar i portalen. Kommunen ser bara det du har skickat, aldrig förslag eller
-            återtagna anspråk. Inga intyg laddas upp här: de skickas till kommunen på annat sätt.
-          </p>
-        </Disclosure>
-      }
-    >
+    <Card title="Progression och resultat" icon="award" flush>
       <List>
         {v.steps.map((s) => (
           <ListItem
@@ -83,13 +101,13 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
             title={`Steg ${s.step} · ${s.label}`}
             sub={
               s.status === "none"
-                ? s.createProblem && v.canAct ? s.createProblem : "Inget anspråk än."
+                ? undefined
                 : [
                   s.reachedOn ? `${s.step >= 3 ? "Resultatdatum" : "Datum"} ${fmtDate(s.reachedOn)}` : null,
                   s.submittedAt ? `skickat ${fmtDate(s.submittedAt)}` : null,
                   s.decidedAt ? `beslut ${fmtDate(s.decidedAt)}` : null,
                   s.source === "auto" ? "förslag från reglerna" : s.source === "manual" ? "skapat av Miljonbemanning" : null,
-                ].filter(Boolean).join(" · ")
+                ].filter(Boolean).join(" · ") || undefined
             }
           >
             <span className="flex flex-wrap items-center gap-2">
@@ -100,8 +118,9 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
                   <span className="sr-only"> steg {s.step}</span>
                 </Button>
               )}
+              {s.canCreate && <CreateButton caseId={v.caseId} step={s.step} />}
             </span>
-            <StepItemList items={s.items} />
+            <StepItemList items={s.items} onPick={v.canTick ? (it) => it.key && setPicking(it.key) : undefined} />
             {s.history.length > 0 && (
               <span className="text-small text-text-muted">
                 Tidigare: {s.history.map((h) => `${h.statusText.toLowerCase()}${h.at ? ` ${fmtDate(h.at)}` : ""}`).join(", ")}
@@ -110,43 +129,27 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
           </ListItem>
         ))}
       </List>
-      {create && <CreateModal caseId={v.caseId} steps={creatable} onClose={() => setCreate(false)} />}
+      {v.canTick && picked?.options && (
+        <StepItemModal key={picking} caseId={v.caseId} label={picked.label} options={picked.options} today={v.today} minDate={v.minDate} defaultDate={v.defaultDate} onClose={() => setPicking(null)} />
+      )}
     </Card>
   );
 }
 
-function CreateModal({ caseId, steps, onClose }: { caseId: string; steps: BonusStepRow[]; onClose: () => void }) {
+/** Skapa underlag på stegets rad: anspråket blir ett förslag som granskas på sidan Granska och skicka. */
+function CreateButton({ caseId, step }: { caseId: string; step: number }) {
   const cmd = useCommand(bonusCreate);
   const nav = useNav();
-  const [step, setStep] = useState(String(steps[0]?.step ?? ""));
-  const [error, setError] = useState<string | null>(null);
-  const submit = async () => {
-    setError(null);
-    const res = await cmd.run({ caseId, step: Number(step) }).catch(() => null);
-    if (!res) return setError("Anspråket kunde inte skapas. Försök igen.");
-    if (!res.ok) return setError(res.message || "Anspråket kunde inte skapas.");
-    toast(`Anspråket för steg ${step} är skapat. Granska och skicka när underlaget är klart.`);
-    onClose();
+  const create = async () => {
+    const res = await cmd.run({ caseId, step }).catch(() => null);
+    if (!res) return toast("Underlaget kunde inte skapas. Försök igen.", "error");
+    if (!res.ok) return toast(res.message || "Underlaget kunde inte skapas.", "error");
+    toast(`Steg ${step}: underlaget är skapat.`);
     nav.push(bonusPath(res.claimId));
   };
   return (
-    <Modal
-      title="Skapa underlag"
-      onClose={onClose}
-      footer={
-        <>
-          <ModalCancelButton />
-          <Button kind="primary" pending={cmd.pending} onClick={() => void submit()}>
-            Skapa
-          </Button>
-        </>
-      }
-    >
-      <p className="m-0">Välj steget. Anspråket blir ett förslag som du granskar innan det skickas till kommunen.</p>
-      <Field label="Steg" help="Bara steg som inte redan har ett anspråk. Steg 4 och 5 bygger på steg 3." id="bonus-skapa-steg">
-        <Select value={step} onValueChange={setStep} options={steps.map((s) => ({ value: String(s.step), label: `Steg ${s.step} · ${s.label}` }))} />
-      </Field>
-      {error && <Notice tone="critical" title="Det gick inte">{error}</Notice>}
-    </Modal>
+    <Button icon="plus" pending={cmd.pending} onClick={() => void create()}>
+      Skapa underlag<span className="sr-only"> för steg {step}</span>
+    </Button>
   );
 }
