@@ -8,7 +8,7 @@
 //   3. Omar (kommunens handläggare): deltagarens sida i portalen visar ingenting om det.
 // Bara påhittade uppgifter.
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open, switchPersona } from "./helpers";
+import { isDemo, open, openCardTab, switchPersona } from "./helpers";
 
 const ERIK = { userId: "u-erik", role: "coach" };
 const OMAR = { userId: "k-omar", role: "kommun_handlaggare" };
@@ -91,7 +91,7 @@ test("deltagaren kom inte: coachen registrerar uteblev, bokar ett nytt första m
   await expect(m.getByRole("button", { name: "Starta insatsen", exact: true }).first()).toBeVisible();
 
   // Tidslinjen: registreringen står kvar.
-  await page.getByRole("tab", { name: /^Tidslinje/ }).click();
+  await openCardTab(page, "Tidslinje");
   await expect(m).toContainText("Kom inte till första mötet 29 jan kl. 14.00");
   await expect(m).toContainText("Uteblev utan att meddela");
 

@@ -121,3 +121,27 @@ export async function loaded(page: Page) {
     )
     .catch(() => undefined);
 }
+
+// ---------------------------------------------------------------- Deltagarkortets flikar (Karims beslut 2026-11-25)
+// Sex flikar i raden (Översikt · Närvaro · Möten · Anteckningar · Delmål · Progression och resultat) och resten under menyknappen
+// Mer. Menyn ritas utanför #main (portal) – hjälparna letar på hela sidan.
+/** Flikarna under Mer, med namnen som står i menyn. */
+export const CARD_MORE_TABS = ["Tidslinje", "Kartläggning", "Månadsunderlag", "Avvikelser", "Praktik", "Rapporter", "Meddelanden", "Historik"] as const;
+const startsWith = (name: string) => new RegExp(`^${name}`);
+const isMoreTab = (name: string) => (CARD_MORE_TABS as readonly string[]).includes(name);
+/** Menyknappen Mer på deltagarkortet ("Mer", eller "Mer: Kartläggning" när fliken under Mer är vald). */
+export const cardMore = (page: Page) => page.getByRole("button", { name: /^Mer\b/ });
+/** Öppna en flik på deltagarkortet med namnet – i raden eller under Mer. */
+export async function openCardTab(page: Page, name: string) {
+  if (!isMoreTab(name)) return page.getByRole("tab", { name: startsWith(name) }).click();
+  await cardMore(page).click();
+  await page.getByRole("menuitemradio", { name: startsWith(name) }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+/** Fliken är vald: i raden aria-selected, under Mer står den på knappen ("Mer: Historik"). */
+export async function expectCardTab(page: Page, name: string) {
+  if (!isMoreTab(name)) return expect(page.getByRole("tab", { name: startsWith(name) })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: new RegExp(`^Mer: ${name}`) })).toBeVisible();
+}
+/** Någon flik är vald – i raden eller under Mer. */
+export const cardTabSelected = (page: Page) => page.getByRole("tab", { selected: true }).or(page.getByRole("button", { name: /^Mer: / }));

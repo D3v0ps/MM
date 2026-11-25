@@ -4,7 +4,7 @@
 // prototypen (projekt "demo") och riktiga appen (projekt "app"). Allt läses via skärmen – inte via internt tillstånd.
 // Id:n och antal är testdatats (samma som den gamla prototypen: prototyp/tools/data-samples.json).
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open, switchPersona } from "./helpers";
+import { cardMore, cardTabSelected, expectCardTab, isDemo, open, openCardTab, switchPersona } from "./helpers";
 
 const SC = {
   nadia: "case-260143", // BOT-26-0143, Amira, praktik, olästa meddelandet msg-3 från Maria
@@ -147,8 +147,11 @@ test("3. coachen börjar i alla ärenden i avtalet och kan välja Mina ärenden;
   await switchTo(page, info, `/arenden/${SC.annanCoach}`, AMIRA);
   await expect(main(page)).not.toContainText("Du saknar åtkomst");
   await expect(main(page)).toContainText("BOT-26-0117");
-  // 13 flikar sedan Anteckningar (Karims beslut 2026-11-11).
-  await expect(page.getByRole("tab")).toHaveCount(13);
+  // Sex flikar och Mer (Karims beslut 2026-11-25) – inget har försvunnit: åtta flikar under Mer.
+  await expect(page.getByRole("tab")).toHaveCount(6);
+  await cardMore(page).click();
+  await expect(page.getByRole("menuitemradio")).toHaveCount(8);
+  await page.keyboard.press("Escape");
   expect(errors).toEqual([]);
 });
 
@@ -176,7 +179,7 @@ test("14. olästa meddelanden från kommunen markeras i listan och försvinner n
 test("4. deltagarkortet: visningen loggas, olästa meddelanden markeras som lästa, personnummer stoppas", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Nadia Warsame");
-  await tab(page, /Meddelanden/).click();
+  await openCardTab(page, "Meddelanden");
   const thread = page.locator('[aria-label="Meddelanden"]');
   // msg-3 från Maria var oläst för Amira – läses när fliken öppnas.
   await expect(thread).toContainText("Tack! Kan vi ses på ett uppföljningsmöte vecka 6?");
@@ -238,7 +241,7 @@ test("5. avvikelse med åtgärd och kallelse till kommunen som säkert meddeland
   await expect(main(page)).toContainText("Kallelsen är skickad");
   await expect(main(page)).toContainText("ett mejl utan personuppgifter");
   await expect(dev).toContainText("Föreslaget onsdag 3 feb 2027 kl. 10.00");
-  await tab(page, /Meddelanden/).click();
+  await openCardTab(page, "Meddelanden");
   const last = page.locator('[aria-label="Meddelanden"]').locator(":scope > div").last();
   await expect(last).toContainText("Kallelse till uppföljning");
   await expect(last).toContainText("Vi vill kalla till ett uppföljningsmöte om ärende BOT-26-0148.");
@@ -257,11 +260,11 @@ test("6. chefen ser kortet i läsläge och eskaleringen, men kan inte ändra", a
   for (const name of ["Byt huvudcoach", "Återkalla samtycke", "Registrera samtycke", "Spela in mötet", "Nytt möte utan inspelning"]) {
     await expect(action(page, name), `Chefen har ingen knapp "${name}"`).toHaveCount(0);
   }
-  await tab(page, /Avvikelser/).click();
+  await openCardTab(page, "Avvikelser");
   await expect(main(page)).toContainText("En avvikelse är alltid en åtgärd");
   await expect(btn(page, "Kalla kommunen till uppföljning")).toHaveCount(0);
   await expect(btn(page, "Ny avvikelse")).toHaveCount(0);
-  await tab(page, /Meddelanden/).click();
+  await openCardTab(page, "Meddelanden");
   await expect(main(page)).toContainText("Läsläge – du kan läsa tråden men inte skriva.");
   await expect(page.locator("#arn-msg-body")).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -298,7 +301,7 @@ test("8. byte av huvudcoach kräver orsak, loggas i historiken och ger notis", a
   await btn(dialog(page), "Byt huvudcoach").click();
   await expect(dialog(page)).toHaveCount(0);
   await expect(main(page).locator('dt:text-is("Huvudcoach") + dd')).toContainText("Leila Nouri");
-  await tab(page, /Historik/).click();
+  await openCardTab(page, "Historik");
   const hist = main(page).locator("section", { hasText: "Status och coachbyten" });
   await expect(hist).toContainText("→ Leila Nouri");
   await expect(hist).toContainText("Orsak: Sjukskrivning – Leila tar över från vecka 6.");
@@ -339,8 +342,12 @@ test("10. rollen handledare är borttagen: /handledare finns inte, menyn har ing
   await expect(main(page)).toContainText("0 ärenden");
   // Alla flikar i ett ärende där hon inte är med i teamet. Coachen ser fortfarande aldrig eskaleringar till chef.
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=avstamningar`, PETRA);
-  // 13 flikar sedan Anteckningar (Karims beslut 2026-11-11).
-  await expect(page.getByRole("tab")).toHaveCount(13);
+  // Sex flikar och Mer med åtta flikar (Karims beslut 2026-11-25).
+  await expect(page.getByRole("tab")).toHaveCount(6);
+  await expect(page.getByRole("tab", { name: /^Möten/ })).toHaveAttribute("aria-selected", "true");
+  await cardMore(page).click();
+  await expect(page.getByRole("menuitemradio")).toHaveCount(8);
+  await page.keyboard.press("Escape");
   await expect(main(page)).not.toContainText(/yrkesspecifik handledare/i);
   await expect(main(page)).not.toContainText("Den delen visas inte för din roll");
   await expect(main(page)).not.toContainText(/eskaler/i);
@@ -412,7 +419,7 @@ test("13. perspektivbyten går till rätt roll och flik – bara till handlägga
   // Ärendet som var skyddat (en annan handläggare): inget perspektivbyte på någon flik. Chefen läser det som andra ärenden.
   for (const t of ["oversikt", "rapporter", "meddelanden", "avvikelser"]) {
     await switchTo(page, info, `/arenden/${SC.skyddad}?flik=${t}`, JOHAN);
-    await expect(page.getByRole("tab", { selected: true })).toBeVisible();
+    await expect(cardTabSelected(page)).toBeVisible();
     await expect(main(page).getByRole("button", { name: /som kommunen|kommunens chef|Så ser/ })).toHaveCount(0);
   }
   await switchTo(page, info, `/arenden/${SC.skyddad}`, KARIN);
@@ -485,7 +492,7 @@ test("17. 400 px: knappar och text inom korten, klickytor minst 44 px, tabeller 
   await check("byt huvudcoach");
   for (const t of ["avstamningar", "narvaro", "rapporter", "historik"]) {
     await switchTo(page, info, `/arenden/${SC.nadia}?flik=${t}`, SARA);
-    await expect(page.getByRole("tab", { selected: true })).toBeVisible();
+    await expect(cardTabSelected(page)).toBeVisible();
     await page.waitForTimeout(150);
     const scroll = await page.evaluate(() => [...document.querySelectorAll("#main .overflow-x-auto:not([role=tablist])")].filter((el) => (el as HTMLElement).offsetParent && el.scrollWidth > el.clientWidth + 2).length);
     const r = await probe(page);
@@ -512,7 +519,7 @@ async function writeNote(page: Page, body: string, opts: { team?: boolean } = {}
 
 test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven av'", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
-  await tab(page, /^Tidslinje/).click();
+  await openCardTab(page, "Tidslinje");
   await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller mötets anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.");
   await expect(page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Allt" })).toHaveAttribute("aria-pressed", "true");
   await expect(main(page)).toContainText("Månadsrapport: Levererad 8 januari 2027");
@@ -547,7 +554,7 @@ test("20. en coach utanför teamet ser hela tidslinjen med båda anteckningarna,
   await expect(main(page)).toContainText(NOTE_TEAM);
   await expect(main(page)).toContainText("Skriven av Amira Haddad · Även teamet");
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, PETRA);
-  await expect(tab(page, /^Tidslinje/)).toHaveAttribute("aria-selected", "true");
+  await expectCardTab(page, "Tidslinje");
   await expect(main(page)).toContainText(NOTE_TEAM);
   await expect(main(page)).toContainText(NOTE_FULL);
   await expect(main(page)).toContainText("Mötesrapport vecka");
@@ -559,7 +566,7 @@ test("20. en coach utanför teamet ser hela tidslinjen med båda anteckningarna,
 
 test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas innan rapporten kan godkännas", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=manad`, AMIRA);
-  await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
+  await expectCardTab(page, "Månadsunderlag");
   await expect(main(page)).toContainText("Underlaget till månadsrapporten. Bara godkända uppgifter kommer med.");
   await expect(main(page)).toContainText("Innan rapporten kan godkännas");
   // Antalet godkända mötesrapporter under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
@@ -584,7 +591,7 @@ test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas in
 test("21b. en månad utan månadsrapport (start 25 januari, 7 dagar): ingen uppmaning – Ingen månadsrapport på kortet och på sidan Månadsbedömning", async ({ page }, info) => {
   // BOT-27-0027 startade måndag 25 januari 2027. Kortet ber aldrig om en bedömning som servern nekar (needsAssessment).
   const errors = await open(page, info, "/arenden/case-270027?flik=manad", AMIRA);
-  await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
+  await expectCardTab(page, "Månadsunderlag");
   await expect(page.locator("#manad-val")).toHaveValue("2027-02");
   await expect(main(page)).toContainText("Underlaget till månadsrapporten.");
   await expect(main(page)).not.toContainText("är inte påbörjad");
@@ -627,7 +634,7 @@ test("23. 400 px: tidslinjen, dialogen och månadsunderlaget – inget utanför 
 
 test("22. chefen ser tidslinjen och månadsunderlaget utan knappar som ändrar något", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, KARIN);
-  await expect(tab(page, /^Tidslinje/)).toHaveAttribute("aria-selected", "true");
+  await expectCardTab(page, "Tidslinje");
   await expect(main(page)).toContainText("Samtal med deltagaren");
   await expect(btn(page, "Skriv anteckning")).toHaveCount(0);
   await expect(main(page).getByRole("button", { name: /^Ändra|^Ta bort/ })).toHaveCount(0);
@@ -725,14 +732,14 @@ test("26. tidslinjen: Visa text fäller ut meddelandet och avstämningens anteck
   const show = row.getByRole("button", { name: "Visa text" });
   await expect(show).toHaveAttribute("aria-expanded", "false");
   expect(await show.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
-  await expect(tab(page, /^Meddelanden/)).toContainText("1");
+  await expect(cardMore(page)).toContainText("1");
   await show.click();
   const region = row.getByRole("region", { name: "Meddelande från kommunen" });
   await expect(region).toContainText(MSG);
   await expect(region).toContainText("Maria Ekdahl");
   // Texten visades: meddelandet markeras som läst (bara det), som på fliken Meddelanden (granskning 2026-10-03).
   await expect(region).toContainText("Läst av Amira Haddad");
-  await expect(tab(page, /^Meddelanden/)).not.toContainText(/\d/);
+  await expect(cardMore(page)).not.toContainText(/\d/);
   const hide = row.getByRole("button", { name: "Dölj text" });
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   expect(await hide.getAttribute("aria-controls")).toBe(await region.getAttribute("id"));
@@ -768,7 +775,7 @@ test("27. tidslinjens text: chefen fäller ut utan att något loggas; en coach u
   const logTable = page.getByRole("table", { name: "Revisionslogg" });
   await expect(logTable).toBeVisible();
   const rowsBefore = await logTable.locator("tbody tr").count();
-  await tab(page, /^Tidslinje/).click();
+  await openCardTab(page, "Tidslinje");
   const row = main(page).getByRole("listitem").filter({ hasText: "Meddelande från kommunen" }).first();
   await row.getByRole("button", { name: "Visa text" }).click();
   await expect(row.getByRole("region", { name: "Meddelande från kommunen" })).toContainText("Tack! Kan vi ses");
@@ -813,7 +820,7 @@ test("28. Ändra kontaktväg: coachen för in deltagarens svar med samma regler 
   await btn(page, "Visa alla uppgifter").click();
   await expect(main(page).locator("#arende-uppgifter")).toContainText(/Kontaktväg\s*E-post/);
   await expect(btn(page, "Ändra kontaktväg")).toHaveCount(0);
-  await tab(page, /Historik/).click();
+  await openCardTab(page, "Historik");
   const log = page.getByRole("table", { name: "Revisionslogg" });
   await expect(log).toContainText("Kontaktvägen ändrades");
   // Fälten på svenska – aldrig kodnamnen (preferredContact, email).
