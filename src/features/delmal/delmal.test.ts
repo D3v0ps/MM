@@ -249,7 +249,7 @@ describe("Karims beslut 2026-11-25: punkterna i steg 1–2 kryssas i på kortet 
 
   it("punkten har avtalets delmål med läget – två ikryssade delmål uppfyller Förbättrade ansökningshandlingar, och fliken Delmål visar samma", async () => {
     const v = await card(MEHMET);
-    expect(v).toMatchObject({ canTick: true, today: "2027-02-01", minDate: "2026-12-11" });
+    expect(v).toMatchObject({ canTick: true, today: "2027-02-01", minDate: "2026-12-11", defaultDate: "2027-02-01" });
     const before = await item(MEHMET, ANS);
     expect(before).toMatchObject({ key: "ansokningshandlingar", fulfilled: false, need: 2, goals: [] });
     // Avtalets aktiva delmål som räknas mot punkten, i katalogens ordning – med läget som text och ikon.
@@ -285,6 +285,20 @@ describe("Karims beslut 2026-11-25: punkterna i steg 1–2 kryssas i på kortet 
     // Startdagen och i dag går bra.
     expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(20), achievedOn: "2026-12-11", evidence: null }, amira())).toMatchObject({ ok: true });
     expect(await cmd(goalAchieve, { caseId: MEHMET, goalId: G(21), achievedOn: "2027-02-01", evidence: null }, amira())).toMatchObject({ ok: true });
+  });
+
+  it("avslutad insats: dialogens förvalda dag är slutdatumet – två delmål den dagen uppfyller punkten; en dag efter slutdatumet räknas inte", async () => {
+    const CLOSED = "case-260064"; // huvudcoach Erik, avslutad, steg 3 avslaget
+    const c = rows("cases").find((x) => x.id === CLOSED)!;
+    const v = await card(CLOSED, erik());
+    expect(c.status).toBe("closed");
+    expect(c.endDate! < v.today).toBe(true);
+    expect(v).toMatchObject({ canTick: true, defaultDate: c.endDate });
+    // Uppnått i dag sparas (i dag eller tidigare, inte före start) men ligger efter insatsen – det räknas inte mot punkten.
+    expect(await cmd(goalAchieve, { caseId: CLOSED, goalId: G(13), achievedOn: v.today, evidence: null }, erik())).toMatchObject({ ok: true });
+    expect(await item(CLOSED, ANS, erik())).toMatchObject({ fulfilled: false, goals: [] });
+    for (const n of [20, 21]) expect(await cmd(goalAchieve, { caseId: CLOSED, goalId: G(n), achievedOn: v.defaultDate, evidence: null }, erik())).toMatchObject({ ok: true });
+    expect(await item(CLOSED, ANS, erik())).toMatchObject({ fulfilled: true, goals: ["Har ett uppdaterat CV", "Har ett personligt brev"] });
   });
 
   it("den som inte får markera delmål läser punkterna utan att kunna kryssa i – kommandot nekas; en begränsad testare ser inte kortet", async () => {

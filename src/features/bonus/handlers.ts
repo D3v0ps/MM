@@ -172,7 +172,8 @@ handleQuery(bonusCard, { roles: READERS }, async (ctx, p): Promise<BonusCardView
         items: s.step <= 2 ? frozen ?? live() : [],
       };
     });
-  return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, canTick, today, minDate: c.startDate, steps };
+  const defaultDate = c.endDate && c.endDate < today ? c.endDate : today;
+  return { on: true, caseId: c.id, caseNumber: c.caseNumber, canAct, canTick, today, minDate: c.startDate, defaultDate, steps };
 });
 
 // ---------------------------------------------------------------- bonus.granska (Granska och skicka)

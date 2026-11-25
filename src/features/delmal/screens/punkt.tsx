@@ -21,14 +21,16 @@ export type StepItemModalProps = {
   options: readonly StepItemGoalView[];
   today: string;
   minDate: string | null;
+  /** Förvald dag: i dag, eller slutdatumet i en avslutad insats (den senaste dagen som räknas mot punkterna). */
+  defaultDate: string;
   onClose: () => void;
 };
 
-export function StepItemModal({ caseId, label, options, today, minDate, onClose }: StepItemModalProps) {
+export function StepItemModal({ caseId, label, options, today, minDate, defaultDate, onClose }: StepItemModalProps) {
   const achieve = useCommand(goalAchieve);
   const undo = useCommand(goalUndo);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set(options.filter((g) => g.state === "achieved").map((g) => g.goalId)));
-  const [on, setOn] = useState(today);
+  const [on, setOn] = useState(defaultDate);
   const [evidence, setEvidence] = useState(NO_EVIDENCE_VALUE);
   const [to, setTo] = useState<"training" | "none">("training");
   const [saving, setSaving] = useState(false);

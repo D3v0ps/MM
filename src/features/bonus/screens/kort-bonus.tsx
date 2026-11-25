@@ -130,7 +130,7 @@ function BonusCardContent({ v }: { v: Extract<BonusCardView, { on: true }> }) {
         ))}
       </List>
       {v.canTick && picked?.options && (
-        <StepItemModal key={picking} caseId={v.caseId} label={picked.label} options={picked.options} today={v.today} minDate={v.minDate} onClose={() => setPicking(null)} />
+        <StepItemModal key={picking} caseId={v.caseId} label={picked.label} options={picked.options} today={v.today} minDate={v.minDate} defaultDate={v.defaultDate} onClose={() => setPicking(null)} />
       )}
     </Card>
   );

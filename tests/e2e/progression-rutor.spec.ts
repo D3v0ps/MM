@@ -1,7 +1,8 @@
 // Punkterna i steg 1–2 kryssas i direkt på kortet Progression och resultat (Karims beslut 2026-11-25). Samma test mot prototypen och
 // appen: coachen öppnar BOT-26-0130 (Mehmet, huvudcoach Amira, inga uppnådda delmål) → Progression och resultat → Förbättrade
 // ansökningshandlingar (med tangentbordet) → kryssar i två delmål → Spara: punkten är uppfylld och fliken Delmål visar båda som
-// Uppnått. Påbörjat praktik eller arbetsträning ger förslaget till steg 2 direkt. Chefen läser punkterna utan att kunna kryssa i.
+// Uppnått. Påbörjat praktik eller arbetsträning ger förslaget till steg 2 direkt. Ett kryss som tas bort är Ångra. Chefen läser
+// punkterna utan att kunna kryssa i.
 // Bara påhittade uppgifter.
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { isDemo, open } from "./helpers";
@@ -76,6 +77,24 @@ test("coachen kryssar i två delmål under Förbättrade ansökningshandlingar �
   await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${MEHMET}?flik=delmal`);
   const tab = card(page, "Delmål");
   for (const g of [CV, BREV, PRAKTIK]) await expect(tab.locator("[data-delmal]").filter({ hasText: g })).toContainText("Uppnått 1 feb 2027");
+
+  // 6. Ett kryss som tas bort är Ångra: tillbaka till Tränar (förvalt) – punkten är inte längre uppfylld.
+  await page.getByRole("tab", { name: /^Progression och resultat/ }).click();
+  await item(steps, ANS).click();
+  const dlg3 = page.getByRole("dialog", { name: ANS });
+  await expect(dlg3.getByLabel(CV)).toBeChecked();
+  await expect(dlg3.getByLabel(BREV)).toBeChecked();
+  await expect(dlg3.getByText("Ångra uppnått – ändra till")).toHaveCount(0);
+  await dlg3.getByLabel(BREV).uncheck();
+  await expect(dlg3.getByText("Ångra uppnått – ändra till")).toBeVisible();
+  await dlg3.getByRole("button", { name: "Spara", exact: true }).click();
+  await expect(dlg3).toHaveCount(0);
+  await expect(item(steps, ANS)).toHaveText(`${ANS}: Inte uppfyllt (1 av 2) – ${CV}`);
+  await page.getByRole("tab", { name: /^Delmål/ }).click();
+  const brev = tab.locator("[data-delmal]").filter({ hasText: BREV });
+  await expect(brev).toContainText("Tränar");
+  await expect(brev).not.toContainText("Uppnått");
+  await expect(tab.locator("[data-delmal]").filter({ hasText: CV })).toContainText("Uppnått 1 feb 2027");
   expect(await main(page).innerText()).not.toMatch(/undefined|NaN|\[object Object\]/);
   expect(errors).toEqual([]);
 });

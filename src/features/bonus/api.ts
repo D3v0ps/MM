@@ -130,6 +130,11 @@ export type BonusCardView =
       today: LocalDate;
       /** Tidigaste dag för Uppnått: insatsens startdatum. */
       minDate: LocalDate | null;
+      /**
+       * Förvald dag i dialogen för en punkt: den senaste dagen som räknas mot punkterna – i dag, eller slutdatumet i en avslutad
+       * insats (bara delmål som uppnåtts under insatsen räknas, caseStepItems).
+       */
+      defaultDate: LocalDate;
       steps: BonusStepRow[];
     };
 export const bonusCard = query("bonus.kort", z.object({ caseId: IdSchema })).returns<BonusCardView>();

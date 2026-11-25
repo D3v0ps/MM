@@ -432,7 +432,7 @@ Punkterna i steg 1 och 2 – till exempel **Förbättrade ansökningshandlingar*
 
 1. Tryck på punkten.
 2. Kryssa i de delmål som deltagaren har klarat.
-3. **Datum** är i dag. Ändra om deltagaren klarade det tidigare.
+3. **Datum** är i dag. I en avslutad insats är det slutdatumet. Ändra om deltagaren klarade det tidigare.
 4. Välj **Underlag** om du vill: ett tillfälle, en mötesrapport eller en anteckning i ärendet.
 5. Tryck på **Spara**.
 
