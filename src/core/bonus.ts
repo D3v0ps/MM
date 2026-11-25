@@ -219,6 +219,27 @@ export function manualCreateProblem(c: Pick<Case, "startDate" | "status">, claim
 /** Anspråket för steg 3 som steg 4 och 5 bygger på: det som räknas (suggested, submitted, approved), annars null. */
 export const step3For = <T extends Pick<BonusClaim, "step" | "status">>(claims: readonly T[]): T | null => claims.find((x) => x.step === 3 && isActiveClaim(x)) ?? null;
 
+/**
+ * Stegen där kortet Progression och resultat erbjuder Skapa underlag på stegets rad (Karims beslut 2026-11-25 – knappen i kortets
+ * huvud är borttagen). Bara där ett anspråk kan skapas nu (manualCreateProblem) och något av detta gäller:
+ *   - reglerna skulle föreslå steget nu (bonusSuggestions) men förslaget finns inte än – jobbet har inte kört, eller testdatats golv
+ *   - stegets senaste anspråk är avslaget eller återtaget – reglerna föreslår aldrig samma underlag igen
+ *   - steg 3: en händelse av typerna step3EventKinds i fönstret, också utan registrerad verifiering (verifieringen fylls i i
+ *     granskningen – en händelse får inte verifiering i efterhand i kortet)
+ * Steg 1–2 utan tidigare anspråk har ingen knapp: punkterna kryssas i med delmålen på kortet, och reglerna skapar förslaget.
+ */
+export function manualCreateSteps(db: BonusRuleDb, c: Case, m: BonusModel, env: Pick<DomainEnv, "now">): number[] {
+  const claims = db.bonus_claims.filter((x) => x.caseId === c.id);
+  const can = (step: number) => manualCreateProblem(c, claims, step) == null;
+  const out = new Set<number>();
+  for (const x of bonusSuggestions({ ...db, cases: [c] }, m, env)) if (x.caseId === c.id && can(x.step)) out.add(x.step);
+  for (const s of m.steps) if (can(s.step) && claims.some((x) => x.step === s.step)) out.add(s.step);
+  const today = dayOf(env.now);
+  const result = db.outcome_events.some((e) => e.caseId === c.id && (m.step3EventKinds as readonly string[]).includes(e.kind) && e.occurredOn <= today && inResultWindow(c, e.occurredOn, m));
+  if (result && can(3)) out.add(3);
+  return [...out].sort((a, b) => a - b);
+}
+
 // ---------------------------------------------------------------- Innan anspråket skickas
 export type SubmitContext = {
   claim: Pick<BonusClaim, "step" | "status" | "reachedOn" | "verificationKind" | "verificationOn" | "basis">;
