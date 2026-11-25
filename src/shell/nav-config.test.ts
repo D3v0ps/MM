@@ -7,13 +7,13 @@ const labels = (role: Parameters<typeof navFor>[0], now: string | null = "2027-0
 describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", () => {
   it("samordnare: Min vardag + Samordning", () => {
     expect(labels("samordnare")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Intern månadsrapport /manadsrapport", "Arbetsgivare och praktik /praktik"]],
       ["Samordning", ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Bygg rapport /rapportbyggare"]],
     ]);
   });
   it("avtalsansvarig: Min vardag + Avtalet (Arbetsgivare och praktik är nytt i menyn – rollen har sidan)", () => {
     expect(labels("avtalsansvarig")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Intern månadsrapport /manadsrapport", "Arbetsgivare och praktik /praktik"]],
       [
         "Avtalet",
         // Delmålen (Karims beslut 2026-11-11): avtalets katalog.
@@ -23,7 +23,7 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
   });
   it("coach: bara Min vardag – den vilande rollen handledare har ingen meny (Karims beslut 2026-10-09)", () => {
     expect(labels("coach")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka #tasks", "Närvaro /narvaro #unregistered", "Aktiviteter /aktiviteter", "Mina ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka #tasks", "Närvaro /narvaro #unregistered", "Aktiviteter /aktiviteter", "Mina ärenden /arenden", "Anteckningar /anteckningar", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Intern månadsrapport /manadsrapport", "Arbetsgivare och praktik /praktik"]],
     ]);
     expect(navFor("handledare", { now: "2027-02-01T09:12" })).toEqual([]);
     for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const) {
@@ -32,7 +32,7 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
   });
   it("chef: Min vardag + Ledning", () => {
     expect(labels("chef")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Grupper och nivåer /grupper", "Rapporter /rapporter"]],
+      ["Min vardag", ["Min vecka /min-vecka #tasks", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Grupper och nivåer /grupper", "Rapporter /rapporter", "Intern månadsrapport /manadsrapport"]],
       ["Ledning", ["Ledningsvy /ledning", "Avtalsavvikelser /avtalsavvikelser", "Förfaller /forfaller #deadlines", "Bygg rapport /rapportbyggare", "Revisionslogg /admin/logg"]],
     ]);
   });
@@ -84,6 +84,15 @@ describe("rapportbyggaren (rapporter steg 4)", () => {
     // Rapportbyggaren och rapportlistan är olika menyval.
     expect(activePath("/rapportbyggare/sr-1", ["/rapporter", "/rapportbyggare"])).toBe("/rapportbyggare");
     expect(activePath("/rapporter/rep-1", ["/rapporter", "/rapportbyggare"])).toBe("/rapporter");
+  });
+});
+
+describe("den interna månadsrapporten (Karims beslut 2026-11-18)", () => {
+  it("i Min vardag efter Rapporter – bara samordnare, avtalsansvarig, coach och chef (aldrig ekonomen eller systemadministratören)", () => {
+    const has = (role: Parameters<typeof navFor>[0]) => navFor(role, { now: "2027-02-01T09:12" }).flatMap((g) => g.items.map((i) => i.to)).includes("/manadsrapport");
+    expect(["samordnare", "avtalsansvarig", "coach", "chef"].map((r) => has(r as never))).toEqual([true, true, true, true]);
+    expect(["ekonom", "admin", "handledare", "kommun_handlaggare", "deltagare"].map((r) => has(r as never))).toEqual([false, false, false, false, false]);
+    expect(activePath("/manadsrapport", ["/rapporter", "/manadsrapport", "/manadsbedomning"])).toBe("/manadsrapport");
   });
 });
 

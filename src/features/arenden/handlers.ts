@@ -884,7 +884,7 @@ const SEV_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info:
 /** Händelser som räknas som arbetsgivarkontakter (prototypens CONTACT_KINDS). */
 const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
 /** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
-const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view", "group_activity.view"];
+const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view", "group_activity.view", "monthly_overview.viewed", "monthly_overview.downloaded"];
 
 const isManager = (role: Role) => role === "samordnare" || role === "avtalsansvarig";
 const cap = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
@@ -1901,6 +1901,8 @@ const AUDIT_TEXT: Record<string, string> = {
   "attendance.auto_registered": "Närvaro registrerades automatiskt", "group_activity.created": "Bjöds in till en ny gruppaktivitet",
   "group_activity.updated": "Gruppaktiviteten ändrades", "group_activity.invited": "Bjöds in till gruppaktivitet", "group_activity.removed_participant": "Togs bort från gruppaktivitet",
   "group_activity.cancelled": "Gruppaktiviteten ställdes in", "group_activity.view": "Öppnade aktivitetsvyn",
+  // Den interna månadsrapporten (Karims beslut 2026-11-18): raden hör till ärendet via details.caseIds – bara chef och admin läser loggen.
+  "monthly_overview.viewed": "Visades i den interna månadsrapporten", "monthly_overview.downloaded": "Kom med i den interna månadsrapporten som PDF",
   // Spår G: meddelandet till deltagaren och gruppmålet (internt – bara Miljonbemanning ser Historik).
   "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
   // Karims beslut 2026-10-22: målgruppen (nivå eller yrkesområde) bjuder in och tar bort automatiskt; återkommande aktiviteter.

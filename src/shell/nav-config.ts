@@ -31,6 +31,8 @@ const INKORG: NavItem = { to: "/inkorg", label: "Avropsinkorg", icon: "inbox", c
 const FORFALLER: NavItem = { to: "/forfaller", label: "Förfaller", icon: "clock", count: "deadlines" };
 const ARENDEN: NavItem = { to: "/arenden", label: "Ärenden", icon: "list" };
 const RAPPORTER: NavItem = { to: "/rapporter", label: "Rapporter", icon: "file" };
+/** Den interna månadsrapporten (Karims beslut 2026-11-18) – bara Miljonbemanning: samordnare, avtalsansvarig, coach och chef. */
+const MANADSRAPPORT: NavItem = { to: "/manadsrapport", label: "Intern månadsrapport", icon: "trending-up" };
 /** Rapportbyggaren (rapporter steg 4) – samordnare, avtalsansvarig och chef. */
 const BYGG: NavItem = { to: "/rapportbyggare", label: "Bygg rapport", icon: "chart" };
 const PRAKTIK: NavItem = { to: "/praktik", label: "Arbetsgivare och praktik", icon: "briefcase" };
@@ -70,6 +72,8 @@ export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: Supplier
   // Samma roller som rutten (GROUPING_READERS utom den vilande rollen handledare).
   { roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], item: () => GRUPPER },
   { roles: ["samordnare", "avtalsansvarig", "coach", "chef"], item: () => RAPPORTER },
+  // Samma roller som rutten (MANAD_ROLES i rapporter/manad/api.ts).
+  { roles: ["samordnare", "avtalsansvarig", "coach", "chef"], item: () => MANADSRAPPORT },
   { roles: ["samordnare", "avtalsansvarig", "coach"], item: () => PRAKTIK },
 ];
 export const COMMON_GROUP_LABEL = "Min vardag";

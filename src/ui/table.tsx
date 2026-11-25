@@ -1,7 +1,7 @@
 // Tabell (prototypens Table). Klickbara rader går att nå med tangentbordet (Tab + Enter/mellanslag).
 // rowHref: raden leder till en sida. En cell (linkKey, standard första kolumnen) blir en riktig länk – den är tabbstoppet,
 // högerklick ger länkmenyn och ctrl/cmd-klick eller mittenklick öppnar en ny flik. Klick på resten av raden gör samma sak.
-import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { Fragment, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavOptional, type Nav } from "@/shell/nav";
 import { cn } from "./cn";
 
@@ -42,6 +42,11 @@ export type TableProps<R> = {
    * false = skärmen ritar själv en länk i raden (t.ex. bara rubriken i en cell med rubrik och underrad).
    */
   linkKey?: string | false;
+  /**
+   * Utfällda uppgifter under raden (en egen rad över alla kolumner), eller null. Skärmen håller reda på vilka rader som är
+   * utfällda och ritar knappen (aria-expanded, aria-controls) i en kolumn – raden finns bara i sidan när den är utfälld.
+   */
+  rowDetail?: (row: R) => ReactNode | null;
   className?: string;
 };
 
@@ -66,7 +71,7 @@ const TONE: Record<RowTone, string> = {
   selected: "[&>td]:bg-bla-ton",
 };
 
-export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, rowTone, empty = "Inget att visa.", footer, caption, rowAttrs, rowHref, linkKey, className }: TableProps<R>) {
+export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, rowTone, empty = "Inget att visa.", footer, caption, rowAttrs, rowHref, linkKey, rowDetail, className }: TableProps<R>) {
   const nav = useNavOptional();
   const linkCol = linkKey === false ? null : (linkKey ?? columns[0]?.key);
   const keyOf = (r: R, i: number): string => {
@@ -114,32 +119,41 @@ export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, 
             const tone = rowTone?.(r);
             const href = nav ? (rowHref?.(r) ?? null) : null;
             const clickable = !!href || !!onRowClick;
+            const detail = rowDetail?.(r) ?? null;
             return (
-              <tr
-                {...rowAttrs?.(r)}
-                key={keyOf(r, i)}
-                className={cn(clickable && "cursor-pointer hover:[&>td]:bg-ljusgra-ton", tone && TONE[tone])}
-                onClick={href && nav ? (e) => rowNavigate(nav, href, e) : onRowClick ? () => onRowClick(r) : undefined}
-                onAuxClick={href && nav ? (e) => rowNavigate(nav, href, e) : undefined}
-                // Med rowHref är länken i raden tabbstoppet – raden behöver inget eget.
-                tabIndex={!href && onRowClick ? 0 : undefined}
-                onKeyDown={!href && onRowClick ? (e) => onKey(e, r) : undefined}
-              >
-                {columns.map((c) => {
-                  const content = c.render ? c.render(r) : ((r as Record<string, unknown>)[c.key] as ReactNode);
-                  return (
-                    <td key={c.key} className={cn("border-b border-ljusgra px-3 py-2.5 align-top", c.num && "text-right tabular-nums", c.nowrap && "whitespace-nowrap")}>
-                      {href && c.key === linkCol ? (
-                        <Link to={href} className="inline-flex min-h-11 flex-col justify-center font-bold text-antracit underline underline-offset-3">
-                          {content}
-                        </Link>
-                      ) : (
-                        content
-                      )}
+              <Fragment key={keyOf(r, i)}>
+                <tr
+                  {...rowAttrs?.(r)}
+                  className={cn(clickable && "cursor-pointer hover:[&>td]:bg-ljusgra-ton", tone && TONE[tone], detail != null && "[&>td]:border-b-0")}
+                  onClick={href && nav ? (e) => rowNavigate(nav, href, e) : onRowClick ? () => onRowClick(r) : undefined}
+                  onAuxClick={href && nav ? (e) => rowNavigate(nav, href, e) : undefined}
+                  // Med rowHref är länken i raden tabbstoppet – raden behöver inget eget.
+                  tabIndex={!href && onRowClick ? 0 : undefined}
+                  onKeyDown={!href && onRowClick ? (e) => onKey(e, r) : undefined}
+                >
+                  {columns.map((c) => {
+                    const content = c.render ? c.render(r) : ((r as Record<string, unknown>)[c.key] as ReactNode);
+                    return (
+                      <td key={c.key} className={cn("border-b border-ljusgra px-3 py-2.5 align-top", c.num && "text-right tabular-nums", c.nowrap && "whitespace-nowrap")}>
+                        {href && c.key === linkCol ? (
+                          <Link to={href} className="inline-flex min-h-11 flex-col justify-center font-bold text-antracit underline underline-offset-3">
+                            {content}
+                          </Link>
+                        ) : (
+                          content
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {detail != null && (
+                  <tr data-row-detail="">
+                    <td colSpan={columns.length} className="border-b border-ljusgra px-3 pt-1 pb-4 align-top">
+                      {detail}
                     </td>
-                  );
-                })}
-              </tr>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>

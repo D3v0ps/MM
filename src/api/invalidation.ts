@@ -44,6 +44,11 @@ export const BONUS = "bonus.";
  * ger Tränar automatiskt – därför i CASE_FACTS.
  */
 export const DELMAL = "delmal.";
+/**
+ * Den interna månadsrapporten (Karims beslut 2026-11-18): ingår i REPORTS (och därmed CASE_FACTS); delmålen och stegen i
+ * Progression och resultat räknar om den med den här nyckeln (deras kommandon räknar inte om alla rapporter).
+ */
+export const MANADSRAPPORT = "rapporter.manadsrapport";
 /** Adminsidor som räknar ärenden, avstämningar och körningar. */
 export const CASE_STATS = ["admin.contract", "admin.integrations", "admin.orgRules"] as const;
 /**
