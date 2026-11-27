@@ -253,6 +253,41 @@ Kontroll efteråt (i SQL Editor):
 - `select count(*) from pg_policies where tablename in ('activities', 'attendance', 'check_ins');` svarar 10 (som före 0044).
 - Prova i appen: som kommunens handläggare visar deltagarens sida i portalen inget kort Närvaro, och **Rapporter och meddelanden** öppnar veckorapporterna om närvaro med tillfällena per deltagare. Som coach och ekonom är Närvaro, Min vecka och fakturaunderlaget oförändrade.
 
+### Kommunens avtalsansvarig (Karims beslut 2026-11-27) – ingen migration, koden FÖRE värdet
+
+Kommunens kontaktperson för avtalet står i avtalskonfigurationen: `contracts.config.customerContact` = `{"name": "…", "phone": "+46…", "email": "…"}` (jsonb – ingen migration, ingen ny kolumn, inga nya rättigheter; bara systemadministratören ändrar avtalet, policyn `contracts_update` från 0002). Alla tre fälten krävs och inga andra: namnet 1–80 tecken utan mellanslag först eller sist, telefonnumret som svenskt E.164-nummer (`+46` och numret utan inledande nolla, till exempel `+46701234567` för 070-123 45 67) och en hel e-postadress (högst 254 tecken). Kommunen kan läsa avsnittet i sitt avtal (vyn `contracts_public` – personen är kommunens egen); ingen sida i portalen visar det.
+
+**Driftordning: koden före värdet.** Den äldre koden godtar inga okända avsnitt i avtalskonfigurationen (zod-schemat är strikt överst) och prövar konfigurationen på ett ställe: självregistreringen i portalen (`selfRegistrationContracts` i `src/core/self-registration.ts`). Står `customerContact` i avtalet medan den äldre koden körs kan **inga nya handläggare på kommundomänen skapa konto** – allt annat fungerar som förut. Samma sak med den nya koden om värdet har fel form (numret skrivet som 070-…, ett extra fält, ett tomt namn): lägg därför helst in kontaktpersonen i appen.
+
+1. **Koden med kommunens avtalsansvarig** driftsätts.
+2. **Värdet läggs in** – i appen eller med SQL, aldrig i repot:
+   - **I appen (rekommenderas):** systemadministratören öppnar `/admin/avtal`, Avtalsfakta → **Kommunens avtalsansvarig** → **Ändra**, fyller i Namn, Telefon och E-post och trycker Spara. Numret får skrivas som 070-123 45 67 – det sparas som `+46…`. Tre tomma fält tar bort kontaktpersonen. Revisionsloggen får `contract.customer_contact_changed` med bara fältnamnen (`fields`).
+   - **Med SQL** (i *SQL Editor*, en gång – fyll i värdena **i kopian du kör**, skriv dem aldrig i repot eller i en commit):
+
+     ```sql
+     begin;
+     update public.contracts
+        set config = jsonb_set(config, '{customerContact}', jsonb_build_object('name', 'NAMN', 'phone', '+46NUMMER', 'email', 'E-POST'))
+      where contract_number = '332026110';
+     insert into public.audit_log (id, occurred_at, actor_id, action, entity, entity_id, contract_id, details)
+     select 'log-kommunkontakt-' || gen_random_uuid()::text, now(), 'system', 'contract.customer_contact_changed', 'contract', id, id, '{"fields": ["name", "phone", "email"], "source": "manual"}'::jsonb
+       from public.contracts where contract_number = '332026110';
+     commit;
+     ```
+
+Kontroll efteråt (i SQL Editor) – alla fyra ska svara `true`, annars är självregistreringen stängd tills värdet rättats:
+
+```sql
+select (c ->> 'phone') ~ '^\+46[1-9][0-9]{6,8}$' as phone_ok,
+       (select array_agg(k order by k) from jsonb_object_keys(c) k) = array['email', 'name', 'phone'] as keys_ok,
+       length(c ->> 'name') between 1 and 80 and (c ->> 'name') = btrim(c ->> 'name') as name_ok,
+       length(c ->> 'email') <= 254 and (c ->> 'email') ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' as email_ok
+  from (select config -> 'customerContact' as c from public.contracts where contract_number = '332026110') x;
+```
+
+- Ta bort med SQL: `update public.contracts set config = config - 'customerContact' where contract_number = '332026110';`
+- Prova i appen: avtalssidan visar namnet, numret som 070-123 45 67 och adressen som text (inga länkar), och **Revisionslogg** visar "Ändrade kommunens avtalsansvarig" med "Fält: namn, telefon, e-post" – aldrig värdena.
+
 ### Så läggs kollegor till (ingen SQL)
 
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
@@ -309,6 +344,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Migration 0042 (Karims beslut 2026-11-11) | **Skriven, inte applicerad.** SMS att skicka: kolumnen `outbound_messages.sent_by` (vem som markerade ett SMS som skickat för hand, status `sent_manually`). Seriens tid: `group_activities.series_slot` med unikt index (granskningen 2026-11-11). Appliceras i SQL Editor efter 0041 och **före** koden (se "Migration 0042" ovan) |
 | Migration 0043 och startlistan för delmål (Karims beslut 2026-11-11) | **Skriven, inte applicerad.** Delmål för progressionerna (`progress_goals`, `case_progress_goals`, `activity_progress_goals`, kolumnen `progress_goal_ids` på `group_activities` och `group_activity_series`, triggrarna `progress_goals_check`, `case_progress_goals_check`, `activity_progress_goals_check` och `*_progress_goal_tags`). 0043 appliceras i SQL Editor efter 0042 och **före** koden; `supabase/manual/2026-11-delmal-botkyrka.sql` (startlistan och tröskeln `bonus.stepItemMin`) körs av Karim **efter** koden (se "Migration 0043 och startlistan" ovan) |
 | Migration 0044 (Karims beslut 2026-11-25) | **Skriven, inte applicerad.** Kommunen läser inte deltagarnas tillfällen och närvaro: policyerna `activities_select`, `activities_update`, `attendance_select` och `attendance_update` utan åtkomsten `customer` (mötesrapporterna läste kommunen redan inte). Appliceras i SQL Editor efter 0043 och **efter** (eller samtidigt med) koden utan kortet Närvaro i portalen (se "Migration 0044" ovan) |
+| Kommunens avtalsansvarig (Karims beslut 2026-11-27) | **Ingen migration.** `contracts.config.customerContact` (namn, telefon som `+46…`, e-post). Koden **före** värdet – den äldre koden stänger självregistreringen när avsnittet finns. Värdet läggs in i appen (`/admin/avtal`) eller med SQL (se "Kommunens avtalsansvarig" ovan) |
 | Migration 0041 och intagsansvarig (Karims beslut 2026-11-09) | **Skriven, inte applicerad.** Intagsansvarig tar emot nya beställningar (`contracts.intake_coach_id`, triggrarna `contracts_intake_coach_check` och `cases_accept_guard`, funktionen `mm.is_intake_coach`, `mm.visible_contracts()` och vyn `contracts_public` ombyggda med den nya kolumnen sist, och läsrätten på `cases.status` för inloggade). 0041 appliceras i SQL Editor efter 0040, som en transaktion, och **före** koden – utan den går det inte att acceptera avrop eller starta insatser; `supabase/manual/2026-11-intagsansvarig-botkyrka.sql` (vem som är intagsansvarig i Botkyrkaavtalet) körs av Karim **efter** koden – eller så väljs personen i appen (se "Migration 0041 och intagsansvarig" ovan) |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |

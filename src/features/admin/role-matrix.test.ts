@@ -36,7 +36,7 @@ describe("behörighetsmatrisen stämmer med hanterarna, rutterna och policyn (pa
       decline: ["arenden.caseDecline"],
       customers: ["admin.inviteCustomer", "admin.setCustomerActive"],
       staff: ["admin.inviteStaff", "admin.setStaffRoles"],
-      admin: ["admin.setContractManager", "admin.setIntakeCoach", "admin.setOrgRule", "admin.runJob"],
+      admin: ["admin.setContractManager", "admin.setIntakeCoach", "admin.setCustomerContact", "admin.setOrgRule", "admin.runJob"],
       alerts: ["ledning.alertAck"],
       deviations: ["ledning.cdevSave"],
       invoicing: ["ekonomi.billingSendFortnox", "ekonomi.billingApproveInvoice"],

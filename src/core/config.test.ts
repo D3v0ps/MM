@@ -8,7 +8,10 @@ import {
   bonusStepLabel,
   customerSafeConfig,
   ContractConfigSchema,
+  CUSTOMER_CONTACT_NAME_MAX,
+  CustomerContactSchema,
   DEFAULT_ORG_SETTINGS,
+  OPERATIONAL_SECTIONS,
   OperationalConfigSchema,
   OrgSettingsSchema,
   RECORDING_KINDS,
@@ -300,6 +303,50 @@ describe("zod-scheman", () => {
       (BOTKYRKA_CONFIG.phases[0] as { name: string }).name = "Ändrad";
     }).toThrow(TypeError);
     expect(BOTKYRKA_CONFIG.phases[0].name).toBe("Kartläggning");
+  });
+});
+
+// Kommunens avtalsansvarig (Karims beslut 2026-11-27). Påhittade uppgifter – aldrig riktiga personuppgifter i testerna.
+describe("kommunens avtalsansvarig (customerContact)", () => {
+  const TESTA = { name: "Testa Testsson", phone: "+46700000000", email: "testa.testsson@exempel.se" };
+
+  it("valfritt avsnitt: Botkyrka och ett utkast utan det validerar, och det är inget driftavsnitt", () => {
+    expect(BOTKYRKA_CONFIG).not.toHaveProperty("customerContact");
+    expect(ContractConfigSchema.safeParse(BOTKYRKA_CONFIG).success).toBe(true);
+    expect(isOperational(BOTKYRKA_CONFIG)).toBe(true);
+    expect((OPERATIONAL_SECTIONS as readonly string[]).includes("customerContact")).toBe(false);
+    expect(OperationalConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, customerContact: TESTA }).success).toBe(true);
+    expect(ContractConfigSchema.safeParse({ ...DRAFT, customerContact: TESTA }).success).toBe(true);
+    expect(CustomerContactSchema.parse(TESTA)).toEqual(TESTA);
+  });
+
+  it("namn krävs och är kort, telefonnumret sparas som svenskt E.164-nummer och e-postadressen är hel", () => {
+    const bad = [
+      { ...TESTA, name: "" }, { ...TESTA, name: " Testa Testsson" }, { ...TESTA, name: "x".repeat(CUSTOMER_CONTACT_NAME_MAX + 1) },
+      { ...TESTA, phone: "070-000 00 00" }, { ...TESTA, phone: "0700000000" }, { ...TESTA, phone: "+4520123456" }, { ...TESTA, phone: "" },
+      { ...TESTA, email: "testa.testsson" }, { ...TESTA, email: "" }, { ...TESTA, email: " testa@exempel.se" },
+      { ...TESTA, email: `${"a".repeat(250)}@exempel.se` },
+    ];
+    for (const c of bad) expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, customerContact: c }).success, JSON.stringify(c).slice(0, 80)).toBe(false);
+    expect(CustomerContactSchema.safeParse({ ...TESTA, name: "x".repeat(CUSTOMER_CONTACT_NAME_MAX) }).success).toBe(true);
+  });
+
+  it("strikt: alla tre fälten krävs och okända fält godtas inte", () => {
+    for (const k of ["name", "phone", "email"] as const) {
+      const { [k]: _drop, ...rest } = TESTA;
+      void _drop;
+      expect(CustomerContactSchema.safeParse(rest).success, k).toBe(false);
+    }
+    expect(CustomerContactSchema.safeParse({ ...TESTA, title: "Enhetschef" }).success).toBe(false);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, customerContact: null }).success).toBe(false);
+  });
+
+  it("koden före beslutet: konfigurationen är strikt överst – ett okänt avsnitt godtas inte (därför koden före värdet, docs/DRIFT.md)", () => {
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, kontaktperson: TESTA }).success).toBe(false);
+  });
+
+  it("kommunens version av avtalet (customerSafeConfig, mm.customer_safe_config) har kontaktpersonen kvar – hen är kommunens egen", () => {
+    expect(customerSafeConfig({ ...BOTKYRKA_CONFIG, customerContact: TESTA }).customerContact).toEqual(TESTA);
   });
 });
 

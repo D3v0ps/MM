@@ -115,6 +115,44 @@ test("avtal: konfiguration och ej fastställda värden – ett avtal, ingen väl
   expect(relevant(errors)).toEqual([]);
 });
 
+// Kommunens avtalsansvarig (Karims beslut 2026-11-27): systemadministratören lägger in kommunens kontaktperson för avtalet.
+// Påhittade uppgifter. Loggen har bara vilka fält som ändrades.
+test("avtal: kommunens avtalsansvarig – lägg in, visas som text, loggas utan värden och tas bort", async ({ page }, info) => {
+  const errors = await open(page, info, "/admin/avtal", ROBIN);
+  const m = main(page);
+  const row = () => m.locator("dl > div").filter({ has: page.locator("dt", { hasText: /^Kommunens avtalsansvarig$/ }) });
+  await expect(row().locator("dd")).toHaveText(/^–/);
+  await row().getByRole("button", { name: "Ändra kommunens avtalsansvarig" }).click();
+  await expect(row().locator("label")).toHaveText(["Namn", "Telefon", "E-post"]);
+  await row().getByLabel("Namn").fill("Testa Testsson");
+  await row().getByLabel("Telefon").fill("0700000000");
+  await row().getByLabel("E-post").fill("testa.testsson@exempel.se");
+  await row().getByRole("button", { name: "Spara" }).click();
+  await expect(page.locator("div[role=status][data-print=hide]")).toContainText("Kommunens avtalsansvarig är sparad.");
+  await expect(row().locator("dd")).toContainText("Testa Testsson");
+  await expect(row().locator("dd")).toContainText("070-000 00 00");
+  await expect(row().locator("dd")).toContainText("testa.testsson@exempel.se");
+  await expect(row().locator("a")).toHaveCount(0);
+
+  // Uppgifterna ligger kvar efter omladdning, och loggen har bara fälten.
+  await switchTo(page, info, "/admin/avtal", ROBIN);
+  await expect(row().locator("dd")).toContainText("070-000 00 00");
+  await switchTo(page, info, "/admin/logg", ROBIN);
+  await page.locator("#log-action").selectOption("contract.customer_contact_changed");
+  await expect(m).toContainText("Poster (1)");
+  await expect(m).toContainText("Fält: namn, telefon, e-post");
+  expect(await text(page)).not.toMatch(/Testsson|exempel\.se|070-000|\+46700000000/);
+
+  // Tre tomma fält tar bort kontaktpersonen.
+  await switchTo(page, info, "/admin/avtal", ROBIN);
+  await row().getByRole("button", { name: "Ändra kommunens avtalsansvarig" }).click();
+  for (const label of ["Namn", "Telefon", "E-post"]) await row().getByLabel(label).fill("");
+  await row().getByRole("button", { name: "Spara" }).click();
+  await expect(page.locator("div[role=status][data-print=hide]")).toContainText("Kommunens avtalsansvarig är borttagen.");
+  await expect(row().locator("dd")).toHaveText(/^–/);
+  expect(relevant(errors)).toEqual([]);
+});
+
 test("avtal: inte i menyn – nås från Användare och roller; gamla adresser till jämförelsen visar avtalet", async ({ page }, info) => {
   const errors = await open(page, info, "/admin/anvandare", ROBIN);
   await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Användare och roller");

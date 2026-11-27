@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
-import { ApiError } from "@/api/server";
+import { ApiError, registeredKeys } from "@/api/server";
 import { listPersonas } from "@/data/actors";
 import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
@@ -322,5 +322,38 @@ describe("Mina uppgifter (kommun.profil)", () => {
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ actorId: "k-maria", entity: "profile", entityId: "k-maria", details: { fields: ["fullName", "phone"] } });
     expect(JSON.stringify(log[0])).not.toMatch(/070|Berg/);
+  });
+});
+
+// Kommunens avtalsansvarig (Karims beslut 2026-11-27): ligger i avtalskonfigurationen, som kommunen kan läsa i sitt avtal
+// (contracts_public) – men ingen fråga i portalen lämnar ut kontaktpersonen. Påhittade uppgifter.
+describe("kommunens avtalsansvarig syns inte i portalen", () => {
+  it("ingen fråga som handläggaren får ställa har namnet, numret eller adressen", async () => {
+    const robin = as("u-robin", "admin");
+    expect(await rt.run("command", "admin.setCustomerContact", { contractId: "c-bot", name: "Testa Testsson", phone: "070-000 00 00", email: "testa.testsson@exempel.se" }, robin)).toEqual({ ok: true });
+    const LEAK = /Testsson|exempel\.se|\+46700000000|070-000 00 00|customerContact/;
+    // Alla registrerade frågor utan indata (fel roll, indata som krävs och kommandon nekas och hoppas över) …
+    const answered: string[] = [];
+    for (const key of registeredKeys()) {
+      const out = await rt.run("query", key, {}, maria()).then((r) => JSON.stringify(r), () => null);
+      if (out === null) continue;
+      answered.push(key);
+      expect(out, key).not.toMatch(LEAK);
+    }
+    expect(answered).toEqual(expect.arrayContaining(["kommun.start", "kommun.bestallning", "kommun.deltagareLista", "kommun.rapporter", "kommun.profil", "session.navCounts"]));
+    // … och frågorna med indata: deltagarens sida, kvittot, dubblettkontrollen, inspelningen, rapporterna och bonusanspråken.
+    const reports = (await ask(kommunReports, {}, maria())).reports.map((r) => r.id);
+    expect(reports.length).toBeGreaterThan(0);
+    const claims = rows("bonus_claims").filter((b) => b.contractId === "c-bot").map((b) => b.id);
+    const withParams: [string, object][] = [
+      ["kommun.deltagare", { caseId: NADIA }], ["kommun.kvitto", { caseId: NADIA }], ["kommun.dubblett", { pnr: "19900101-1234" }],
+      ["kommun.dictationOptions", { caseId: NADIA }], ["kommun.dictationState", { aiRunId: "ai-run-mehmet" }],
+      ...reports.map((id): [string, object] => ["rapporter.dokument", { reportId: id }]),
+      ...claims.map((id): [string, object] => ["bonus.portal", { claimId: id }]),
+    ];
+    for (const [key, params] of withParams) {
+      const out = await rt.run("query", key, params, maria()).then((r) => JSON.stringify(r), (e: unknown) => `fel: ${String(e)}`);
+      expect(out, `${key} ${JSON.stringify(params)}`).not.toMatch(LEAK);
+    }
   });
 });

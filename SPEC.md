@@ -297,7 +297,7 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 
 | Roll | Org | Ser | Gör | Inloggning |
 |---|---|---|---|---|
-| Systemadmin | MB | Allt inklusive konfiguration och logg – utom priser och belopp. Ärendena i läsläge | Användare, avtal (också vem som är avtalets intagsansvarige, 0041), integrationer, grupper och nivåer (§7.20). I ärendena bara deltagarens kontaktväg (0032, §7.4) | Microsoft (Entra ID) |
+| Systemadmin | MB | Allt inklusive konfiguration och logg – utom priser och belopp. Ärendena i läsläge | Användare, avtal (också vem som är avtalets intagsansvarige, 0041, och kommunens avtalsansvarig, Karims beslut 2026-11-27), integrationer, grupper och nivåer (§7.20). I ärendena bara deltagarens kontaktväg (0032, §7.4) | Microsoft (Entra ID) |
 | Avtalsansvarig / kundansvarig | MB | Allt inom sina avtal utom belopp | Accepterar/avböjer avrop, godkänner beställarrapporten och lämnar den och resultatfilen till kommunen, hanterar avtalsavvikelser och registrerar kommunens godkännande av åtgärdsplaner, bjuder in och spärrar kommunanvändare | Microsoft |
 | Operativ samordnare | MB | Alla ärenden i avtalet | Avropsinkorg, tar emot och avböjer avrop, tilldelar coach, bokar start, gruppaktiviteter, nivå och grupper, kontaktväg, ringer deltagare som inte nås. Får en notis i appen när någon annan har tagit emot en deltagare (Karims beslut 2026-11-09) | Microsoft |
 | Huvudcoach (jobbcoach) | MB | Alla ärenden i avtalet (beslut 2026-10-09). Min vecka, Närvaro och Ärenden visar alla deltagare i avtalet (Karims beslut 2026-11-11) – huvudcoachen styr bara notiser, mejl, påminnelser och kommunens kontakt; Mina ärenden finns kvar som val i listan | Kartläggning med nivå och grupp, möten, närvaro, gruppaktiviteter och gruppmål, anteckningar, bedömningar, utfall, avslut, rapporter – också i kollegors ärenden. **Avtalets intagsansvarige** (en coach per avtal, Karims beslut 2026-11-09) tar dessutom emot nya beställningar – aldrig andra coacher, och ingen coach avböjer | Microsoft |
@@ -507,6 +507,8 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 ```
 
 `progression.clearFromLevel` och `progression.anyFromLevel` (beslut 2026-10-01): tydlig progression = minst ett område på nivå `clearFromLevel` eller högre, någon progression = minst ett område på nivå `anyFromLevel` eller högre (heltal 0–3, `anyFromLevel` ≤ `clearFromLevel`, Botkyrka 2 och 1). Texterna i appen och rapporterna byggs av talen. Den äldre fritexten `statDefinition` läses inte längre (fältet får finnas kvar).
+
+`customerContact` (Karims beslut 2026-11-27): **kommunens avtalsansvarig** – kontaktpersonen för avtalet hos kommunen – `{ "name", "phone", "email" }`, valfritt och inget driftavsnitt. Alla tre fälten krävs när avsnittet finns; telefonnumret sparas som svenskt E.164-nummer (`+46…`) och visas som 070-123 45 67, och namn, nummer och adress visas som text (inga länkar). Bara systemadministratören ändrar det, på avtalssidan (`admin.setCustomerContact`, tre tomma fält tar bort det); loggen `contract.customer_contact_changed` har bara fältnamnen, aldrig värdena. Kommunen kan läsa avsnittet i sitt avtal (`contracts_public`) – personen är kommunens egen. Det riktiga värdet läggs in i produktionen, aldrig i repot (`docs/DRIFT.md`, "Kommunens avtalsansvarig").
 
 ### 6.3 Fler kommunavtal
 

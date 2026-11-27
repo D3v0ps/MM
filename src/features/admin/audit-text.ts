@@ -66,6 +66,8 @@ export const ACTION_LABEL: Record<string, string> = {
   "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
   // Intagsansvarig (Karims beslut 2026-11-09): avtalets coach som tar emot nya beställningar – bara id:n i loggen.
   "contract.intake_coach_changed": "Bytte intagsansvarig",
+  // Kommunens avtalsansvarig (Karims beslut 2026-11-27): bara vilka fält som ändrades (namn, telefon, e-post) – aldrig värdena.
+  "contract.customer_contact_changed": "Ändrade kommunens avtalsansvarig",
   // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
   "email.registered": "Registrerade beställning i inkorgen",
   // Coachmötet 2026-10-09: gruppaktiviteter och automatisk närvaro. Loggen har id:n, antal och tider – aldrig namn.

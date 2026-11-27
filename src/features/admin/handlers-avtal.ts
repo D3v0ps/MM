@@ -6,6 +6,7 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesMoney } from "@/api/tester-access";
 import { stuck } from "@/core/cases";
 import { ESCALATION_ROLES, isOperational, parseOrgSettings, requireOperational, type EscalationRole, type OrgSettings } from "@/core/config";
+import { changedCustomerContactFields, parseCustomerContactInput } from "@/core/customer-contact";
 import { areaName } from "@/core/labels";
 import { noProgressStreak } from "@/core/progression";
 import { dayOf } from "@/core/time";
@@ -14,7 +15,7 @@ import type { Contract } from "@/data/schema";
 import { intakeCoachChanged } from "../_shared/intake";
 import { ruleDiffText, type RuleSnapshot } from "./audit-text";
 import {
-  adminContract, adminOrgRules, adminSetContractManager, adminSetIntakeCoach, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption,
+  adminContract, adminOrgRules, adminSetContractManager, adminSetCustomerContact, adminSetIntakeCoach, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption,
 } from "./api";
 import { isDemoCreated, mainContract, orgRow, userNames } from "./shared";
 
@@ -57,6 +58,8 @@ async function factsOf(ctx: Ctx, c: Contract): Promise<ContractFacts> {
     intakeCoachId: c.intakeCoachId ?? null,
     intakeCoachName: c.intakeCoachId ? name(c.intakeCoachId) : null,
     intakeCoachOptions: await intakeCoachOptions(ctx, c),
+    customerContact: c.config.customerContact ?? null,
+    canEditCustomerContact: ctx.actor.role === "admin",
     termination: texts?.termination ?? null,
     scope: texts?.scope ?? null,
   };
@@ -153,6 +156,24 @@ handleCommand(adminSetIntakeCoach, { roles: ["admin"], commercial: true }, async
   // Notiserna följer personen: den förras notiser om beställningar att ta emot märks som lästa, och den nya får en notis för
   // varje beställning som väntar på svar (högst en per ärende och person).
   await intakeCoachChanged(ctx, c, from, to);
+  return ok({});
+});
+
+// ---------------------------------------------------------------- Kommunens avtalsansvarig (Karims beslut 2026-11-27)
+// Kontaktpersonen för avtalet hos kommunen: namn, telefon och e-post i avtalskonfigurationen (contracts.config.customerContact –
+// jsonb, ingen migration). Bara systemadministratören ändrar avtalet (policyn och RLS för contracts). Alla tre tomma tar bort
+// kontaktpersonen. Loggen har bara vilka fält som ändrades – aldrig namnet, numret eller adressen (CLAUDE.md punkt 2).
+handleCommand(adminSetCustomerContact, { roles: ["admin"], commercial: true }, async (ctx, p) => {
+  const c = await ctx.repo.table("contracts").get(p.contractId);
+  if (!c) return fail("not_found", "Avtalet finns inte.");
+  const parsed = parseCustomerContactInput(p);
+  if (!parsed.ok) return fail("invalid", Object.values(parsed.errors)[0], parsed.errors);
+  const fields = changedCustomerContactFields(c.config.customerContact, parsed.contact);
+  if (!fields.length) return fail("unchanged", parsed.contact ? "Uppgifterna är redan sparade." : "Avtalet har ingen kommunens avtalsansvarig.");
+  const { customerContact: _before, ...rest } = c.config;
+  void _before;
+  await ctx.repo.table("contracts").update(c.id, { config: parsed.contact ? { ...rest, customerContact: parsed.contact } : rest });
+  await ctx.audit({ action: "contract.customer_contact_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { fields } });
   return ok({});
 });
 

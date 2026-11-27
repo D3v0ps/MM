@@ -769,6 +769,46 @@ describe("avtal: kommunen läser aldrig de interna målen", () => {
   });
 });
 
+// ================================================================ Kommunens avtalsansvarig (Karims beslut 2026-11-27)
+describe("kommunens avtalsansvarig (contracts.config.customerContact): bara systemadministratören ändrar – samma regler i RLS och policy.ts", () => {
+  // admin.setCustomerContact skriver hela config (jsonb – ingen migration) som den inloggade. Påhittade uppgifter.
+  const TESTA = { name: "Testa Testsson", phone: "+46700000000", email: "testa.testsson@exempel.se" };
+  const SET = "update public.contracts set config = jsonb_set(config, '{customerContact}', $1::jsonb) where id = 'c-bot'";
+  const CLEAR = "update public.contracts set config = config - 'customerContact' where id = 'c-bot'";
+  const bot = data.contracts.find((c) => c.id === "c-bot")!;
+  const memUpdate = (p: Persona, config: Tables["contracts"]["config"]) =>
+    new MemoryRepo<Tables>(new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS), actorOf(p), POLICIES).table("contracts").update("c-bot", { config }).then(() => true, () => false);
+
+  it("sätta och ta bort: systemadministratören – ingen annan roll, varken Miljonbemanning, kommunen, deltagaren eller den vilande handledaren", async () => {
+    const admins = personas.filter((p) => p.actor.role === "admin").map(personaKey);
+    expect(admins).toContain("u-robin|admin");
+    for (const p of personas) {
+      const isAdmin = p.actor.role === "admin";
+      const set = await asPersona(p, (tx) => attempt(tx, SET, [JSON.stringify(TESTA)]));
+      const clear = await asPersona(p, (tx) => attempt(tx, CLEAR));
+      const got = {
+        set: allowed(set), clear: allowed(clear),
+        memSet: await memUpdate(p, { ...bot.config, customerContact: TESTA }), memWrite: canWriteRow("contracts", { ...bot, config: { ...bot.config, customerContact: TESTA } }, actorOf(p), raw),
+      };
+      expect(got, personaKey(p)).toEqual({ set: isAdmin, clear: isAdmin, memSet: isAdmin, memWrite: isAdmin });
+    }
+  });
+
+  it("kommunen läser kontaktpersonen i sitt avtal via contracts_public (hen är kommunens egen) – samma i minnet", async () => {
+    const maria = findPersona("k-maria");
+    const pg = await asUser(db, authOf("k-maria"), async (tx) => (await tx.query<{ c: unknown }>("select config -> 'customerContact' as c from public.contracts_public where id = 'c-bot'")).rows.map((r) => r.c), {
+      before: async (tx) => {
+        await tx.query(SET, [JSON.stringify(TESTA)]);
+      },
+    });
+    expect(pg).toEqual([TESTA]);
+    const s = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    s.updateRow("contracts", "c-bot", { config: { ...bot.config, customerContact: TESTA } });
+    expect((await new MemoryRepo<Tables>(s, actorOf(maria), POLICIES).table("contracts").get("c-bot"))?.config.customerContact).toEqual(TESTA);
+    expect(customerSafeConfig({ ...bot.config, customerContact: TESTA }).customerContact).toEqual(TESTA);
+  });
+});
+
 // ================================================================ Ärenden: detaljerna i skyddade ärenden (0013)
 describe("ärenden: cases_public döljer plats, mötestider och bakgrund i skyddade ärenden och för ekonomen", () => {
   const protectedIds = new Set(data.persons.filter((p) => p.protectedIdentity).map((p) => p.id));
