@@ -7,6 +7,8 @@
 // "ATT_FASTSTÄLLA (förslag: 5 arbetsdagar)". En regel med det värdet ska inte aktiveras – visa "Ej fastställt".
 import { z } from "zod";
 import { OUTCOME_EVENT_KINDS, STEP_ITEMS } from "@/data/schema";
+import { SWEDISH_E164 } from "./phone";
+import { emailValid } from "./email";
 
 // ---------------------------------------------------------------- ATT_FASTSTÄLLA
 export const UNSET = "ATT_FASTSTÄLLA" as const;
@@ -414,6 +416,22 @@ const SelfRegistrationSchema = z.strictObject({ emailDomains: z.array(EmailDomai
  */
 const RetentionRulesSchema = z.strictObject({ attachmentsAfterCloseDays: unsetOr(PosInt) });
 
+/** Längsta namnet på kommunens avtalsansvarig. */
+export const CUSTOMER_CONTACT_NAME_MAX = 80;
+/** Längsta e-postadressen (samma gräns som hasEmail i src/core/contact.ts). */
+export const CUSTOMER_CONTACT_EMAIL_MAX = 254;
+/**
+ * Kommunens avtalsansvarig – kontaktpersonen för avtalet hos kommunen (Karims beslut 2026-11-27). Valfritt avsnitt; bara
+ * systemadministratören ändrar det (admin.setCustomerContact). Telefonnumret sparas som svenskt E.164-nummer ("+46…",
+ * src/core/phone.ts) och visas som "070-123 45 67". Namnet utan mellanslag först och sist. Personuppgifter: värdena loggas aldrig.
+ */
+export const CustomerContactSchema = z.strictObject({
+  name: z.string().min(1).max(CUSTOMER_CONTACT_NAME_MAX).refine((s) => s.trim() === s && s.trim().length > 0, "Namnet får inte börja eller sluta med mellanslag"),
+  phone: z.string().regex(SWEDISH_E164, "Telefon: +46 och numret utan inledande nolla, t.ex. +46701234567"),
+  email: z.string().max(CUSTOMER_CONTACT_EMAIL_MAX).refine((s) => emailValid(s) && s.trim() === s, "Ogiltig e-postadress"),
+});
+export type CustomerContact = z.infer<typeof CustomerContactSchema>;
+
 /** Avtalstexter i klarspråk som visas under Avtalsfakta i administrationen (prototypens CONTRACT_NOTES). */
 const ContractTextsSchema = z.strictObject({
   /** Omfattning, t.ex. antal årsplatser, avtalsområden och rangordning. */
@@ -491,6 +509,8 @@ const ContractConfigBase = z.strictObject({
   keyPersonnelChangeRequiresApproval: z.boolean().optional(),
   ai: AiSchema.optional(),
   texts: ContractTextsSchema.optional(),
+  /** Kommunens avtalsansvarig (kontaktperson för avtalet, Karims beslut 2026-11-27). Inget driftavsnitt. */
+  customerContact: CustomerContactSchema.optional(),
   /** Rapportutkast som skapas automatiskt. Utan avsnittet skapas inga rapporter automatiskt. */
   reportSchedule: ReportScheduleSchema.optional(),
 });

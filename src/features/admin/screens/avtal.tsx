@@ -8,6 +8,7 @@ import { useState, type ReactNode } from "react";
 import { aiProviderText, isUnset, progressionRuleText, unsetHint, type ContractConfig } from "@/core/config";
 import { kr, pct, plural } from "@/core/format";
 import { endReasonLabel } from "@/core/labels";
+import { swedishPhoneText } from "@/core/phone";
 import { fmtDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
@@ -15,9 +16,10 @@ import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, ProtoText } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Badge, BuildPhase, Button, Card, Field, Icon, Notice, Page, QueryView, Refreshing, Row, Section, Select, Stack, TabPanel, Table, Tabs, cn, toast, type IconName, type TabDef,
+  Badge, BuildPhase, Button, Card, Field, Icon, Input, Notice, Page, QueryView, Refreshing, Row, Section, Select, Stack, TabPanel, Table, Tabs, cn, toast, type IconName,
+  type TabDef,
 } from "@/ui";
-import { adminContract, adminSetContractManager, adminSetIntakeCoach, type ContractFacts, type ContractSummary, type ContractView } from "../api";
+import { adminContract, adminSetContractManager, adminSetCustomerContact, adminSetIntakeCoach, type ContractFacts, type ContractSummary, type ContractView } from "../api";
 import { cap, DATA_ROLE, findUnset, humanPattern, LANGUAGE, OCCASION, ROLE_WORD, slaRuleText, UNIT, UNSET_INFO, whoDecides, WINDOW } from "../contract-text";
 import { InternalRules } from "./interna";
 import { Details, KV, Masonry, Pre, Small, Unset, Val, YesNo } from "./parts";
@@ -171,6 +173,7 @@ function FactsCard({ k, yearShort }: { k: ContractFacts; yearShort: string }) {
             ["Tillåtna e-postdomäner", k.emailDomains.length ? k.emailDomains.join(", ") : "Inga ännu – läggs till före start"],
             ["Avtalsansvarig", <ManagerCell key="manager" k={k} />],
             ["Intagsansvarig – tar emot nya deltagare", <IntakeCoachCell key="intake" k={k} />],
+            ["Kommunens avtalsansvarig", <CustomerContactCell key="customer-contact" k={k} />],
             ["Omfattning", k.scope ?? "–"],
           ]}
         />
@@ -275,6 +278,94 @@ function IntakeCoachCell({ k }: { k: ContractFacts }) {
           options={[{ value: NO_INTAKE, label: "Ingen (samordnaren tar emot)" }, ...k.intakeCoachOptions.map((o) => ({ value: o.id, label: o.name }))]}
         />
       </Field>
+      <Row gap="sm">
+        <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
+          Spara
+        </Button>
+        <Button kind="ghost" onClick={() => setEditing(false)}>
+          Avbryt
+        </Button>
+      </Row>
+    </Stack>
+  );
+}
+
+type ContactForm = { name: string; phone: string; email: string };
+type ContactField = keyof ContactForm;
+const CONTACT_FIELDS: { key: ContactField; id: string; label: string; type: string }[] = [
+  { key: "name", id: "avtal-kontakt-namn", label: "Namn", type: "text" },
+  { key: "phone", id: "avtal-kontakt-telefon", label: "Telefon", type: "tel" },
+  { key: "email", id: "avtal-kontakt-epost", label: "E-post", type: "email" },
+];
+
+/**
+ * Kommunens avtalsansvarig (Karims beslut 2026-11-27): kontaktpersonen för avtalet hos kommunen. Namn, telefon och e-post som
+ * markerbar text – aldrig tel:- eller mailto:-länkar. Bara systemadministratören ändrar (canEditCustomerContact); alla tre fälten
+ * tomma tar bort kontaktpersonen.
+ */
+function CustomerContactCell({ k }: { k: ContractFacts }) {
+  const save = useCommand(adminSetCustomerContact);
+  const c = k.customerContact;
+  const saved: ContactForm = c ? { name: c.name, phone: swedishPhoneText(c.phone), email: c.email } : { name: "", phone: "", email: "" };
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<ContactForm>(saved);
+  const [errors, setErrors] = useState<Partial<Record<ContactField, string>>>({});
+  const open = () => {
+    setForm(saved);
+    setErrors({});
+    setEditing(true);
+  };
+  const submit = async () => {
+    const r = await save.run({ contractId: k.id, ...form }).catch(() => null);
+    if (r && !r.ok && r.error === "unchanged") {
+      setEditing(false);
+      return;
+    }
+    if (r && !r.ok && r.error === "invalid") {
+      setErrors((r.fields ?? {}) as Partial<Record<ContactField, string>>);
+      return;
+    }
+    if (!r || !r.ok) {
+      toast((r && !r.ok && r.message) || "Kommunens avtalsansvarig kunde inte sparas.", "error");
+      return;
+    }
+    const cleared = !form.name.trim() && !form.phone.trim() && !form.email.trim();
+    toast(cleared ? "Kommunens avtalsansvarig är borttagen." : "Kommunens avtalsansvarig är sparad.");
+    setEditing(false);
+  };
+  if (!editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {c ? (
+          <span className="flex flex-col">
+            <span>{c.name}</span>
+            <span className="tabular-nums select-all">{swedishPhoneText(c.phone)}</span>
+            <span className="select-all">{c.email}</span>
+          </span>
+        ) : (
+          <span>–</span>
+        )}
+        {k.canEditCustomerContact && (
+          <Button kind="ghost" icon="edit" onClick={open}>
+            Ändra <span className="sr-only">kommunens avtalsansvarig</span>
+          </Button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <Stack gap="sm">
+      {CONTACT_FIELDS.map((f) => (
+        <Field key={f.key} id={f.id} label={f.label} error={errors[f.key]}>
+          <Input
+            id={f.id} type={f.type} value={form[f.key]}
+            onValueChange={(v) => {
+              setForm((x) => ({ ...x, [f.key]: v }));
+              setErrors((x) => ({ ...x, [f.key]: undefined }));
+            }}
+          />
+        </Field>
+      ))}
       <Row gap="sm">
         <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
           Spara

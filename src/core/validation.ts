@@ -149,4 +149,4 @@ export function scrubPnr(s: string): string {
   return looksLikePnr(out) ? pnrNormalize(out).replace(new RegExp(PNR_PATTERN.source, "g"), PNR_SCRUBBED) : out;
 }
 
-export const emailValid = (s: string | null | undefined): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str(s));
+export { emailValid } from "./email";

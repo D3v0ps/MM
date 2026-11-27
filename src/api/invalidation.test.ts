@@ -120,6 +120,8 @@ const WRITES: Record<string, string[]> = {
   "admin.setContractManager": ["contracts", AUDIT], "session.vaxlaRoll": ["role_choices", AUDIT],
   // Intagsansvarig (0041): avtalet pekas om; tas rollen coach bort eller spärras kollegan töms kolumnen (setStaffRoles, setStaffActive).
   "admin.setIntakeCoach": ["contracts", AUDIT],
+  // Kommunens avtalsansvarig (Karims beslut 2026-11-27): bara avtalets konfiguration (contracts.config.customerContact).
+  "admin.setCustomerContact": ["contracts", AUDIT],
   // createOrder skriver också notisen till avtalets intagsansvarige (user_notifications, 0041) – caseCreate, inkorg.register och mejlinläsningen.
   "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", "user_notifications", AUDIT_CASE, AUDIT],
   "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],

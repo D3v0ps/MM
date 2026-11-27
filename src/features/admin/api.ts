@@ -14,11 +14,13 @@
 //   admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob, admin.logCheck
 //   Beslut 2026-10-08 (skarp drift): admin.inviteStaff (Lägg till kollega), admin.setStaffRoles, admin.setStaffActive,
 //   admin.setContractManager (avtalsansvarig väljs på avtalssidan)
+//   Karims beslut 2026-11-09 och 2026-11-27: admin.setIntakeCoach (intagsansvarig) och admin.setCustomerContact (kommunens
+//   avtalsansvarig), båda på avtalssidan
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, MGMT, INBOX } from "@/api/invalidation";
 import { STAFF_ROLES, type SupplierRole } from "@/api/roles";
-import type { ContractConfig, DataRole, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
+import type { ContractConfig, CustomerContact, DataRole, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
 import type { OutboundStatus } from "@/data/schema";
 import { IdSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
 import type { RuleSnapshot } from "./audit-text";
@@ -59,6 +61,13 @@ export type ContractFacts = ContractSummary & {
   intakeCoachId: string | null;
   intakeCoachName: string | null;
   intakeCoachOptions: { id: string; name: string }[];
+  /**
+   * Kommunens avtalsansvarig (Karims beslut 2026-11-27, contracts.config.customerContact): kontaktpersonen för avtalet hos
+   * kommunen, eller null. Telefonnumret som det sparas ("+46…") – skärmen visar det som "070-123 45 67".
+   */
+  customerContact: CustomerContact | null;
+  /** Får aktören ändra kommunens avtalsansvarig? Bara systemadministratören (admin.setCustomerContact). */
+  canEditCustomerContact: boolean;
   /** Uppsägning och omfattning i klarspråk (avtalstext som ännu inte finns i konfigurationen – se handlers). */
   termination: string | null;
   scope: string | null;
@@ -128,6 +137,17 @@ export const adminSetContractManager = command("admin.setContractManager", z.obj
 export const adminSetIntakeCoach = command("admin.setIntakeCoach", z.object({ contractId: IdSchema, userId: IdSchema.nullable() }), {
   invalidates: ["admin.contract", "admin.users", CASES, "coach.minVecka", NAV, ...LOG],
 }).returns<Result<object, "not_found" | "not_coach" | "unchanged">>();
+
+/**
+ * Kommunens avtalsansvarig (Karims beslut 2026-11-27): namn, telefon och e-post i avtalskonfigurationen
+ * (contracts.config.customerContact). Bara systemadministratören. Fälten är fri text här – hanteraren prövar dem
+ * (parseCustomerContactInput i src/core/customer-contact.ts) och svarar invalid med felen per fält (fields). Alla tre tomma tar
+ * bort kontaktpersonen. Loggen contract.customer_contact_changed har bara fältnamnen – aldrig värdena.
+ */
+// Omräkning: avtalssidan och loggen. Ingen annan fråga visar kontaktpersonen.
+export const adminSetCustomerContact = command("admin.setCustomerContact", z.object({ contractId: IdSchema, name: ShortText, phone: ShortText, email: ShortText }), {
+  invalidates: ["admin.contract", ...LOG],
+}).returns<Result<object, "not_found" | "invalid" | "unchanged">>();
 
 export const adminSetOrgRule = command("admin.setOrgRule", z.object({
   remindCoachAfterWeeks: z.number().int().min(0).max(52),
